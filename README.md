@@ -179,7 +179,18 @@ Phase 2 will add an MCP server as a thin wrapper around the REST API, enabling n
 | V10 | `tenant_oauth2_provider`, `user_oauth2_link` — OAuth2 account linking |
 | V11 | `subscription` — webhook subscriptions for event-driven notifications |
 
-> **Note:** DBML schema file and ERD diagram are coming (task 14.1-14.2).
+### Entity Relationship Diagram
+
+![ERD](docs/erd.png)
+
+### Documentation
+
+| Document | Description |
+|---|---|
+| [docs/schema.dbml](docs/schema.dbml) | DBML source — paste into [dbdiagram.io](https://dbdiagram.io) to edit |
+| [docs/erd.png](docs/erd.png) | ERD image (above) exported from dbdiagram.io |
+| [docs/asyncapi.yaml](docs/asyncapi.yaml) | AsyncAPI 3.0 spec — EventBus contract for all 3 deployment tiers |
+| [docs/architecture.drawio](docs/architecture.drawio) | Architecture diagram — open in [draw.io](https://app.diagrams.net) |
 
 ---
 
@@ -565,9 +576,10 @@ finding-a-bed-tonight/
 - [x] Seed data (10 shelters, 3 users, dev-setup script, CONTRIBUTING.md)
 - [x] MCP-ready error responses + self-describing domain events
 - [ ] OAuth2 redirect flow (dynamic ClientRegistrationRepository — provider CRUD done, browser redirect pending)
-- [ ] @Operation annotations on all controllers (done on SubscriptionController only)
+- [x] @Operation annotations on all 28 API endpoints (MCP-ready REQ-MCP-3)
+- [x] Documentation standards (DBML, ERD, AsyncAPI 3.0, draw.io architecture diagram)
 - [ ] Infrastructure as Code (Terraform modules — 8 tasks)
-- [ ] Documentation standards (DBML, ERD, AsyncAPI, draw.io — 4 tasks)
+- [ ] OAuth2 redirect flow (dynamic ClientRegistrationRepository — provider CRUD done, browser redirect pending)
 
 ---
 

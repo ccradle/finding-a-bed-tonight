@@ -1,0 +1,339 @@
+asyncapi: 3.0.0
+
+info:
+  title: Finding A Bed Tonight — EventBus Contract
+  version: 1.0.0
+  description: |
+    Internal event contract for the Finding A Bed Tonight (FABT) platform.
+
+    All domain events share a common envelope (`DomainEvent`) with a
+    channel-specific `payload` object nested inside. The same message
+    schemas are used across all three deployment tiers:
+
+    - **Lite** — Spring ApplicationEvents (in-process) or PostgreSQL
+      LISTEN/NOTIFY for real-time push.
+    - **Standard** — Same as Lite with Redis pub/sub acceleration.
+    - **Full** — Apache Kafka topics.
+
+    The transport changes; the message contract does not. Consumers
+    should depend only on the schemas documented here, never on
+    transport-specific headers or metadata.
+  contact:
+    name: FABT Maintainers
+    url: https://github.com/ccradle/finding-a-bed-tonight
+  license:
+    name: MIT
+
+defaultContentType: application/json
+
+# ---------------------------------------------------------------------------
+# Channels
+# ---------------------------------------------------------------------------
+
+channels:
+  availabilityUpdated:
+    address: availability.updated
+    title: Availability Updated
+    description: |
+      Published whenever a shelter's bed availability changes — whether
+      through a coordinator update, a reservation, or an expiring hold.
+    messages:
+      availabilityUpdatedMessage:
+        $ref: '#/components/messages/AvailabilityUpdatedMessage'
+
+  surgeActivated:
+    address: surge.activated
+    title: Surge Activated
+    description: |
+      Published when a CoC admin activates a surge or White Flag event,
+      signaling that additional capacity is being opened and special
+      routing rules may apply.
+    messages:
+      surgeActivatedMessage:
+        $ref: '#/components/messages/SurgeActivatedMessage'
+
+  surgeDeactivated:
+    address: surge.deactivated
+    title: Surge Deactivated
+    description: |
+      Published when a surge event ends — either manually by an admin
+      or automatically when the scheduled end time is reached.
+    messages:
+      surgeDeactivatedMessage:
+        $ref: '#/components/messages/SurgeDeactivatedMessage'
+
+# ---------------------------------------------------------------------------
+# Operations
+# ---------------------------------------------------------------------------
+
+operations:
+  onAvailabilityUpdated:
+    action: receive
+    channel:
+      $ref: '#/channels/availabilityUpdated'
+    summary: Receive availability change events
+    messages:
+      - $ref: '#/channels/availabilityUpdated/messages/availabilityUpdatedMessage'
+
+  onSurgeActivated:
+    action: receive
+    channel:
+      $ref: '#/channels/surgeActivated'
+    summary: Receive surge activation events
+    messages:
+      - $ref: '#/channels/surgeActivated/messages/surgeActivatedMessage'
+
+  onSurgeDeactivated:
+    action: receive
+    channel:
+      $ref: '#/channels/surgeDeactivated'
+    summary: Receive surge deactivation events
+    messages:
+      - $ref: '#/channels/surgeDeactivated/messages/surgeDeactivatedMessage'
+
+# ---------------------------------------------------------------------------
+# Components
+# ---------------------------------------------------------------------------
+
+components:
+
+  # -------------------------------------------------------------------------
+  # Messages
+  # -------------------------------------------------------------------------
+
+  messages:
+    AvailabilityUpdatedMessage:
+      name: AvailabilityUpdatedMessage
+      title: Availability Updated
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/AvailabilityUpdatedEvent'
+
+    SurgeActivatedMessage:
+      name: SurgeActivatedMessage
+      title: Surge Activated
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/SurgeActivatedEvent'
+
+    SurgeDeactivatedMessage:
+      name: SurgeDeactivatedMessage
+      title: Surge Deactivated
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/SurgeDeactivatedEvent'
+
+  # -------------------------------------------------------------------------
+  # Schemas
+  # -------------------------------------------------------------------------
+
+  schemas:
+
+    # -- Common DomainEvent envelope --------------------------------------
+
+    DomainEventEnvelope:
+      type: object
+      description: |
+        Common envelope shared by every domain event in the system.
+        Channel-specific data lives inside the nested `payload` field.
+      required:
+        - id
+        - type
+        - schemaVersion
+        - tenantId
+        - timestamp
+        - payload
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique event identifier (idempotency key).
+        type:
+          type: string
+          description: Dot-notation event type matching the channel address.
+        schemaVersion:
+          type: string
+          description: Semantic version of this event schema.
+          example: "1.0.0"
+        tenantId:
+          type: string
+          format: uuid
+          description: Tenant that owns the resource.
+        timestamp:
+          type: string
+          format: date-time
+          description: ISO-8601 instant when the event was produced.
+        payload:
+          type: object
+          description: Channel-specific event data.
+
+    # -- availability.updated ---------------------------------------------
+
+    AvailabilityUpdatedEvent:
+      allOf:
+        - $ref: '#/components/schemas/DomainEventEnvelope'
+        - type: object
+          properties:
+            type:
+              type: string
+              const: availability.updated
+            payload:
+              $ref: '#/components/schemas/AvailabilityUpdatedPayload'
+
+    AvailabilityUpdatedPayload:
+      type: object
+      description: Snapshot of a single population-type capacity row after the change.
+      required:
+        - shelter_id
+        - shelter_name
+        - coc_id
+        - population_type
+        - beds_available
+        - beds_available_previous
+        - snapshot_ts
+        - data_age_seconds
+      properties:
+        shelter_id:
+          type: string
+          format: uuid
+          description: Shelter whose availability changed.
+        shelter_name:
+          type: string
+          description: Human-readable shelter name (denormalized for consumers).
+        coc_id:
+          type: string
+          format: uuid
+          description: Continuum of Care (tenant) identifier.
+        population_type:
+          type: string
+          description: Population type that changed (e.g. SINGLE_ADULT, FAMILY_WITH_CHILDREN).
+          enum:
+            - SINGLE_ADULT
+            - FAMILY_WITH_CHILDREN
+            - WOMEN_ONLY
+            - VETERAN
+            - YOUTH_18_24
+            - YOUTH_UNDER_18
+            - DV_SURVIVOR
+        beds_available:
+          type: integer
+          minimum: 0
+          description: Current number of available beds after the change.
+        beds_available_previous:
+          type: integer
+          minimum: 0
+          description: Number of available beds before the change.
+        snapshot_ts:
+          type: string
+          format: date-time
+          description: Timestamp of the availability snapshot.
+        data_age_seconds:
+          type: integer
+          minimum: 0
+          description: |
+            Seconds since the coordinator last confirmed the data.
+            Useful for staleness indicators in the UI.
+
+    # -- surge.activated --------------------------------------------------
+
+    SurgeActivatedEvent:
+      allOf:
+        - $ref: '#/components/schemas/DomainEventEnvelope'
+        - type: object
+          properties:
+            type:
+              type: string
+              const: surge.activated
+            payload:
+              $ref: '#/components/schemas/SurgeActivatedPayload'
+
+    SurgeActivatedPayload:
+      type: object
+      description: Details of a newly activated surge / White Flag event.
+      required:
+        - surge_event_id
+        - coc_id
+        - reason
+        - activated_by
+        - activated_at
+      properties:
+        surge_event_id:
+          type: string
+          format: uuid
+          description: Unique identifier for the surge event.
+        coc_id:
+          type: string
+          format: uuid
+          description: Continuum of Care activating the surge.
+        reason:
+          type: string
+          description: Human-readable reason (e.g. "White Flag — overnight low below 32 F").
+        bounding_box:
+          type: object
+          description: |
+            Optional geographic bounding box limiting the surge area.
+            Null means the entire CoC geography is in scope.
+          properties:
+            north:
+              type: number
+              format: double
+              description: Northern latitude boundary.
+            south:
+              type: number
+              format: double
+              description: Southern latitude boundary.
+            east:
+              type: number
+              format: double
+              description: Eastern longitude boundary.
+            west:
+              type: number
+              format: double
+              description: Western longitude boundary.
+          required:
+            - north
+            - south
+            - east
+            - west
+        activated_by:
+          type: string
+          format: uuid
+          description: User ID of the CoC admin who activated the surge.
+        activated_at:
+          type: string
+          format: date-time
+          description: Timestamp when the surge was activated.
+
+    # -- surge.deactivated ------------------------------------------------
+
+    SurgeDeactivatedEvent:
+      allOf:
+        - $ref: '#/components/schemas/DomainEventEnvelope'
+        - type: object
+          properties:
+            type:
+              type: string
+              const: surge.deactivated
+            payload:
+              $ref: '#/components/schemas/SurgeDeactivatedPayload'
+
+    SurgeDeactivatedPayload:
+      type: object
+      description: Confirmation that a surge event has ended.
+      required:
+        - surge_event_id
+        - coc_id
+        - deactivated_at
+      properties:
+        surge_event_id:
+          type: string
+          format: uuid
+          description: Surge event that was deactivated.
+        coc_id:
+          type: string
+          format: uuid
+          description: Continuum of Care that owned the surge.
+        deactivated_at:
+          type: string
+          format: date-time
+          description: Timestamp when the surge was deactivated.

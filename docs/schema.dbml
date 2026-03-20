@@ -1,0 +1,237 @@
+// ============================================================================
+// Finding A Bed Tonight (FABT) — Database Schema
+// Source: Flyway migrations V1–V11 + V8.1
+// Generated: 2026-03-20
+// ============================================================================
+
+Project fabt {
+  database_type: 'PostgreSQL'
+  Note: '''
+    Finding A Bed Tonight — multi-tenant emergency shelter bed-availability
+    platform. Schema uses tenant_id for row-level isolation, PostgreSQL RLS
+    for DV-shelter data protection, and composite keys where domain semantics
+    require it. All UUID primary keys are generated server-side (gen_random_uuid).
+  '''
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+Enum PopulationType {
+  SINGLE_ADULT
+  FAMILY_WITH_CHILDREN
+  WOMEN_ONLY
+  VETERAN
+  YOUTH_18_24
+  YOUTH_UNDER_18
+  DV_SURVIVOR
+}
+
+Enum Role {
+  PLATFORM_ADMIN
+  COC_ADMIN
+  COORDINATOR
+  OUTREACH_WORKER
+}
+
+Enum SubscriptionStatus {
+  ACTIVE
+  CANCELLED
+  FAILING
+  DEACTIVATED
+  EXPIRED
+}
+
+// ---------------------------------------------------------------------------
+// V1 — Tenant
+// ---------------------------------------------------------------------------
+
+Table tenant {
+  id          uuid        [pk, note: 'gen_random_uuid()']
+  name        varchar     [not null]
+  slug        varchar     [unique, not null, note: 'URL-safe identifier for the CoC/tenant']
+  config      jsonb       [note: 'Tenant-specific feature flags and configuration']
+  created_at  timestamptz [not null, default: `now()`]
+  updated_at  timestamptz [not null, default: `now()`]
+}
+
+// ---------------------------------------------------------------------------
+// V2 — App User
+// ---------------------------------------------------------------------------
+
+Table app_user {
+  id            uuid        [pk, note: 'gen_random_uuid()']
+  tenant_id     uuid        [not null, ref: > tenant.id]
+  email         varchar     [not null]
+  password_hash varchar     [not null]
+  display_name  varchar     [not null]
+  roles         "text[]"    [not null, note: 'Array of Role enum values']
+  dv_access     boolean     [not null, default: false, note: 'Allowed to see DV-shelter data']
+  created_at    timestamptz [not null, default: `now()`]
+  updated_at    timestamptz [not null, default: `now()`]
+
+  indexes {
+    (tenant_id, email) [unique, name: 'uq_app_user_tenant_email']
+  }
+}
+
+// ---------------------------------------------------------------------------
+// V3 — API Key
+// ---------------------------------------------------------------------------
+
+Table api_key {
+  id          uuid        [pk, note: 'gen_random_uuid()']
+  tenant_id   uuid        [not null, ref: > tenant.id]
+  shelter_id  uuid        [ref: > shelter.id, note: 'Nullable — scoped to a single shelter when present']
+  key_hash    varchar     [not null, note: 'bcrypt hash of the full API key']
+  key_suffix  "char(4)"   [not null, note: 'Last 4 chars for identification in UI']
+  label       varchar     [not null, note: 'Human-readable label for the key']
+  role        varchar     [not null, note: 'Role enum value governing permissions']
+  active      boolean     [not null, default: true]
+  created_at  timestamptz [not null, default: `now()`]
+  last_used_at timestamptz [note: 'Nullable — set on first use']
+}
+
+// ---------------------------------------------------------------------------
+// V4 — Shelter
+// ---------------------------------------------------------------------------
+
+Table shelter {
+  id              uuid        [pk, note: 'gen_random_uuid()']
+  tenant_id       uuid        [not null, ref: > tenant.id]
+  name            varchar     [not null]
+  address_street  varchar     [not null]
+  address_city    varchar     [not null]
+  address_state   varchar     [not null]
+  address_zip     varchar     [not null]
+  phone           varchar
+  latitude        "double precision" [note: 'WGS 84 latitude']
+  longitude       "double precision" [note: 'WGS 84 longitude']
+  dv_shelter      boolean     [not null, default: false, note: 'Protected by PostgreSQL RLS']
+  created_at      timestamptz [not null, default: `now()`]
+  updated_at      timestamptz [not null, default: `now()`]
+
+  indexes {
+    (tenant_id, dv_shelter) [name: 'idx_shelter_tenant_dv']
+    (tenant_id, name) [name: 'idx_shelter_tenant_name']
+  }
+}
+
+// ---------------------------------------------------------------------------
+// V5 — Shelter Constraints
+// ---------------------------------------------------------------------------
+
+Table shelter_constraints {
+  shelter_id              uuid        [pk, ref: - shelter.id, note: 'ON DELETE CASCADE — 1:1 with shelter']
+  sobriety_required       boolean     [not null, default: false]
+  id_required             boolean     [not null, default: false]
+  referral_required       boolean     [not null, default: false]
+  pets_allowed            boolean     [not null, default: false]
+  wheelchair_accessible   boolean     [not null, default: false]
+  curfew_time             time        [note: 'Nullable — no curfew if null']
+  max_stay_days           integer     [note: 'Nullable — no limit if null']
+  population_types_served "text[]"    [note: 'Array of PopulationType enum values']
+}
+
+// ---------------------------------------------------------------------------
+// V6 — Shelter Capacity
+// ---------------------------------------------------------------------------
+
+Table shelter_capacity {
+  shelter_id      uuid        [ref: > shelter.id, note: 'ON DELETE CASCADE']
+  population_type varchar     [not null, note: 'PopulationType enum value']
+  beds_total      integer     [not null, note: 'CHECK beds_total >= 0']
+
+  indexes {
+    (shelter_id, population_type) [pk, name: 'pk_shelter_capacity']
+  }
+}
+
+// ---------------------------------------------------------------------------
+// V7 — Coordinator Assignment
+// ---------------------------------------------------------------------------
+
+Table coordinator_assignment {
+  user_id    uuid [ref: > app_user.id, note: 'ON DELETE CASCADE']
+  shelter_id uuid [ref: > shelter.id, note: 'ON DELETE CASCADE']
+
+  indexes {
+    (user_id, shelter_id) [pk, name: 'pk_coordinator_assignment']
+  }
+}
+
+// ---------------------------------------------------------------------------
+// V8.1 — (Reservation-related migration placeholder — no new table)
+// ---------------------------------------------------------------------------
+// V8.1 applies reservation soft-hold adjustments handled within existing
+// domain logic. No additional DDL tables introduced.
+
+// ---------------------------------------------------------------------------
+// V9 — Import Log
+// ---------------------------------------------------------------------------
+
+Table import_log {
+  id            uuid        [pk, note: 'gen_random_uuid()']
+  tenant_id     uuid        [not null, ref: > tenant.id]
+  import_type   varchar     [not null, note: 'e.g. HSDS, CSV, 211']
+  filename      varchar     [not null]
+  created_count integer     [not null, default: 0]
+  updated_count integer     [not null, default: 0]
+  skipped_count integer     [not null, default: 0]
+  error_count   integer     [not null, default: 0]
+  errors        jsonb       [note: 'Structured error details — row-level failures']
+  created_at    timestamptz [not null, default: `now()`]
+}
+
+// ---------------------------------------------------------------------------
+// V10 — Tenant OAuth2 Provider
+// ---------------------------------------------------------------------------
+
+Table tenant_oauth2_provider {
+  id                      uuid        [pk, note: 'gen_random_uuid()']
+  tenant_id               uuid        [not null, ref: > tenant.id]
+  provider_name           varchar     [not null, note: 'e.g. google, okta, azure-ad']
+  client_id               varchar     [not null]
+  client_secret_encrypted varchar     [not null, note: 'AES-256-GCM encrypted at rest']
+  issuer_uri              varchar     [not null]
+  enabled                 boolean     [not null, default: true]
+  created_at              timestamptz [not null, default: `now()`]
+
+  indexes {
+    (tenant_id, provider_name) [unique, name: 'uq_tenant_oauth2_provider']
+  }
+}
+
+// ---------------------------------------------------------------------------
+// V10 — User OAuth2 Link
+// ---------------------------------------------------------------------------
+
+Table user_oauth2_link {
+  id                  uuid        [pk, note: 'gen_random_uuid()']
+  user_id             uuid        [not null, ref: > app_user.id, note: 'ON DELETE CASCADE']
+  provider_name       varchar     [not null]
+  external_subject_id varchar     [not null, note: 'The sub claim from the IdP']
+  linked_at           timestamptz [not null, default: `now()`]
+
+  indexes {
+    (provider_name, external_subject_id) [unique, name: 'uq_user_oauth2_link_provider_subject']
+  }
+}
+
+// ---------------------------------------------------------------------------
+// V11 — Subscription (Webhook)
+// ---------------------------------------------------------------------------
+
+Table subscription {
+  id                  uuid              [pk, note: 'gen_random_uuid()']
+  tenant_id           uuid              [not null, ref: > tenant.id]
+  event_type          varchar           [not null, note: 'e.g. availability.updated, surge.activated']
+  filter              jsonb             [note: 'Optional filter criteria — shelter_id, population_type, etc.']
+  callback_url        varchar           [not null, note: 'HTTPS endpoint receiving webhook POSTs']
+  callback_secret_hash varchar          [not null, note: 'HMAC-SHA256 secret hash for payload signing']
+  status              varchar           [not null, default: 'ACTIVE', note: 'SubscriptionStatus enum value']
+  expires_at          timestamptz       [note: 'Nullable — no expiry if null']
+  last_error          text              [note: 'Most recent delivery error message']
+  created_at          timestamptz       [not null, default: `now()`]
+}
