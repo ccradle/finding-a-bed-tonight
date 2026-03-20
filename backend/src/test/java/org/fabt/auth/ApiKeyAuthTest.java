@@ -33,16 +33,16 @@ class ApiKeyAuthTest extends BaseIntegrationTest {
 
     @Test
     void test_apiKeyAuth_validKey() {
-        // Create an API key via the service directly (org-level, no shelter)
+        // Create an org-level API key (implicit COC_ADMIN role)
         UUID tenantId = authHelper.getTestTenantId();
         ApiKeyService.ApiKeyCreateResult result = apiKeyService.create(tenantId, null, "Test Key");
 
-        // Use the API key to access a protected endpoint
+        // Use the API key to access a COC_ADMIN endpoint
         HttpHeaders headers = new HttpHeaders();
         headers.set("X-API-Key", result.plaintextKey());
 
         ResponseEntity<String> response = restTemplate.exchange(
-                "/api/v1/tenants",
+                "/api/v1/users",
                 HttpMethod.GET,
                 new HttpEntity<>(headers),
                 String.class
@@ -57,7 +57,7 @@ class ApiKeyAuthTest extends BaseIntegrationTest {
         headers.set("X-API-Key", "definitely-not-a-real-api-key-abcdef1234567890");
 
         ResponseEntity<String> response = restTemplate.exchange(
-                "/api/v1/tenants",
+                "/api/v1/users",
                 HttpMethod.GET,
                 new HttpEntity<>(headers),
                 String.class
@@ -77,7 +77,7 @@ class ApiKeyAuthTest extends BaseIntegrationTest {
         headers.set("X-API-Key", result.plaintextKey());
 
         ResponseEntity<String> firstResponse = restTemplate.exchange(
-                "/api/v1/tenants",
+                "/api/v1/users",
                 HttpMethod.GET,
                 new HttpEntity<>(headers),
                 String.class
@@ -89,7 +89,7 @@ class ApiKeyAuthTest extends BaseIntegrationTest {
 
         // Now it should fail
         ResponseEntity<String> secondResponse = restTemplate.exchange(
-                "/api/v1/tenants",
+                "/api/v1/users",
                 HttpMethod.GET,
                 new HttpEntity<>(headers),
                 String.class
@@ -135,15 +135,15 @@ class ApiKeyAuthTest extends BaseIntegrationTest {
         HttpHeaders headers = new HttpHeaders();
         headers.set("X-API-Key", result.plaintextKey());
 
-        // Should be able to access authenticated endpoints
+        // COORDINATOR role should NOT have access to user management (COC_ADMIN only)
         ResponseEntity<String> response = restTemplate.exchange(
-                "/api/v1/tenants",
+                "/api/v1/users",
                 HttpMethod.GET,
                 new HttpEntity<>(headers),
                 String.class
         );
 
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
     }
 
     @Test
@@ -160,7 +160,7 @@ class ApiKeyAuthTest extends BaseIntegrationTest {
         oldHeaders.set("X-API-Key", original.plaintextKey());
 
         ResponseEntity<String> oldKeyResponse = restTemplate.exchange(
-                "/api/v1/tenants",
+                "/api/v1/users",
                 HttpMethod.GET,
                 new HttpEntity<>(oldHeaders),
                 String.class
@@ -172,7 +172,7 @@ class ApiKeyAuthTest extends BaseIntegrationTest {
         newHeaders.set("X-API-Key", rotated.plaintextKey());
 
         ResponseEntity<String> newKeyResponse = restTemplate.exchange(
-                "/api/v1/tenants",
+                "/api/v1/users",
                 HttpMethod.GET,
                 new HttpEntity<>(newHeaders),
                 String.class

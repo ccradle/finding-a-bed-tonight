@@ -98,6 +98,20 @@ public class JwtService {
             throw new IllegalArgumentException("Invalid JWT format");
         }
 
+        // OWASP: Explicitly validate algorithm — reject algorithm confusion attacks
+        try {
+            byte[] headerBytes = Base64.getUrlDecoder().decode(parts[0]);
+            Map<String, Object> header = objectMapper.readValue(headerBytes, new TypeReference<>() {});
+            String alg = (String) header.get("alg");
+            if (!"HS256".equals(alg)) {
+                throw new IllegalArgumentException("Unsupported JWT algorithm: " + alg + ". Only HS256 is accepted.");
+            }
+        } catch (IllegalArgumentException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Invalid JWT header", e);
+        }
+
         String signaturePart = parts[2];
         String cacheKey = sha256Hex(signaturePart);
 
@@ -106,7 +120,7 @@ public class JwtService {
             return cached;
         }
 
-        // Verify signature
+        // Verify signature (constant-time comparison via MessageDigest.isEqual)
         String signingInput = parts[0] + "." + parts[1];
         byte[] expectedSignature = hmacSha256(signingInput.getBytes(StandardCharsets.UTF_8));
         byte[] actualSignature = Base64.getUrlDecoder().decode(parts[2]);

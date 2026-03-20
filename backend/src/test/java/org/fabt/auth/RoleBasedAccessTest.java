@@ -48,10 +48,25 @@ class RoleBasedAccessTest extends BaseIntegrationTest {
     }
 
     @Test
-    void test_cocAdmin_canAccessProtectedEndpoints() {
+    void test_cocAdmin_canAccessUserEndpoints() {
         HttpHeaders headers = authHelper.cocAdminHeaders();
 
-        // COC_ADMIN can access authenticated endpoints like listing tenants
+        // COC_ADMIN can access user management endpoints
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/users",
+                HttpMethod.GET,
+                new HttpEntity<>(headers),
+                String.class
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    @Test
+    void test_cocAdmin_cannotAccessTenantEndpoints() {
+        HttpHeaders headers = authHelper.cocAdminHeaders();
+
+        // COC_ADMIN cannot access tenant management (PLATFORM_ADMIN only)
         ResponseEntity<String> response = restTemplate.exchange(
                 "/api/v1/tenants",
                 HttpMethod.GET,
@@ -59,38 +74,37 @@ class RoleBasedAccessTest extends BaseIntegrationTest {
                 String.class
         );
 
-        // COC_ADMIN is authenticated, so they can access protected endpoints
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
     }
 
     @Test
-    void test_coordinator_canAccessProtectedEndpoints() {
+    void test_coordinator_cannotAccessAdminEndpoints() {
         HttpHeaders headers = authHelper.coordinatorHeaders();
 
-        // COORDINATOR can access authenticated endpoints like listing tenants
+        // COORDINATOR cannot access user management (COC_ADMIN only)
         ResponseEntity<String> response = restTemplate.exchange(
-                "/api/v1/tenants",
+                "/api/v1/users",
                 HttpMethod.GET,
                 new HttpEntity<>(headers),
                 String.class
         );
 
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
     }
 
     @Test
-    void test_outreachWorker_canAccessProtectedEndpoints() {
+    void test_outreachWorker_cannotAccessAdminEndpoints() {
         HttpHeaders headers = authHelper.outreachWorkerHeaders();
 
-        // OUTREACH_WORKER can access authenticated endpoints
+        // OUTREACH_WORKER cannot access user management (COC_ADMIN only)
         ResponseEntity<String> response = restTemplate.exchange(
-                "/api/v1/tenants",
+                "/api/v1/users",
                 HttpMethod.GET,
                 new HttpEntity<>(headers),
                 String.class
         );
 
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
     }
 
     @Test
