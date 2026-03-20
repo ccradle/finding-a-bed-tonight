@@ -5,6 +5,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.UUID;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import org.fabt.dataimport.domain.ImportLog;
 import org.fabt.dataimport.repository.ImportLogRepository;
 import org.fabt.dataimport.service.HsdsImportAdapter;
@@ -46,14 +48,22 @@ public class ImportController {
         this.importLogRepository = importLogRepository;
     }
 
-    /**
-     * Import shelters from an HSDS 3.0 JSON file.
-     *
-     * @param file multipart file upload containing HSDS JSON
-     * @return import result with counts and any errors
-     */
+    @Operation(
+            summary = "Import shelters from an HSDS 3.0 JSON file",
+            description = "Accepts a multipart file upload containing shelter data in HSDS 3.0 " +
+                    "(Human Services Data Specification) JSON format and imports the organizations " +
+                    "as shelters within the caller's tenant. The import is upsert-based — shelters " +
+                    "are matched by name, and existing records are updated rather than duplicated. " +
+                    "The response includes counts of created, updated, and skipped records, plus " +
+                    "any row-level errors. An import log entry is recorded for audit. Returns 400 " +
+                    "if the file is empty or contains no importable organizations. Returns 500 if " +
+                    "the file cannot be parsed as valid HSDS JSON. " +
+                    "Requires COC_ADMIN or PLATFORM_ADMIN role."
+    )
     @PostMapping("/hsds")
-    public ResponseEntity<ImportResultResponse> importHsds(@RequestParam("file") MultipartFile file) {
+    public ResponseEntity<ImportResultResponse> importHsds(
+            @Parameter(description = "HSDS 3.0 JSON file containing organizations to import")
+            @RequestParam("file") MultipartFile file) {
         UUID tenantId = TenantContext.getTenantId();
         if (tenantId == null) {
             throw new IllegalStateException("Tenant context is not set");
@@ -72,14 +82,21 @@ public class ImportController {
         return ResponseEntity.status(HttpStatus.OK).body(ImportResultResponse.from(result));
     }
 
-    /**
-     * Import shelters from a 211-format CSV file.
-     *
-     * @param file multipart file upload containing CSV data
-     * @return import result with counts and any errors
-     */
+    @Operation(
+            summary = "Import shelters from a 2-1-1 format CSV file",
+            description = "Accepts a multipart file upload containing shelter data in 2-1-1 CSV " +
+                    "format (the format used by United Way 2-1-1 referral systems) and imports " +
+                    "the rows as shelters within the caller's tenant. Column mapping is automatic " +
+                    "based on header names — use GET /api/v1/import/211/preview to preview the " +
+                    "mapping before importing. The import is upsert-based. The response includes " +
+                    "counts of created, updated, and skipped records, plus row-level errors. " +
+                    "Returns 400 if the file is empty or contains no data rows. " +
+                    "Requires COC_ADMIN or PLATFORM_ADMIN role."
+    )
     @PostMapping("/211")
-    public ResponseEntity<ImportResultResponse> importTwoOneOne(@RequestParam("file") MultipartFile file) {
+    public ResponseEntity<ImportResultResponse> importTwoOneOne(
+            @Parameter(description = "CSV file in 2-1-1 format containing shelter data to import")
+            @RequestParam("file") MultipartFile file) {
         UUID tenantId = TenantContext.getTenantId();
         if (tenantId == null) {
             throw new IllegalStateException("Tenant context is not set");
@@ -98,24 +115,33 @@ public class ImportController {
         return ResponseEntity.status(HttpStatus.OK).body(ImportResultResponse.from(result));
     }
 
-    /**
-     * Preview column mapping for a 211 CSV. Pass the header line as a query parameter
-     * to see which columns will be mapped and which will be ignored.
-     *
-     * @param headerLine comma-separated header line from the CSV
-     * @return column mapping preview
-     */
+    @Operation(
+            summary = "Preview column mapping for a 2-1-1 CSV before importing",
+            description = "Accepts a comma-separated header line from a 2-1-1 CSV file and returns " +
+                    "the column mapping the importer will use. The response shows which CSV columns " +
+                    "map to which shelter fields and which columns will be ignored. Use this before " +
+                    "calling POST /api/v1/import/211 to verify that the CSV format is compatible " +
+                    "and to communicate any unmapped columns to the user. This is a read-only, " +
+                    "side-effect-free operation — no data is imported. " +
+                    "Requires COC_ADMIN or PLATFORM_ADMIN role."
+    )
     @GetMapping("/211/preview")
-    public ResponseEntity<ColumnMappingResponse> previewCsvMapping(@RequestParam("headerLine") String headerLine) {
+    public ResponseEntity<ColumnMappingResponse> previewCsvMapping(
+            @Parameter(description = "Comma-separated header line from the CSV file (e.g., 'Name,Address,City,State,Zip,Phone')")
+            @RequestParam("headerLine") String headerLine) {
         ColumnMapping mapping = twoOneOneImportAdapter.previewMapping(headerLine);
         return ResponseEntity.ok(ColumnMappingResponse.from(mapping));
     }
 
-    /**
-     * List import history for the current tenant, ordered by most recent first.
-     *
-     * @return list of import log entries
-     */
+    @Operation(
+            summary = "List import history for the authenticated tenant",
+            description = "Returns all import log entries for the caller's tenant, ordered by most " +
+                    "recent first. Each entry includes the import id, source format (HSDS or " +
+                    "211_CSV), original filename, row counts (created, updated, skipped, errored), " +
+                    "and the timestamp of the import. Use this to audit past imports and track " +
+                    "data provenance. The list is unpaginated. " +
+                    "Requires COC_ADMIN or PLATFORM_ADMIN role."
+    )
     @GetMapping("/history")
     public ResponseEntity<List<ImportLogResponse>> history() {
         UUID tenantId = TenantContext.getTenantId();
