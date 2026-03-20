@@ -48,7 +48,7 @@ public class TenantController {
         return tenantService.findById(id)
                 .map(TenantResponse::from)
                 .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
+                .orElseThrow(() -> new java.util.NoSuchElementException("Tenant not found: " + id));
     }
 
     @PutMapping("/{id}")
