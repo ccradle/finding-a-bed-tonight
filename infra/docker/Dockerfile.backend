@@ -1,0 +1,15 @@
+# Multi-stage build for Spring Boot backend
+FROM eclipse-temurin:21-jre-alpine AS runtime
+
+WORKDIR /app
+
+# Copy the pre-built JAR (built by CI or local mvn package)
+COPY backend/target/*.jar app.jar
+
+# Non-root user
+RUN addgroup -S fabt && adduser -S fabt -G fabt
+USER fabt
+
+EXPOSE 8080
+
+ENTRYPOINT ["java", "-jar", "app.jar"]

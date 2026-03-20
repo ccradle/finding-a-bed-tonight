@@ -24,7 +24,8 @@ class ArchitectureTest {
                             "org.fabt.auth..",
                             "org.fabt.shelter..",
                             "org.fabt.dataimport..",
-                            "org.fabt.observability.."
+                            "org.fabt.observability..",
+                            "org.fabt.subscription.."
                     ).as("Shared kernel (except security) must not depend on any domain module");
 
     @ArchTest
@@ -34,7 +35,8 @@ class ArchitectureTest {
                             "org.fabt.tenant..",
                             "org.fabt.shelter..",
                             "org.fabt.dataimport..",
-                            "org.fabt.observability.."
+                            "org.fabt.observability..",
+                            "org.fabt.subscription.."
                     ).as("Shared security may depend on auth module but not other modules");
 
     // --- Modules must not access other modules' repositories ---
@@ -45,7 +47,8 @@ class ArchitectureTest {
                     .should().dependOnClassesThat().resideInAnyPackage(
                             "org.fabt.auth.repository..",
                             "org.fabt.shelter.repository..",
-                            "org.fabt.dataimport.repository.."
+                            "org.fabt.dataimport.repository..",
+                            "org.fabt.subscription.repository.."
                     ).as("Tenant module must not access other modules' repositories");
 
     @ArchTest
@@ -54,7 +57,8 @@ class ArchitectureTest {
                     .should().dependOnClassesThat().resideInAnyPackage(
                             "org.fabt.tenant.repository..",
                             "org.fabt.shelter.repository..",
-                            "org.fabt.dataimport.repository.."
+                            "org.fabt.dataimport.repository..",
+                            "org.fabt.subscription.repository.."
                     ).as("Auth module must not access other modules' repositories");
 
     @ArchTest
@@ -63,7 +67,8 @@ class ArchitectureTest {
                     .should().dependOnClassesThat().resideInAnyPackage(
                             "org.fabt.tenant.repository..",
                             "org.fabt.auth.repository..",
-                            "org.fabt.dataimport.repository.."
+                            "org.fabt.dataimport.repository..",
+                            "org.fabt.subscription.repository.."
                     ).as("Shelter module must not access other modules' repositories");
 
     @ArchTest
@@ -71,8 +76,19 @@ class ArchitectureTest {
             noClasses().that().resideInAPackage("org.fabt.dataimport..")
                     .should().dependOnClassesThat().resideInAnyPackage(
                             "org.fabt.tenant.repository..",
-                            "org.fabt.auth.repository.."
-                    ).as("Data import module must not access tenant or auth repositories");
+                            "org.fabt.auth.repository..",
+                            "org.fabt.subscription.repository.."
+                    ).as("Data import module must not access tenant, auth, or subscription repositories");
+
+    @ArchTest
+    static final ArchRule subscription_should_not_access_other_repositories =
+            noClasses().that().resideInAPackage("org.fabt.subscription..")
+                    .should().dependOnClassesThat().resideInAnyPackage(
+                            "org.fabt.tenant.repository..",
+                            "org.fabt.auth.repository..",
+                            "org.fabt.shelter.repository..",
+                            "org.fabt.dataimport.repository.."
+                    ).as("Subscription module must not access other modules' repositories");
 
     // --- No module should directly access another module's domain entities ---
 
@@ -81,8 +97,19 @@ class ArchitectureTest {
             noClasses().that().resideInAPackage("org.fabt.shelter..")
                     .should().dependOnClassesThat().resideInAnyPackage(
                             "org.fabt.auth.domain..",
-                            "org.fabt.dataimport.domain.."
-                    ).as("Shelter module must not access auth or dataimport domain entities");
+                            "org.fabt.dataimport.domain..",
+                            "org.fabt.subscription.domain.."
+                    ).as("Shelter module must not access auth, dataimport, or subscription domain entities");
+
+    @ArchTest
+    static final ArchRule subscription_should_not_access_other_domain_entities =
+            noClasses().that().resideInAPackage("org.fabt.subscription..")
+                    .should().dependOnClassesThat().resideInAnyPackage(
+                            "org.fabt.auth.domain..",
+                            "org.fabt.shelter.domain..",
+                            "org.fabt.dataimport.domain..",
+                            "org.fabt.tenant.domain.."
+                    ).as("Subscription module must not access other modules' domain entities");
 
     // --- API controllers must reside in api packages ---
 
