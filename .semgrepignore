@@ -1,0 +1,5 @@
+# Seed data contains bcrypt hashes for dev users — not leaked credentials
+infra/scripts/seed-data.sql
+
+# Nginx reverse proxy config — $host is standard proxy_set_header usage
+infra/docker/nginx.conf
