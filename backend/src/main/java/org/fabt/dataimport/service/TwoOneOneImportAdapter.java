@@ -198,10 +198,8 @@ public class TwoOneOneImportAdapter {
             if (canonical != null && !alreadyMappedFields.contains(canonical)) {
                 mapped.put(trimmed, canonical);
                 alreadyMappedFields.add(canonical);
-            } else if (canonical != null) {
-                // Duplicate mapping — treat as unmapped
-                unmapped.add(trimmed);
             } else {
+                // No match, or duplicate mapping — treat as unmapped
                 unmapped.add(trimmed);
             }
         }

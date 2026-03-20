@@ -2,7 +2,6 @@ package org.fabt.shelter.api;
 
 import java.util.List;
 
-import org.fabt.shelter.domain.ShelterCapacity;
 import org.fabt.shelter.domain.ShelterConstraints;
 import org.fabt.shelter.service.ShelterService;
 
