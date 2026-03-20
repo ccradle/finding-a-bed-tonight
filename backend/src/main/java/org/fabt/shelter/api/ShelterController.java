@@ -7,6 +7,8 @@ import java.util.UUID;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import jakarta.validation.Valid;
+import org.fabt.availability.service.AvailabilityService;
+import org.fabt.availability.service.AvailabilityService.AvailabilitySnapshot;
 import org.fabt.shelter.domain.Shelter;
 import org.fabt.shelter.repository.CoordinatorAssignmentRepository;
 import org.fabt.shelter.service.ShelterHsdsMapper;
@@ -36,13 +38,16 @@ public class ShelterController {
     private final ShelterService shelterService;
     private final ShelterHsdsMapper hsdsMapper;
     private final CoordinatorAssignmentRepository coordinatorAssignmentRepository;
+    private final AvailabilityService availabilityService;
 
     public ShelterController(ShelterService shelterService,
                              ShelterHsdsMapper hsdsMapper,
-                             CoordinatorAssignmentRepository coordinatorAssignmentRepository) {
+                             CoordinatorAssignmentRepository coordinatorAssignmentRepository,
+                             AvailabilityService availabilityService) {
         this.shelterService = shelterService;
         this.hsdsMapper = hsdsMapper;
         this.coordinatorAssignmentRepository = coordinatorAssignmentRepository;
+        this.availabilityService = availabilityService;
     }
 
     @Operation(
@@ -83,23 +88,74 @@ public class ShelterController {
             @Parameter(description = "Filter to shelters that require sobriety. Omit to not filter on this constraint.")
             @RequestParam(required = false) Boolean sobrietyRequired,
             @Parameter(description = "Filter by population type served (e.g., 'FAMILIES', 'SINGLE_MEN', 'SINGLE_WOMEN', 'YOUTH'). Omit to not filter on this constraint.")
-            @RequestParam(required = false) String populationType) {
+            @RequestParam(required = false) String populationType,
+            @Parameter(description = "Page number (0-indexed). Omit for all results.")
+            @RequestParam(required = false) Integer page,
+            @Parameter(description = "Page size. Defaults to 20 when page is specified.")
+            @RequestParam(required = false, defaultValue = "20") int size) {
         boolean hasFilters = petsAllowed != null || wheelchairAccessible != null
                 || sobrietyRequired != null || populationType != null;
 
+        List<Shelter> shelterList;
         if (hasFilters) {
             ShelterFilterCriteria criteria = new ShelterFilterCriteria(
                     petsAllowed, wheelchairAccessible, sobrietyRequired, populationType);
-            List<ShelterResponse> shelters = shelterService.findFiltered(criteria).stream()
-                    .map(ShelterResponse::from)
-                    .toList();
-            return ResponseEntity.ok(shelters);
+            shelterList = shelterService.findFiltered(criteria);
+        } else {
+            shelterList = shelterService.findByTenantId();
         }
 
-        List<ShelterResponse> shelters = shelterService.findByTenantId().stream()
-                .map(ShelterResponse::from)
+        // Build availability summaries from latest snapshots
+        List<AvailabilitySnapshot> allSnapshots = availabilityService.getLatestByTenantId(
+                org.fabt.shared.web.TenantContext.getTenantId());
+        Map<UUID, List<AvailabilitySnapshot>> snapshotsByShelter = allSnapshots.stream()
+                .collect(java.util.stream.Collectors.groupingBy(AvailabilitySnapshot::shelterId));
+
+        List<ShelterListResponse> responses = shelterList.stream()
+                .map(s -> {
+                    List<AvailabilitySnapshot> shelterSnapshots = snapshotsByShelter.get(s.getId());
+                    ShelterListResponse.AvailabilitySummary summary = buildAvailabilitySummary(shelterSnapshots);
+                    return ShelterListResponse.from(s, summary);
+                })
                 .toList();
-        return ResponseEntity.ok(shelters);
+
+        // Apply pagination if page parameter is provided
+        if (page != null) {
+            int totalCount = responses.size();
+            int totalPages = (totalCount + size - 1) / size;
+            int fromIndex = Math.min(page * size, totalCount);
+            int toIndex = Math.min(fromIndex + size, totalCount);
+            List<ShelterListResponse> pageContent = responses.subList(fromIndex, toIndex);
+            return ResponseEntity.ok(Map.of(
+                    "content", pageContent,
+                    "page", page,
+                    "size", size,
+                    "totalElements", totalCount,
+                    "totalPages", totalPages
+            ));
+        }
+
+        return ResponseEntity.ok(responses);
+    }
+
+    private ShelterListResponse.AvailabilitySummary buildAvailabilitySummary(
+            List<AvailabilitySnapshot> snapshots) {
+        if (snapshots == null || snapshots.isEmpty()) {
+            return new ShelterListResponse.AvailabilitySummary(
+                    null, 0, null, null, "UNKNOWN");
+        }
+        int totalAvail = snapshots.stream().mapToInt(AvailabilitySnapshot::bedsAvailable).sum();
+        java.time.Instant latest = snapshots.stream()
+                .map(AvailabilitySnapshot::snapshotTs)
+                .filter(ts -> ts != null)
+                .max(java.time.Instant::compareTo)
+                .orElse(null);
+        Long ageSeconds = latest != null
+                ? java.time.Duration.between(latest, java.time.Instant.now()).getSeconds()
+                : null;
+        String freshness = org.fabt.observability.DataFreshness.fromAgeSeconds(ageSeconds).name();
+        return new ShelterListResponse.AvailabilitySummary(
+                totalAvail, snapshots.size(), latest, ageSeconds, freshness);
     }
 
     @Operation(
@@ -120,12 +176,24 @@ public class ShelterController {
             @RequestParam(required = false) String format) {
         ShelterDetail detail = shelterService.getDetail(id);
 
+        // Enrich with availability data
+        List<AvailabilitySnapshot> snapshots = availabilityService.getLatestByShelterId(id);
+        List<ShelterDetailResponse.AvailabilityDto> availDtos = snapshots.stream()
+                .map(s -> new ShelterDetailResponse.AvailabilityDto(
+                        s.populationType(), s.bedsTotal(), s.bedsOccupied(), s.bedsOnHold(),
+                        s.bedsAvailable(), s.acceptingNewGuests(), s.snapshotTs(),
+                        s.dataAgeSeconds(), s.dataFreshness()
+                ))
+                .toList();
+        ShelterDetail enriched = new ShelterDetail(
+                detail.shelter(), detail.constraints(), detail.capacities(), availDtos);
+
         if ("hsds".equalsIgnoreCase(format)) {
-            Map<String, Object> hsds = hsdsMapper.toHsds(detail);
+            Map<String, Object> hsds = hsdsMapper.toHsds(enriched);
             return ResponseEntity.ok(hsds);
         }
 
-        return ResponseEntity.ok(ShelterDetailResponse.from(detail));
+        return ResponseEntity.ok(ShelterDetailResponse.from(enriched));
     }
 
     @Operation(

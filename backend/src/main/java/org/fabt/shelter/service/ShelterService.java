@@ -13,6 +13,7 @@ import java.util.stream.Collectors;
 import org.fabt.shelter.api.CreateShelterRequest;
 import org.fabt.shelter.api.ShelterCapacityDto;
 import org.fabt.shelter.api.ShelterConstraintsDto;
+import org.fabt.shelter.api.ShelterDetailResponse.AvailabilityDto;
 import org.fabt.shelter.api.UpdateShelterRequest;
 import org.fabt.shelter.domain.PopulationType;
 import org.fabt.shelter.domain.Shelter;
@@ -29,7 +30,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class ShelterService {
 
-    public record ShelterDetail(Shelter shelter, ShelterConstraints constraints, List<ShelterCapacity> capacities) {
+    public record ShelterDetail(Shelter shelter, ShelterConstraints constraints,
+                                List<ShelterCapacity> capacities, List<AvailabilityDto> availability) {
     }
 
     public record ShelterFilterCriteria(Boolean petsAllowed, Boolean wheelchairAccessible,
@@ -240,7 +242,8 @@ public class ShelterService {
         ShelterConstraints constraints = constraintsRepository.findById(shelter.getId()).orElse(null);
         List<ShelterCapacity> capacities = capacityRepository.findByShelterId(shelter.getId());
 
-        return new ShelterDetail(shelter, constraints, capacities);
+        // Availability is populated by AvailabilityService when available (injected via controller)
+        return new ShelterDetail(shelter, constraints, capacities, null);
     }
 
     private ShelterConstraints mapConstraints(UUID shelterId, ShelterConstraintsDto dto) {

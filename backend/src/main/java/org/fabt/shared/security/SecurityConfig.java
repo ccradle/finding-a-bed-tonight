@@ -95,8 +95,12 @@ public class SecurityConfig {
                         // API key management — COC_ADMIN or PLATFORM_ADMIN
                         .requestMatchers("/api/v1/api-keys/**").hasAnyRole("COC_ADMIN", "PLATFORM_ADMIN")
 
+                        // Bed search queries — any authenticated role
+                        .requestMatchers("/api/v1/queries/**").authenticated()
+
                         // Shelter operations — any authenticated role (fine-grained control via @PreAuthorize)
                         .requestMatchers(HttpMethod.GET, "/api/v1/shelters/**").authenticated()
+                        .requestMatchers(HttpMethod.PATCH, "/api/v1/shelters/*/availability").hasAnyRole("COORDINATOR", "COC_ADMIN", "PLATFORM_ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/v1/shelters/**").hasAnyRole("COC_ADMIN", "PLATFORM_ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/api/v1/shelters/**").hasAnyRole("COORDINATOR", "COC_ADMIN", "PLATFORM_ADMIN")
 
@@ -131,7 +135,7 @@ public class SecurityConfig {
                 .filter(s -> !s.isEmpty())
                 .toList();
         config.setAllowedOrigins(origins);
-        config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-API-Key", "Accept-Language"));
         config.setExposedHeaders(List.of("X-Signature"));
         config.setAllowCredentials(true);

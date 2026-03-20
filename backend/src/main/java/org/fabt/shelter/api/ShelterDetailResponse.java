@@ -1,5 +1,6 @@
 package org.fabt.shelter.api;
 
+import java.time.Instant;
 import java.util.List;
 
 import org.fabt.shelter.domain.ShelterConstraints;
@@ -8,8 +9,21 @@ import org.fabt.shelter.service.ShelterService;
 public record ShelterDetailResponse(
         ShelterResponse shelter,
         ShelterConstraintsDto constraints,
-        List<ShelterCapacityDto> capacities
+        List<ShelterCapacityDto> capacities,
+        List<AvailabilityDto> availability
 ) {
+    public record AvailabilityDto(
+            String populationType,
+            int bedsTotal,
+            int bedsOccupied,
+            int bedsOnHold,
+            int bedsAvailable,
+            boolean acceptingNewGuests,
+            Instant snapshotTs,
+            Long dataAgeSeconds,
+            String dataFreshness
+    ) {}
+
     public static ShelterDetailResponse from(ShelterService.ShelterDetail detail) {
         ShelterResponse shelterResponse = ShelterResponse.from(detail.shelter());
 
@@ -35,6 +49,11 @@ public record ShelterDetailResponse(
                     .toList();
         }
 
-        return new ShelterDetailResponse(shelterResponse, constraintsDto, capacityDtos);
+        List<AvailabilityDto> availabilityDtos = null;
+        if (detail.availability() != null) {
+            availabilityDtos = detail.availability();
+        }
+
+        return new ShelterDetailResponse(shelterResponse, constraintsDto, capacityDtos, availabilityDtos);
     }
 }

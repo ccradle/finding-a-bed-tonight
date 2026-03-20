@@ -14,18 +14,40 @@ const POPULATION_TYPES = [
   { value: 'DV_SURVIVOR', labelId: 'search.dvSurvivor' },
 ];
 
-interface ShelterResult {
-  id: string;
-  name: string;
-  addressStreet: string;
-  addressCity: string;
-  addressState: string;
-  addressZip: string;
+interface PopulationAvailability {
+  populationType: string;
+  bedsTotal: number;
+  bedsOccupied: number;
+  bedsOnHold: number;
+  bedsAvailable: number;
+  acceptingNewGuests: boolean;
+}
+
+interface ConstraintsSummary {
+  petsAllowed: boolean;
+  wheelchairAccessible: boolean;
+  sobrietyRequired: boolean;
+  idRequired: boolean;
+  referralRequired: boolean;
+}
+
+interface BedSearchResult {
+  shelterId: string;
+  shelterName: string;
+  address: string;
   phone: string;
   latitude: number;
   longitude: number;
-  dvShelter: boolean;
-  updatedAt: string;
+  availability: PopulationAvailability[];
+  dataAgeSeconds: number | null;
+  dataFreshness: string;
+  distanceMiles: number | null;
+  constraints: ConstraintsSummary;
+}
+
+interface BedSearchResponse {
+  results: BedSearchResult[];
+  totalCount: number;
 }
 
 interface ShelterConstraints {
@@ -44,17 +66,42 @@ interface ShelterCapacity {
   bedsTotal: number;
 }
 
+interface AvailabilityDto {
+  populationType: string;
+  bedsTotal: number;
+  bedsOccupied: number;
+  bedsOnHold: number;
+  bedsAvailable: number;
+  acceptingNewGuests: boolean;
+  snapshotTs: string;
+  dataAgeSeconds: number;
+  dataFreshness: string;
+}
+
 interface ShelterDetail {
-  shelter: ShelterResult;
+  shelter: {
+    id: string;
+    name: string;
+    addressStreet: string;
+    addressCity: string;
+    addressState: string;
+    addressZip: string;
+    phone: string;
+    latitude: number;
+    longitude: number;
+    dvShelter: boolean;
+    updatedAt: string;
+  };
   constraints: ShelterConstraints | null;
   capacities: ShelterCapacity[];
+  availability: AvailabilityDto[];
   data_age_seconds?: number;
   data_freshness?: string;
 }
 
 export function OutreachSearch() {
   const intl = useIntl();
-  const [shelters, setShelters] = useState<ShelterResult[]>([]);
+  const [results, setResults] = useState<BedSearchResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [populationType, setPopulationType] = useState('');
@@ -64,17 +111,19 @@ export function OutreachSearch() {
   const [selectedShelter, setSelectedShelter] = useState<ShelterDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
-  const fetchShelters = useCallback(async () => {
+  const fetchBeds = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const params = new URLSearchParams();
-      if (populationType) params.append('populationType', populationType);
-      if (petsAllowed) params.append('petsAllowed', 'true');
-      if (wheelchairAccessible) params.append('wheelchairAccessible', 'true');
-      const query = params.toString();
-      const data = await api.get<ShelterResult[]>(`/api/v1/shelters${query ? '?' + query : ''}`);
-      setShelters(data);
+      const body: Record<string, unknown> = {};
+      if (populationType) body.populationType = populationType;
+      const constraints: Record<string, boolean> = {};
+      if (petsAllowed) constraints.petsAllowed = true;
+      if (wheelchairAccessible) constraints.wheelchairAccessible = true;
+      if (Object.keys(constraints).length > 0) body.constraints = constraints;
+
+      const data = await api.post<BedSearchResponse>('/api/v1/queries/beds', body);
+      setResults(data.results);
     } catch {
       setError(intl.formatMessage({ id: 'search.error' }));
     } finally {
@@ -82,12 +131,12 @@ export function OutreachSearch() {
     }
   }, [populationType, petsAllowed, wheelchairAccessible, intl]);
 
-  useEffect(() => { fetchShelters(); }, [fetchShelters]);
+  useEffect(() => { fetchBeds(); }, [fetchBeds]);
 
-  const openDetail = async (id: string) => {
+  const openDetail = async (shelterId: string) => {
     setDetailLoading(true);
     try {
-      const detail = await api.get<ShelterDetail>(`/api/v1/shelters/${id}`);
+      const detail = await api.get<ShelterDetail>(`/api/v1/shelters/${shelterId}`);
       setSelectedShelter(detail);
     } catch {
       setError(intl.formatMessage({ id: 'search.error' }));
@@ -96,21 +145,37 @@ export function OutreachSearch() {
     }
   };
 
-  const filtered = shelters.filter((s) => {
+  const filtered = results.filter((r) => {
     if (!searchText) return true;
     const q = searchText.toLowerCase();
-    return s.name.toLowerCase().includes(q) ||
-      (s.addressCity && s.addressCity.toLowerCase().includes(q)) ||
-      (s.addressStreet && s.addressStreet.toLowerCase().includes(q));
+    return r.shelterName.toLowerCase().includes(q) ||
+      (r.address && r.address.toLowerCase().includes(q));
   });
 
-  const fmtAddr = (s: ShelterResult) =>
-    [s.addressStreet, s.addressCity, s.addressState, s.addressZip].filter(Boolean).join(', ');
+  const mapsUrl = (r: BedSearchResult) =>
+    r.latitude && r.longitude
+      ? `https://maps.google.com/?q=${r.latitude},${r.longitude}`
+      : `https://maps.google.com/?q=${encodeURIComponent(r.address)}`;
 
-  const mapsUrl = (s: ShelterResult) =>
-    s.latitude && s.longitude
-      ? `https://maps.google.com/?q=${s.latitude},${s.longitude}`
-      : `https://maps.google.com/?q=${encodeURIComponent(fmtAddr(s))}`;
+  const totalBedsAvailable = (r: BedSearchResult) =>
+    r.availability.reduce((sum, a) => sum + a.bedsAvailable, 0);
+
+  const freshnessLabel = (freshness: string) => {
+    const colors: Record<string, { bg: string; color: string }> = {
+      FRESH: { bg: '#f0fdf4', color: '#166534' },
+      AGING: { bg: '#fefce8', color: '#854d0e' },
+      STALE: { bg: '#fef2f2', color: '#991b1b' },
+      UNKNOWN: { bg: '#f1f5f9', color: '#64748b' },
+    };
+    const style = colors[freshness] || colors.UNKNOWN;
+    return (
+      <span style={{
+        padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700,
+        backgroundColor: style.bg, color: style.color, textTransform: 'uppercase',
+        letterSpacing: '0.04em',
+      }}>{freshness}</span>
+    );
+  };
 
   return (
     <div style={{ maxWidth: 720, margin: '0 auto' }}>
@@ -178,26 +243,66 @@ export function OutreachSearch() {
       {loading && <Spinner />}
 
       {/* Results */}
-      {!loading && filtered.map((s) => (
-        <button
-          key={s.id}
-          onClick={() => openDetail(s.id)}
-          style={{
-            display: 'block', width: '100%', textAlign: 'left', padding: '18px 20px',
-            marginBottom: 10, borderRadius: 14, border: '2px solid #e2e8f0',
-            backgroundColor: '#fff', cursor: 'pointer', transition: 'border-color 0.12s, box-shadow 0.12s',
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#3b82f6'; e.currentTarget.style.boxShadow = '0 2px 12px rgba(59,130,246,0.1)'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.boxShadow = 'none'; }}
-        >
-          <div style={{ fontSize: 17, fontWeight: 700, color: '#0f172a', marginBottom: 3 }}>{s.name}</div>
-          <div style={{ fontSize: 14, color: '#64748b', marginBottom: 6 }}>{fmtAddr(s)}</div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            {s.phone && <span style={{ fontSize: 14, color: '#1a56db', fontWeight: 600 }}>📞 {s.phone}</span>}
-            <DataAge dataAgeSeconds={s.updatedAt ? Math.floor((Date.now() - new Date(s.updatedAt).getTime()) / 1000) : null} />
-          </div>
-        </button>
-      ))}
+      {!loading && filtered.map((r) => {
+        const avail = totalBedsAvailable(r);
+        const isFull = avail === 0;
+
+        return (
+          <button
+            key={r.shelterId}
+            onClick={() => openDetail(r.shelterId)}
+            style={{
+              display: 'block', width: '100%', textAlign: 'left', padding: '18px 20px',
+              marginBottom: 10, borderRadius: 14, border: `2px solid ${isFull ? '#fecaca' : '#e2e8f0'}`,
+              backgroundColor: isFull ? '#fefefe' : '#fff', cursor: 'pointer',
+              transition: 'border-color 0.12s, box-shadow 0.12s',
+              opacity: isFull ? 0.75 : 1,
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#3b82f6'; e.currentTarget.style.boxShadow = '0 2px 12px rgba(59,130,246,0.1)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.borderColor = isFull ? '#fecaca' : '#e2e8f0'; e.currentTarget.style.boxShadow = 'none'; }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 3 }}>
+              <div style={{ fontSize: 17, fontWeight: 700, color: '#0f172a' }}>{r.shelterName}</div>
+              {/* Beds available badge */}
+              {isFull ? (
+                <span style={{
+                  padding: '4px 10px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+                  backgroundColor: '#fef2f2', color: '#991b1b',
+                }}><FormattedMessage id="search.currentlyFull" /></span>
+              ) : (
+                <span style={{
+                  padding: '4px 10px', borderRadius: 8, fontSize: 14, fontWeight: 800,
+                  backgroundColor: '#f0fdf4', color: '#166534',
+                }}>{avail}</span>
+              )}
+            </div>
+            <div style={{ fontSize: 14, color: '#64748b', marginBottom: 6 }}>{r.address}</div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                {r.phone && <span style={{ fontSize: 14, color: '#1a56db', fontWeight: 600 }}>📞 {r.phone}</span>}
+              </div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                {freshnessLabel(r.dataFreshness)}
+                <DataAge dataAgeSeconds={r.dataAgeSeconds} />
+              </div>
+            </div>
+            {/* Per-population availability pills */}
+            {r.availability.length > 0 && (
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
+                {r.availability.map((a) => (
+                  <span key={a.populationType} style={{
+                    padding: '3px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+                    backgroundColor: a.bedsAvailable > 0 ? '#f0fdf4' : '#fef2f2',
+                    color: a.bedsAvailable > 0 ? '#166534' : '#991b1b',
+                  }}>
+                    {a.populationType.replace(/_/g, ' ')}: {a.bedsAvailable}
+                  </span>
+                ))}
+              </div>
+            )}
+          </button>
+        );
+      })}
 
       {!loading && filtered.length === 0 && (
         <div style={{ textAlign: 'center', padding: 48, color: '#94a3b8' }}>
@@ -218,7 +323,10 @@ export function OutreachSearch() {
             <div style={{ width: 40, height: 4, backgroundColor: '#d1d5db', borderRadius: 2, margin: '0 auto 22px' }} />
 
             <h2 style={{ margin: '0 0 4px', fontSize: 22, fontWeight: 800, color: '#0f172a' }}>{selectedShelter.shelter.name}</h2>
-            <p style={{ margin: '0 0 16px', fontSize: 14, color: '#64748b' }}>{fmtAddr(selectedShelter.shelter)}</p>
+            <p style={{ margin: '0 0 16px', fontSize: 14, color: '#64748b' }}>
+              {[selectedShelter.shelter.addressStreet, selectedShelter.shelter.addressCity,
+                selectedShelter.shelter.addressState, selectedShelter.shelter.addressZip].filter(Boolean).join(', ')}
+            </p>
 
             {selectedShelter.data_age_seconds !== undefined && (
               <div style={{ marginBottom: 18 }}><DataAge dataAgeSeconds={selectedShelter.data_age_seconds} /></div>
@@ -233,14 +341,51 @@ export function OutreachSearch() {
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
                 }}>📞 <FormattedMessage id="search.call" /></a>
               )}
-              <a href={mapsUrl(selectedShelter.shelter)} target="_blank" rel="noopener noreferrer" style={{
+              <a href={mapsUrl({
+                shelterId: selectedShelter.shelter.id, shelterName: selectedShelter.shelter.name,
+                address: [selectedShelter.shelter.addressStreet, selectedShelter.shelter.addressCity].filter(Boolean).join(', '),
+                phone: selectedShelter.shelter.phone, latitude: selectedShelter.shelter.latitude,
+                longitude: selectedShelter.shelter.longitude, availability: [], dataAgeSeconds: null,
+                dataFreshness: 'UNKNOWN', distanceMiles: null,
+                constraints: { petsAllowed: false, wheelchairAccessible: false, sobrietyRequired: false, idRequired: false, referralRequired: false },
+              })} target="_blank" rel="noopener noreferrer" style={{
                 flex: 1, padding: 14, backgroundColor: '#1a56db', color: '#fff', borderRadius: 12,
                 textAlign: 'center', textDecoration: 'none', fontSize: 16, fontWeight: 700, minHeight: 50,
                 display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
               }}>🗺️ <FormattedMessage id="search.directions" /></a>
             </div>
 
-            {/* Capacity */}
+            {/* Availability */}
+            {selectedShelter.availability?.length > 0 && (
+              <Section title={intl.formatMessage({ id: 'search.availability' })}>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                  {selectedShelter.availability.map((a) => (
+                    <div key={a.populationType} style={{
+                      padding: '12px 18px', backgroundColor: a.bedsAvailable > 0 ? '#f0fdf4' : '#fef2f2',
+                      border: `1px solid ${a.bedsAvailable > 0 ? '#bbf7d0' : '#fecaca'}`,
+                      borderRadius: 12, textAlign: 'center', minWidth: 100,
+                    }}>
+                      <div style={{
+                        fontWeight: 800, color: a.bedsAvailable > 0 ? '#166534' : '#991b1b',
+                        fontSize: 24, lineHeight: 1,
+                      }}>{a.bedsAvailable}</div>
+                      <div style={{
+                        color: a.bedsAvailable > 0 ? '#15803d' : '#991b1b',
+                        fontSize: 11, fontWeight: 600, marginTop: 4,
+                        textTransform: 'uppercase', letterSpacing: '0.04em',
+                      }}>
+                        {a.populationType.replace(/_/g, ' ')}
+                      </div>
+                      <div style={{ fontSize: 10, color: '#64748b', marginTop: 4 }}>
+                        {a.bedsTotal} total / {a.bedsOccupied} occ
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Section>
+            )}
+
+            {/* Capacity (static) */}
             {selectedShelter.capacities?.length > 0 && (
               <Section title={intl.formatMessage({ id: 'search.capacity' })}>
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>

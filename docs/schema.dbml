@@ -1,6 +1,6 @@
 // ============================================================================
 // Finding A Bed Tonight (FABT) — Database Schema
-// Source: Flyway migrations V1–V11 + V8.1
+// Source: Flyway migrations V1–V13 + V8.1
 // Generated: 2026-03-20
 // ============================================================================
 
@@ -235,3 +235,49 @@ Table subscription {
   last_error          text              [note: 'Most recent delivery error message']
   created_at          timestamptz       [not null, default: `now()`]
 }
+
+// ---------------------------------------------------------------------------
+// V12 — Bed Availability (append-only snapshots)
+// ---------------------------------------------------------------------------
+
+Table bed_availability {
+  id                   uuid        [pk, note: 'gen_random_uuid()']
+  shelter_id           uuid        [not null, ref: > shelter.id, note: 'ON DELETE CASCADE']
+  tenant_id            uuid        [not null, ref: > tenant.id]
+  population_type      varchar(50) [not null, note: 'PopulationType enum value']
+  beds_total           integer     [not null, note: 'CHECK >= 0']
+  beds_occupied        integer     [not null, default: 0, note: 'CHECK >= 0']
+  beds_on_hold         integer     [not null, default: 0, note: 'CHECK >= 0']
+  accepting_new_guests boolean     [not null, default: true]
+  snapshot_ts          timestamptz [not null, default: `now()`, note: 'When coordinator confirmed this data']
+  updated_by           varchar(255) [note: 'User ID or identity of the updater']
+  notes                varchar(500) [note: 'Free-text note from coordinator']
+
+  indexes {
+    (shelter_id, population_type, snapshot_ts) [unique, name: 'uq_bed_avail_shelter_pop_ts', note: 'ON CONFLICT DO NOTHING for concurrent inserts']
+    (shelter_id, population_type, snapshot_ts) [name: 'idx_bed_avail_latest', note: 'DESC on snapshot_ts — supports DISTINCT ON latest-snapshot queries']
+    (tenant_id, snapshot_ts) [name: 'idx_bed_avail_tenant', note: 'DESC on snapshot_ts']
+  }
+
+  Note: '''
+    Append-only table — rows are never UPDATEd or DELETEd by the application.
+    Each row is a point-in-time snapshot of bed occupancy for one shelter +
+    population type. beds_available is derived at query time:
+    beds_total - beds_occupied - beds_on_hold (never stored).
+
+    Concurrent insert safety: the UNIQUE constraint on (shelter_id,
+    population_type, snapshot_ts) combined with ON CONFLICT DO NOTHING
+    silently drops duplicate inserts when two coordinators submit at the
+    exact same millisecond for the same shelter/population type.
+
+    Protected by PostgreSQL RLS (V13): inherits DV-shelter visibility
+    through a join to the shelter table's RLS policy.
+  '''
+}
+
+// ---------------------------------------------------------------------------
+// V13 — RLS for bed_availability
+// ---------------------------------------------------------------------------
+// RLS FORCE enabled on bed_availability. Policy dv_bed_availability_access
+// uses EXISTS subquery through shelter table, inheriting the DV-shelter
+// access control from V8/V8.1.

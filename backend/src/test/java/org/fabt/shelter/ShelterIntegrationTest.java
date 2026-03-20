@@ -228,8 +228,8 @@ class ShelterIntegrationTest extends BaseIntegrationTest {
         ShelterResponse shelter1 = createTestShelter(headers);
         ShelterResponse shelter2 = createTestShelter(headers);
 
-        // List all shelters
-        ResponseEntity<List<ShelterResponse>> response = restTemplate.exchange(
+        // List all shelters — response format is now ShelterListResponse with shelter + availabilitySummary
+        ResponseEntity<List<Map<String, Object>>> response = restTemplate.exchange(
                 "/api/v1/shelters",
                 HttpMethod.GET,
                 new HttpEntity<>(headers),
@@ -237,11 +237,17 @@ class ShelterIntegrationTest extends BaseIntegrationTest {
         );
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        List<ShelterResponse> shelters = response.getBody();
+        List<Map<String, Object>> shelters = response.getBody();
         assertThat(shelters).isNotNull();
 
-        // Verify both shelters are in the result (there may be shelters from other tests)
-        List<UUID> returnedIds = shelters.stream().map(ShelterResponse::id).toList();
+        // Verify both shelters are in the result (nested under "shelter" key)
+        @SuppressWarnings("unchecked")
+        List<UUID> returnedIds = shelters.stream()
+                .map(item -> {
+                    Map<String, Object> shelter = (Map<String, Object>) item.get("shelter");
+                    return UUID.fromString((String) shelter.get("id"));
+                })
+                .toList();
         assertThat(returnedIds).contains(shelter1.id(), shelter2.id());
     }
 
@@ -344,8 +350,8 @@ class ShelterIntegrationTest extends BaseIntegrationTest {
         assertThat(shelterBResponse.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         UUID shelterBId = shelterBResponse.getBody().id();
 
-        // Filter for pets allowed = true
-        ResponseEntity<List<ShelterResponse>> response = restTemplate.exchange(
+        // Filter for pets allowed = true — response format is ShelterListResponse
+        ResponseEntity<List<Map<String, Object>>> response = restTemplate.exchange(
                 "/api/v1/shelters?petsAllowed=true",
                 HttpMethod.GET,
                 new HttpEntity<>(headers),
@@ -353,10 +359,16 @@ class ShelterIntegrationTest extends BaseIntegrationTest {
         );
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        List<ShelterResponse> filtered = response.getBody();
+        List<Map<String, Object>> filtered = response.getBody();
         assertThat(filtered).isNotNull();
 
-        List<UUID> filteredIds = filtered.stream().map(ShelterResponse::id).toList();
+        @SuppressWarnings("unchecked")
+        List<UUID> filteredIds = filtered.stream()
+                .map(item -> {
+                    Map<String, Object> shelter = (Map<String, Object>) item.get("shelter");
+                    return UUID.fromString((String) shelter.get("id"));
+                })
+                .toList();
         assertThat(filteredIds).contains(shelterAId);
         assertThat(filteredIds).doesNotContain(shelterBId);
     }

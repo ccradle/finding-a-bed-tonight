@@ -42,14 +42,27 @@ public class DataAgeResponseAdvice implements ResponseBodyAdvice<Object> {
     }
 
     private Map<String, Object> enrichWithDataAge(ShelterDetailResponse detailResponse) {
-        Instant updatedAt = detailResponse.shelter() != null ? detailResponse.shelter().updatedAt() : null;
-        Long ageSeconds = calculateAgeSeconds(updatedAt);
+        // When availability snapshots exist, use the most recent snapshot_ts for data age.
+        // Fall back to shelter.updatedAt when no availability data exists.
+        Instant dataTimestamp = null;
+        if (detailResponse.availability() != null && !detailResponse.availability().isEmpty()) {
+            dataTimestamp = detailResponse.availability().stream()
+                    .map(ShelterDetailResponse.AvailabilityDto::snapshotTs)
+                    .filter(ts -> ts != null)
+                    .max(Instant::compareTo)
+                    .orElse(null);
+        }
+        if (dataTimestamp == null && detailResponse.shelter() != null) {
+            dataTimestamp = detailResponse.shelter().updatedAt();
+        }
+        Long ageSeconds = calculateAgeSeconds(dataTimestamp);
         DataFreshness freshness = DataFreshness.fromAgeSeconds(ageSeconds);
 
         Map<String, Object> enriched = new LinkedHashMap<>();
         enriched.put("shelter", detailResponse.shelter());
         enriched.put("constraints", detailResponse.constraints());
         enriched.put("capacities", detailResponse.capacities());
+        enriched.put("availability", detailResponse.availability());
         enriched.put("data_age_seconds", ageSeconds);
         enriched.put("data_freshness", freshness.name());
         return enriched;

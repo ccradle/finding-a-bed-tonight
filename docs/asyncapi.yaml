@@ -35,8 +35,11 @@ channels:
     address: availability.updated
     title: Availability Updated
     description: |
-      Published whenever a shelter's bed availability changes — whether
-      through a coordinator update, a reservation, or an expiring hold.
+      Published whenever a coordinator submits an availability snapshot via
+      PATCH /api/v1/shelters/{id}/availability. Fired after the snapshot is
+      persisted and L1/L2 caches are invalidated, but before the HTTP 200
+      is returned. Future changes (reservations, expiring holds) may also
+      trigger this event.
     messages:
       availabilityUpdatedMessage:
         $ref: '#/components/messages/AvailabilityUpdatedMessage'
@@ -182,14 +185,17 @@ components:
 
     AvailabilityUpdatedPayload:
       type: object
-      description: Snapshot of a single population-type capacity row after the change.
+      description: |
+        Snapshot of a single population-type availability row after the change.
+        Published by AvailabilityService.createSnapshot() on every successful
+        availability update. The beds_available_previous field is null when
+        this is the first snapshot for the shelter/population combination.
       required:
         - shelter_id
+        - tenant_id
         - shelter_name
-        - coc_id
         - population_type
         - beds_available
-        - beds_available_previous
         - snapshot_ts
         - data_age_seconds
       properties:
@@ -197,13 +203,19 @@ components:
           type: string
           format: uuid
           description: Shelter whose availability changed.
-        shelter_name:
+        tenant_id:
           type: string
-          description: Human-readable shelter name (denormalized for consumers).
+          format: uuid
+          description: Tenant (Continuum of Care) that owns the shelter.
         coc_id:
           type: string
           format: uuid
-          description: Continuum of Care (tenant) identifier.
+          description: |
+            Continuum of Care identifier. Same value as tenant_id — provided
+            as an alias for consumers that use CoC-centric terminology.
+        shelter_name:
+          type: string
+          description: Human-readable shelter name (denormalized for consumers).
         population_type:
           type: string
           description: Population type that changed (e.g. SINGLE_ADULT, FAMILY_WITH_CHILDREN).
@@ -218,11 +230,16 @@ components:
         beds_available:
           type: integer
           minimum: 0
-          description: Current number of available beds after the change.
+          description: Current derived beds available (beds_total - beds_occupied - beds_on_hold).
         beds_available_previous:
           type: integer
           minimum: 0
-          description: Number of available beds before the change.
+          nullable: true
+          description: |
+            Derived beds available from the prior snapshot for this shelter +
+            population type. Null when this is the first snapshot. Consumers
+            can compute the change direction and magnitude without a follow-up
+            API call (e.g. previous: 5, current: 2 → 3 beds were filled).
         snapshot_ts:
           type: string
           format: date-time
@@ -232,7 +249,8 @@ components:
           minimum: 0
           description: |
             Seconds since the coordinator last confirmed the data.
-            Useful for staleness indicators in the UI.
+            Always 0 at publish time; useful for staleness indicators
+            when the event is cached or replayed.
 
     # -- surge.activated --------------------------------------------------
 

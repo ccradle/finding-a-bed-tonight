@@ -146,6 +146,10 @@ export const api = {
     return request<T>('PUT', path, body, { headers });
   },
 
+  patch<T>(path: string, body?: unknown, headers?: Record<string, string>): Promise<T> {
+    return request<T>('PATCH', path, body, { headers });
+  },
+
   delete<T>(path: string, headers?: Record<string, string>): Promise<T> {
     return request<T>('DELETE', path, undefined, { headers });
   },
