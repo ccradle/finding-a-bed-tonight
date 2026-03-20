@@ -13,16 +13,29 @@ class ArchitectureTest {
 
     // --- Shared kernel must not depend on any domain module ---
 
+    // shared.security is allowed to depend on auth module (Design D1 rule #5:
+    // "auth module is a dependency exception — security filters need auth services")
     @ArchTest
-    static final ArchRule shared_should_not_depend_on_modules =
+    static final ArchRule shared_non_security_should_not_depend_on_modules =
             noClasses().that().resideInAPackage("org.fabt.shared..")
+                    .and().resideOutsideOfPackage("org.fabt.shared.security..")
                     .should().dependOnClassesThat().resideInAnyPackage(
                             "org.fabt.tenant..",
                             "org.fabt.auth..",
                             "org.fabt.shelter..",
                             "org.fabt.dataimport..",
                             "org.fabt.observability.."
-                    ).as("Shared kernel must not depend on any domain module");
+                    ).as("Shared kernel (except security) must not depend on any domain module");
+
+    @ArchTest
+    static final ArchRule shared_security_only_depends_on_auth =
+            noClasses().that().resideInAPackage("org.fabt.shared.security..")
+                    .should().dependOnClassesThat().resideInAnyPackage(
+                            "org.fabt.tenant..",
+                            "org.fabt.shelter..",
+                            "org.fabt.dataimport..",
+                            "org.fabt.observability.."
+                    ).as("Shared security may depend on auth module but not other modules");
 
     // --- Modules must not access other modules' repositories ---
 

@@ -1,0 +1,21 @@
+# Test overrides for lite profile
+spring:
+  datasource:
+    hikari:
+      maximum-pool-size: 5
+      connection-timeout: 10000
+      minimum-idle: 2
+
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration
+
+fabt:
+  deployment-tier: lite
+  cache:
+    l1-ttl-seconds: 60
+  events:
+    transport: spring
+  jwt:
+    secret: test-secret-for-integration-tests-only
