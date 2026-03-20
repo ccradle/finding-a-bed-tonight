@@ -1,0 +1,25 @@
+# Full deployment profile: PostgreSQL + Redis + Kafka
+# Target: metro areas, multi-service, $100+/month
+
+spring:
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: fabt
+      auto-offset-reset: earliest
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+
+fabt:
+  deployment-tier: full
+  cache:
+    l1-ttl-seconds: 60
+    l2-ttl-seconds: 300
+  events:
+    transport: kafka

@@ -1,0 +1,48 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: finding-a-bed-tonight
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/fabt
+    username: fabt
+    password: fabt
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    default-property-inclusion: non_null
+
+  security:
+    oauth2:
+      client:
+        registration: {}
+
+  profiles:
+    default: lite
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: when-authorized
+      probes:
+        enabled: true
+
+springdoc:
+  api-docs:
+    path: /api/v1/api-docs
+  swagger-ui:
+    path: /api/v1/docs
+
+fabt:
+  deployment-tier: ${FABT_DEPLOYMENT_TIER:lite}

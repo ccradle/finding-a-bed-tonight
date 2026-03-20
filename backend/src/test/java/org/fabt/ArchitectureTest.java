@@ -1,0 +1,91 @@
+package org.fabt;
+
+import com.tngtech.archunit.core.importer.ImportOption;
+import com.tngtech.archunit.junit.AnalyzeClasses;
+import com.tngtech.archunit.junit.ArchTest;
+import com.tngtech.archunit.lang.ArchRule;
+
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
+
+@AnalyzeClasses(packages = "org.fabt", importOptions = ImportOption.DoNotIncludeTests.class)
+class ArchitectureTest {
+
+    // --- Shared kernel must not depend on any domain module ---
+
+    @ArchTest
+    static final ArchRule shared_should_not_depend_on_modules =
+            noClasses().that().resideInAPackage("org.fabt.shared..")
+                    .should().dependOnClassesThat().resideInAnyPackage(
+                            "org.fabt.tenant..",
+                            "org.fabt.auth..",
+                            "org.fabt.shelter..",
+                            "org.fabt.dataimport..",
+                            "org.fabt.observability.."
+                    ).as("Shared kernel must not depend on any domain module");
+
+    // --- Modules must not access other modules' repositories ---
+
+    @ArchTest
+    static final ArchRule tenant_should_not_access_other_repositories =
+            noClasses().that().resideInAPackage("org.fabt.tenant..")
+                    .should().dependOnClassesThat().resideInAnyPackage(
+                            "org.fabt.auth.repository..",
+                            "org.fabt.shelter.repository..",
+                            "org.fabt.dataimport.repository.."
+                    ).as("Tenant module must not access other modules' repositories");
+
+    @ArchTest
+    static final ArchRule auth_should_not_access_other_repositories =
+            noClasses().that().resideInAPackage("org.fabt.auth..")
+                    .should().dependOnClassesThat().resideInAnyPackage(
+                            "org.fabt.tenant.repository..",
+                            "org.fabt.shelter.repository..",
+                            "org.fabt.dataimport.repository.."
+                    ).as("Auth module must not access other modules' repositories");
+
+    @ArchTest
+    static final ArchRule shelter_should_not_access_other_repositories =
+            noClasses().that().resideInAPackage("org.fabt.shelter..")
+                    .should().dependOnClassesThat().resideInAnyPackage(
+                            "org.fabt.tenant.repository..",
+                            "org.fabt.auth.repository..",
+                            "org.fabt.dataimport.repository.."
+                    ).as("Shelter module must not access other modules' repositories");
+
+    @ArchTest
+    static final ArchRule dataimport_should_not_access_other_repositories =
+            noClasses().that().resideInAPackage("org.fabt.dataimport..")
+                    .should().dependOnClassesThat().resideInAnyPackage(
+                            "org.fabt.tenant.repository..",
+                            "org.fabt.auth.repository.."
+                    ).as("Data import module must not access tenant or auth repositories");
+
+    // --- No module should directly access another module's domain entities ---
+
+    @ArchTest
+    static final ArchRule modules_should_not_access_other_domain_entities =
+            noClasses().that().resideInAPackage("org.fabt.shelter..")
+                    .should().dependOnClassesThat().resideInAnyPackage(
+                            "org.fabt.auth.domain..",
+                            "org.fabt.dataimport.domain.."
+                    ).as("Shelter module must not access auth or dataimport domain entities");
+
+    // --- API controllers must reside in api packages ---
+
+    @ArchTest
+    static final ArchRule controllers_should_be_in_api_packages =
+            classes().that().haveSimpleNameEndingWith("Controller")
+                    .should().resideInAPackage("..api..")
+                    .allowEmptyShould(true)
+                    .as("Controllers must reside in api packages");
+
+    // --- Repositories must reside in repository packages ---
+
+    @ArchTest
+    static final ArchRule repositories_should_be_in_repository_packages =
+            classes().that().haveSimpleNameEndingWith("Repository")
+                    .should().resideInAPackage("..repository..")
+                    .allowEmptyShould(true)
+                    .as("Repositories must reside in repository packages");
+}

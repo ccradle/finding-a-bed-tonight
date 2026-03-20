@@ -1,0 +1,15 @@
+# Lite deployment profile: PostgreSQL only, no Redis or Kafka
+# Target: rural counties, volunteer-run, $15-30/month
+
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration
+
+fabt:
+  deployment-tier: lite
+  cache:
+    l1-ttl-seconds: 60
+  events:
+    transport: spring

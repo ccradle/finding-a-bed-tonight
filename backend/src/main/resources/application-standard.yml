@@ -1,0 +1,20 @@
+# Standard deployment profile: PostgreSQL + Redis
+# Target: mid-size CoCs, city IT, $30-75/month
+
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+fabt:
+  deployment-tier: standard
+  cache:
+    l1-ttl-seconds: 60
+    l2-ttl-seconds: 300
+  events:
+    transport: spring
