@@ -45,7 +45,7 @@ public class UserController {
         user.setDisplayName(request.displayName());
         user.setPasswordHash(request.password() != null ? passwordService.hash(request.password()) : null);
         user.setRoles(request.roles() != null ? request.roles() : new String[0]);
-        user.setDvAccess(request.dvAccess() != null ? request.dvAccess() : false);
+        user.setDvAccess(request.dvAccess() != null && request.dvAccess());
         user.setCreatedAt(Instant.now());
         user.setUpdatedAt(Instant.now());
 

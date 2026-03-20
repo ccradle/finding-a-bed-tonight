@@ -7,8 +7,9 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import org.fabt.auth.domain.ApiKey;
 import org.fabt.auth.service.ApiKeyService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.fabt.shared.web.TenantContext;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -19,6 +20,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 @Component
 public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
 
+    private static final Logger log = LoggerFactory.getLogger(ApiKeyAuthenticationFilter.class);
     private static final String API_KEY_HEADER = "X-API-Key";
 
     private final ApiKeyService apiKeyService;
@@ -57,7 +59,9 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
                 TenantContext.setDvAccess(false);
             });
         } catch (Exception e) {
-            // On failure: do nothing, let the chain continue unauthenticated
+            log.debug("API key authentication failed for request {}: {}",
+                    request.getRequestURI(), e.getMessage());
+            SecurityContextHolder.clearContext();
         }
 
         filterChain.doFilter(request, response);

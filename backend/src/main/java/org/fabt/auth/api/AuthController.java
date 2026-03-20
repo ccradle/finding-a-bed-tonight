@@ -1,7 +1,5 @@
 package org.fabt.auth.api;
 
-import java.util.UUID;
-
 import jakarta.validation.Valid;
 import org.fabt.auth.domain.User;
 import org.fabt.auth.repository.UserRepository;
