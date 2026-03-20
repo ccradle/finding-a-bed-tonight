@@ -1,4 +1,7 @@
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
+// Dev: Vite proxies /api → localhost:8080 (vite.config.ts), so BASE_URL is empty
+// Production (nginx): nginx proxies /api → backend, so BASE_URL is empty
+// Production (CDN/separate domain): set VITE_API_URL=https://api.example.com at build time
+const BASE_URL = import.meta.env.VITE_API_URL || '';
 
 export interface ErrorResponse {
   status: number;

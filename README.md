@@ -260,8 +260,8 @@ Use one of the seed data accounts:
 | Role | Email | Password | What you'll see |
 |------|-------|----------|----------------|
 | **Platform Admin** | `admin@dev.fabt.org` | `admin123` | Admin panel (tenant/user management) |
-| **CoC Admin** | `cocadmin@dev.fabt.org` | `cocadmin123` | Admin panel + shelter management |
-| **Outreach Worker** | `outreach@dev.fabt.org` | `outreach123` | Outreach search interface |
+| **CoC Admin** | `cocadmin@dev.fabt.org` | `admin123` | Admin panel + shelter management |
+| **Outreach Worker** | `outreach@dev.fabt.org` | `admin123` | Outreach search interface |
 
 **Tenant slug:** `dev-coc`
 

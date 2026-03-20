@@ -1,12 +1,357 @@
+import { useState, useEffect, useCallback } from 'react';
+import { FormattedMessage, useIntl } from 'react-intl';
+import { api } from '../services/api';
+import { DataAge } from '../components/DataAge';
+
+const POPULATION_TYPES = [
+  { value: '', labelId: 'search.allTypes' },
+  { value: 'SINGLE_ADULT', labelId: 'search.singleAdult' },
+  { value: 'FAMILY_WITH_CHILDREN', labelId: 'search.family' },
+  { value: 'WOMEN_ONLY', labelId: 'search.womenOnly' },
+  { value: 'VETERAN', labelId: 'search.veteran' },
+  { value: 'YOUTH_18_24', labelId: 'search.youth1824' },
+  { value: 'YOUTH_UNDER_18', labelId: 'search.youthUnder18' },
+  { value: 'DV_SURVIVOR', labelId: 'search.dvSurvivor' },
+];
+
+interface ShelterResult {
+  id: string;
+  name: string;
+  addressStreet: string;
+  addressCity: string;
+  addressState: string;
+  addressZip: string;
+  phone: string;
+  latitude: number;
+  longitude: number;
+  dvShelter: boolean;
+  updatedAt: string;
+}
+
+interface ShelterConstraints {
+  sobrietyRequired: boolean;
+  idRequired: boolean;
+  referralRequired: boolean;
+  petsAllowed: boolean;
+  wheelchairAccessible: boolean;
+  curfewTime: string | null;
+  maxStayDays: number | null;
+  populationTypesServed: string[];
+}
+
+interface ShelterCapacity {
+  populationType: string;
+  bedsTotal: number;
+}
+
+interface ShelterDetail {
+  shelter: ShelterResult;
+  constraints: ShelterConstraints | null;
+  capacities: ShelterCapacity[];
+  data_age_seconds?: number;
+  data_freshness?: string;
+}
+
 export function OutreachSearch() {
+  const intl = useIntl();
+  const [shelters, setShelters] = useState<ShelterResult[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [populationType, setPopulationType] = useState('');
+  const [petsAllowed, setPetsAllowed] = useState(false);
+  const [wheelchairAccessible, setWheelchairAccessible] = useState(false);
+  const [searchText, setSearchText] = useState('');
+  const [selectedShelter, setSelectedShelter] = useState<ShelterDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+
+  const fetchShelters = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const params = new URLSearchParams();
+      if (populationType) params.append('populationType', populationType);
+      if (petsAllowed) params.append('petsAllowed', 'true');
+      if (wheelchairAccessible) params.append('wheelchairAccessible', 'true');
+      const query = params.toString();
+      const data = await api.get<ShelterResult[]>(`/api/v1/shelters${query ? '?' + query : ''}`);
+      setShelters(data);
+    } catch {
+      setError(intl.formatMessage({ id: 'search.error' }));
+    } finally {
+      setLoading(false);
+    }
+  }, [populationType, petsAllowed, wheelchairAccessible, intl]);
+
+  useEffect(() => { fetchShelters(); }, [fetchShelters]);
+
+  const openDetail = async (id: string) => {
+    setDetailLoading(true);
+    try {
+      const detail = await api.get<ShelterDetail>(`/api/v1/shelters/${id}`);
+      setSelectedShelter(detail);
+    } catch {
+      setError(intl.formatMessage({ id: 'search.error' }));
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const filtered = shelters.filter((s) => {
+    if (!searchText) return true;
+    const q = searchText.toLowerCase();
+    return s.name.toLowerCase().includes(q) ||
+      (s.addressCity && s.addressCity.toLowerCase().includes(q)) ||
+      (s.addressStreet && s.addressStreet.toLowerCase().includes(q));
+  });
+
+  const fmtAddr = (s: ShelterResult) =>
+    [s.addressStreet, s.addressCity, s.addressState, s.addressZip].filter(Boolean).join(', ');
+
+  const mapsUrl = (s: ShelterResult) =>
+    s.latitude && s.longitude
+      ? `https://maps.google.com/?q=${s.latitude},${s.longitude}`
+      : `https://maps.google.com/?q=${encodeURIComponent(fmtAddr(s))}`;
+
   return (
-    <div style={{ padding: '24px' }}>
-      <h2 style={{ fontSize: '24px', fontWeight: 700, color: '#111827', marginBottom: '12px' }}>
-        Outreach Search
-      </h2>
-      <p style={{ fontSize: '16px', color: '#6b7280' }}>
-        Coming Soon. Search available shelter beds.
-      </p>
+    <div style={{ maxWidth: 720, margin: '0 auto' }}>
+      {/* Header */}
+      <div style={{
+        background: 'linear-gradient(135deg, #0c1929 0%, #1a3a5c 50%, #0f2940 100%)',
+        borderRadius: 16, padding: '28px 24px', marginBottom: 20, color: '#fff',
+        boxShadow: '0 4px 24px rgba(0,0,0,0.15)',
+      }}>
+        <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, letterSpacing: '-0.03em' }}>
+          <FormattedMessage id="search.title" />
+        </h1>
+        <p style={{ margin: '6px 0 0', fontSize: 14, color: '#94b8d8' }}>
+          <FormattedMessage id="search.subtitle" />
+        </p>
+      </div>
+
+      {/* Search input */}
+      <input
+        type="search"
+        value={searchText}
+        onChange={(e) => setSearchText(e.target.value)}
+        placeholder={intl.formatMessage({ id: 'search.placeholder' })}
+        style={{
+          width: '100%', padding: '15px 18px', borderRadius: 14,
+          border: '2px solid #e2e8f0', fontSize: 16, minHeight: 50,
+          boxSizing: 'border-box', marginBottom: 14, outline: 'none',
+          fontWeight: 500, color: '#0f172a',
+        }}
+      />
+
+      {/* Filters */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 20 }}>
+        <select
+          value={populationType}
+          onChange={(e) => setPopulationType(e.target.value)}
+          style={{
+            padding: '11px 14px', borderRadius: 10, border: '2px solid #e2e8f0',
+            fontSize: 14, minHeight: 44, backgroundColor: populationType ? '#eff6ff' : '#fff',
+            color: populationType ? '#1a56db' : '#475569', fontWeight: 500, cursor: 'pointer',
+          }}
+        >
+          {POPULATION_TYPES.map((pt) => (
+            <option key={pt.value} value={pt.value}>{intl.formatMessage({ id: pt.labelId })}</option>
+          ))}
+        </select>
+        <ToggleChip active={petsAllowed} onClick={() => setPetsAllowed(!petsAllowed)} label={`🐕 ${intl.formatMessage({ id: 'search.pets' })}`} />
+        <ToggleChip active={wheelchairAccessible} onClick={() => setWheelchairAccessible(!wheelchairAccessible)} label={`♿ ${intl.formatMessage({ id: 'search.wheelchair' })}`} />
+      </div>
+
+      {/* Count */}
+      <div style={{ fontSize: 13, color: '#64748b', marginBottom: 10, fontWeight: 600, letterSpacing: '0.02em' }}>
+        {loading
+          ? <FormattedMessage id="search.loading" />
+          : <FormattedMessage id="search.resultCount" values={{ count: filtered.length }} />}
+      </div>
+
+      {error && (
+        <div style={{
+          backgroundColor: '#fef2f2', color: '#991b1b', padding: '14px 18px',
+          borderRadius: 12, marginBottom: 16, fontSize: 14, fontWeight: 500,
+        }}>{error}</div>
+      )}
+
+      {loading && <Spinner />}
+
+      {/* Results */}
+      {!loading && filtered.map((s) => (
+        <button
+          key={s.id}
+          onClick={() => openDetail(s.id)}
+          style={{
+            display: 'block', width: '100%', textAlign: 'left', padding: '18px 20px',
+            marginBottom: 10, borderRadius: 14, border: '2px solid #e2e8f0',
+            backgroundColor: '#fff', cursor: 'pointer', transition: 'border-color 0.12s, box-shadow 0.12s',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#3b82f6'; e.currentTarget.style.boxShadow = '0 2px 12px rgba(59,130,246,0.1)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.boxShadow = 'none'; }}
+        >
+          <div style={{ fontSize: 17, fontWeight: 700, color: '#0f172a', marginBottom: 3 }}>{s.name}</div>
+          <div style={{ fontSize: 14, color: '#64748b', marginBottom: 6 }}>{fmtAddr(s)}</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            {s.phone && <span style={{ fontSize: 14, color: '#1a56db', fontWeight: 600 }}>📞 {s.phone}</span>}
+            <DataAge dataAgeSeconds={s.updatedAt ? Math.floor((Date.now() - new Date(s.updatedAt).getTime()) / 1000) : null} />
+          </div>
+        </button>
+      ))}
+
+      {!loading && filtered.length === 0 && (
+        <div style={{ textAlign: 'center', padding: 48, color: '#94a3b8' }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>🏠</div>
+          <div style={{ fontSize: 16, fontWeight: 500 }}><FormattedMessage id="search.noResults" /></div>
+          <div style={{ fontSize: 14, marginTop: 6 }}><FormattedMessage id="search.tryDifferent" /></div>
+        </div>
+      )}
+
+      {/* Detail modal */}
+      {selectedShelter && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
+          onClick={() => setSelectedShelter(null)}>
+          <div style={{
+            backgroundColor: '#fff', borderRadius: '24px 24px 0 0', width: '100%', maxWidth: 600,
+            maxHeight: '88vh', overflowY: 'auto', padding: '28px 24px 36px',
+          }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ width: 40, height: 4, backgroundColor: '#d1d5db', borderRadius: 2, margin: '0 auto 22px' }} />
+
+            <h2 style={{ margin: '0 0 4px', fontSize: 22, fontWeight: 800, color: '#0f172a' }}>{selectedShelter.shelter.name}</h2>
+            <p style={{ margin: '0 0 16px', fontSize: 14, color: '#64748b' }}>{fmtAddr(selectedShelter.shelter)}</p>
+
+            {selectedShelter.data_age_seconds !== undefined && (
+              <div style={{ marginBottom: 18 }}><DataAge dataAgeSeconds={selectedShelter.data_age_seconds} /></div>
+            )}
+
+            {/* Action row */}
+            <div style={{ display: 'flex', gap: 10, marginBottom: 24 }}>
+              {selectedShelter.shelter.phone && (
+                <a href={`tel:${selectedShelter.shelter.phone}`} style={{
+                  flex: 1, padding: 14, backgroundColor: '#059669', color: '#fff', borderRadius: 12,
+                  textAlign: 'center', textDecoration: 'none', fontSize: 16, fontWeight: 700, minHeight: 50,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                }}>📞 <FormattedMessage id="search.call" /></a>
+              )}
+              <a href={mapsUrl(selectedShelter.shelter)} target="_blank" rel="noopener noreferrer" style={{
+                flex: 1, padding: 14, backgroundColor: '#1a56db', color: '#fff', borderRadius: 12,
+                textAlign: 'center', textDecoration: 'none', fontSize: 16, fontWeight: 700, minHeight: 50,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              }}>🗺️ <FormattedMessage id="search.directions" /></a>
+            </div>
+
+            {/* Capacity */}
+            {selectedShelter.capacities?.length > 0 && (
+              <Section title={intl.formatMessage({ id: 'search.capacity' })}>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                  {selectedShelter.capacities.map((cap) => (
+                    <div key={cap.populationType} style={{
+                      padding: '12px 18px', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0',
+                      borderRadius: 12, textAlign: 'center', minWidth: 90,
+                    }}>
+                      <div style={{ fontWeight: 800, color: '#166534', fontSize: 24, lineHeight: 1 }}>{cap.bedsTotal}</div>
+                      <div style={{ color: '#15803d', fontSize: 11, fontWeight: 600, marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        {cap.populationType.replace(/_/g, ' ')}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Section>
+            )}
+
+            {/* Constraints */}
+            {selectedShelter.constraints && (
+              <Section title={intl.formatMessage({ id: 'search.requirements' })}>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <Badge ok={selectedShelter.constraints.petsAllowed} yes="🐕 Pets OK" no="🚫 No Pets" />
+                  <Badge ok={selectedShelter.constraints.wheelchairAccessible} yes="♿ Accessible" no="⚠️ Not Accessible" />
+                  <Badge ok={!selectedShelter.constraints.sobrietyRequired} yes="✅ No Sobriety Req" no="🔒 Sobriety Required" />
+                  <Badge ok={!selectedShelter.constraints.idRequired} yes="✅ No ID Needed" no="🪪 ID Required" />
+                  <Badge ok={!selectedShelter.constraints.referralRequired} yes="✅ Walk-in OK" no="📋 Referral Required" />
+                </div>
+                {selectedShelter.constraints.curfewTime && (
+                  <div style={{ marginTop: 12, fontSize: 14, color: '#475569', fontWeight: 500 }}>
+                    ⏰ <FormattedMessage id="search.curfew" />: {selectedShelter.constraints.curfewTime}
+                  </div>
+                )}
+                {selectedShelter.constraints.maxStayDays && (
+                  <div style={{ marginTop: 4, fontSize: 14, color: '#475569', fontWeight: 500 }}>
+                    📅 <FormattedMessage id="search.maxStay" />: {selectedShelter.constraints.maxStayDays} <FormattedMessage id="search.days" />
+                  </div>
+                )}
+                {selectedShelter.constraints.populationTypesServed?.length > 0 && (
+                  <div style={{ marginTop: 12 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 6, textTransform: 'uppercase' }}>
+                      <FormattedMessage id="search.serves" />
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {selectedShelter.constraints.populationTypesServed.map((pt) => (
+                        <span key={pt} style={{
+                          padding: '4px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+                          backgroundColor: '#eff6ff', color: '#1e40af',
+                        }}>{pt.replace(/_/g, ' ')}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </Section>
+            )}
+
+            <button onClick={() => setSelectedShelter(null)} style={{
+              width: '100%', padding: 16, backgroundColor: '#f1f5f9', color: '#475569',
+              border: 'none', borderRadius: 12, fontSize: 15, fontWeight: 600, cursor: 'pointer', minHeight: 50,
+            }}><FormattedMessage id="search.close" /></button>
+          </div>
+        </div>
+      )}
+
+      {detailLoading && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.3)', zIndex: 1001, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ backgroundColor: '#fff', borderRadius: 16, padding: 32 }}><Spinner /></div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ToggleChip({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
+  return (
+    <button onClick={onClick} style={{
+      padding: '10px 14px', borderRadius: 10, border: `2px solid ${active ? '#1a56db' : '#e2e8f0'}`,
+      backgroundColor: active ? '#eff6ff' : '#fff', color: active ? '#1a56db' : '#64748b',
+      cursor: 'pointer', fontSize: 14, fontWeight: active ? 600 : 500, minHeight: 44,
+      display: 'flex', alignItems: 'center', gap: 4, transition: 'all 0.12s',
+    }}>{label}</button>
+  );
+}
+
+function Badge({ ok, yes, no }: { ok: boolean; yes: string; no: string }) {
+  return (
+    <span style={{
+      padding: '6px 12px', borderRadius: 8, fontSize: 13, fontWeight: 600,
+      backgroundColor: ok ? '#f0fdf4' : '#fef2f2', color: ok ? '#166534' : '#991b1b',
+      border: `1px solid ${ok ? '#bbf7d0' : '#fecaca'}`,
+    }}>{ok ? yes : no}</span>
+  );
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div style={{ marginBottom: 22 }}>
+      <h3 style={{ fontSize: 12, fontWeight: 700, color: '#64748b', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{title}</h3>
+      {children}
+    </div>
+  );
+}
+
+function Spinner() {
+  return (
+    <div style={{ textAlign: 'center', padding: 32, color: '#94a3b8' }}>
+      <div style={{
+        width: 32, height: 32, border: '3px solid #e2e8f0', borderTopColor: '#1a56db',
+        borderRadius: '50%', animation: 'fabt-spin 0.7s linear infinite', margin: '0 auto 10px',
+      }} />
+      <style>{`@keyframes fabt-spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }
