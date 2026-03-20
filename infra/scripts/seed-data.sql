@@ -18,7 +18,7 @@ VALUES (
     'b0000000-0000-0000-0000-000000000001',
     'a0000000-0000-0000-0000-000000000001',
     'admin@dev.fabt.org',
-    '$2a$10$N9qo8uLOickgx2ZMRZoMye.IjqQBi/PLKH.V1GjCxwW7r0v4zJLSG',
+    '$2a$10$N9qo8uLOickgx2ZMRZoMye.IjqQBi/PLKH.V1GjCxwW7r0v4zJLSG', -- nosemgrep: generic.secrets.security.detected-bcrypt-hash.detected-bcrypt-hash
     'Dev Admin',
     ARRAY['PLATFORM_ADMIN'],
     true,
@@ -31,7 +31,7 @@ VALUES (
     'b0000000-0000-0000-0000-000000000002',
     'a0000000-0000-0000-0000-000000000001',
     'outreach@dev.fabt.org',
-    '$2a$10$N9qo8uLOickgx2ZMRZoMye.IjqQBi/PLKH.V1GjCxwW7r0v4zJLSG',
+    '$2a$10$N9qo8uLOickgx2ZMRZoMye.IjqQBi/PLKH.V1GjCxwW7r0v4zJLSG', -- nosemgrep: generic.secrets.security.detected-bcrypt-hash.detected-bcrypt-hash
     'Dev Outreach Worker',
     ARRAY['OUTREACH_WORKER'],
     false,
@@ -44,7 +44,7 @@ VALUES (
     'b0000000-0000-0000-0000-000000000003',
     'a0000000-0000-0000-0000-000000000001',
     'cocadmin@dev.fabt.org',
-    '$2a$10$N9qo8uLOickgx2ZMRZoMye.IjqQBi/PLKH.V1GjCxwW7r0v4zJLSG',
+    '$2a$10$N9qo8uLOickgx2ZMRZoMye.IjqQBi/PLKH.V1GjCxwW7r0v4zJLSG', -- nosemgrep: generic.secrets.security.detected-bcrypt-hash.detected-bcrypt-hash
     'Dev CoC Admin',
     ARRAY['COC_ADMIN'],
     false,
