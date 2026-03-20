@@ -554,32 +554,39 @@ finding-a-bed-tonight/
 
 ## Project Status
 
-**Platform Foundation** — 117/131 tasks complete (89%)
+### Completed: Platform Foundation (archived)
 
-- [x] Project scaffold (Spring Boot 3.4, Java 21, modular monolith, ArchUnit)
-- [x] 12 Flyway migrations (V1–V11 + V8.1)
-- [x] 3 deployment profiles (Lite / Standard / Full)
-- [x] CacheService + EventBus abstractions with profile-based implementations
-- [x] Multi-tenant CRUD + JSONB config management
-- [x] JWT authentication + refresh tokens (HMAC-SHA256 with Caffeine claims cache)
-- [x] API key authentication (shelter-scoped COORDINATOR / org-level COC_ADMIN)
-- [x] OAuth2 provider management + account linking (Option C: pre-created accounts)
-- [x] Role-based access (dual-layer: URL + @PreAuthorize, 4 roles)
-- [x] DV shelter RLS (PostgreSQL Row Level Security, enforced at data layer)
-- [x] Shelter module (CRUD, constraints, capacities, HSDS 3.0 export, coordinator assignments)
-- [x] Data import module (HSDS JSON, 211 CSV with fuzzy column matching, audit log)
-- [x] Observability (structured JSON logging, Micrometer metrics, health probes, data freshness, i18n)
-- [x] Webhook subscriptions (CRUD, HMAC-SHA256 delivery, event matching)
-- [x] React PWA frontend (role-gated routing, offline queue, i18n EN/ES, service worker)
-- [x] CI/CD pipeline (GitHub Actions: backend test, frontend build, Docker push)
-- [x] Docker (backend + frontend Dockerfiles, docker-compose, nginx SPA proxy)
-- [x] Seed data (10 shelters, 3 users, dev-setup script, CONTRIBUTING.md)
-- [x] MCP-ready error responses + self-describing domain events
-- [ ] OAuth2 redirect flow (dynamic ClientRegistrationRepository — provider CRUD done, browser redirect pending)
-- [x] @Operation annotations on all 28 API endpoints (MCP-ready REQ-MCP-3)
-- [x] Documentation standards (DBML, ERD, AsyncAPI 3.0, draw.io architecture diagram)
-- [ ] Infrastructure as Code (Terraform modules — 8 tasks)
-- [ ] OAuth2 redirect flow (dynamic ClientRegistrationRepository — provider CRUD done, browser redirect pending)
+- [x] Modular monolith backend (Java 21, Spring Boot 3.4, 6 modules, ArchUnit boundaries)
+- [x] 12 Flyway migrations, PostgreSQL 16, Row Level Security for DV shelters
+- [x] 3 deployment profiles (Lite / Standard / Full) with CacheService + EventBus abstractions
+- [x] Multi-tenant auth: JWT + API keys + OAuth2 provider management, 4 roles, dual-layer security
+- [x] Shelter module: CRUD, constraints, capacities, HSDS 3.0 export, coordinator assignments
+- [x] Data import: HSDS JSON, 211 CSV (fuzzy column matching), audit log
+- [x] Observability: structured JSON logging, Micrometer metrics, health probes, data freshness, i18n (EN/ES)
+- [x] Webhook subscriptions: CRUD, HMAC-SHA256 delivery, event matching
+- [x] React PWA: outreach search, coordinator dashboard, admin panel, offline queue, service worker
+- [x] MCP-ready: @Operation on all 28 endpoints, structured errors, self-describing events
+- [x] CI/CD (GitHub Actions), Docker, Terraform (3 tiers), seed data, dev-start.sh
+- [x] Documentation: DBML, ERD, AsyncAPI 3.0, draw.io, portfolio-standard READMEs
+
+### In Progress: Bed Availability (specced, ready for implementation)
+
+- [ ] Real-time bed availability with append-only snapshots
+- [ ] Bed search endpoint (POST /api/v1/queries/beds) with ranked results
+- [ ] Coordinator availability update (PATCH /api/v1/shelters/{id}/availability)
+- [ ] Frontend: live availability in outreach search + coordinator dashboard
+
+### Planned: Remaining Phase 1 Capabilities
+
+| Change | Description | Priority | Status |
+|--------|-------------|----------|--------|
+| **reservation-system** | Soft-hold mechanism for bed placement. Configurable hold duration (default 2 hours), PostgreSQL source of truth with Redis acceleration (Standard/Full), auto-expiry. Prevents double-booking while outreach worker transports a client to the shelter. | High | Not started |
+| **surge-mode** | White Flag / emergency activation for extreme weather or crisis events. CoC-admin triggered, broadcasts to all outreach workers within 30 seconds. Unlocks overflow capacity reporting. First-class domain entity with lifecycle (ACTIVE → DEACTIVATED → EXPIRED), audit trail, queryable historically. | High | Not started |
+| **oauth2-redirect-flow** | Browser OAuth2 redirect/callback via Spring Security OAuth2 Client. Dynamic `ClientRegistrationRepository` loads provider config per tenant from database. Keycloak for local dev/testing. Required before pilot city onboarding (social workers need "Login with Google"). Provider CRUD and account linking already implemented. | High | Not started |
+| **e2e-test-automation** | End-to-end test suite: Playwright for UI flows (login, search, update), Karate for API contract testing, test automation strategy document. Validates the full stack from browser to database. | Medium | Not started |
+| **dv-opaque-referral** | Privacy-preserving referral for domestic violence shelters. Shelter location never revealed — referral uses an opaque token. Human-in-the-loop confirmation required (cannot be delegated to AI agents). Audit trail for all referral access. Safety-critical. | Medium | Not started |
+| **hmis-bridge** | Asynchronous push adapter to Homeless Management Information System (HMIS) vendors (e.g., Bitfocus Clarity). Outbox pattern, Resilience4J circuit breaker per vendor (`fabt-hmis-{vendor}`), retry schedule (1m, 5m, 30m, 2h). Bridge failure must never degrade the query path. Potentially extractable as a separate service. | Medium | Not started |
+| **coc-analytics** | Aggregate anonymized metrics for CoC directors: unmet demand by population type, occupancy trends, placement success rates, White Flag night analysis. Powers HUD grant applications and resource allocation decisions. Conversational access planned via MCP Phase 2. | Low | Not started |
 
 ---
 
