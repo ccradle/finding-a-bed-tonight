@@ -77,3 +77,5 @@ test-results/
 coverage/
 logs/
 .pid-*
+**/.terraform/
+**/.terraform.lock.hcl
