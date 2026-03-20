@@ -1,0 +1,21 @@
+{
+  "app.name": "Finding A Bed Tonight",
+  "login.title": "Sign In",
+  "login.email": "Email",
+  "login.password": "Password",
+  "login.submit": "Sign In",
+  "login.error": "Invalid credentials",
+  "login.tenant": "Organization",
+  "nav.shelters": "Shelters",
+  "nav.search": "Search Beds",
+  "nav.admin": "Administration",
+  "nav.logout": "Sign Out",
+  "offline.banner": "You are offline — actions will be synced when connection returns",
+  "data.age.fresh": "Updated {minutes} minutes ago",
+  "data.age.stale": "Data may be outdated",
+  "shelter.create": "Add Shelter",
+  "shelter.name": "Shelter Name",
+  "shelter.address": "Address",
+  "import.hsds": "Import HSDS Data",
+  "import.211": "Import 211 Data"
+}
