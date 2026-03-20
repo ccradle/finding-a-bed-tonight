@@ -65,6 +65,10 @@ public class SecurityConfig {
                         .requestMatchers("/swagger-ui/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/tenants/*/oauth2-providers/public").permitAll()
 
+                        // OAuth2 provider management — COC_ADMIN or PLATFORM_ADMIN
+                        // Must be BEFORE the general /api/v1/tenants/** matcher
+                        .requestMatchers("/api/v1/tenants/*/oauth2-providers/**").hasAnyRole("COC_ADMIN", "PLATFORM_ADMIN")
+
                         // Tenant management — PLATFORM_ADMIN only
                         .requestMatchers("/api/v1/tenants/**").hasRole("PLATFORM_ADMIN")
 
