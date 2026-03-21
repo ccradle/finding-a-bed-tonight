@@ -46,6 +46,9 @@ An open-source platform that matches homeless individuals and families to availa
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────┐       │
 │  │  tenant   │ │   auth   │ │ shelter  │ │  dataimport  │       │
 │  └──────────┘ └──────────┘ └──────────┘ └──────────────┘       │
+│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐            │
+│  │ availability  │ │ reservation  │ │ subscription │            │
+│  └──────────────┘ └──────────────┘ └──────────────┘            │
 │  ┌──────────────┐                                                │
 │  │ observability │                                               │
 │  └──────────────┘                                                │
@@ -64,38 +67,9 @@ An open-source platform that matches homeless individuals and families to availa
 
 ## Architecture
 
-The backend is a Spring Boot 3.4 modular monolith. Each bounded context (tenant, auth, shelter, dataimport, observability) lives in its own top-level package under `org.fabt.*` with enforced boundaries. A shared kernel provides cross-cutting infrastructure (security filters, caching, event bus, JDBC configuration).
+The backend is a Spring Boot 3.4 modular monolith. Each bounded context lives in its own top-level package under `org.fabt.*` with enforced boundaries (15 ArchUnit rules). A shared kernel provides cross-cutting infrastructure (security filters, caching, event bus, JDBC configuration).
 
 Three deployment tiers allow the same codebase to serve communities of vastly different size and budget:
-
-```
-┌──────────────────────────────────────────────────────────────────┐
-│                     PWA (React + Vite)                            │
-│  Coordinator │ Outreach Worker │ CoC Admin                       │
-└──────────────┬──────────────────┬────────────────────────────────┘
-               │ REST API (/api/v1)│
-┌──────────────▼──────────────────▼────────────────────────────────┐
-│              Spring Boot 3.4 (Modular Monolith)                  │
-│                                                                  │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────┐       │
-│  │  tenant   │ │   auth   │ │ shelter  │ │  dataimport  │       │
-│  │          │ │          │ │          │ │              │       │
-│  │ api/     │ │ api/     │ │ api/     │ │ api/         │       │
-│  │ domain/  │ │ domain/  │ │ domain/  │ │ domain/      │       │
-│  │ repo/    │ │ repo/    │ │ repo/    │ │ repo/        │       │
-│  │ service/ │ │ service/ │ │ service/ │ │ service/     │       │
-│  └──────────┘ └──────────┘ └──────────┘ └──────────────┘       │
-│                                                                  │
-│  ┌─────────────────── shared kernel ───────────────────────┐     │
-│  │ config │ cache │ event │ security │ web                 │     │
-│  └─────────────────────────────────────────────────────────┘     │
-└──────┬──────────────┬───────────────────┬────────────────────────┘
-       │              │                   │
-  ┌────▼────┐   ┌─────▼─────┐      ┌─────▼─────┐
-  │PostgreSQL│   │   Redis   │      │   Kafka   │
-  │  16 +RLS │   │  (Std/Full)│      │  (Full)   │
-  └─────────┘   └───────────┘      └───────────┘
-```
 
 ---
 
@@ -114,13 +88,13 @@ Three deployment tiers allow the same codebase to serve communities of vastly di
 | Layer | Technology |
 |---|---|
 | Backend | Java 21, Spring Boot 3.4, Spring MVC, Spring Data JDBC |
-| Database | PostgreSQL 16, Flyway, Row Level Security (DV shelters) |
+| Database | PostgreSQL 16, Flyway (15 migrations), Row Level Security (DV shelters) |
 | Cache | Caffeine L1 / + Redis L2 (Standard/Full) |
 | Events | Spring Events (Lite) / Kafka (Full) |
 | Auth | JWT + OAuth2/OIDC + API Keys (hybrid) |
-| Frontend | React 18, Vite, TypeScript, Workbox PWA, react-intl (EN/ES) |
-| Testing | JUnit 5, Testcontainers, ArchUnit (85 tests) |
-| Infra | Docker, GitHub Actions CI/CD, Terraform (pending) |
+| Frontend | React 19, Vite, TypeScript, Workbox PWA, react-intl (EN/ES) |
+| Testing | JUnit 5, Testcontainers, ArchUnit (109 tests, 15 architecture rules) |
+| Infra | Docker, GitHub Actions CI/CD, Terraform (3 tiers) |
 
 ---
 
@@ -134,14 +108,16 @@ The backend is a **modular monolith** — not a flat package-by-layer structure.
 |---|---|---|
 | `tenant` | `org.fabt.tenant` | CoC tenant CRUD, configuration, multi-tenancy |
 | `auth` | `org.fabt.auth` | JWT login/refresh, user CRUD, API key management, OAuth2 linking |
-| `shelter` | `org.fabt.shelter` | Shelter profiles, constraints, HSDS export, coordinator assignments |
+| `shelter` | `org.fabt.shelter` | Shelter profiles, constraints, capacities, HSDS export, coordinator assignments |
+| `availability` | `org.fabt.availability` | Real-time bed availability snapshots, bed search queries, data freshness |
+| `reservation` | `org.fabt.reservation` | Soft-hold bed reservations: create, confirm, cancel, auto-expire |
 | `dataimport` | `org.fabt.dataimport` | HSDS JSON import, 211 CSV import (fuzzy matching), import audit log |
 | `observability` | `org.fabt.observability` | Structured JSON logging, Micrometer metrics, health probes, data freshness, i18n |
 | `subscription` | `org.fabt.subscription` | Webhook subscriptions, HMAC-SHA256 event delivery, MCP-ready |
 
 **Shared kernel:** `org.fabt.shared` — config, cache (`CacheService`, `CacheNames`), event (`EventBus`, `DomainEvent`), security (`JwtAuthenticationFilter`, `ApiKeyAuthenticationFilter`, `SecurityConfig`), web (`TenantContext`, `GlobalExceptionHandler`).
 
-**ArchUnit enforcement:** 11 architecture tests verify that modules do not access each other's `domain`, `repository`, or `service` packages. Only `api` and `shared` packages are accessible across module boundaries.
+**ArchUnit enforcement:** 15 architecture tests verify that modules do not access each other's `domain`, `repository`, or `service` packages. Only `api` and `shared` packages are accessible across module boundaries.
 
 ---
 
@@ -162,7 +138,7 @@ Phase 2 will add an MCP server as a thin wrapper around the REST API, enabling n
 
 ## Database Schema
 
-12 Flyway migrations (V1–V11 + V8.1):
+15 Flyway migrations (V1–V15 + V8.1):
 
 | Migration | Description |
 |---|---|
@@ -178,6 +154,10 @@ Phase 2 will add an MCP server as a thin wrapper around the REST API, enabling n
 | V9 | `import_log` — HSDS data import audit trail |
 | V10 | `tenant_oauth2_provider`, `user_oauth2_link` — OAuth2 account linking |
 | V11 | `subscription` — webhook subscriptions for event-driven notifications |
+| V12 | `bed_availability` — append-only bed availability snapshots |
+| V13 | RLS for `bed_availability` — inherits DV-shelter access control |
+| V14 | `reservation` — soft-hold bed reservations with status lifecycle |
+| V15 | RLS for `reservation` — inherits DV-shelter access control |
 
 ### Entity Relationship Diagram
 
@@ -213,42 +193,41 @@ New to OpenSpec? See [https://openspec.dev](https://openspec.dev) and [https://g
 
 ## Starting the Stack
 
-### 1. Start infrastructure + load seed data
+### Quick start (recommended)
 
 ```bash
 git clone https://github.com/ccradle/finding-a-bed-tonight.git
 cd finding-a-bed-tonight
 
-# Start PostgreSQL via Docker Compose
+# Start everything: PostgreSQL, backend, seed data, frontend
+./dev-start.sh
+
+# Stop everything
+./dev-start.sh stop
+
+# Backend only (no frontend)
+./dev-start.sh backend
+```
+
+The script starts PostgreSQL via Docker Compose, builds and launches the backend (with Flyway migrations), loads seed data (10 shelters, 3 users, 1 tenant), and starts the frontend dev server.
+
+### Manual start
+
+```bash
+# 1. Start PostgreSQL
 docker compose up -d postgres
 
-# Wait for PostgreSQL to be ready
-docker compose exec postgres pg_isready -U fabt
-
-# Load seed data (10 shelters, 3 users, 1 tenant)
+# 2. Load seed data
 docker compose exec -T postgres psql -U fabt -d fabt < infra/scripts/seed-data.sql
+
+# 3. Start backend
+cd backend && mvn spring-boot:run
+
+# 4. Start frontend (separate terminal)
+cd frontend && npm install && npm run dev
 ```
 
-### 2. Start the backend
-
-```bash
-cd backend
-mvn spring-boot:run
-```
-
-The backend starts on **http://localhost:8080**. Flyway automatically runs all 12 migrations on first startup.
-
-### 3. Start the frontend
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-The frontend starts on **http://localhost:5173** and proxies API requests to the backend.
-
-### 4. Verify the stack is running
+### Verify the stack
 
 ```bash
 # Health check
@@ -256,6 +235,9 @@ curl http://localhost:8080/actuator/health/liveness
 
 # Swagger UI
 open http://localhost:8080/api/v1/docs
+
+# Frontend
+open http://localhost:5173
 ```
 
 ---
@@ -271,47 +253,53 @@ Use one of the seed data accounts:
 | Role | Email | Password | What you'll see |
 |------|-------|----------|----------------|
 | **Platform Admin** | `admin@dev.fabt.org` | `admin123` | Admin panel (tenant/user management) |
-| **CoC Admin** | `cocadmin@dev.fabt.org` | `admin123` | Admin panel + shelter management |
-| **Outreach Worker** | `outreach@dev.fabt.org` | `admin123` | Outreach search interface |
+| **CoC Admin** | `cocadmin@dev.fabt.org` | `admin123` | Coordinator dashboard (5 assigned shelters) |
+| **Outreach Worker** | `outreach@dev.fabt.org` | `admin123` | Bed search with live availability |
 
 **Tenant slug:** `dev-coc`
 
 ### What to verify
 
 1. **Login page** loads with email/password form and tenant slug field
-2. **Login with admin credentials** → redirected to admin panel
-3. **Navigation** — sidebar (desktop) or bottom nav (mobile) shows role-appropriate links
-4. **Offline banner** — toggle airplane mode or disconnect network → yellow "You are offline" banner appears
-5. **Language selector** — switch to Español → UI text changes to Spanish
-6. **Shelter form** (CoC Admin) — navigate to shelter creation, verify form fields render
-7. **Logout** → returns to login page
+2. **Outreach search** — shelters show beds available (green) and full (red), freshness badges (FRESH/AGING/STALE), "Hold This Bed" buttons
+3. **Hold a bed** — click "Hold This Bed" on an available bed, see the reservations panel with countdown timer, confirm or cancel the hold
+4. **Coordinator dashboard** — expand a shelter, update occupied/on-hold counts, see availability refresh
+5. **Active holds indicator** — coordinator sees which beds are held by outreach workers
+6. **Language selector** — switch to Español → UI text changes to Spanish
+7. **Offline banner** — toggle airplane mode → yellow "You are offline" banner appears
 
 ### API verification (via curl)
 
 ```bash
-# Login as admin
+# Login as outreach worker
 TOKEN=$(curl -s -X POST http://localhost:8080/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"tenantSlug": "dev-coc", "email": "admin@dev.fabt.org", "password": "admin123"}' \
+  -d '{"tenantSlug": "dev-coc", "email": "outreach@dev.fabt.org", "password": "admin123"}' \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['accessToken'])")
 
-# List shelters (10 seed shelters)
-curl -s http://localhost:8080/api/v1/shelters \
+# Search for beds (ranked results with availability)
+curl -s -X POST http://localhost:8080/api/v1/queries/beds \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"populationType": "SINGLE_ADULT", "limit": 5}' | python3 -m json.tool
+
+# Hold a bed
+curl -s -X POST http://localhost:8080/api/v1/reservations \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"shelterId": "d0000000-0000-0000-0000-000000000001", "populationType": "SINGLE_ADULT"}' \
+  | python3 -m json.tool
+
+# List my active holds
+curl -s http://localhost:8080/api/v1/reservations \
   -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
 
-# Get shelter detail with constraints
+# Shelter detail with availability
 curl -s http://localhost:8080/api/v1/shelters/d0000000-0000-0000-0000-000000000001 \
-  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
-
-# HSDS export
-curl -s "http://localhost:8080/api/v1/shelters/d0000000-0000-0000-0000-000000000001?format=hsds" \
   -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
 
 # Health check (no auth needed)
 curl -s http://localhost:8080/actuator/health | python3 -m json.tool
-
-# Prometheus metrics
-curl -s http://localhost:8080/actuator/prometheus | head -20
 ```
 
 ---
@@ -321,14 +309,14 @@ curl -s http://localhost:8080/actuator/prometheus | head -20
 ```bash
 cd backend
 
-# Run all 85 tests
+# Run all 109 tests
 mvn test
 
 # Run a specific test class
-mvn test -Dtest=ShelterIntegrationTest
+mvn test -Dtest=ReservationIntegrationTest
 
 # Run a specific test method
-mvn test -Dtest="AuthIntegrationTest#test_login_success"
+mvn test -Dtest="AvailabilityIntegrationTest#test_createSnapshot_appendOnly_preservesPreviousSnapshot"
 ```
 
 **Docker is required.** Tests use Testcontainers to start a PostgreSQL 16 container automatically.
@@ -338,7 +326,7 @@ mvn test -Dtest="AuthIntegrationTest#test_login_success"
 | Test Class | Tests | What It Covers |
 |---|---|---|
 | `ApplicationTest` | 1 | Spring context loads successfully |
-| `ArchitectureTest` | 11 | ArchUnit module boundary enforcement |
+| `ArchitectureTest` | 15 | ArchUnit module boundary enforcement (8 modules) |
 | `TenantIntegrationTest` | 8 | Tenant CRUD, config defaults, config update |
 | `AuthIntegrationTest` | 7 | JWT login, refresh, wrong password/email/tenant |
 | `ApiKeyAuthTest` | 6 | API key auth, rotation, deactivation, role resolution |
@@ -346,11 +334,13 @@ mvn test -Dtest="AuthIntegrationTest#test_login_success"
 | `RoleBasedAccessTest` | 10 | 4-role access control (PLATFORM_ADMIN, COC_ADMIN, COORDINATOR, OUTREACH_WORKER) |
 | `OAuth2ProviderTest` | 6 | OAuth2 provider CRUD, public endpoint, tenant leakage prevention |
 | `OAuth2AccountLinkTest` | 4 | Account linking, rejection of unknown emails, JWT identity |
-| `ShelterIntegrationTest` | 11 | Shelter CRUD, constraints, HSDS export, coordinator assignment |
+| `ShelterIntegrationTest` | 11 | Shelter CRUD, constraints, HSDS export, coordinator assignment, pagination |
 | `ImportIntegrationTest` | 7 | HSDS import, 211 CSV import, fuzzy matching, duplicate detection |
 | `ObservabilityIntegrationTest` | 6 | Health endpoints, i18n error responses, error structure |
 | `SubscriptionIntegrationTest` | 5 | Webhook subscription CRUD, error validation |
-| **Total** | **85** | |
+| `AvailabilityIntegrationTest` | 10 | Availability snapshots, bed search, ranking, data freshness, events |
+| `ReservationIntegrationTest` | 10 | Reservation lifecycle, concurrency, expiry, creator-only access, events |
+| **Total** | **109** | |
 
 ---
 
@@ -374,7 +364,7 @@ All endpoints are under `/api/v1`. Authentication is via JWT Bearer token (from 
 | `GET` | `/api/v1/tenants/{id}` | PLATFORM_ADMIN | Get tenant by ID |
 | `PUT` | `/api/v1/tenants/{id}` | PLATFORM_ADMIN | Update tenant name |
 | `GET` | `/api/v1/tenants/{id}/config` | COC_ADMIN+ | Get tenant configuration |
-| `PUT` | `/api/v1/tenants/{id}/config` | COC_ADMIN+ | Update tenant configuration |
+| `PUT` | `/api/v1/tenants/{id}/config` | COC_ADMIN+ | Update tenant configuration (incl. hold_duration_minutes) |
 
 ### OAuth2 Providers
 
@@ -409,12 +399,28 @@ All endpoints are under `/api/v1`. Authentication is via JWT Bearer token (from 
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | `POST` | `/api/v1/shelters` | COC_ADMIN+ | Create shelter with constraints + capacities |
-| `GET` | `/api/v1/shelters` | Any authenticated | List shelters (filterable: petsAllowed, wheelchairAccessible, etc.) |
-| `GET` | `/api/v1/shelters/{id}` | Any authenticated | Shelter detail with constraints + capacities |
+| `GET` | `/api/v1/shelters` | Any authenticated | List shelters with availability summary (optional pagination: `?page=0&size=20`) |
+| `GET` | `/api/v1/shelters/{id}` | Any authenticated | Shelter detail with constraints, capacities, and live availability |
 | `GET` | `/api/v1/shelters/{id}?format=hsds` | Any authenticated | HSDS 3.0 export with fabt: extensions |
 | `PUT` | `/api/v1/shelters/{id}` | COORDINATOR+ | Update shelter (coordinators must be assigned) |
+| `PATCH` | `/api/v1/shelters/{id}/availability` | COORDINATOR+ | Submit availability snapshot (append-only, cache invalidation, event publish) |
 | `POST` | `/api/v1/shelters/{id}/coordinators` | COC_ADMIN+ | Assign coordinator to shelter |
 | `DELETE` | `/api/v1/shelters/{id}/coordinators/{uid}` | COC_ADMIN+ | Unassign coordinator |
+
+### Bed Search
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `POST` | `/api/v1/queries/beds` | Any authenticated | Search beds with filters (populationType, constraints, location, limit). Ranked results with availability, data freshness, and held bed counts |
+
+### Reservations
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `POST` | `/api/v1/reservations` | OUTREACH_WORKER+ | Create soft-hold reservation (configurable hold duration, default 45 min) |
+| `GET` | `/api/v1/reservations` | OUTREACH_WORKER+ | List active (HELD) reservations for current user |
+| `PATCH` | `/api/v1/reservations/{id}/confirm` | OUTREACH_WORKER+ | Confirm arrival — converts hold to occupancy |
+| `PATCH` | `/api/v1/reservations/{id}/cancel` | OUTREACH_WORKER+ | Cancel hold — releases bed |
 
 ### Data Import
 
@@ -433,47 +439,6 @@ All endpoints are under `/api/v1`. Authentication is via JWT Bearer token (from 
 | `GET` | `/api/v1/subscriptions` | Any authenticated | List subscriptions for tenant |
 | `DELETE` | `/api/v1/subscriptions/{id}` | Any authenticated | Cancel subscription |
 
-### curl Examples
-
-**Login:**
-
-```bash
-curl -X POST http://localhost:8080/api/v1/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"tenantSlug": "dev-coc", "email": "admin@dev.fabt.org", "password": "admin123"}'
-```
-
-**Create a shelter:**
-
-```bash
-TOKEN="<accessToken from login response>"
-
-curl -X POST http://localhost:8080/api/v1/shelters \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{
-    "name": "New Hope Shelter",
-    "addressStreet": "100 Main St",
-    "addressCity": "Raleigh",
-    "addressState": "NC",
-    "addressZip": "27601",
-    "constraints": {
-      "petsAllowed": true,
-      "wheelchairAccessible": true,
-      "populationTypesServed": ["FAMILY_WITH_CHILDREN"]
-    },
-    "capacities": [{"populationType": "FAMILY_WITH_CHILDREN", "bedsTotal": 20}]
-  }'
-```
-
-**Import 211 CSV:**
-
-```bash
-curl -X POST http://localhost:8080/api/v1/import/211 \
-  -H "Authorization: Bearer $TOKEN" \
-  -F "file=@shelters.csv"
-```
-
 ---
 
 ## Domain Glossary
@@ -490,11 +455,13 @@ curl -X POST http://localhost:8080/api/v1/import/211 \
 
 **PIT Count (Point-in-Time)** — Annual HUD-mandated count of sheltered and unsheltered homeless individuals.
 
-**Bed Availability** — Real-time count of open beds by population type at a shelter. Append-only snapshots, never updated in place.
+**Bed Availability** — Real-time count of open beds by population type at a shelter. Append-only snapshots, never updated in place. `beds_available` is derived: `beds_total - beds_occupied - beds_on_hold`.
+
+**Reservation (Soft-Hold)** — Temporary claim on a bed during transport. Lifecycle: HELD → CONFIRMED (client arrived) | CANCELLED (released) | EXPIRED (timed out). Default hold duration: 45 minutes, configurable per tenant.
 
 **Population Type** — Category of individuals a shelter serves: `SINGLE_ADULT`, `FAMILY_WITH_CHILDREN`, `WOMEN_ONLY`, `VETERAN`, `YOUTH_18_24`, `YOUTH_UNDER_18`, `DV_SURVIVOR`.
 
-**Outreach Worker** — Frontline staff who connects homeless individuals to services. Primary user of the bed search interface.
+**Outreach Worker** — Frontline staff who connects homeless individuals to services. Primary user of the bed search and reservation interfaces.
 
 **Coordinator** — Shelter staff responsible for updating bed counts and managing shelter profile.
 
@@ -511,16 +478,19 @@ finding-a-bed-tonight/
 ├── README.md                                          # This file
 ├── CONTRIBUTING.md                                    # Contributor guide
 ├── LICENSE                                            # Apache 2.0
+├── dev-start.sh                                       # One-command dev stack launcher
 ├── docker-compose.yml                                 # Local dev: PostgreSQL, Redis, Kafka
 │
 ├── backend/                                           # Spring Boot modular monolith
 │   ├── pom.xml                                        # Maven build (Spring Boot 3.4.4)
 │   └── src/
 │       ├── main/java/org/fabt/
-│       │   ├── Application.java                       # Entry point
+│       │   ├── Application.java                       # Entry point (@EnableScheduling)
 │       │   ├── tenant/                                # Tenant module (CRUD, config)
 │       │   ├── auth/                                  # Auth module (JWT, API keys, OAuth2, users)
 │       │   ├── shelter/                               # Shelter module (CRUD, constraints, HSDS)
+│       │   ├── availability/                          # Availability module (snapshots, bed search)
+│       │   ├── reservation/                           # Reservation module (soft-hold lifecycle)
 │       │   ├── dataimport/                            # Import module (HSDS, 211 CSV)
 │       │   ├── subscription/                          # Webhook subscription module
 │       │   ├── observability/                         # Logging, metrics, health, i18n
@@ -528,24 +498,33 @@ finding-a-bed-tonight/
 │       ├── main/resources/
 │       │   ├── application.yml                        # Base config
 │       │   ├── application-{lite,standard,full}.yml   # Deployment tier profiles
-│       │   ├── db/migration/                          # 12 Flyway migrations (V1–V11 + V8.1)
+│       │   ├── db/migration/                          # 15 Flyway migrations (V1–V15 + V8.1)
 │       │   ├── logback-spring.xml                     # Structured JSON logging
 │       │   └── messages/                              # i18n (EN, ES)
-│       └── test/java/org/fabt/                        # 85 integration tests
+│       └── test/java/org/fabt/                        # 109 integration tests
 │
 ├── frontend/                                          # React + Vite + TypeScript PWA
 │   ├── src/
 │   │   ├── auth/                                      # AuthContext, AuthGuard
 │   │   ├── pages/                                     # Login, Admin, Coordinator, Outreach, Shelter, Import
 │   │   ├── components/                                # Layout, DataAge, OfflineBanner, LocaleSelector
-│   │   ├── services/                                  # API client, offline queue
+│   │   ├── services/                                  # API client (GET/POST/PUT/PATCH/DELETE), offline queue
 │   │   ├── hooks/                                     # useOnlineStatus
 │   │   └── i18n/                                      # en.json, es.json
 │   └── vite.config.ts                                 # PWA manifest, workbox, API proxy
 │
+├── docs/
+│   ├── schema.dbml                                    # Database schema (DBML format)
+│   ├── erd.png                                        # Entity relationship diagram
+│   ├── asyncapi.yaml                                  # EventBus contract (AsyncAPI 3.0)
+│   └── architecture.drawio                            # Architecture diagram
+│
 ├── infra/
 │   ├── docker/                                        # Dockerfiles (backend, frontend, nginx)
-│   └── scripts/                                       # seed-data.sql, dev-setup.sh
+│   ├── scripts/                                       # seed-data.sql
+│   └── terraform/                                     # IaC for all 3 deployment tiers
+│       ├── bootstrap/                                 # S3 state backend + DynamoDB lock
+│       └── modules/                                   # network, postgres, app
 │
 └── .github/workflows/ci.yml                           # CI: backend test, frontend build, Docker push
 ```
@@ -565,28 +544,46 @@ finding-a-bed-tonight/
 - [x] Observability: structured JSON logging, Micrometer metrics, health probes, data freshness, i18n (EN/ES)
 - [x] Webhook subscriptions: CRUD, HMAC-SHA256 delivery, event matching
 - [x] React PWA: outreach search, coordinator dashboard, admin panel, offline queue, service worker
-- [x] MCP-ready: @Operation on all 28 endpoints, structured errors, self-describing events
+- [x] MCP-ready: @Operation on all endpoints, structured errors, self-describing events
 - [x] CI/CD (GitHub Actions), Docker, Terraform (3 tiers), seed data, dev-start.sh
-- [x] Documentation: DBML, ERD, AsyncAPI 3.0, draw.io, portfolio-standard READMEs
 
-### In Progress: Bed Availability (specced, ready for implementation)
+### Completed: Bed Availability (archived)
 
-- [ ] Real-time bed availability with append-only snapshots
-- [ ] Bed search endpoint (POST /api/v1/queries/beds) with ranked results
-- [ ] Coordinator availability update (PATCH /api/v1/shelters/{id}/availability)
-- [ ] Frontend: live availability in outreach search + coordinator dashboard
+- [x] Append-only bed availability snapshots (V12-V13 migrations)
+- [x] Bed search endpoint (POST /api/v1/queries/beds) with ranked results, constraint filters
+- [x] Coordinator availability update (PATCH /api/v1/shelters/{id}/availability)
+- [x] Data freshness (data_age_seconds from snapshot_ts, FRESH/AGING/STALE/UNKNOWN)
+- [x] Shelter detail + list enriched with live availability data
+- [x] Cache-aside pattern with synchronous invalidation on update
+- [x] availability.updated events published to EventBus
+- [x] Frontend: bed search with availability badges, freshness indicators, coordinator availability form
+
+### Completed: Reservation System (pending archive)
+
+- [x] Soft-hold bed reservations (V14-V15 migrations, HELD → CONFIRMED/CANCELLED/EXPIRED)
+- [x] Reservation API: create hold, confirm arrival, cancel, list active
+- [x] Availability integration: holds adjust beds_on_hold/beds_occupied via snapshots
+- [x] Configurable hold duration per tenant (default 45 min, read from tenant config JSONB)
+- [x] Dual-tier auto-expiry: @Scheduled polling (Lite) + Redis TTL placeholder (Standard/Full)
+- [x] 4 domain events: reservation.created, confirmed, cancelled, expired
+- [x] Frontend: "Hold This Bed" buttons, countdown timer, confirm/cancel flow, coordinator hold indicator
+
+### In Progress: E2E Test Automation (specced, ready for implementation)
+
+- [ ] Playwright UI tests: login, outreach search, coordinator dashboard, admin panel
+- [ ] Karate API tests: auth, shelters, availability, bed search, subscriptions
+- [ ] GitHub Actions CI pipeline with parallel execution
+- [ ] Test data management and reporting
 
 ### Planned: Remaining Phase 1 Capabilities
 
-| Change | Description | Priority | Status |
-|--------|-------------|----------|--------|
-| **reservation-system** | Soft-hold mechanism for bed placement. Configurable hold duration (default 2 hours), PostgreSQL source of truth with Redis acceleration (Standard/Full), auto-expiry. Prevents double-booking while outreach worker transports a client to the shelter. | High | Not started |
-| **surge-mode** | White Flag / emergency activation for extreme weather or crisis events. CoC-admin triggered, broadcasts to all outreach workers within 30 seconds. Unlocks overflow capacity reporting. First-class domain entity with lifecycle (ACTIVE → DEACTIVATED → EXPIRED), audit trail, queryable historically. | High | Not started |
-| **oauth2-redirect-flow** | Browser OAuth2 redirect/callback via Spring Security OAuth2 Client. Dynamic `ClientRegistrationRepository` loads provider config per tenant from database. Keycloak for local dev/testing. Required before pilot city onboarding (social workers need "Login with Google"). Provider CRUD and account linking already implemented. | High | Not started |
-| **e2e-test-automation** | End-to-end test suite: Playwright for UI flows (login, search, update), Karate for API contract testing, test automation strategy document. Validates the full stack from browser to database. | Medium | Not started |
-| **dv-opaque-referral** | Privacy-preserving referral for domestic violence shelters. Shelter location never revealed — referral uses an opaque token. Human-in-the-loop confirmation required (cannot be delegated to AI agents). Audit trail for all referral access. Safety-critical. | Medium | Not started |
-| **hmis-bridge** | Asynchronous push adapter to Homeless Management Information System (HMIS) vendors (e.g., Bitfocus Clarity). Outbox pattern, Resilience4J circuit breaker per vendor (`fabt-hmis-{vendor}`), retry schedule (1m, 5m, 30m, 2h). Bridge failure must never degrade the query path. Potentially extractable as a separate service. | Medium | Not started |
-| **coc-analytics** | Aggregate anonymized metrics for CoC directors: unmet demand by population type, occupancy trends, placement success rates, White Flag night analysis. Powers HUD grant applications and resource allocation decisions. Conversational access planned via MCP Phase 2. | Low | Not started |
+| Change | Description | Priority |
+|--------|-------------|----------|
+| **surge-mode** | White Flag / emergency activation, CoC-admin triggered, broadcast to outreach workers | High |
+| **oauth2-redirect-flow** | Browser OAuth2 redirect/callback with Keycloak, dynamic provider registration | High |
+| **dv-opaque-referral** | Privacy-preserving DV shelter referral with human-in-the-loop confirmation | Medium |
+| **hmis-bridge** | Async push adapter to HMIS vendors, circuit breaker isolated | Medium |
+| **coc-analytics** | Aggregate anonymized metrics, unmet demand reporting, HUD grant support | Low |
 
 ---
 
@@ -640,15 +637,11 @@ docker info
 
 **Root cause:** No PostgreSQL instance is running or the Flyway migrations have not been applied.
 
-**Fix:** Start a local PostgreSQL instance (Docker is the easiest path):
+**Fix:** Use `./dev-start.sh` which handles PostgreSQL startup and seed data automatically. For manual setup:
 
 ```bash
-docker run -d --name fabt-postgres \
-  -e POSTGRES_DB=fabt \
-  -e POSTGRES_USER=fabt \
-  -e POSTGRES_PASSWORD=fabt \
-  -p 5432:5432 \
-  postgres:16
+docker compose up -d postgres
+cd backend && mvn spring-boot:run
 ```
 
 Flyway will apply all migrations automatically on application startup.
