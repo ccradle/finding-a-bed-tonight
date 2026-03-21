@@ -363,6 +363,28 @@ export function CoordinatorDashboard() {
                   );
                 })}
 
+                {/* Active holds indicator */}
+                {editAvailability.some(a => a.bedsOnHold > 0) && (
+                  <div style={{
+                    padding: '10px 14px', backgroundColor: '#eff6ff', borderRadius: 10,
+                    border: '1px solid #bfdbfe', marginBottom: 16,
+                  }}>
+                    <h4 style={{ fontSize: 13, fontWeight: 700, color: '#1a56db', margin: '0 0 8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      <FormattedMessage id="coord.activeHolds" />
+                    </h4>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      {editAvailability.filter(a => a.bedsOnHold > 0).map(a => (
+                        <span key={a.populationType} style={{
+                          padding: '4px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+                          backgroundColor: '#dbeafe', color: '#1e40af',
+                        }}>
+                          {a.populationType.replace(/_/g, ' ').toLowerCase()}: {a.bedsOnHold} held
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Capacity section (existing) */}
                 <h4 style={{ fontSize: 13, fontWeight: 700, color: '#64748b', margin: '20px 0 12px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                   <FormattedMessage id="coord.bedsTotal" />

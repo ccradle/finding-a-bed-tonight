@@ -1,6 +1,6 @@
 // ============================================================================
 // Finding A Bed Tonight (FABT) — Database Schema
-// Source: Flyway migrations V1–V13 + V8.1
+// Source: Flyway migrations V1–V15 + V8.1
 // Generated: 2026-03-20
 // ============================================================================
 
@@ -281,3 +281,54 @@ Table bed_availability {
 // RLS FORCE enabled on bed_availability. Policy dv_bed_availability_access
 // uses EXISTS subquery through shelter table, inheriting the DV-shelter
 // access control from V8/V8.1.
+
+// ---------------------------------------------------------------------------
+// V14 — Reservation (soft-hold bed placement)
+// ---------------------------------------------------------------------------
+
+Enum ReservationStatus {
+  HELD
+  CONFIRMED
+  CANCELLED
+  EXPIRED
+}
+
+Table reservation {
+  id              uuid        [pk, note: 'gen_random_uuid()']
+  shelter_id      uuid        [not null, ref: > shelter.id, note: 'ON DELETE CASCADE']
+  tenant_id       uuid        [not null, ref: > tenant.id]
+  population_type varchar(50) [not null, note: 'PopulationType enum value']
+  user_id         uuid        [not null, ref: > app_user.id]
+  status          varchar(20) [not null, default: 'HELD', note: 'ReservationStatus enum: HELD, CONFIRMED, CANCELLED, EXPIRED']
+  expires_at      timestamptz [not null, note: 'Auto-expiry time (created_at + tenant hold_duration_minutes)']
+  confirmed_at    timestamptz [note: 'Set when status transitions to CONFIRMED']
+  cancelled_at    timestamptz [note: 'Set when status transitions to CANCELLED or EXPIRED']
+  created_at      timestamptz [not null, default: `now()`]
+  notes           varchar(500) [note: 'Free-text note from outreach worker']
+
+  indexes {
+    (tenant_id, user_id, status) [name: 'idx_reservation_user_status']
+    (shelter_id, population_type, status) [name: 'idx_reservation_shelter_status']
+    (status, expires_at) [name: 'idx_reservation_expiry', note: 'Partial index WHERE status = HELD — expiry polling']
+  }
+
+  Note: '''
+    Soft-hold bed reservation. Lifecycle: HELD → CONFIRMED | CANCELLED | EXPIRED.
+    Terminal states are immutable. Creating a hold increments beds_on_hold via a
+    new availability snapshot. Confirming converts to beds_occupied. Cancelling or
+    expiring decrements beds_on_hold. Hold duration is configurable per tenant
+    (default 45 minutes) via tenant.config JSONB field hold_duration_minutes.
+
+    Auto-expiry: Lite tier uses @Scheduled polling (30s interval). Standard/Full
+    tiers use Redis TTL with keyspace notification for near-instant expiry.
+
+    Protected by PostgreSQL RLS (V15): inherits DV-shelter visibility through
+    a join to the shelter table's RLS policy.
+  '''
+}
+
+// ---------------------------------------------------------------------------
+// V15 — RLS for reservation
+// ---------------------------------------------------------------------------
+// RLS FORCE enabled on reservation. Policy dv_reservation_access uses EXISTS
+// subquery through shelter table, inheriting DV-shelter access control.

@@ -35,14 +35,55 @@ channels:
     address: availability.updated
     title: Availability Updated
     description: |
-      Published whenever a coordinator submits an availability snapshot via
-      PATCH /api/v1/shelters/{id}/availability. Fired after the snapshot is
-      persisted and L1/L2 caches are invalidated, but before the HTTP 200
-      is returned. Future changes (reservations, expiring holds) may also
-      trigger this event.
+      Published whenever bed availability changes — whether through a
+      coordinator update (PATCH /api/v1/shelters/{id}/availability) or a
+      reservation state change (create, confirm, cancel, expire). Fired
+      after the snapshot is persisted and L1/L2 caches are invalidated.
     messages:
       availabilityUpdatedMessage:
         $ref: '#/components/messages/AvailabilityUpdatedMessage'
+
+  reservationCreated:
+    address: reservation.created
+    title: Reservation Created
+    description: |
+      Published when an outreach worker creates a soft-hold bed reservation.
+      A new availability snapshot is created with beds_on_hold incremented.
+    messages:
+      reservationCreatedMessage:
+        $ref: '#/components/messages/ReservationEventMessage'
+
+  reservationConfirmed:
+    address: reservation.confirmed
+    title: Reservation Confirmed
+    description: |
+      Published when a reservation is confirmed (client arrived). The hold
+      converts to occupancy: beds_on_hold decremented, beds_occupied incremented.
+    messages:
+      reservationConfirmedMessage:
+        $ref: '#/components/messages/ReservationEventMessage'
+
+  reservationCancelled:
+    address: reservation.cancelled
+    title: Reservation Cancelled
+    description: |
+      Published when an outreach worker cancels a reservation. The held bed
+      becomes available again: beds_on_hold decremented.
+    messages:
+      reservationCancelledMessage:
+        $ref: '#/components/messages/ReservationEventMessage'
+
+  reservationExpired:
+    address: reservation.expired
+    title: Reservation Expired
+    description: |
+      Published when a reservation auto-expires (hold duration exceeded).
+      The held bed becomes available again: beds_on_hold decremented.
+      Fired by the scheduled expiry task (Lite) or Redis TTL listener
+      (Standard/Full).
+    messages:
+      reservationExpiredMessage:
+        $ref: '#/components/messages/ReservationEventMessage'
 
   surgeActivated:
     address: surge.activated
@@ -78,6 +119,38 @@ operations:
     messages:
       - $ref: '#/channels/availabilityUpdated/messages/availabilityUpdatedMessage'
 
+  onReservationCreated:
+    action: receive
+    channel:
+      $ref: '#/channels/reservationCreated'
+    summary: Receive reservation creation events
+    messages:
+      - $ref: '#/channels/reservationCreated/messages/reservationCreatedMessage'
+
+  onReservationConfirmed:
+    action: receive
+    channel:
+      $ref: '#/channels/reservationConfirmed'
+    summary: Receive reservation confirmation events
+    messages:
+      - $ref: '#/channels/reservationConfirmed/messages/reservationConfirmedMessage'
+
+  onReservationCancelled:
+    action: receive
+    channel:
+      $ref: '#/channels/reservationCancelled'
+    summary: Receive reservation cancellation events
+    messages:
+      - $ref: '#/channels/reservationCancelled/messages/reservationCancelledMessage'
+
+  onReservationExpired:
+    action: receive
+    channel:
+      $ref: '#/channels/reservationExpired'
+    summary: Receive reservation expiry events
+    messages:
+      - $ref: '#/channels/reservationExpired/messages/reservationExpiredMessage'
+
   onSurgeActivated:
     action: receive
     channel:
@@ -111,6 +184,13 @@ components:
       contentType: application/json
       payload:
         $ref: '#/components/schemas/AvailabilityUpdatedEvent'
+
+    ReservationEventMessage:
+      name: ReservationEventMessage
+      title: Reservation State Change
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ReservationEvent'
 
     SurgeActivatedMessage:
       name: SurgeActivatedMessage
@@ -355,3 +435,71 @@ components:
           type: string
           format: date-time
           description: Timestamp when the surge was deactivated.
+
+    # -- reservation.* events ------------------------------------------------
+
+    ReservationEvent:
+      allOf:
+        - $ref: '#/components/schemas/DomainEventEnvelope'
+        - type: object
+          properties:
+            type:
+              type: string
+              enum:
+                - reservation.created
+                - reservation.confirmed
+                - reservation.cancelled
+                - reservation.expired
+            payload:
+              $ref: '#/components/schemas/ReservationPayload'
+
+    ReservationPayload:
+      type: object
+      description: |
+        Payload for all reservation lifecycle events. The `type` field on the
+        envelope distinguishes created/confirmed/cancelled/expired. Published
+        by ReservationService on every state transition.
+      required:
+        - reservation_id
+        - shelter_id
+        - tenant_id
+        - population_type
+        - user_id
+        - status
+      properties:
+        reservation_id:
+          type: string
+          format: uuid
+          description: Unique identifier for the reservation.
+        shelter_id:
+          type: string
+          format: uuid
+          description: Shelter the bed is reserved at.
+        tenant_id:
+          type: string
+          format: uuid
+          description: Tenant (Continuum of Care) that owns the shelter.
+        population_type:
+          type: string
+          description: Population type the bed is reserved for.
+          enum:
+            - SINGLE_ADULT
+            - FAMILY_WITH_CHILDREN
+            - WOMEN_ONLY
+            - VETERAN
+            - YOUTH_18_24
+            - YOUTH_UNDER_18
+            - DV_SURVIVOR
+        user_id:
+          type: string
+          format: uuid
+          description: Outreach worker who created the reservation.
+        status:
+          type: string
+          enum: [HELD, CONFIRMED, CANCELLED, EXPIRED]
+          description: Current reservation status after this event.
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the hold expires. Present on reservation.created events.

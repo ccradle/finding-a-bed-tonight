@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import { api } from '../services/api';
 import { DataAge } from '../components/DataAge';
@@ -99,6 +99,17 @@ interface ShelterDetail {
   data_freshness?: string;
 }
 
+interface ReservationResponse {
+  id: string;
+  shelterId: string;
+  populationType: string;
+  status: string;
+  expiresAt: string;
+  remainingSeconds: number;
+  createdAt: string;
+  notes: string | null;
+}
+
 export function OutreachSearch() {
   const intl = useIntl();
   const [results, setResults] = useState<BedSearchResult[]>([]);
@@ -110,6 +121,11 @@ export function OutreachSearch() {
   const [searchText, setSearchText] = useState('');
   const [selectedShelter, setSelectedShelter] = useState<ShelterDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [reservations, setReservations] = useState<ReservationResponse[]>([]);
+  const [holdingShelterId, setHoldingShelterId] = useState<string | null>(null);
+  const [holdPopType, setHoldPopType] = useState<string | null>(null);
+  const [showReservations, setShowReservations] = useState(false);
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchBeds = useCallback(async () => {
     setLoading(true);
@@ -132,6 +148,67 @@ export function OutreachSearch() {
   }, [populationType, petsAllowed, wheelchairAccessible, intl]);
 
   useEffect(() => { fetchBeds(); }, [fetchBeds]);
+
+  const fetchReservations = useCallback(async () => {
+    try {
+      const data = await api.get<ReservationResponse[]>('/api/v1/reservations');
+      setReservations(data);
+    } catch { /* silent — reservations panel is optional */ }
+  }, []);
+
+  useEffect(() => { fetchReservations(); }, [fetchReservations]);
+
+  // Countdown timer for active reservations
+  useEffect(() => {
+    if (reservations.some(r => r.status === 'HELD')) {
+      countdownRef.current = setInterval(() => {
+        setReservations(prev => prev.map(r => ({
+          ...r,
+          remainingSeconds: Math.max(0, r.remainingSeconds - 1),
+        })));
+      }, 1000);
+    }
+    return () => { if (countdownRef.current) clearInterval(countdownRef.current); };
+  }, [reservations.length]);
+
+  const holdBed = async (shelterId: string, popType: string) => {
+    setHoldingShelterId(shelterId);
+    setHoldPopType(popType);
+    try {
+      await api.post('/api/v1/reservations', {
+        shelterId,
+        populationType: popType,
+      });
+      await fetchReservations();
+      await fetchBeds();
+      setShowReservations(true);
+    } catch {
+      setError(intl.formatMessage({ id: 'search.holdFailed' }));
+    } finally {
+      setHoldingShelterId(null);
+      setHoldPopType(null);
+    }
+  };
+
+  const confirmReservation = async (id: string) => {
+    try {
+      await api.patch(`/api/v1/reservations/${id}/confirm`);
+      await fetchReservations();
+      await fetchBeds();
+    } catch {
+      setError(intl.formatMessage({ id: 'search.error' }));
+    }
+  };
+
+  const cancelReservation = async (id: string) => {
+    try {
+      await api.patch(`/api/v1/reservations/${id}/cancel`);
+      await fetchReservations();
+      await fetchBeds();
+    } catch {
+      setError(intl.formatMessage({ id: 'search.error' }));
+    }
+  };
 
   const openDetail = async (shelterId: string) => {
     setDetailLoading(true);
@@ -242,13 +319,80 @@ export function OutreachSearch() {
 
       {loading && <Spinner />}
 
+      {/* Active Reservations Panel */}
+      {reservations.filter(r => r.status === 'HELD').length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <button
+            onClick={() => setShowReservations(!showReservations)}
+            style={{
+              width: '100%', padding: '14px 18px', borderRadius: 12,
+              border: '2px solid #1a56db', backgroundColor: '#eff6ff',
+              color: '#1a56db', fontSize: 14, fontWeight: 700, cursor: 'pointer',
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            }}
+          >
+            <span><FormattedMessage id="reservations.title" /> ({reservations.filter(r => r.status === 'HELD').length})</span>
+            <span>{showReservations ? '▲' : '▼'}</span>
+          </button>
+          {showReservations && (
+            <div style={{ border: '2px solid #e2e8f0', borderTop: 'none', borderRadius: '0 0 12px 12px', padding: '12px 16px' }}>
+              {reservations.filter(r => r.status === 'HELD').map((res) => {
+                const mins = Math.floor(res.remainingSeconds / 60);
+                const secs = res.remainingSeconds % 60;
+                const isExpiring = res.remainingSeconds < 300;
+                const shelterResult = results.find(r => r.shelterId === res.shelterId);
+                return (
+                  <div key={res.id} style={{
+                    padding: '12px 0', borderBottom: '1px solid #f1f5f9',
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8,
+                  }}>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>
+                        {shelterResult?.shelterName || res.shelterId.substring(0, 8)}
+                      </div>
+                      <div style={{ fontSize: 12, color: '#64748b' }}>
+                        {res.populationType.replace(/_/g, ' ')}
+                      </div>
+                      <div style={{
+                        fontSize: 13, fontWeight: 700, marginTop: 4,
+                        color: isExpiring ? '#991b1b' : '#1a56db',
+                      }}>
+                        {res.remainingSeconds > 0
+                          ? intl.formatMessage({ id: 'reservations.expiresIn' }, { minutes: mins, seconds: secs })
+                          : intl.formatMessage({ id: 'reservations.expired' })}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button
+                        onClick={() => confirmReservation(res.id)}
+                        style={{
+                          padding: '8px 14px', borderRadius: 8, border: 'none',
+                          backgroundColor: '#059669', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                        }}
+                      ><FormattedMessage id="reservations.confirm" /></button>
+                      <button
+                        onClick={() => cancelReservation(res.id)}
+                        style={{
+                          padding: '8px 14px', borderRadius: 8, border: '2px solid #e2e8f0',
+                          backgroundColor: '#fff', color: '#64748b', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                        }}
+                      ><FormattedMessage id="reservations.cancel" /></button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Results */}
       {!loading && filtered.map((r) => {
         const avail = totalBedsAvailable(r);
         const isFull = avail === 0;
 
         return (
-          <button
+          <div
             key={r.shelterId}
             onClick={() => openDetail(r.shelterId)}
             style={{
@@ -286,21 +430,39 @@ export function OutreachSearch() {
                 <DataAge dataAgeSeconds={r.dataAgeSeconds} />
               </div>
             </div>
-            {/* Per-population availability pills */}
+            {/* Per-population availability pills with hold buttons */}
             {r.availability.length > 0 && (
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10, alignItems: 'center' }}>
                 {r.availability.map((a) => (
-                  <span key={a.populationType} style={{
-                    padding: '3px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600,
-                    backgroundColor: a.bedsAvailable > 0 ? '#f0fdf4' : '#fef2f2',
-                    color: a.bedsAvailable > 0 ? '#166534' : '#991b1b',
-                  }}>
-                    {a.populationType.replace(/_/g, ' ')}: {a.bedsAvailable}
-                  </span>
+                  <div key={a.populationType} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{
+                      padding: '3px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+                      backgroundColor: a.bedsAvailable > 0 ? '#f0fdf4' : '#fef2f2',
+                      color: a.bedsAvailable > 0 ? '#166534' : '#991b1b',
+                    }}>
+                      {a.populationType.replace(/_/g, ' ')}: {a.bedsAvailable}
+                      {a.bedsOnHold > 0 && <span style={{ color: '#854d0e' }}> ({a.bedsOnHold} held)</span>}
+                    </span>
+                    {a.bedsAvailable > 0 && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); holdBed(r.shelterId, a.populationType); }}
+                        disabled={holdingShelterId === r.shelterId && holdPopType === a.populationType}
+                        style={{
+                          padding: '2px 8px', borderRadius: 6, border: 'none',
+                          backgroundColor: '#1a56db', color: '#fff', fontSize: 10, fontWeight: 700,
+                          cursor: 'pointer', opacity: holdingShelterId === r.shelterId ? 0.6 : 1,
+                        }}
+                      >
+                        {holdingShelterId === r.shelterId && holdPopType === a.populationType
+                          ? intl.formatMessage({ id: 'search.holding' })
+                          : intl.formatMessage({ id: 'search.holdBed' })}
+                      </button>
+                    )}
+                  </div>
                 ))}
               </div>
             )}
-          </button>
+          </div>
         );
       })}
 

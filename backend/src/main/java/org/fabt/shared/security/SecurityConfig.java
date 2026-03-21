@@ -95,6 +95,9 @@ public class SecurityConfig {
                         // API key management — COC_ADMIN or PLATFORM_ADMIN
                         .requestMatchers("/api/v1/api-keys/**").hasAnyRole("COC_ADMIN", "PLATFORM_ADMIN")
 
+                        // Reservations — outreach workers, coordinators, and admins
+                        .requestMatchers("/api/v1/reservations/**").hasAnyRole("OUTREACH_WORKER", "COORDINATOR", "COC_ADMIN", "PLATFORM_ADMIN")
+
                         // Bed search queries — any authenticated role
                         .requestMatchers("/api/v1/queries/**").authenticated()
 
