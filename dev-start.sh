@@ -144,7 +144,13 @@ until curl -sf http://localhost:8080/actuator/health/liveness >/dev/null 2>&1; d
 done
 log "Backend ready."
 
-# --- Step 4: Load seed data ---
+# --- Step 4: Grant permissions to fabt_app + load seed data ---
+log "Granting permissions to fabt_app role..."
+docker compose exec -T postgres psql -U fabt -d fabt -c "
+    GRANT USAGE ON SCHEMA public TO fabt_app;
+    GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO fabt_app;
+    GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO fabt_app;
+" >/dev/null 2>&1
 log "Loading seed data..."
 docker compose exec -T postgres psql -U fabt -d fabt < infra/scripts/seed-data.sql >/dev/null 2>&1
 log "Seed data loaded (10 shelters, 3 users, 1 tenant)."

@@ -7,12 +7,17 @@ spring:
 
   datasource:
     url: jdbc:postgresql://localhost:5432/fabt
-    username: fabt
-    password: fabt
+    username: ${FABT_DB_APP_USER:fabt_app}
+    password: ${FABT_DB_APP_PASSWORD:fabt_app}
 
   flyway:
     enabled: true
     locations: classpath:db/migration
+    # Flyway runs as the table owner (fabt) for DDL permissions.
+    # Runtime queries use fabt_app (restricted, NOSUPERUSER) for RLS enforcement.
+    url: ${FABT_DB_URL:jdbc:postgresql://localhost:5432/fabt}
+    user: ${FABT_DB_OWNER_USER:fabt}
+    password: ${FABT_DB_OWNER_PASSWORD:fabt}
 
   jackson:
     serialization:
