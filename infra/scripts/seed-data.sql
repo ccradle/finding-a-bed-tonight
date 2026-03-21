@@ -7,7 +7,7 @@ VALUES (
     'a0000000-0000-0000-0000-000000000001',
     'Development CoC',
     'dev-coc',
-    '{"api_key_auth_enabled": true, "default_locale": "en"}',
+    '{"api_key_auth_enabled": true, "default_locale": "en", "hold_duration_minutes": 45}',
     NOW(), NOW()
 ) ON CONFLICT (slug) DO NOTHING;
 
@@ -109,4 +109,43 @@ INSERT INTO shelter_capacity (shelter_id, population_type, beds_total) VALUES
 ('d0000000-0000-0000-0000-000000000009', 'DV_SURVIVOR', 15),
 ('d0000000-0000-0000-0000-000000000009', 'FAMILY_WITH_CHILDREN', 10),
 ('d0000000-0000-0000-0000-000000000010', 'SINGLE_ADULT', 100)
+ON CONFLICT DO NOTHING;
+
+-- Coordinator assignments (cocadmin assigned to first 5 shelters)
+INSERT INTO coordinator_assignment (user_id, shelter_id) VALUES
+('b0000000-0000-0000-0000-000000000003', 'd0000000-0000-0000-0000-000000000001'),
+('b0000000-0000-0000-0000-000000000003', 'd0000000-0000-0000-0000-000000000002'),
+('b0000000-0000-0000-0000-000000000003', 'd0000000-0000-0000-0000-000000000003'),
+('b0000000-0000-0000-0000-000000000003', 'd0000000-0000-0000-0000-000000000004'),
+('b0000000-0000-0000-0000-000000000003', 'd0000000-0000-0000-0000-000000000005')
+ON CONFLICT DO NOTHING;
+
+-- Bed availability snapshots (realistic occupancy — some beds available, some full)
+INSERT INTO bed_availability (shelter_id, tenant_id, population_type, beds_total, beds_occupied, beds_on_hold, accepting_new_guests, snapshot_ts, updated_by, notes) VALUES
+-- Oak City Emergency (50 single adult, 38 occupied = 12 available)
+('d0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 'SINGLE_ADULT', 50, 38, 0, true, NOW() - INTERVAL '30 minutes', 'seed', 'Evening count'),
+-- Capital Blvd Family (30 family, 28 occupied, 1 held = 1 available)
+('d0000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000001', 'FAMILY_WITH_CHILDREN', 30, 28, 1, true, NOW() - INTERVAL '45 minutes', 'seed', 'Near capacity'),
+-- South Wilmington (25 single, 25 occupied = FULL)
+('d0000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000001', 'SINGLE_ADULT', 25, 25, 0, false, NOW() - INTERVAL '2 hours', 'seed', 'Full since 6pm'),
+-- South Wilmington veteran (10 veteran, 4 occupied = 6 available)
+('d0000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000001', 'VETERAN', 10, 4, 0, true, NOW() - INTERVAL '2 hours', 'seed', NULL),
+-- Wake County Veterans (40 veteran, 31 occupied = 9 available)
+('d0000000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-000000000001', 'VETERAN', 40, 31, 0, true, NOW() - INTERVAL '1 hour', 'seed', 'Shift change update'),
+-- Youth Hope (20 youth 18-24, 14 occupied = 6 available)
+('d0000000-0000-0000-0000-000000000005', 'a0000000-0000-0000-0000-000000000001', 'YOUTH_18_24', 20, 14, 0, true, NOW() - INTERVAL '20 minutes', 'seed', NULL),
+-- Youth Hope (15 youth under 18, 15 occupied = FULL)
+('d0000000-0000-0000-0000-000000000005', 'a0000000-0000-0000-0000-000000000001', 'YOUTH_UNDER_18', 15, 15, 0, false, NOW() - INTERVAL '20 minutes', 'seed', 'Full — waitlist active'),
+-- Women of Hope (35 women, 22 occupied = 13 available)
+('d0000000-0000-0000-0000-000000000006', 'a0000000-0000-0000-0000-000000000001', 'WOMEN_ONLY', 35, 22, 0, true, NOW() - INTERVAL '15 minutes', 'seed', NULL),
+-- Helping Hand Recovery (20 single, 18 occupied, 1 held = 1 available — sobriety required)
+('d0000000-0000-0000-0000-000000000007', 'a0000000-0000-0000-0000-000000000001', 'SINGLE_ADULT', 20, 18, 1, true, NOW() - INTERVAL '3 hours', 'seed', 'Stale data — coordinator off shift'),
+-- New Beginnings Family (25 family, 10 occupied = 15 available)
+('d0000000-0000-0000-0000-000000000008', 'a0000000-0000-0000-0000-000000000001', 'FAMILY_WITH_CHILDREN', 25, 10, 0, true, NOW() - INTERVAL '10 minutes', 'seed', 'Plenty of room'),
+-- DV Shelter (15 dv_survivor, 8 occupied = 7 available)
+('d0000000-0000-0000-0000-000000000009', 'a0000000-0000-0000-0000-000000000001', 'DV_SURVIVOR', 15, 8, 0, true, NOW() - INTERVAL '1 hour', 'seed', NULL),
+-- DV Shelter family (10 family, 6 occupied = 4 available)
+('d0000000-0000-0000-0000-000000000009', 'a0000000-0000-0000-0000-000000000001', 'FAMILY_WITH_CHILDREN', 10, 6, 0, true, NOW() - INTERVAL '1 hour', 'seed', NULL),
+-- Downtown Warming Station (100 single, 72 occupied, 3 held = 25 available)
+('d0000000-0000-0000-0000-000000000010', 'a0000000-0000-0000-0000-000000000001', 'SINGLE_ADULT', 100, 72, 3, true, NOW() - INTERVAL '5 minutes', 'seed', 'Recently updated')
 ON CONFLICT DO NOTHING;
