@@ -63,4 +63,18 @@ test.describe('Admin Panel', () => {
     expect(keyText).not.toBe('undefined');
     expect(keyText!.length).toBeGreaterThanOrEqual(16);
   });
+
+  test('surge tab displays and allows activation', async ({ adminPage }) => {
+    await adminPage.goto('/admin');
+    // Click Surge tab
+    await adminPage.locator('main button', { hasText: /^Surge$|^Emergencia$/ }).first().click();
+    await adminPage.waitForTimeout(1000);
+    // Should see activate button or active surge banner
+    const activateBtn = adminPage.locator('main button', { hasText: /activate|activar/i });
+    const surgeBanner = adminPage.locator('main div[style*="dc2626"]');
+    const hasActivate = await activateBtn.count() > 0;
+    const hasBanner = await surgeBanner.count() > 0;
+    // Either the activate button or an active surge banner should be visible
+    expect(hasActivate || hasBanner).toBe(true);
+  });
 });
