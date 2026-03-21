@@ -69,14 +69,17 @@ public class ShelterController {
 
     @Operation(
             summary = "List shelters with optional constraint filters",
-            description = "Returns shelters within the authenticated tenant. All filter parameters " +
-                    "are optional — omit all filters to retrieve every shelter in the tenant. When " +
-                    "one or more filters are provided, only shelters whose constraints match ALL " +
-                    "specified filters are returned (AND logic). DV shelters are automatically " +
-                    "excluded from results for users without dvAccess. Each result includes shelter " +
-                    "id, name, full address, phone, coordinates, dvShelter flag, and timestamps. " +
-                    "The updatedAt timestamp indicates when the shelter profile was last modified — " +
-                    "treat shelters not updated within the last hour as potentially stale. " +
+            description = "Returns shelters within the authenticated tenant. Each result wraps the " +
+                    "shelter record with an availabilitySummary containing totalBedsAvailable (sum " +
+                    "of beds_available across all population types), populationTypesServed count, " +
+                    "lastUpdated (most recent snapshot_ts), dataAgeSeconds, and dataFreshness " +
+                    "(FRESH/AGING/STALE/UNKNOWN). All filter parameters are optional — omit all " +
+                    "filters to retrieve every shelter. When one or more filters are provided, only " +
+                    "shelters whose constraints match ALL specified filters are returned (AND logic). " +
+                    "DV shelters are automatically excluded for users without dvAccess. Supports " +
+                    "optional pagination: pass page (0-indexed) and size (default 20) to receive a " +
+                    "paginated response with content array, page, size, totalElements, and totalPages. " +
+                    "Omit page to receive the full unpaginated array. " +
                     "Requires any authenticated role."
     )
     @GetMapping

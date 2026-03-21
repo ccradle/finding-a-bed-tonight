@@ -277,6 +277,14 @@ TOKEN=$(curl -s -X POST http://localhost:8080/api/v1/auth/login \
   -d '{"tenantSlug": "dev-coc", "email": "outreach@dev.fabt.org", "password": "admin123"}' \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['accessToken'])")
 
+# List shelters with availability summary (each result wraps shelter + availabilitySummary)
+curl -s http://localhost:8080/api/v1/shelters \
+  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
+
+# List shelters with pagination (page 0, 5 per page)
+curl -s "http://localhost:8080/api/v1/shelters?page=0&size=5" \
+  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool
+
 # Search for beds (ranked results with availability)
 curl -s -X POST http://localhost:8080/api/v1/queries/beds \
   -H "Authorization: Bearer $TOKEN" \
