@@ -1,6 +1,6 @@
 // ============================================================================
 // Finding A Bed Tonight (FABT) — Database Schema
-// Source: Flyway migrations V1–V16 + V8.1
+// Source: Flyway migrations V1–V19 + V8.1
 // Generated: 2026-03-20
 // ============================================================================
 
@@ -332,3 +332,56 @@ Table reservation {
 // ---------------------------------------------------------------------------
 // RLS FORCE enabled on reservation. Policy dv_reservation_access uses EXISTS
 // subquery through shelter table, inheriting DV-shelter access control.
+
+// ---------------------------------------------------------------------------
+// V16 — Restricted application role (fabt_app)
+// ---------------------------------------------------------------------------
+// Creates fabt_app role with NOSUPERUSER, DML-only permissions.
+// Application connects as fabt_app for RLS enforcement.
+// Flyway DDL runs as fabt (owner).
+
+// ---------------------------------------------------------------------------
+// V17 — Surge Event (White Flag / emergency activation)
+// ---------------------------------------------------------------------------
+
+Enum SurgeEventStatus {
+  ACTIVE
+  DEACTIVATED
+  EXPIRED
+}
+
+Table surge_event {
+  id              uuid        [pk, note: 'gen_random_uuid()']
+  tenant_id       uuid        [not null, ref: > tenant.id]
+  status          varchar(20) [not null, default: 'ACTIVE', note: 'SurgeEventStatus enum']
+  reason          varchar(500) [not null, note: 'Human-readable reason (e.g., White Flag)']
+  bounding_box    jsonb       [note: 'Optional geographic scope — null = entire CoC']
+  activated_by    uuid        [not null, ref: > app_user.id]
+  activated_at    timestamptz [not null, default: `now()`]
+  deactivated_at  timestamptz
+  deactivated_by  uuid        [ref: > app_user.id]
+  scheduled_end   timestamptz [note: 'Optional auto-expiry time']
+  created_at      timestamptz [not null, default: `now()`]
+
+  indexes {
+    (tenant_id, status) [name: 'idx_surge_event_tenant_status']
+  }
+
+  Note: '''
+    First-class domain entity for emergency surge events (White Flag nights,
+    disaster response, seasonal overflow). Lifecycle: ACTIVE → DEACTIVATED
+    (manual) or EXPIRED (scheduled_end passed). One active surge per tenant.
+    surge.activated and surge.deactivated events published to EventBus.
+  '''
+}
+
+// ---------------------------------------------------------------------------
+// V18 — Overflow beds on bed_availability
+// ---------------------------------------------------------------------------
+// ALTER TABLE bed_availability ADD COLUMN overflow_beds INTEGER DEFAULT 0
+// Temporary capacity (cots, mats) reported by coordinators during active surges.
+
+// ---------------------------------------------------------------------------
+// V19 — RLS for surge_event
+// ---------------------------------------------------------------------------
+// RLS FORCE enabled on surge_event with tenant-scoped access policy.

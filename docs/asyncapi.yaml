@@ -121,9 +121,10 @@ channels:
     address: surge.activated
     title: Surge Activated
     description: |
-      Published when a CoC admin activates a surge or White Flag event,
-      signaling that additional capacity is being opened and special
-      routing rules may apply.
+      Published when a CoC admin activates a surge or White Flag event via
+      POST /api/v1/surge-events. The payload includes affected_shelter_count
+      and estimated_overflow_beds computed at activation time. Fires after
+      the surge_event row is persisted.
     x-security:
       dv-access-control: |
         Surge events may affect DV shelters within the bounding box.

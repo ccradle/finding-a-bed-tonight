@@ -73,6 +73,15 @@ public class AvailabilityService {
                                                 int bedsTotal, int bedsOccupied, int bedsOnHold,
                                                 boolean acceptingNewGuests, String notes,
                                                 String updatedBy) {
+        return createSnapshot(shelterId, populationType, bedsTotal, bedsOccupied, bedsOnHold,
+                acceptingNewGuests, notes, updatedBy, 0);
+    }
+
+    @Transactional
+    public AvailabilitySnapshot createSnapshot(UUID shelterId, String populationType,
+                                                int bedsTotal, int bedsOccupied, int bedsOnHold,
+                                                boolean acceptingNewGuests, String notes,
+                                                String updatedBy, int overflowBeds) {
         UUID tenantId = TenantContext.getTenantId();
 
         // Verify shelter exists in tenant
@@ -92,6 +101,7 @@ public class AvailabilityService {
                 bedsTotal, bedsOccupied, bedsOnHold,
                 acceptingNewGuests, updatedBy, notes
         );
+        ba.setOverflowBeds(overflowBeds);
         BedAvailability saved = repository.insert(ba);
 
         // Synchronous cache invalidation BEFORE returning 200 (Design rule D6)

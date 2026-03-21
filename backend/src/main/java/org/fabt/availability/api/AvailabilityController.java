@@ -72,7 +72,8 @@ public class AvailabilityController {
         AvailabilitySnapshot snapshot = availabilityService.createSnapshot(
                 id, request.populationType(),
                 request.bedsTotal(), request.bedsOccupied(), request.bedsOnHoldOrDefault(),
-                request.acceptingNewGuests(), request.notes(), updatedBy
+                request.acceptingNewGuests(), request.notes(), updatedBy,
+                request.overflowBedsOrDefault()
         );
 
         return ResponseEntity.ok(snapshot);

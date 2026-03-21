@@ -75,4 +75,9 @@ public class BedAvailability {
 
     public String getNotes() { return notes; }
     public void setNotes(String notes) { this.notes = notes; }
+
+    private Integer overflowBeds;
+
+    public Integer getOverflowBeds() { return overflowBeds; }
+    public void setOverflowBeds(Integer overflowBeds) { this.overflowBeds = overflowBeds; }
 }

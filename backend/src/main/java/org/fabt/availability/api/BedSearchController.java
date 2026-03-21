@@ -4,6 +4,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import org.fabt.availability.domain.BedSearchRequest;
 import org.fabt.availability.service.BedSearchService;
 import org.fabt.availability.service.BedSearchService.BedSearchResponse;
+import org.fabt.surge.service.SurgeEventService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -15,9 +16,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class BedSearchController {
 
     private final BedSearchService bedSearchService;
+    private final SurgeEventService surgeEventService;
 
-    public BedSearchController(BedSearchService bedSearchService) {
+    public BedSearchController(BedSearchService bedSearchService, SurgeEventService surgeEventService) {
         this.bedSearchService = bedSearchService;
+        this.surgeEventService = surgeEventService;
     }
 
     @Operation(
@@ -45,7 +48,8 @@ public class BedSearchController {
         if (request == null) {
             request = new BedSearchRequest(null, null, null, null);
         }
-        BedSearchResponse response = bedSearchService.search(request);
+        boolean surgeActive = surgeEventService.getActive().isPresent();
+        BedSearchResponse response = bedSearchService.search(request, surgeActive);
         return ResponseEntity.ok(response);
     }
 }

@@ -64,6 +64,7 @@ interface AvailabilityEdit {
   bedsTotal: number;
   bedsOccupied: number;
   bedsOnHold: number;
+  overflowBeds: number;
 }
 
 export function CoordinatorDashboard() {
@@ -124,6 +125,7 @@ export function CoordinatorDashboard() {
           bedsTotal: a?.bedsTotal ?? (capacityMap.get(pt) ?? 0),
           bedsOccupied: a?.bedsOccupied ?? 0,
           bedsOnHold: a?.bedsOnHold ?? 0,
+          overflowBeds: 0,
         };
       });
       setEditAvailability(availEdit);
@@ -184,6 +186,7 @@ export function CoordinatorDashboard() {
         bedsOccupied: avail.bedsOccupied,
         bedsOnHold: avail.bedsOnHold,
         acceptingNewGuests: true,
+        overflowBeds: avail.overflowBeds,
       });
       setAvailSaved(popType);
       // Refresh shelter list for updated summary

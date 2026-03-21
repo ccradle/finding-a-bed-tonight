@@ -32,6 +32,7 @@ public class BedAvailabilityRepository {
         ba.setSnapshotTs(ts != null ? ts.toInstant() : null);
         ba.setUpdatedBy(rs.getString("updated_by"));
         ba.setNotes(rs.getString("notes"));
+        ba.setOverflowBeds(rs.getObject("overflow_beds", Integer.class));
         return ba;
     };
 
@@ -81,15 +82,16 @@ public class BedAvailabilityRepository {
                 """
                 INSERT INTO bed_availability
                     (shelter_id, tenant_id, population_type, beds_total, beds_occupied,
-                     beds_on_hold, accepting_new_guests, updated_by, notes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     beds_on_hold, accepting_new_guests, updated_by, notes, overflow_beds)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT ON CONSTRAINT uq_bed_avail_shelter_pop_ts DO NOTHING
                 RETURNING *
                 """,
                 ROW_MAPPER,
                 ba.getShelterId(), ba.getTenantId(), ba.getPopulationType(),
                 ba.getBedsTotal(), ba.getBedsOccupied(), ba.getBedsOnHold(),
-                ba.isAcceptingNewGuests(), ba.getUpdatedBy(), ba.getNotes()
+                ba.isAcceptingNewGuests(), ba.getUpdatedBy(), ba.getNotes(),
+                ba.getOverflowBeds() != null ? ba.getOverflowBeds() : 0
         );
         if (results.isEmpty()) {
             // Concurrent insert — silently dropped per HSDS spec. Return the input as-is.

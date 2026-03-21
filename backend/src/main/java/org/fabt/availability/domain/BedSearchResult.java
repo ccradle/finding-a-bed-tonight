@@ -14,7 +14,8 @@ public record BedSearchResult(
         Long dataAgeSeconds,
         String dataFreshness,
         Double distanceMiles,
-        ConstraintsSummary constraints
+        ConstraintsSummary constraints,
+        boolean surgeActive
 ) {
     public record PopulationAvailability(
             String populationType,
@@ -22,7 +23,8 @@ public record BedSearchResult(
             int bedsOccupied,
             int bedsOnHold,
             int bedsAvailable,
-            boolean acceptingNewGuests
+            boolean acceptingNewGuests,
+            int overflowBeds
     ) {}
 
     public record ConstraintsSummary(

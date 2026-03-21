@@ -49,6 +49,11 @@ public class BedSearchService {
 
     @Transactional(readOnly = true)
     public BedSearchResponse search(BedSearchRequest request) {
+        return search(request, false);
+    }
+
+    @Transactional(readOnly = true)
+    public BedSearchResponse search(BedSearchRequest request, boolean surgeActive) {
         UUID tenantId = TenantContext.getTenantId();
 
         // Cache-aside: check cache first, populate on miss from PostgreSQL
@@ -132,7 +137,8 @@ public class BedSearchService {
                             ba.getBedsOccupied(),
                             ba.getBedsOnHold(),
                             ba.getBedsAvailable(),
-                            ba.isAcceptingNewGuests()
+                            ba.isAcceptingNewGuests(),
+                            ba.getOverflowBeds() != null ? ba.getOverflowBeds() : 0
                     ))
                     .toList();
 
@@ -177,7 +183,8 @@ public class BedSearchService {
                     dataAgeSeconds,
                     freshness,
                     null, // distanceMiles — placeholder until geo-search change
-                    constraintsSummary
+                    constraintsSummary,
+                    surgeActive
             ));
         }
 

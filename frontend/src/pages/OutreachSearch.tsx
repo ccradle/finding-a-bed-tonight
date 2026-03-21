@@ -21,6 +21,7 @@ interface PopulationAvailability {
   bedsOnHold: number;
   bedsAvailable: number;
   acceptingNewGuests: boolean;
+  overflowBeds: number;
 }
 
 interface ConstraintsSummary {
@@ -43,6 +44,7 @@ interface BedSearchResult {
   dataFreshness: string;
   distanceMiles: number | null;
   constraints: ConstraintsSummary;
+  surgeActive: boolean;
 }
 
 interface BedSearchResponse {
@@ -99,6 +101,13 @@ interface ShelterDetail {
   data_freshness?: string;
 }
 
+interface SurgeEventResponse {
+  id: string;
+  status: string;
+  reason: string;
+  activatedAt: string;
+}
+
 interface ReservationResponse {
   id: string;
   shelterId: string;
@@ -121,6 +130,7 @@ export function OutreachSearch() {
   const [searchText, setSearchText] = useState('');
   const [selectedShelter, setSelectedShelter] = useState<ShelterDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [activeSurge, setActiveSurge] = useState<SurgeEventResponse | null>(null);
   const [reservations, setReservations] = useState<ReservationResponse[]>([]);
   const [holdingShelterId, setHoldingShelterId] = useState<string | null>(null);
   const [holdPopType, setHoldPopType] = useState<string | null>(null);
@@ -157,6 +167,17 @@ export function OutreachSearch() {
   }, []);
 
   useEffect(() => { fetchReservations(); }, [fetchReservations]);
+
+  // Fetch active surge
+  useEffect(() => {
+    (async () => {
+      try {
+        const surges = await api.get<SurgeEventResponse[]>('/api/v1/surge-events');
+        const active = surges.find(s => s.status === 'ACTIVE');
+        setActiveSurge(active || null);
+      } catch { /* silent */ }
+    })();
+  }, []);
 
   // Countdown timer for active reservations
   useEffect(() => {
@@ -269,6 +290,26 @@ export function OutreachSearch() {
           <FormattedMessage id="search.subtitle" />
         </p>
       </div>
+
+      {/* Surge banner */}
+      {activeSurge && (
+        <div style={{
+          padding: '14px 20px', borderRadius: 12, marginBottom: 14,
+          background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
+          color: '#fff', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          boxShadow: '0 2px 12px rgba(220,38,38,0.3)',
+        }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 800, letterSpacing: '0.06em', marginBottom: 2 }}>
+              <FormattedMessage id="surge.banner" />
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 500 }}>{activeSurge.reason}</div>
+          </div>
+          <div style={{ fontSize: 12, opacity: 0.85 }}>
+            <FormattedMessage id="surge.since" />: {new Date(activeSurge.activatedAt).toLocaleString()}
+          </div>
+        </div>
+      )}
 
       {/* Search input */}
       <input
@@ -442,6 +483,7 @@ export function OutreachSearch() {
                     }}>
                       {a.populationType.replace(/_/g, ' ')}: {a.bedsAvailable}
                       {a.bedsOnHold > 0 && <span style={{ color: '#854d0e' }}> ({a.bedsOnHold} held)</span>}
+                      {a.overflowBeds > 0 && <span style={{ color: '#dc2626' }}> +{a.overflowBeds} overflow</span>}
                     </span>
                     {a.bedsAvailable > 0 && (
                       <button
