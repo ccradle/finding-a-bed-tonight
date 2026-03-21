@@ -224,12 +224,12 @@ public class ReservationService {
                             JsonNode node = objectMapper.readTree(t.getConfig().value());
                             JsonNode holdDuration = node.get("hold_duration_minutes");
                             return holdDuration != null ? holdDuration.asInt(DEFAULT_HOLD_DURATION_MINUTES) : DEFAULT_HOLD_DURATION_MINUTES;
-                        } catch (Exception e) {
+                        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
                             return DEFAULT_HOLD_DURATION_MINUTES;
                         }
                     })
                     .orElse(DEFAULT_HOLD_DURATION_MINUTES);
-        } catch (Exception e) {
+        } catch (org.springframework.dao.DataAccessException e) {
             return DEFAULT_HOLD_DURATION_MINUTES;
         }
     }
