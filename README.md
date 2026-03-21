@@ -93,8 +93,8 @@ Three deployment tiers allow the same codebase to serve communities of vastly di
 | Events | Spring Events (Lite) / Kafka (Full) |
 | Auth | JWT + OAuth2/OIDC + API Keys (hybrid) |
 | Frontend | React 19, Vite, TypeScript, Workbox PWA, react-intl (EN/ES) |
-| Testing | JUnit 5, Testcontainers, ArchUnit (109 tests, 15 architecture rules) |
-| Infra | Docker, GitHub Actions CI/CD, Terraform (3 tiers) |
+| Testing | JUnit 5, Testcontainers, ArchUnit (109 integration tests), Playwright (17 UI tests), Karate (19 API tests) |
+| Infra | Docker, GitHub Actions CI/CD + E2E pipeline, Terraform (3 tiers) |
 
 ---
 
@@ -317,8 +317,12 @@ curl -s http://localhost:8080/actuator/health | python3 -m json.tool
 ```bash
 cd backend
 
-# Run all 109 tests
+# Run all 109 backend tests
 mvn test
+
+# Run E2E tests (requires dev-start.sh stack running)
+cd ../e2e/playwright && npx playwright test    # 17 UI tests
+cd ../e2e/karate && mvn test                   # 19 API tests
 
 # Run a specific test class
 mvn test -Dtest=ReservationIntegrationTest
@@ -348,7 +352,21 @@ mvn test -Dtest="AvailabilityIntegrationTest#test_createSnapshot_appendOnly_pres
 | `SubscriptionIntegrationTest` | 5 | Webhook subscription CRUD, error validation |
 | `AvailabilityIntegrationTest` | 10 | Availability snapshots, bed search, ranking, data freshness, events |
 | `ReservationIntegrationTest` | 10 | Reservation lifecycle, concurrency, expiry, creator-only access, events |
-| **Total** | **109** | |
+| **Backend Total** | **109** | |
+| | | |
+| **E2E: Playwright** | **17** | **UI tests (Chromium, Page Object Model)** |
+| `auth.spec.ts` | 4 | Login per role, failed login |
+| `outreach-search.spec.ts` | 5 | Results, filters, detail modal open/close |
+| `coordinator-dashboard.spec.ts` | 4 | Load, expand, update availability, save capacity |
+| `admin-panel.spec.ts` | 4 | Tabs, create user, shelter list, API key reveal |
+| | | |
+| **E2E: Karate** | **19** | **API contract tests (feature files)** |
+| `auth/login.feature` | 5 | JWT login, refresh, invalid, no-auth 401, API key |
+| `shelters/shelter-crud.feature` | 6 | Create, update, list, filter, HSDS, outreach 403 |
+| `availability/availability.feature` | 6 | PATCH snapshot, bed search, filters, outreach 403, detail |
+| `webhooks/subscription-crud.feature` | 2 | Create + list, delete |
+| | | |
+| **Grand Total** | **145** | |
 
 ---
 
@@ -483,58 +501,171 @@ All endpoints are under `/api/v1`. Authentication is via JWT Bearer token (from 
 
 ```
 finding-a-bed-tonight/
-├── README.md                                          # This file
-├── CONTRIBUTING.md                                    # Contributor guide
+├── README.md
+├── CONTRIBUTING.md
 ├── LICENSE                                            # Apache 2.0
-├── dev-start.sh                                       # One-command dev stack launcher
-├── docker-compose.yml                                 # Local dev: PostgreSQL, Redis, Kafka
+├── dev-start.sh                                       # One-command dev stack (PostgreSQL, backend, seed, frontend)
+├── docker-compose.yml                                 # Local dev: PostgreSQL, Redis (standard), Kafka (full)
 │
-├── backend/                                           # Spring Boot modular monolith
-│   ├── pom.xml                                        # Maven build (Spring Boot 3.4.4)
+├── backend/                                           # Spring Boot 3.4 modular monolith
+│   ├── pom.xml                                        # Maven build + OWASP dependency-check plugin
+│   ├── owasp-suppressions.xml                         # CVE suppression file with review dates
 │   └── src/
 │       ├── main/java/org/fabt/
 │       │   ├── Application.java                       # Entry point (@EnableScheduling)
-│       │   ├── tenant/                                # Tenant module (CRUD, config)
-│       │   ├── auth/                                  # Auth module (JWT, API keys, OAuth2, users)
-│       │   ├── shelter/                               # Shelter module (CRUD, constraints, HSDS)
-│       │   ├── availability/                          # Availability module (snapshots, bed search)
-│       │   ├── reservation/                           # Reservation module (soft-hold lifecycle)
-│       │   ├── dataimport/                            # Import module (HSDS, 211 CSV)
+│       │   ├── tenant/                                # Tenant module — CRUD, config, multi-tenancy
+│       │   │   ├── api/TenantController.java
+│       │   │   ├── domain/Tenant.java
+│       │   │   ├── repository/TenantRepository.java
+│       │   │   └── service/TenantService.java
+│       │   ├── auth/                                  # Auth module — JWT, API keys, OAuth2, users
+│       │   │   ├── api/AuthController.java            # Login, refresh
+│       │   │   ├── api/UserController.java            # User CRUD
+│       │   │   ├── api/ApiKeyController.java          # API key CRUD + rotate
+│       │   │   ├── domain/User.java
+│       │   │   ├── domain/ApiKey.java
+│       │   │   ├── service/JwtService.java
+│       │   │   ├── service/ApiKeyService.java         # SHA-256 hash, validate, rotate
+│       │   │   └── service/PasswordService.java
+│       │   ├── shelter/                               # Shelter module — CRUD, constraints, HSDS
+│       │   │   ├── api/ShelterController.java         # CRUD + availability enrichment + pagination
+│       │   │   ├── api/ShelterDetailResponse.java     # Shelter + constraints + capacities + availability
+│       │   │   ├── api/ShelterListResponse.java       # Shelter + availabilitySummary
+│       │   │   ├── domain/Shelter.java
+│       │   │   ├── domain/ShelterConstraints.java     # Persistable<UUID> for FK-as-PK
+│       │   │   ├── domain/PopulationType.java         # 7 population type enum values
+│       │   │   ├── repository/ShelterRepository.java
+│       │   │   ├── repository/ShelterCapacityRepository.java  # JdbcTemplate, composite PK
+│       │   │   ├── repository/CoordinatorAssignmentRepository.java
+│       │   │   └── service/ShelterService.java
+│       │   ├── availability/                          # Availability module — snapshots, bed search
+│       │   │   ├── api/AvailabilityController.java    # PATCH /shelters/{id}/availability
+│       │   │   ├── api/BedSearchController.java       # POST /queries/beds
+│       │   │   ├── domain/BedAvailability.java        # Append-only snapshot entity
+│       │   │   ├── domain/BedSearchRequest.java       # Filter body (populationType, constraints, location)
+│       │   │   ├── domain/BedSearchResult.java        # Ranked result with availability + freshness
+│       │   │   ├── repository/BedAvailabilityRepository.java  # DISTINCT ON, ON CONFLICT DO NOTHING
+│       │   │   ├── service/AvailabilityService.java   # createSnapshot, cache evict, event publish
+│       │   │   └── service/BedSearchService.java      # Cache-aside, ranking, constraint filtering
+│       │   ├── reservation/                           # Reservation module — soft-hold lifecycle
+│       │   │   ├── api/ReservationController.java     # Create, confirm, cancel, list
+│       │   │   ├── api/ReservationResponse.java       # Includes remainingSeconds for countdown
+│       │   │   ├── domain/Reservation.java            # HELD → CONFIRMED/CANCELLED/EXPIRED
+│       │   │   ├── domain/ReservationStatus.java
+│       │   │   ├── repository/ReservationRepository.java  # Optimistic locking (WHERE status='HELD')
+│       │   │   ├── service/ReservationService.java    # Lifecycle + availability snapshot integration
+│       │   │   ├── service/ReservationExpiryService.java  # @Scheduled 30s polling (Lite tier)
+│       │   │   └── service/RedisReservationExpiryService.java  # @Profile("standard","full") placeholder
+│       │   ├── dataimport/                            # Import module — HSDS, 211 CSV
+│       │   │   ├── api/ImportController.java
+│       │   │   └── service/HsdsImportAdapter.java
 │       │   ├── subscription/                          # Webhook subscription module
+│       │   │   ├── api/SubscriptionController.java
+│       │   │   └── service/SubscriptionService.java   # HMAC-SHA256 delivery, retry
 │       │   ├── observability/                         # Logging, metrics, health, i18n
-│       │   └── shared/                                # Shared kernel (cache, event, security, web)
+│       │   │   ├── DataAgeResponseAdvice.java         # Enriches responses with data_age_seconds
+│       │   │   ├── DataFreshness.java                 # FRESH/AGING/STALE/UNKNOWN enum
+│       │   │   └── TenantMdcFilter.java               # Tenant context in structured logs
+│       │   └── shared/                                # Shared kernel — cross-cutting infrastructure
+│       │       ├── cache/CacheService.java            # Interface: get, put, evict
+│       │       ├── cache/CacheNames.java              # SHELTER_PROFILE, SHELTER_AVAILABILITY, etc.
+│       │       ├── cache/CaffeineCacheService.java    # @Profile("lite") — L1 only
+│       │       ├── cache/TieredCacheService.java      # @Profile("standard","full") — L1+L2
+│       │       ├── event/EventBus.java                # Interface: publish(DomainEvent)
+│       │       ├── event/DomainEvent.java             # Self-describing event record (REQ-MCP-5)
+│       │       ├── event/SpringEventBus.java          # @Profile("lite","standard")
+│       │       ├── event/KafkaEventBus.java           # @Profile("full")
+│       │       ├── security/SecurityConfig.java       # URL-level + method-level security
+│       │       ├── security/JwtAuthenticationFilter.java
+│       │       ├── security/ApiKeyAuthenticationFilter.java
+│       │       └── web/TenantContext.java             # ThreadLocal tenant + dvAccess
 │       ├── main/resources/
-│       │   ├── application.yml                        # Base config
-│       │   ├── application-{lite,standard,full}.yml   # Deployment tier profiles
+│       │   ├── application.yml                        # Base config (port 8080, PostgreSQL, Flyway)
 │       │   ├── db/migration/                          # 15 Flyway migrations (V1–V15 + V8.1)
-│       │   ├── logback-spring.xml                     # Structured JSON logging
-│       │   └── messages/                              # i18n (EN, ES)
+│       │   ├── logback-spring.xml                     # Structured JSON logging (Logstash encoder)
+│       │   └── messages/                              # i18n error messages (EN, ES)
 │       └── test/java/org/fabt/                        # 109 integration tests
+│           ├── BaseIntegrationTest.java               # Singleton Testcontainers PostgreSQL
+│           ├── TestAuthHelper.java                    # Per-role JWT helper for tests
+│           ├── ArchitectureTest.java                  # 15 ArchUnit module boundary rules
+│           ├── availability/AvailabilityIntegrationTest.java  # 10 tests
+│           ├── availability/TestEventListener.java    # Captures DomainEvents for assertions
+│           ├── reservation/ReservationIntegrationTest.java    # 10 tests
+│           ├── shelter/ShelterIntegrationTest.java     # 11 tests
+│           └── ...                                    # auth (37), dataimport (7), observability (6), etc.
 │
-├── frontend/                                          # React + Vite + TypeScript PWA
-│   ├── src/
-│   │   ├── auth/                                      # AuthContext, AuthGuard
-│   │   ├── pages/                                     # Login, Admin, Coordinator, Outreach, Shelter, Import
-│   │   ├── components/                                # Layout, DataAge, OfflineBanner, LocaleSelector
-│   │   ├── services/                                  # API client (GET/POST/PUT/PATCH/DELETE), offline queue
-│   │   ├── hooks/                                     # useOnlineStatus
-│   │   └── i18n/                                      # en.json, es.json
-│   └── vite.config.ts                                 # PWA manifest, workbox, API proxy
+├── frontend/                                          # React 19 + Vite + TypeScript PWA
+│   ├── package.json
+│   ├── vite.config.ts                                 # PWA manifest, workbox, API proxy to :8080
+│   └── src/
+│       ├── App.tsx                                    # Router, IntlProvider, AuthProvider
+│       ├── auth/                                      # AuthContext, AuthGuard, useAuth
+│       ├── pages/
+│       │   ├── LoginPage.tsx                          # Tenant slug + email/password login
+│       │   ├── OutreachSearch.tsx                     # Bed search, hold buttons, reservations panel
+│       │   ├── CoordinatorDashboard.tsx               # Availability update, hold indicators
+│       │   ├── AdminPanel.tsx                         # Users, shelters, API keys, subscriptions
+│       │   ├── ShelterForm.tsx                        # Create shelter with constraints + capacity
+│       │   ├── HsdsImportPage.tsx                     # HSDS JSON file upload
+│       │   └── TwoOneOneImportPage.tsx                # 211 CSV import with column mapping
+│       ├── components/
+│       │   ├── Layout.tsx                             # Nav, locale selector, offline banner
+│       │   └── DataAge.tsx                            # Freshness indicator (green/yellow/red dot)
+│       ├── services/
+│       │   ├── api.ts                                 # HTTP client with JWT refresh + 401 retry
+│       │   └── offlineQueue.ts                        # IndexedDB queue, replay on reconnect
+│       ├── hooks/useOnlineStatus.ts                   # navigator.onLine listener
+│       └── i18n/
+│           ├── en.json                                # English (100+ keys)
+│           └── es.json                                # Spanish (100+ keys)
+│
+├── e2e/                                               # End-to-end test suites
+│   ├── playwright/                                    # UI tests (17 tests, Chromium)
+│   │   ├── package.json                               # @playwright/test + TypeScript
+│   │   ├── playwright.config.ts                       # baseURL, workers, retries, HTML reporter
+│   │   ├── fixtures/auth.fixture.ts                   # Per-role storageState (admin, cocadmin, outreach)
+│   │   ├── pages/                                     # Page Object Model
+│   │   │   ├── LoginPage.ts                           # Tenant slug, email, password, submit
+│   │   │   ├── OutreachSearchPage.ts                  # Filters, results, detail modal
+│   │   │   ├── CoordinatorDashboardPage.ts            # Shelter cards, steppers, save
+│   │   │   └── AdminPanelPage.ts                      # Tabs, forms, tables
+│   │   └── tests/
+│   │       ├── auth.spec.ts                           # 4 tests — login per role + failed login
+│   │       ├── outreach-search.spec.ts                # 5 tests — filters, modal, results
+│   │       ├── coordinator-dashboard.spec.ts          # 4 tests — expand, update, save
+│   │       └── admin-panel.spec.ts                    # 4 tests — tabs, create user, API key reveal
+│   └── karate/                                        # API tests (19 scenarios, JUnit 5 runner)
+│       ├── pom.xml                                    # Standalone Maven project, Karate 1.4.1
+│       └── src/test/java/
+│           ├── KarateRunnerTest.java                  # JUnit 5 entry point
+│           ├── karate-config.js                       # baseUrl, pre-authenticated tokens per role
+│           ├── common/auth.feature                    # Reusable login helper (@ignore)
+│           └── features/
+│               ├── auth/login.feature                 # 5 scenarios — JWT, refresh, 401, API key
+│               ├── shelters/shelter-crud.feature       # 6 scenarios — CRUD, HSDS, filters, 403
+│               ├── availability/availability.feature   # 6 scenarios — PATCH, search, detail, 403
+│               └── webhooks/subscription-crud.feature  # 2 scenarios — create, delete
 │
 ├── docs/
-│   ├── schema.dbml                                    # Database schema (DBML format)
-│   ├── erd.png                                        # Entity relationship diagram
-│   ├── asyncapi.yaml                                  # EventBus contract (AsyncAPI 3.0)
-│   └── architecture.drawio                            # Architecture diagram
+│   ├── schema.dbml                                    # Database schema (V1–V15, DBML format)
+│   ├── erd.png                                        # Entity relationship diagram (from dbdiagram.io)
+│   ├── asyncapi.yaml                                  # EventBus contract (AsyncAPI 3.0, x-security)
+│   └── architecture.drawio                            # Architecture diagram (draw.io)
 │
 ├── infra/
 │   ├── docker/                                        # Dockerfiles (backend, frontend, nginx)
-│   ├── scripts/                                       # seed-data.sql
-│   └── terraform/                                     # IaC for all 3 deployment tiers
-│       ├── bootstrap/                                 # S3 state backend + DynamoDB lock
-│       └── modules/                                   # network, postgres, app
+│   ├── scripts/
+│   │   └── seed-data.sql                              # 10 shelters, 3 users, 13 availability snapshots
+│   └── terraform/
+│       ├── bootstrap/main.tf                          # S3 state + DynamoDB lock (deletion protected)
+│       └── modules/
+│           ├── network/main.tf                        # VPC, subnets (no public IP auto-assign)
+│           ├── postgres/main.tf                       # RDS PostgreSQL 16 (private, encrypted)
+│           └── app/main.tf                            # ECS Fargate, ALB (TLS 1.2+), Secrets Manager
 │
-└── .github/workflows/ci.yml                           # CI: backend test, frontend build, Docker push
+└── .github/workflows/
+    ├── ci.yml                                         # Backend test + OWASP check, frontend build, Docker push
+    └── e2e-tests.yml                                  # Playwright + Karate against dev stack, HTML reports
 ```
 
 ---
@@ -576,12 +707,12 @@ finding-a-bed-tonight/
 - [x] 4 domain events: reservation.created, confirmed, cancelled, expired
 - [x] Frontend: "Hold This Bed" buttons, countdown timer, confirm/cancel flow, coordinator hold indicator
 
-### In Progress: E2E Test Automation (specced, ready for implementation)
+### Completed: E2E Test Automation
 
-- [ ] Playwright UI tests: login, outreach search, coordinator dashboard, admin panel
-- [ ] Karate API tests: auth, shelters, availability, bed search, subscriptions
-- [ ] GitHub Actions CI pipeline with parallel execution
-- [ ] Test data management and reporting
+- [x] Playwright UI tests: 17 tests (login, outreach search, coordinator dashboard, admin panel)
+- [x] Karate API tests: 19 scenarios (auth, shelters, availability, bed search, subscriptions)
+- [x] GitHub Actions CI pipeline (e2e-tests.yml) with health waits and HTML report artifacts
+- [x] Auth patterns from portfolio-test-automation: configure headers, per-role tokens, storageState
 
 ### Planned: Remaining Phase 1 Capabilities
 
