@@ -18,6 +18,15 @@ info:
     The transport changes; the message contract does not. Consumers
     should depend only on the schemas documented here, never on
     transport-specific headers or metadata.
+
+    **Full-tier Kafka ACL requirement:** Before enabling the Full Spring
+    profile with Kafka, topic ACLs MUST be configured at the broker level.
+    Events containing `population_type: DV_SURVIVOR` reveal that a shelter
+    serves domestic violence survivors — information protected by PostgreSQL
+    RLS on the query path. On the event path, Kafka topic ACLs are the only
+    enforcement mechanism. Only service accounts holding the `DV_REFERRAL`
+    authorization role may consume the `availability.updated` and
+    `reservation.*` topics. See `x-security` annotations on each channel.
   contact:
     name: FABT Maintainers
     url: https://github.com/ccradle/finding-a-bed-tonight
@@ -39,6 +48,13 @@ channels:
       coordinator update (PATCH /api/v1/shelters/{id}/availability) or a
       reservation state change (create, confirm, cancel, expire). Fired
       after the snapshot is persisted and L1/L2 caches are invalidated.
+    x-security:
+      dv-access-control: |
+        Events where payload.population_type = DV_SURVIVOR MUST only be
+        consumed by services holding the DV_REFERRAL authorization role.
+        Full-tier Kafka: topic ACLs MUST restrict consumption to DV_REFERRAL
+        service accounts. Lite/Standard: @EventListener methods MUST check
+        SecurityContext for DV_REFERRAL before processing DV_SURVIVOR events.
     messages:
       availabilityUpdatedMessage:
         $ref: '#/components/messages/AvailabilityUpdatedMessage'
@@ -49,6 +65,10 @@ channels:
     description: |
       Published when an outreach worker creates a soft-hold bed reservation.
       A new availability snapshot is created with beds_on_hold incremented.
+    x-security:
+      dv-access-control: |
+        Events where payload.population_type = DV_SURVIVOR MUST only be
+        consumed by services holding the DV_REFERRAL authorization role.
     messages:
       reservationCreatedMessage:
         $ref: '#/components/messages/ReservationEventMessage'
@@ -59,6 +79,10 @@ channels:
     description: |
       Published when a reservation is confirmed (client arrived). The hold
       converts to occupancy: beds_on_hold decremented, beds_occupied incremented.
+    x-security:
+      dv-access-control: |
+        Events where payload.population_type = DV_SURVIVOR MUST only be
+        consumed by services holding the DV_REFERRAL authorization role.
     messages:
       reservationConfirmedMessage:
         $ref: '#/components/messages/ReservationEventMessage'
@@ -69,6 +93,10 @@ channels:
     description: |
       Published when an outreach worker cancels a reservation. The held bed
       becomes available again: beds_on_hold decremented.
+    x-security:
+      dv-access-control: |
+        Events where payload.population_type = DV_SURVIVOR MUST only be
+        consumed by services holding the DV_REFERRAL authorization role.
     messages:
       reservationCancelledMessage:
         $ref: '#/components/messages/ReservationEventMessage'
@@ -81,6 +109,10 @@ channels:
       The held bed becomes available again: beds_on_hold decremented.
       Fired by the scheduled expiry task (Lite) or Redis TTL listener
       (Standard/Full).
+    x-security:
+      dv-access-control: |
+        Events where payload.population_type = DV_SURVIVOR MUST only be
+        consumed by services holding the DV_REFERRAL authorization role.
     messages:
       reservationExpiredMessage:
         $ref: '#/components/messages/ReservationEventMessage'
@@ -92,6 +124,11 @@ channels:
       Published when a CoC admin activates a surge or White Flag event,
       signaling that additional capacity is being opened and special
       routing rules may apply.
+    x-security:
+      dv-access-control: |
+        Surge events may affect DV shelters within the bounding box.
+        Consumers processing surge events that cross-reference shelter
+        data MUST hold the DV_REFERRAL role to access DV shelter details.
     messages:
       surgeActivatedMessage:
         $ref: '#/components/messages/SurgeActivatedMessage'
@@ -298,7 +335,9 @@ components:
           description: Human-readable shelter name (denormalized for consumers).
         population_type:
           type: string
-          description: Population type that changed (e.g. SINGLE_ADULT, FAMILY_WITH_CHILDREN).
+          description: |
+            Population type that changed (e.g. SINGLE_ADULT, FAMILY_WITH_CHILDREN).
+            DV_SURVIVOR is a protected value — see x-security on channel definitions.
           enum:
             - SINGLE_ADULT
             - FAMILY_WITH_CHILDREN
@@ -306,7 +345,7 @@ components:
             - VETERAN
             - YOUTH_18_24
             - YOUTH_UNDER_18
-            - DV_SURVIVOR
+            - DV_SURVIVOR  # Protected by DV_REFERRAL role — consumers MUST verify authorization before processing events with this population type
         beds_available:
           type: integer
           minimum: 0
@@ -401,6 +440,26 @@ components:
           type: string
           format: date-time
           description: Timestamp when the surge was activated.
+        affected_shelter_count:
+          type: integer
+          minimum: 0
+          nullable: true
+          description: |
+            Number of shelters within the surge bounding_box (or the entire CoC
+            if bounding_box is null) that are currently active and participating
+            in the platform. Null if the count cannot be determined at activation
+            time. Provided as a convenience for consumers so they can reason
+            about the scale of the surge without a follow-up query.
+        estimated_overflow_beds:
+          type: integer
+          minimum: 0
+          nullable: true
+          description: |
+            Sum of overflow_available beds across all shelters in scope at the
+            moment of surge activation. Null if no shelters have reported overflow
+            capacity. This is a point-in-time snapshot — actual available overflow
+            beds will be reflected in subsequent availability.updated events as
+            shelters update their counts.
 
     # -- surge.deactivated ------------------------------------------------
 
@@ -481,7 +540,9 @@ components:
           description: Tenant (Continuum of Care) that owns the shelter.
         population_type:
           type: string
-          description: Population type the bed is reserved for.
+          description: |
+            Population type the bed is reserved for.
+            DV_SURVIVOR is a protected value — see x-security on channel definitions.
           enum:
             - SINGLE_ADULT
             - FAMILY_WITH_CHILDREN
@@ -489,7 +550,7 @@ components:
             - VETERAN
             - YOUTH_18_24
             - YOUTH_UNDER_18
-            - DV_SURVIVOR
+            - DV_SURVIVOR  # Protected by DV_REFERRAL role — consumers MUST verify authorization before processing events with this population type
         user_id:
           type: string
           format: uuid

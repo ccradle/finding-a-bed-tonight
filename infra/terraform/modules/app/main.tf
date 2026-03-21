@@ -13,15 +13,13 @@ locals {
   cpu    = var.tier == "lite" ? 256 : 512
   memory = var.tier == "lite" ? 512 : 1024
 
-  # Build environment variables conditionally
+  # Non-sensitive environment variables
   backend_environment = concat(
     [
       { name = "SPRING_PROFILES_ACTIVE", value = var.spring_profiles_active },
       { name = "SPRING_DATASOURCE_URL", value = var.db_jdbc_url },
       { name = "SPRING_DATASOURCE_USERNAME", value = var.db_username },
-      { name = "SPRING_DATASOURCE_PASSWORD", value = var.db_password },
       { name = "FABT_CORS_ORIGINS", value = var.cors_origins },
-      { name = "FABT_JWT_SECRET", value = var.jwt_secret },
     ],
     var.redis_host != "" ? [
       { name = "SPRING_DATA_REDIS_HOST", value = var.redis_host },
@@ -365,6 +363,17 @@ resource "aws_ecs_task_definition" "app" {
         for env in local.backend_environment : {
           name  = env.name
           value = env.value
+        }
+      ]
+
+      secrets = [
+        {
+          name      = "SPRING_DATASOURCE_PASSWORD"
+          valueFrom = var.db_password_secret_arn
+        },
+        {
+          name      = "FABT_JWT_SECRET"
+          valueFrom = var.jwt_secret_arn
         }
       ]
 

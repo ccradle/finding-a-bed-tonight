@@ -114,6 +114,18 @@ variable "certificate_arn" {
   default     = ""
 }
 
+variable "db_password_secret_arn" {
+  description = "AWS Secrets Manager ARN for database password (injected as ECS secret, not environment variable)"
+  type        = string
+  default     = ""
+}
+
+variable "jwt_secret_arn" {
+  description = "AWS Secrets Manager ARN for JWT signing secret (injected as ECS secret, not environment variable)"
+  type        = string
+  default     = ""
+}
+
 variable "tags" {
   description = "Additional tags to apply to all resources"
   type        = map(string)
