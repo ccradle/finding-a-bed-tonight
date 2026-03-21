@@ -72,23 +72,6 @@ public class BedAvailabilityRepository {
     }
 
     /**
-     * Find the previous snapshot for a shelter + population type (second-most-recent).
-     */
-    public BedAvailability findPreviousByShelterId(UUID shelterId, String populationType) {
-        List<BedAvailability> results = jdbcTemplate.query(
-                """
-                SELECT * FROM bed_availability
-                WHERE shelter_id = ? AND population_type = ?
-                ORDER BY snapshot_ts DESC
-                LIMIT 1 OFFSET 1
-                """,
-                ROW_MAPPER,
-                shelterId, populationType
-        );
-        return results.isEmpty() ? null : results.get(0);
-    }
-
-    /**
      * Append-only insert. Uses ON CONFLICT DO NOTHING for concurrent insert safety —
      * if two coordinators submit at the exact same millisecond for the same
      * shelter/population type, one insert is silently dropped.
