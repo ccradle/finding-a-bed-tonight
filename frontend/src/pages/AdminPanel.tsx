@@ -13,12 +13,17 @@ interface User {
   dvAccess: boolean;
 }
 
-interface ShelterRow {
-  id: string;
-  name: string;
-  addressCity: string;
-  populationTypesServed: string[];
-  updatedAt: string;
+interface ShelterListItem {
+  shelter: {
+    id: string;
+    name: string;
+    addressCity: string;
+    updatedAt: string;
+  };
+  availabilitySummary: {
+    totalBedsAvailable: number | null;
+    dataFreshness: string;
+  } | null;
 }
 
 interface ApiKeyRow {
@@ -67,7 +72,7 @@ const TABS: { key: TabKey; labelId: string }[] = [
   { key: 'subscriptions', labelId: 'admin.subscriptions' },
 ];
 
-const ROLE_OPTIONS = ['ADMIN', 'COORDINATOR', 'OUTREACH', 'API_CONSUMER'];
+const ROLE_OPTIONS = ['PLATFORM_ADMIN', 'COC_ADMIN', 'COORDINATOR', 'OUTREACH_WORKER'];
 
 // --- Main Component ---
 
@@ -388,7 +393,7 @@ function UsersTab() {
 
 function SheltersTab() {
   const intl = useIntl();
-  const [shelters, setShelters] = useState<ShelterRow[]>([]);
+  const [shelters, setShelters] = useState<ShelterListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -396,7 +401,7 @@ function SheltersTab() {
     setLoading(true);
     setError(null);
     try {
-      const data = await api.get<ShelterRow[]>('/api/v1/shelters');
+      const data = await api.get<ShelterListItem[]>('/api/v1/shelters');
       setShelters(data);
     } catch {
       setError(intl.formatMessage({ id: 'coord.error' }));
@@ -414,11 +419,11 @@ function SheltersTab() {
       {error && <ErrorBox message={error} />}
 
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'flex-end' }}>
-        <a href="/coordinator/shelter/new" style={{
+        <a href="/coordinator/shelters/new" style={{
           ...primaryBtnStyle, textDecoration: 'none',
           display: 'inline-flex', alignItems: 'center',
         }}>
-          <FormattedMessage id="admin.shelters" /> +
+          <FormattedMessage id="admin.addShelter" />
         </a>
       </div>
 
@@ -429,24 +434,38 @@ function SheltersTab() {
               <tr>
                 <th style={thStyle}>Name</th>
                 <th style={thStyle}>City</th>
-                <th style={thStyle}>Populations Served</th>
+                <th style={thStyle}>Beds Available</th>
+                <th style={thStyle}>Freshness</th>
                 <th style={thStyle}>Updated</th>
               </tr>
             </thead>
             <tbody>
-              {shelters.map((s, i) => (
-                <tr key={s.id}>
-                  <td style={{ ...tdStyle(i), fontWeight: 600 }}>{s.name}</td>
-                  <td style={tdStyle(i)}>{s.addressCity}</td>
+              {shelters.map((item, i) => (
+                <tr key={item.shelter.id}>
+                  <td style={{ ...tdStyle(i), fontWeight: 600 }}>{item.shelter.name}</td>
+                  <td style={tdStyle(i)}>{item.shelter.addressCity}</td>
                   <td style={tdStyle(i)}>
-                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                      {(s.populationTypesServed || []).map((pt) => (
-                        <RoleBadge key={pt} role={pt.replace(/_/g, ' ')} />
-                      ))}
-                    </div>
+                    {item.availabilitySummary?.totalBedsAvailable != null
+                      ? <span style={{ fontWeight: 700, color: item.availabilitySummary.totalBedsAvailable > 0 ? '#166534' : '#991b1b' }}>
+                          {item.availabilitySummary.totalBedsAvailable}
+                        </span>
+                      : <span style={{ color: '#94a3b8' }}>—</span>}
                   </td>
                   <td style={tdStyle(i)}>
-                    <DataAge dataAgeSeconds={s.updatedAt ? Math.floor((Date.now() - new Date(s.updatedAt).getTime()) / 1000) : null} />
+                    {item.availabilitySummary
+                      ? <span style={{
+                          padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700,
+                          backgroundColor: item.availabilitySummary.dataFreshness === 'FRESH' ? '#f0fdf4'
+                            : item.availabilitySummary.dataFreshness === 'AGING' ? '#fefce8'
+                            : item.availabilitySummary.dataFreshness === 'STALE' ? '#fef2f2' : '#f1f5f9',
+                          color: item.availabilitySummary.dataFreshness === 'FRESH' ? '#166534'
+                            : item.availabilitySummary.dataFreshness === 'AGING' ? '#854d0e'
+                            : item.availabilitySummary.dataFreshness === 'STALE' ? '#991b1b' : '#64748b',
+                        }}>{item.availabilitySummary.dataFreshness}</span>
+                      : <span style={{ color: '#94a3b8' }}>—</span>}
+                  </td>
+                  <td style={tdStyle(i)}>
+                    <DataAge dataAgeSeconds={item.shelter.updatedAt ? Math.floor((Date.now() - new Date(item.shelter.updatedAt).getTime()) / 1000) : null} />
                   </td>
                 </tr>
               ))}

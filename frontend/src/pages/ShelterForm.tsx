@@ -6,13 +6,13 @@ import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { enqueueAction } from '../services/offlineQueue';
 
 const POPULATION_TYPES = [
-  'ADULT_MEN',
-  'ADULT_WOMEN',
-  'FAMILIES',
-  'YOUTH',
-  'VETERANS',
-  'LGBTQ',
-  'DOMESTIC_VIOLENCE',
+  'SINGLE_ADULT',
+  'FAMILY_WITH_CHILDREN',
+  'WOMEN_ONLY',
+  'VETERAN',
+  'YOUTH_18_24',
+  'YOUTH_UNDER_18',
+  'DV_SURVIVOR',
 ];
 
 interface Capacity {
@@ -88,12 +88,15 @@ export function ShelterForm() {
       phone: phone.trim(),
       latitude: latitude ? parseFloat(latitude) : null,
       longitude: longitude ? parseFloat(longitude) : null,
-      sobrietyRequired,
-      idRequired,
-      referralRequired,
-      petsAllowed,
-      wheelchairAccessible,
-      populationTypesServed,
+      dvShelter: false,
+      constraints: {
+        sobrietyRequired,
+        idRequired,
+        referralRequired,
+        petsAllowed,
+        wheelchairAccessible,
+        populationTypesServed,
+      },
       capacities: capacities.filter((c) => c.populationType),
     };
 
