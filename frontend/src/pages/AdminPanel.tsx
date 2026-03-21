@@ -37,7 +37,7 @@ interface ApiKeyRow {
 
 interface ApiKeyCreateResponse {
   id: string;
-  plainTextKey: string;
+  plaintextKey: string;
   suffix: string;
   label: string;
   role: string;
@@ -523,7 +523,7 @@ function ApiKeysTab() {
 
   const copyKey = async () => {
     if (newKeyResult) {
-      await navigator.clipboard.writeText(newKeyResult.plainTextKey);
+      await navigator.clipboard.writeText(newKeyResult.plaintextKey);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
@@ -549,7 +549,7 @@ function ApiKeysTab() {
             fontFamily: 'monospace', fontSize: 14, color: '#0f172a', wordBreak: 'break-all',
             marginBottom: 10, border: '1px solid #e2e8f0',
           }}>
-            {newKeyResult.plainTextKey}
+            {newKeyResult.plaintextKey}
           </div>
           <button onClick={copyKey} style={{
             ...primaryBtnStyle,
