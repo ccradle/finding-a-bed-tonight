@@ -79,9 +79,7 @@ public class AvailabilityService {
         Shelter shelter = shelterService.findById(shelterId)
                 .orElseThrow(() -> new java.util.NoSuchElementException("Shelter not found: " + shelterId));
 
-        // Get previous snapshot for event payload
-        BedAvailability previous = repository.findPreviousByShelterId(shelterId, populationType);
-        // Actually, we need the current latest BEFORE inserting the new one
+        // Get current latest BEFORE inserting the new one (for event payload delta)
         List<BedAvailability> currentLatest = repository.findLatestByShelterId(shelterId);
         BedAvailability previousForType = currentLatest.stream()
                 .filter(ba -> ba.getPopulationType().equals(populationType))
