@@ -34,11 +34,18 @@ npm run dev
 ### Running Tests
 
 ```bash
-# Backend (requires Docker for Testcontainers)
+# Backend integration tests (requires Docker for Testcontainers)
 cd backend
 mvn test
 
-# Frontend
+# E2E tests (requires dev-start.sh stack running)
+cd e2e/playwright && npx playwright test    # 17+ UI tests
+cd e2e/karate && mvn test                   # 19+ API tests
+
+# Performance tests (requires dev-start.sh stack running)
+cd e2e/gatling && mvn verify -Pperf         # Gatling simulations with SLO assertions
+
+# Frontend build
 cd frontend
 npm run build
 ```
