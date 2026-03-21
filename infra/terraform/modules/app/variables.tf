@@ -108,6 +108,12 @@ variable "jwt_secret" {
   sensitive   = true
 }
 
+variable "certificate_arn" {
+  description = "ACM certificate ARN for HTTPS listener (empty string disables HTTPS)"
+  type        = string
+  default     = ""
+}
+
 variable "tags" {
   description = "Additional tags to apply to all resources"
   type        = map(string)

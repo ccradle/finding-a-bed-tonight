@@ -135,6 +135,8 @@ resource "aws_db_instance" "postgres" {
   backup_window           = "03:00-04:00"
   maintenance_window      = "sun:04:00-sun:05:00"
 
+  enabled_cloudwatch_logs_exports = ["postgresql", "upgrade"]
+
   deletion_protection = var.tier == "lite" ? false : true
 
   tags = merge(local.common_tags, {
