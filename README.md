@@ -856,10 +856,10 @@ finding-a-bed-tonight/
 
 ### Planned: Remaining Phase 1 Capabilities
 
-| Change | Description | Priority |
-|--------|-------------|----------|
-| **operational-monitoring** | CloudWatch alarms (stale data, DV canary, temp/surge gap), ALB logging | Medium |
-| **oauth2-redirect-flow** | Browser OAuth2 redirect/callback with Keycloak, dynamic provider registration | Medium |
+| Change | Description | Status |
+|--------|-------------|--------|
+| ~~**operational-monitoring**~~ | ~~Cloud-agnostic Micrometer metrics, OTel tracing, @Scheduled monitors, Grafana dashboards, Admin UI~~ | **Completed** (68/68 tasks, archived 2026-03-22) |
+| **oauth2-redirect-flow** | Browser OAuth2 redirect/callback with Keycloak, dynamic provider registration | Specced (27 tasks) |
 | **dv-opaque-referral** | Privacy-preserving DV shelter referral with human-in-the-loop confirmation | Medium |
 | **hmis-bridge** | Async push adapter to HMIS vendors, circuit breaker isolated | Medium |
 | **coc-analytics** | Aggregate anonymized metrics, unmet demand reporting, HUD grant support | Low |
