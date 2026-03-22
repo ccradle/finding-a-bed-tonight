@@ -1045,7 +1045,7 @@ function ObservabilityTab() {
     } finally { setSaving(false); }
   };
 
-  const toggleBtn = (active: boolean, onClick: () => void): React.CSSProperties & { onClick?: () => void } => ({
+  const toggleBtn = (active: boolean): React.CSSProperties => ({
     width: 48, height: 26, borderRadius: 13, border: 'none', cursor: 'pointer',
     background: active ? '#1a56db' : '#cbd5e1', position: 'relative' as const, transition: 'background 0.2s',
   });
@@ -1118,7 +1118,7 @@ function ObservabilityTab() {
         <div style={rowStyle}>
           <span><FormattedMessage id="admin.observability.prometheus" /></span>
           <button onClick={() => setConfig(c => ({ ...c, prometheusEnabled: !c.prometheusEnabled }))}
-            style={toggleBtn(config.prometheusEnabled, () => {})}>
+            style={toggleBtn(config.prometheusEnabled)}>
             <span style={toggleDot(config.prometheusEnabled)} />
           </button>
         </div>
@@ -1126,7 +1126,7 @@ function ObservabilityTab() {
         <div style={rowStyle}>
           <span><FormattedMessage id="admin.observability.tracing" /></span>
           <button onClick={() => setConfig(c => ({ ...c, tracingEnabled: !c.tracingEnabled }))}
-            style={toggleBtn(config.tracingEnabled, () => {})}>
+            style={toggleBtn(config.tracingEnabled)}>
             <span style={toggleDot(config.tracingEnabled)} />
           </button>
         </div>

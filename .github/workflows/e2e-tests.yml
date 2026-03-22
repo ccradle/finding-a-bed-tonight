@@ -94,7 +94,7 @@ jobs:
 
       - name: Run DV canary tests
         working-directory: e2e/karate
-        run: mvn test -Dkarate.options="classpath:features/dv-access" --batch-mode --no-transfer-progress
+        run: mvn test -Dtest="KarateRunnerTest" -Dkarate.options="classpath:features/dv-access" --batch-mode --no-transfer-progress
 
   # -------------------------------------------------------------------------
   # E2E Tests — Karate API + Playwright UI (blocked by dv-canary)
@@ -209,7 +209,7 @@ jobs:
       # --- Karate API Tests ---
       - name: Run Karate API tests
         working-directory: e2e/karate
-        run: mvn test --batch-mode --no-transfer-progress
+        run: mvn test -Dtest="KarateRunnerTest" --batch-mode --no-transfer-progress
         continue-on-error: true
 
       - name: Upload Karate report
