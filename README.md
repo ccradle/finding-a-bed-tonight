@@ -93,7 +93,7 @@ Three deployment tiers allow the same codebase to serve communities of vastly di
 | Events | Spring Events (Lite) / Kafka (Full) |
 | Auth | JWT + OAuth2/OIDC + API Keys (hybrid) |
 | Frontend | React 19, Vite, TypeScript, Workbox PWA, react-intl (EN/ES) |
-| Testing | JUnit 5, Testcontainers, ArchUnit (143 tests), Playwright (30 UI tests), Karate (32 API tests), Gatling (performance) |
+| Testing | JUnit 5, Testcontainers, ArchUnit (143 tests), Playwright (30 UI tests), Karate (36 API tests), Gatling (performance) |
 | Infra | Docker, GitHub Actions CI/CD + E2E pipeline, Terraform (3 tiers) |
 
 ---
@@ -327,7 +327,7 @@ mvn test
 
 # Run E2E tests (requires dev-start.sh stack running)
 cd ../e2e/playwright && npx playwright test    # 30 UI tests
-cd ../e2e/karate && mvn test                   # 32 API tests
+cd ../e2e/karate && mvn test                   # 36 API tests (32 + 4 @observability)
 cd ../e2e/gatling && mvn verify -Pperf         # Gatling performance simulations
 
 # Run a specific test class
@@ -361,7 +361,7 @@ mvn test -Dtest="AvailabilityIntegrationTest#test_createSnapshot_appendOnly_pres
 | `SurgeIntegrationTest` | 8 | Surge activation/deactivation, 409, 403, auto-expiry, overflow, search flag |
 | **Backend Total** | **119** | |
 | | | |
-| **E2E: Playwright** | **26** | **UI tests (Chromium, Page Object Model)** |
+| **E2E: Playwright** | **30** | **UI tests (Chromium, Page Object Model)** |
 | `auth.spec.ts` | 4 | Login per role, failed login |
 | `outreach-search.spec.ts` | 10 | Results, filters, modal, hold/cancel, language, freshness |
 | `coordinator-dashboard.spec.ts` | 5 | Load, expand, update, save, hold indicator |
@@ -377,7 +377,7 @@ mvn test -Dtest="AvailabilityIntegrationTest#test_createSnapshot_appendOnly_pres
 | `surge/surge-lifecycle.feature` | 4 | Activate, deactivate, list, outreach 403 |
 | `webhooks/subscription-crud.feature` | 2 | Create + list, delete |
 | | | |
-| **Grand Total** | **177** | |
+| **Grand Total** | **209+** | |
 
 ---
 
@@ -740,7 +740,7 @@ finding-a-bed-tonight/
 │   │       ├── coordinator-dashboard.spec.ts          # 4 tests — expand, update, save
 │   │       ├── admin-panel.spec.ts                    # 5 tests — tabs, create user, API key reveal
 │   │       └── observability.spec.ts                  # 4 tests — config toggle, threshold, temp display
-│   ├── karate/                                        # API tests (32 scenarios, JUnit 5 runner)
+│   ├── karate/                                        # API tests (36 scenarios, JUnit 5 runner)
 │       ├── pom.xml                                    # Standalone Maven project, Karate 1.4.1
 │       └── src/test/java/
 │           ├── KarateRunnerTest.java                  # JUnit 5 entry point
@@ -839,8 +839,8 @@ finding-a-bed-tonight/
 
 ### Completed: E2E Test Automation + Hardening
 
-- [x] Playwright UI tests: 26 tests (login, search, dashboard, admin, offline, reservations, language, freshness, surge)
-- [x] Karate API tests: 32 scenarios (auth, shelters, availability, search, subscriptions, DV canary, reservations, surge)
+- [x] Playwright UI tests: 30 tests (login, search, dashboard, admin, offline, reservations, language, freshness, surge, observability)
+- [x] Karate API tests: 36 scenarios (auth, shelters, availability, search, subscriptions, DV canary, reservations, surge, observability)
 - [x] Gatling performance suite: BedSearch (50 VU), AvailabilityUpdate (multi/same-shelter), SurgeLoad (stub)
 - [x] RLS enforcement: JDBC connection interceptor (`set_config`), restricted `fabt_app` DB role, DV canary gate
 - [x] CI pipeline: dv-canary blocking gate, e2e-tests job, performance-tests main-only job
@@ -854,15 +854,33 @@ finding-a-bed-tonight/
 - [x] Event publishing: surge.activated + surge.deactivated with affected_shelter_count
 - [x] Frontend: surge banner, admin Surge tab (activate/deactivate/history), overflow field
 
+### Completed: Operational Monitoring
+
+- [x] Custom Micrometer metrics: 10 domain metrics (bed search, availability, reservation, surge, webhook, DV canary, stale shelter, temperature gap)
+- [x] OpenTelemetry tracing: micrometer-tracing-bridge-otel, OTLP exporter, runtime toggle via tenant config JSONB
+- [x] 3 @Scheduled monitors: stale shelter (5min), DV canary (15min), temperature/surge gap (1hr, KRDU default)
+- [x] Resilience4J circuit breakers: NOAA API + webhook delivery, metrics bridged to Micrometer
+- [x] Runtime config: ObservabilityConfigService reads tenant JSONB, 60s cache refresh, admin API endpoints
+- [x] Admin UI: Observability tab — Prometheus/tracing toggles, monitor intervals, temperature threshold, live temp display + warning banner
+- [x] Temperature status API: GET /api/v1/monitoring/temperature (cached NOAA reading, configurable threshold)
+- [x] Management port security: /actuator/prometheus behind auth on :8080, permitAll on :9091 only when management port active
+- [x] Grafana dashboard: 10 panels (search rate, latency, availability, reservations, stale count, DV canary, surge, temp gap, webhooks, circuit breakers)
+- [x] Docker Compose observability profile: Prometheus, Grafana, Jaeger, OTel Collector (optional, `--profile observability`)
+- [x] dev-start.sh --observability: management port 9091, Grafana health wait, observability URLs in output
+- [x] 24 new backend tests: ObservabilityMetricsTest (10), OperationalMonitorServiceTest (9), MetricsIntegrationTest (5)
+- [x] 4 Playwright tests: observability tab config, threshold persistence, temperature display
+- [x] 5 Karate @observability features: metrics polling, trace e2e, Grafana health
+- [x] Auth fixture fix: JWT expiry check prevents stale token reuse across test runs
+- [x] Docs: operational runbook, architecture diagram updated, DBML tenant config schema
+
 ### Planned: Remaining Phase 1 Capabilities
 
 | Change | Description | Status |
 |--------|-------------|--------|
-| ~~**operational-monitoring**~~ | ~~Cloud-agnostic Micrometer metrics, OTel tracing, @Scheduled monitors, Grafana dashboards, Admin UI~~ | **Completed** (68/68 tasks, archived 2026-03-22) |
 | **oauth2-redirect-flow** | Browser OAuth2 redirect/callback with Keycloak, dynamic provider registration | Specced (27 tasks) |
-| **dv-opaque-referral** | Privacy-preserving DV shelter referral with human-in-the-loop confirmation | Medium |
-| **hmis-bridge** | Async push adapter to HMIS vendors, circuit breaker isolated | Medium |
-| **coc-analytics** | Aggregate anonymized metrics, unmet demand reporting, HUD grant support | Low |
+| **dv-opaque-referral** | Privacy-preserving DV shelter referral with human-in-the-loop confirmation | Not specced |
+| **hmis-bridge** | Async push adapter to HMIS vendors, circuit breaker isolated | Not specced |
+| **coc-analytics** | Aggregate anonymized metrics, unmet demand reporting, HUD grant support | Not specced |
 
 ---
 
