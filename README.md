@@ -175,7 +175,8 @@ Phase 2 will add an MCP server as a thin wrapper around the REST API, enabling n
 | [docs/schema.dbml](docs/schema.dbml) | DBML source — paste into [dbdiagram.io](https://dbdiagram.io) to edit |
 | [docs/erd.png](docs/erd.png) | ERD image (above) exported from dbdiagram.io |
 | [docs/asyncapi.yaml](docs/asyncapi.yaml) | AsyncAPI 3.0 spec — EventBus contract for all 3 deployment tiers |
-| [docs/architecture.drawio](docs/architecture.drawio) | Architecture diagram — open in [draw.io](https://app.diagrams.net) |
+| [docs/architecture.drawio](docs/architecture.drawio) | Architecture diagram — includes observability stack, NOAA API. Open in [draw.io](https://app.diagrams.net) |
+| [docs/runbook.md](docs/runbook.md) | Operational runbook — monitor investigation, Grafana panels, Prometheus queries, management port production security |
 
 ---
 
