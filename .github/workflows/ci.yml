@@ -21,9 +21,11 @@ jobs:
       - name: Build and test
         working-directory: backend
         run: mvn verify --batch-mode --no-transfer-progress
-      - name: OWASP Dependency Check
-        working-directory: backend
-        run: mvn dependency-check:check -DfailBuildOnCVSS=7 --batch-mode --no-transfer-progress
+      # OWASP Dependency Check disabled — requires NVD API key for rate limits.
+      # Scanning is handled by a separate dedicated project.
+      # - name: OWASP Dependency Check
+      #   working-directory: backend
+      #   run: mvn dependency-check:check -DfailBuildOnCVSS=7 --batch-mode --no-transfer-progress
 
   frontend:
     name: Frontend (Node 20 + Vite)
