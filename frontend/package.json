@@ -19,6 +19,9 @@
     "workbox-routing": "^7.4.0",
     "workbox-strategies": "^7.4.0"
   },
+  "overrides": {
+    "serialize-javascript": ">=7.0.3"
+  },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
     "@types/node": "^24.12.0",
