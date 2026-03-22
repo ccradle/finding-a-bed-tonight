@@ -47,11 +47,11 @@ An open-source platform that matches homeless individuals and families to availa
 │  │  tenant   │ │   auth   │ │ shelter  │ │  dataimport  │       │
 │  └──────────┘ └──────────┘ └──────────┘ └──────────────┘       │
 │  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐            │
-│  │ availability  │ │ reservation  │ │ subscription │            │
+│  │ availability  │ │ reservation  │ │    surge     │            │
 │  └──────────────┘ └──────────────┘ └──────────────┘            │
-│  ┌──────────────┐                                                │
-│  │ observability │                                               │
-│  └──────────────┘                                                │
+│  ┌──────────────┐ ┌──────────────┐                              │
+│  │ subscription  │ │ observability │                             │
+│  └──────────────┘ └──────────────┘                              │
 │  ┌─────────────────── shared kernel ───────────────────────┐     │
 │  │ config · cache · event · security · web                 │     │
 │  └─────────────────────────────────────────────────────────┘     │
@@ -88,12 +88,12 @@ Three deployment tiers allow the same codebase to serve communities of vastly di
 | Layer | Technology |
 |---|---|
 | Backend | Java 21, Spring Boot 3.4, Spring MVC, Spring Data JDBC |
-| Database | PostgreSQL 16, Flyway (15 migrations), Row Level Security (DV shelters) |
+| Database | PostgreSQL 16, Flyway (19 migrations), Row Level Security (DV shelters) |
 | Cache | Caffeine L1 / + Redis L2 (Standard/Full) |
 | Events | Spring Events (Lite) / Kafka (Full) |
 | Auth | JWT + OAuth2/OIDC + API Keys (hybrid) |
 | Frontend | React 19, Vite, TypeScript, Workbox PWA, react-intl (EN/ES) |
-| Testing | JUnit 5, Testcontainers, ArchUnit (109 integration tests), Playwright (17 UI tests), Karate (19 API tests) |
+| Testing | JUnit 5, Testcontainers, ArchUnit (119 integration tests), Playwright (26 UI tests), Karate (32 API tests), Gatling (performance) |
 | Infra | Docker, GitHub Actions CI/CD + E2E pipeline, Terraform (3 tiers) |
 
 ---
@@ -111,13 +111,14 @@ The backend is a **modular monolith** — not a flat package-by-layer structure.
 | `shelter` | `org.fabt.shelter` | Shelter profiles, constraints, capacities, HSDS export, coordinator assignments |
 | `availability` | `org.fabt.availability` | Real-time bed availability snapshots, bed search queries, data freshness |
 | `reservation` | `org.fabt.reservation` | Soft-hold bed reservations: create, confirm, cancel, auto-expire |
+| `surge` | `org.fabt.surge` | White Flag / emergency surge events: activation, deactivation, overflow capacity, auto-expiry |
 | `dataimport` | `org.fabt.dataimport` | HSDS JSON import, 211 CSV import (fuzzy matching), import audit log |
 | `observability` | `org.fabt.observability` | Structured JSON logging, Micrometer metrics, health probes, data freshness, i18n |
 | `subscription` | `org.fabt.subscription` | Webhook subscriptions, HMAC-SHA256 event delivery, MCP-ready |
 
 **Shared kernel:** `org.fabt.shared` — config, cache (`CacheService`, `CacheNames`), event (`EventBus`, `DomainEvent`), security (`JwtAuthenticationFilter`, `ApiKeyAuthenticationFilter`, `SecurityConfig`), web (`TenantContext`, `GlobalExceptionHandler`).
 
-**ArchUnit enforcement:** 15 architecture tests verify that modules do not access each other's `domain`, `repository`, or `service` packages. Only `api` and `shared` packages are accessible across module boundaries.
+**ArchUnit enforcement:** 17 architecture tests verify that modules do not access each other's `domain`, `repository`, or `service` packages. Only `api` and `shared` packages are accessible across module boundaries.
 
 ---
 
@@ -138,7 +139,7 @@ Phase 2 will add an MCP server as a thin wrapper around the REST API, enabling n
 
 ## Database Schema
 
-15 Flyway migrations (V1–V15 + V8.1):
+19 Flyway migrations (V1–V19 + V8.1):
 
 | Migration | Description |
 |---|---|
@@ -158,6 +159,10 @@ Phase 2 will add an MCP server as a thin wrapper around the REST API, enabling n
 | V13 | RLS for `bed_availability` — inherits DV-shelter access control |
 | V14 | `reservation` — soft-hold bed reservations with status lifecycle |
 | V15 | RLS for `reservation` — inherits DV-shelter access control |
+| V16 | `fabt_app` restricted role — NOSUPERUSER, DML-only for RLS enforcement |
+| V17 | `surge_event` — White Flag / emergency surge lifecycle |
+| V18 | `overflow_beds` column on `bed_availability` — temporary surge capacity |
+| V19 | RLS for `surge_event` — tenant-scoped access |
 
 ### Entity Relationship Diagram
 
@@ -317,12 +322,13 @@ curl -s http://localhost:8080/actuator/health | python3 -m json.tool
 ```bash
 cd backend
 
-# Run all 109 backend tests
+# Run all 119 backend tests
 mvn test
 
 # Run E2E tests (requires dev-start.sh stack running)
-cd ../e2e/playwright && npx playwright test    # 17 UI tests
-cd ../e2e/karate && mvn test                   # 19 API tests
+cd ../e2e/playwright && npx playwright test    # 26 UI tests
+cd ../e2e/karate && mvn test                   # 32 API tests
+cd ../e2e/gatling && mvn verify -Pperf         # Gatling performance simulations
 
 # Run a specific test class
 mvn test -Dtest=ReservationIntegrationTest
@@ -338,7 +344,7 @@ mvn test -Dtest="AvailabilityIntegrationTest#test_createSnapshot_appendOnly_pres
 | Test Class | Tests | What It Covers |
 |---|---|---|
 | `ApplicationTest` | 1 | Spring context loads successfully |
-| `ArchitectureTest` | 15 | ArchUnit module boundary enforcement (8 modules) |
+| `ArchitectureTest` | 17 | ArchUnit module boundary enforcement (9 modules) |
 | `TenantIntegrationTest` | 8 | Tenant CRUD, config defaults, config update |
 | `AuthIntegrationTest` | 7 | JWT login, refresh, wrong password/email/tenant |
 | `ApiKeyAuthTest` | 6 | API key auth, rotation, deactivation, role resolution |
@@ -352,21 +358,26 @@ mvn test -Dtest="AvailabilityIntegrationTest#test_createSnapshot_appendOnly_pres
 | `SubscriptionIntegrationTest` | 5 | Webhook subscription CRUD, error validation |
 | `AvailabilityIntegrationTest` | 10 | Availability snapshots, bed search, ranking, data freshness, events |
 | `ReservationIntegrationTest` | 10 | Reservation lifecycle, concurrency, expiry, creator-only access, events |
-| **Backend Total** | **109** | |
+| `SurgeIntegrationTest` | 8 | Surge activation/deactivation, 409, 403, auto-expiry, overflow, search flag |
+| **Backend Total** | **119** | |
 | | | |
-| **E2E: Playwright** | **17** | **UI tests (Chromium, Page Object Model)** |
+| **E2E: Playwright** | **26** | **UI tests (Chromium, Page Object Model)** |
 | `auth.spec.ts` | 4 | Login per role, failed login |
-| `outreach-search.spec.ts` | 5 | Results, filters, detail modal open/close |
-| `coordinator-dashboard.spec.ts` | 4 | Load, expand, update availability, save capacity |
-| `admin-panel.spec.ts` | 4 | Tabs, create user, shelter list, API key reveal |
+| `outreach-search.spec.ts` | 10 | Results, filters, modal, hold/cancel, language, freshness |
+| `coordinator-dashboard.spec.ts` | 5 | Load, expand, update, save, hold indicator |
+| `admin-panel.spec.ts` | 5 | Tabs, create user, shelter list, API key reveal, surge tab |
+| `offline-behavior.spec.ts` | 3 | Offline banner, stale cache, queue replay |
 | | | |
-| **E2E: Karate** | **19** | **API contract tests (feature files)** |
+| **E2E: Karate** | **32** | **API contract tests (feature files)** |
 | `auth/login.feature` | 5 | JWT login, refresh, invalid, no-auth 401, API key |
 | `shelters/shelter-crud.feature` | 6 | Create, update, list, filter, HSDS, outreach 403 |
 | `availability/availability.feature` | 6 | PATCH snapshot, bed search, filters, outreach 403, detail |
+| `dv-access/dv-access-control.feature` | 5 | DV canary: bed search, list, 404, HSDS 404, COC_ADMIN |
+| `reservations/*.feature` | 4 | Lifecycle, cancel, auth, concurrency |
+| `surge/surge-lifecycle.feature` | 4 | Activate, deactivate, list, outreach 403 |
 | `webhooks/subscription-crud.feature` | 2 | Create + list, delete |
 | | | |
-| **Grand Total** | **145** | |
+| **Grand Total** | **177** | |
 
 ---
 
@@ -438,6 +449,15 @@ All endpoints are under `/api/v1`. Authentication is via JWT Bearer token (from 
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | `POST` | `/api/v1/queries/beds` | Any authenticated | Search beds with filters (populationType, constraints, location, limit). Ranked results with availability, data freshness, and held bed counts |
+
+### Surge Events
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `POST` | `/api/v1/surge-events` | COC_ADMIN+ | Activate a White Flag / emergency surge event |
+| `GET` | `/api/v1/surge-events` | Any authenticated | List surge events (active + historical) |
+| `GET` | `/api/v1/surge-events/{id}` | Any authenticated | Surge event detail |
+| `PATCH` | `/api/v1/surge-events/{id}/deactivate` | COC_ADMIN+ | End an active surge |
 
 ### Reservations
 
@@ -548,6 +568,7 @@ finding-a-bed-tonight/
 │       │   │   ├── service/AvailabilityService.java   # createSnapshot, cache evict, event publish
 │       │   │   └── service/BedSearchService.java      # Cache-aside, ranking, constraint filtering
 │       │   ├── reservation/                           # Reservation module — soft-hold lifecycle
+│       │   ├── surge/                                 # Surge module — White Flag activation, overflow
 │       │   │   ├── api/ReservationController.java     # Create, confirm, cancel, list
 │       │   │   ├── api/ReservationResponse.java       # Includes remainingSeconds for countdown
 │       │   │   ├── domain/Reservation.java            # HELD → CONFIRMED/CANCELLED/EXPIRED
@@ -581,14 +602,15 @@ finding-a-bed-tonight/
 │       │       └── web/TenantContext.java             # ThreadLocal tenant + dvAccess
 │       ├── main/resources/
 │       │   ├── application.yml                        # Base config (port 8080, PostgreSQL, Flyway)
-│       │   ├── db/migration/                          # 15 Flyway migrations (V1–V15 + V8.1)
+│       │   ├── db/migration/                          # 19 Flyway migrations (V1–V19 + V8.1)
 │       │   ├── logback-spring.xml                     # Structured JSON logging (Logstash encoder)
 │       │   └── messages/                              # i18n error messages (EN, ES)
-│       └── test/java/org/fabt/                        # 109 integration tests
+│       └── test/java/org/fabt/                        # 119 integration tests
 │           ├── BaseIntegrationTest.java               # Singleton Testcontainers PostgreSQL
 │           ├── TestAuthHelper.java                    # Per-role JWT helper for tests
 │           ├── ArchitectureTest.java                  # 15 ArchUnit module boundary rules
 │           ├── availability/AvailabilityIntegrationTest.java  # 10 tests
+│           ├── surge/SurgeIntegrationTest.java         # 8 tests
 │           ├── availability/TestEventListener.java    # Captures DomainEvents for assertions
 │           ├── reservation/ReservationIntegrationTest.java    # 10 tests
 │           ├── shelter/ShelterIntegrationTest.java     # 11 tests
@@ -620,7 +642,7 @@ finding-a-bed-tonight/
 │           └── es.json                                # Spanish (100+ keys)
 │
 ├── e2e/                                               # End-to-end test suites
-│   ├── playwright/                                    # UI tests (17 tests, Chromium)
+│   ├── playwright/                                    # UI tests (26 tests, Chromium)
 │   │   ├── package.json                               # @playwright/test + TypeScript
 │   │   ├── playwright.config.ts                       # baseURL, workers, retries, HTML reporter
 │   │   ├── fixtures/auth.fixture.ts                   # Per-role storageState (admin, cocadmin, outreach)
@@ -634,7 +656,7 @@ finding-a-bed-tonight/
 │   │       ├── outreach-search.spec.ts                # 5 tests — filters, modal, results
 │   │       ├── coordinator-dashboard.spec.ts          # 4 tests — expand, update, save
 │   │       └── admin-panel.spec.ts                    # 4 tests — tabs, create user, API key reveal
-│   └── karate/                                        # API tests (19 scenarios, JUnit 5 runner)
+│   ├── karate/                                        # API tests (32 scenarios, JUnit 5 runner)
 │       ├── pom.xml                                    # Standalone Maven project, Karate 1.4.1
 │       └── src/test/java/
 │           ├── KarateRunnerTest.java                  # JUnit 5 entry point
@@ -644,10 +666,20 @@ finding-a-bed-tonight/
 │               ├── auth/login.feature                 # 5 scenarios — JWT, refresh, 401, API key
 │               ├── shelters/shelter-crud.feature       # 6 scenarios — CRUD, HSDS, filters, 403
 │               ├── availability/availability.feature   # 6 scenarios — PATCH, search, detail, 403
+│               ├── dv-access/dv-access-control.feature # 5 scenarios — DV canary blocking gate
+│               ├── reservations/*.feature              # 4 scenarios — lifecycle, cancel, auth, concurrency
+│               ├── surge/surge-lifecycle.feature        # 4 scenarios — activate, deactivate, list, 403
 │               └── webhooks/subscription-crud.feature  # 2 scenarios — create, delete
+│   └── gatling/                                       # Performance tests (Gatling 3.x, Scala)
+│       ├── pom.xml                                    # Standalone Maven project, `perf` profile
+│       └── src/test/scala/fabt/
+│           ├── FabtSimulation.scala                   # Base class — HTTP protocol, JWT acquisition
+│           ├── BedSearchSimulation.scala              # 50 VU ramp, 4 payload variants, SLO assertions
+│           ├── AvailabilityUpdateSimulation.scala      # Multi-shelter + same-shelter stress
+│           └── SurgeLoadSimulation.scala              # Stub (requires surge-mode — implemented)
 │
 ├── docs/
-│   ├── schema.dbml                                    # Database schema (V1–V15, DBML format)
+│   ├── schema.dbml                                    # Database schema (V1–V19, DBML format)
 │   ├── erd.png                                        # Entity relationship diagram (from dbdiagram.io)
 │   ├── asyncapi.yaml                                  # EventBus contract (AsyncAPI 3.0, x-security)
 │   └── architecture.drawio                            # Architecture diagram (draw.io)
@@ -707,19 +739,29 @@ finding-a-bed-tonight/
 - [x] 4 domain events: reservation.created, confirmed, cancelled, expired
 - [x] Frontend: "Hold This Bed" buttons, countdown timer, confirm/cancel flow, coordinator hold indicator
 
-### Completed: E2E Test Automation
+### Completed: E2E Test Automation + Hardening
 
-- [x] Playwright UI tests: 17 tests (login, outreach search, coordinator dashboard, admin panel)
-- [x] Karate API tests: 19 scenarios (auth, shelters, availability, bed search, subscriptions)
-- [x] GitHub Actions CI pipeline (e2e-tests.yml) with health waits and HTML report artifacts
-- [x] Auth patterns from portfolio-test-automation: configure headers, per-role tokens, storageState
+- [x] Playwright UI tests: 26 tests (login, search, dashboard, admin, offline, reservations, language, freshness, surge)
+- [x] Karate API tests: 32 scenarios (auth, shelters, availability, search, subscriptions, DV canary, reservations, surge)
+- [x] Gatling performance suite: BedSearch (50 VU), AvailabilityUpdate (multi/same-shelter), SurgeLoad (stub)
+- [x] RLS enforcement: JDBC connection interceptor (`set_config`), restricted `fabt_app` DB role, DV canary gate
+- [x] CI pipeline: dv-canary blocking gate, e2e-tests job, performance-tests main-only job
+
+### Completed: Surge Mode
+
+- [x] Surge event lifecycle (ACTIVE → DEACTIVATED/EXPIRED) with auto-expiry
+- [x] Surge API: activate, deactivate, list, detail (4 endpoints)
+- [x] Overflow capacity: coordinators report temporary beds during surges
+- [x] Bed search: surgeActive flag + overflowBeds per population type
+- [x] Event publishing: surge.activated + surge.deactivated with affected_shelter_count
+- [x] Frontend: surge banner, admin Surge tab (activate/deactivate/history), overflow field
 
 ### Planned: Remaining Phase 1 Capabilities
 
 | Change | Description | Priority |
 |--------|-------------|----------|
-| **surge-mode** | White Flag / emergency activation, CoC-admin triggered, broadcast to outreach workers | High |
-| **oauth2-redirect-flow** | Browser OAuth2 redirect/callback with Keycloak, dynamic provider registration | High |
+| **operational-monitoring** | CloudWatch alarms (stale data, DV canary, temp/surge gap), ALB logging | Medium |
+| **oauth2-redirect-flow** | Browser OAuth2 redirect/callback with Keycloak, dynamic provider registration | Medium |
 | **dv-opaque-referral** | Privacy-preserving DV shelter referral with human-in-the-loop confirmation | Medium |
 | **hmis-bridge** | Async push adapter to HMIS vendors, circuit breaker isolated | Medium |
 | **coc-analytics** | Aggregate anonymized metrics, unmet demand reporting, HUD grant support | Low |
