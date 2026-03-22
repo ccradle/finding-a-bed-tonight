@@ -552,6 +552,7 @@ export function OutreachSearch() {
                 longitude: selectedShelter.shelter.longitude, availability: [], dataAgeSeconds: null,
                 dataFreshness: 'UNKNOWN', distanceMiles: null,
                 constraints: { petsAllowed: false, wheelchairAccessible: false, sobrietyRequired: false, idRequired: false, referralRequired: false },
+                surgeActive: false,
               })} target="_blank" rel="noopener noreferrer" style={{
                 flex: 1, padding: 14, backgroundColor: '#1a56db', color: '#fff', borderRadius: 12,
                 textAlign: 'center', textDecoration: 'none', fontSize: 16, fontWeight: 700, minHeight: 50,
