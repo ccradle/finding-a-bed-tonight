@@ -14,7 +14,6 @@
     <properties>
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
-        <scala.version>2.13.14</scala.version>
         <gatling.version>3.11.5</gatling.version>
         <gatling-maven-plugin.version>4.9.6</gatling-maven-plugin.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -34,10 +33,31 @@
             <id>perf</id>
             <build>
                 <plugins>
+                    <!-- Add src/gatling/java as a test source root under -Pperf -->
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>build-helper-maven-plugin</artifactId>
+                        <version>3.5.0</version>
+                        <executions>
+                            <execution>
+                                <id>add-gatling-sources</id>
+                                <phase>generate-test-sources</phase>
+                                <goals><goal>add-test-source</goal></goals>
+                                <configuration>
+                                    <sources>
+                                        <source>${project.basedir}/src/gatling/java</source>
+                                    </sources>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
                     <plugin>
                         <groupId>io.gatling</groupId>
                         <artifactId>gatling-maven-plugin</artifactId>
                         <version>${gatling-maven-plugin.version}</version>
+                        <configuration>
+                            <runMultipleSimulations>true</runMultipleSimulations>
+                        </configuration>
                         <executions>
                             <execution>
                                 <goals>
@@ -45,9 +65,6 @@
                                 </goals>
                             </execution>
                         </executions>
-                        <configuration>
-                            <simulationsFolder>src/test/scala</simulationsFolder>
-                        </configuration>
                     </plugin>
                 </plugins>
             </build>
