@@ -10,6 +10,7 @@ import java.util.UUID;
 
 import org.fabt.availability.domain.BedAvailability;
 import org.fabt.availability.repository.BedAvailabilityRepository;
+import org.fabt.observability.ObservabilityMetrics;
 import org.fabt.shared.event.DomainEvent;
 import org.fabt.shared.event.EventBus;
 import org.fabt.shared.web.TenantContext;
@@ -27,15 +28,18 @@ public class SurgeEventService {
     private final ShelterService shelterService;
     private final BedAvailabilityRepository availabilityRepository;
     private final EventBus eventBus;
+    private final ObservabilityMetrics metrics;
 
     public SurgeEventService(SurgeEventRepository repository,
                              ShelterService shelterService,
                              BedAvailabilityRepository availabilityRepository,
-                             EventBus eventBus) {
+                             EventBus eventBus,
+                             ObservabilityMetrics metrics) {
         this.repository = repository;
         this.shelterService = shelterService;
         this.availabilityRepository = availabilityRepository;
         this.eventBus = eventBus;
+        this.metrics = metrics;
     }
 
     @Transactional
@@ -70,6 +74,7 @@ public class SurgeEventService {
         payload.put("estimated_overflow_beds", estimatedOverflowBeds > 0 ? estimatedOverflowBeds : null);
 
         eventBus.publish(new DomainEvent("surge.activated", tenantId, payload));
+        metrics.setSurgeActive(true);
 
         return saved;
     }
@@ -97,6 +102,7 @@ public class SurgeEventService {
         payload.put("deactivated_at", Instant.now().toString());
 
         eventBus.publish(new DomainEvent("surge.deactivated", tenantId, payload));
+        metrics.setSurgeActive(false);
 
         event.setStatus(SurgeEventStatus.DEACTIVATED);
         event.setDeactivatedAt(Instant.now());
@@ -107,6 +113,7 @@ public class SurgeEventService {
     @Transactional
     public void expireSurge(UUID surgeEventId) {
         repository.updateStatus(surgeEventId, SurgeEventStatus.EXPIRED, null);
+        metrics.setSurgeActive(false);
 
         // Need tenant context for event publishing
         SurgeEvent event = repository.findByIdAndTenantId(surgeEventId, null).orElse(null);

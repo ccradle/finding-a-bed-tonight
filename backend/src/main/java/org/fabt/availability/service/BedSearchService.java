@@ -16,7 +16,9 @@ import org.fabt.availability.domain.BedSearchResult;
 import org.fabt.availability.domain.BedSearchResult.ConstraintsSummary;
 import org.fabt.availability.domain.BedSearchResult.PopulationAvailability;
 import org.fabt.availability.repository.BedAvailabilityRepository;
+import io.micrometer.core.instrument.Timer;
 import org.fabt.observability.DataFreshness;
+import org.fabt.observability.ObservabilityMetrics;
 import org.fabt.shared.cache.CacheNames;
 import org.fabt.shared.cache.CacheService;
 import org.fabt.shared.web.TenantContext;
@@ -36,15 +38,18 @@ public class BedSearchService {
     private final ShelterService shelterService;
     private final ShelterConstraintsRepository constraintsRepository;
     private final CacheService cacheService;
+    private final ObservabilityMetrics metrics;
 
     public BedSearchService(BedAvailabilityRepository availabilityRepository,
                             ShelterService shelterService,
                             ShelterConstraintsRepository constraintsRepository,
-                            CacheService cacheService) {
+                            CacheService cacheService,
+                            ObservabilityMetrics metrics) {
         this.availabilityRepository = availabilityRepository;
         this.shelterService = shelterService;
         this.constraintsRepository = constraintsRepository;
         this.cacheService = cacheService;
+        this.metrics = metrics;
     }
 
     @Transactional(readOnly = true)
@@ -54,6 +59,18 @@ public class BedSearchService {
 
     @Transactional(readOnly = true)
     public BedSearchResponse search(BedSearchRequest request, boolean surgeActive) {
+        String populationType = request.populationType() != null ? request.populationType() : "all";
+        Timer.Sample timerSample = Timer.start();
+        try {
+            BedSearchResponse response = doSearch(request, surgeActive);
+            metrics.bedSearchCounter(populationType).increment();
+            return response;
+        } finally {
+            timerSample.stop(metrics.bedSearchTimer(populationType));
+        }
+    }
+
+    private BedSearchResponse doSearch(BedSearchRequest request, boolean surgeActive) {
         UUID tenantId = TenantContext.getTenantId();
 
         // Cache-aside: check cache first, populate on miss from PostgreSQL

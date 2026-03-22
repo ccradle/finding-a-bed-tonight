@@ -93,7 +93,7 @@ Three deployment tiers allow the same codebase to serve communities of vastly di
 | Events | Spring Events (Lite) / Kafka (Full) |
 | Auth | JWT + OAuth2/OIDC + API Keys (hybrid) |
 | Frontend | React 19, Vite, TypeScript, Workbox PWA, react-intl (EN/ES) |
-| Testing | JUnit 5, Testcontainers, ArchUnit (119 integration tests), Playwright (26 UI tests), Karate (32 API tests), Gatling (performance) |
+| Testing | JUnit 5, Testcontainers, ArchUnit (143 tests), Playwright (30 UI tests), Karate (32 API tests), Gatling (performance) |
 | Infra | Docker, GitHub Actions CI/CD + E2E pipeline, Terraform (3 tiers) |
 
 ---
@@ -322,11 +322,11 @@ curl -s http://localhost:8080/actuator/health | python3 -m json.tool
 ```bash
 cd backend
 
-# Run all 119 backend tests
+# Run all 143 backend tests
 mvn test
 
 # Run E2E tests (requires dev-start.sh stack running)
-cd ../e2e/playwright && npx playwright test    # 26 UI tests
+cd ../e2e/playwright && npx playwright test    # 30 UI tests
 cd ../e2e/karate && mvn test                   # 32 API tests
 cd ../e2e/gatling && mvn verify -Pperf         # Gatling performance simulations
 
@@ -381,6 +381,68 @@ mvn test -Dtest="AvailabilityIntegrationTest#test_createSnapshot_appendOnly_pres
 
 ---
 
+## Observability
+
+The platform includes custom Micrometer metrics, OpenTelemetry tracing, operational monitors, and optional Grafana dashboards.
+
+### Metrics
+
+Custom metrics exposed via `/actuator/prometheus`:
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `fabt.bed.search.count` | Counter | Bed search queries (tag: populationType) |
+| `fabt.bed.search.duration` | Timer | Bed search latency |
+| `fabt.availability.update.count` | Counter | Availability snapshots created |
+| `fabt.reservation.count` | Counter | Reservation state transitions (tag: status) |
+| `fabt.surge.active` | Gauge | 1 if surge active, 0 if not |
+| `fabt.shelter.stale.count` | Gauge | Shelters with no update in 8+ hours |
+| `fabt.dv.canary.pass` | Gauge | 1 if DV canary passes, 0 if fails |
+| `fabt.webhook.delivery.count` | Counter | Webhook delivery attempts (tag: status) |
+
+### Operational Monitors
+
+Three `@Scheduled` monitors run inside the application:
+
+1. **Stale shelter detection** (every 5min) — logs WARNING for shelters with no snapshot in 8+ hours
+2. **DV canary check** (every 15min) — logs CRITICAL if a DV shelter leaks into non-DV search results
+3. **Temperature/surge gap** (every 1hr) — logs WARNING if temperature <32°F with no active surge
+
+See [docs/runbook.md](docs/runbook.md) for investigation and response procedures.
+
+### Tracing
+
+OpenTelemetry tracing is disabled by default (sampling probability 0.0). Enable via tenant config:
+
+```bash
+curl -X PUT http://localhost:8080/api/v1/tenants/<id>/observability \
+  -H "Content-Type: application/json" \
+  -d '{"tracing_enabled": true, "prometheus_enabled": true}'
+```
+
+### Optional Grafana + Prometheus Stack
+
+```bash
+# Recommended: use dev-start.sh (handles management port + health checks)
+./dev-start.sh --observability
+
+# Or manually with docker compose
+docker compose --profile observability up -d
+```
+
+- **Grafana:** http://localhost:3000 (admin/admin) — FABT Operations dashboard pre-loaded
+- **Prometheus:** http://localhost:9090
+- **Jaeger:** http://localhost:16686
+- **Management port:** http://localhost:9091/actuator/prometheus (unauthenticated, dev only)
+
+### Management Port Security
+
+The `/actuator/prometheus` endpoint on the main port (`:8080`) requires authentication. When `--observability` is used, actuator endpoints are also served on a **separate management port** (`:9091`) without auth, allowing Prometheus to scrape.
+
+**Production:** Bind the management port to `127.0.0.1` and firewall it to the monitoring network only. Do not expose publicly. See [docs/runbook.md](docs/runbook.md) for full production security guidance.
+
+---
+
 ## REST API Reference
 
 All endpoints are under `/api/v1`. Authentication is via JWT Bearer token (from `/auth/login`) or API key (via `X-API-Key` header) unless noted otherwise.
@@ -402,6 +464,14 @@ All endpoints are under `/api/v1`. Authentication is via JWT Bearer token (from 
 | `PUT` | `/api/v1/tenants/{id}` | PLATFORM_ADMIN | Update tenant name |
 | `GET` | `/api/v1/tenants/{id}/config` | COC_ADMIN+ | Get tenant configuration |
 | `PUT` | `/api/v1/tenants/{id}/config` | COC_ADMIN+ | Update tenant configuration (incl. hold_duration_minutes) |
+| `GET` | `/api/v1/tenants/{id}/observability` | PLATFORM_ADMIN | Get observability settings (prometheus, tracing, thresholds) |
+| `PUT` | `/api/v1/tenants/{id}/observability` | PLATFORM_ADMIN | Update observability settings at runtime |
+
+### Monitoring
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET` | `/api/v1/monitoring/temperature` | Any authenticated | Cached NOAA temperature, station ID, threshold, surge gap status |
 
 ### OAuth2 Providers
 
@@ -524,8 +594,10 @@ finding-a-bed-tonight/
 ├── README.md
 ├── CONTRIBUTING.md
 ├── LICENSE                                            # Apache 2.0
-├── dev-start.sh                                       # One-command dev stack (PostgreSQL, backend, seed, frontend)
-├── docker-compose.yml                                 # Local dev: PostgreSQL, Redis (standard), Kafka (full)
+├── dev-start.sh                                       # One-command dev stack (--observability for monitoring stack)
+├── docker-compose.yml                                 # PostgreSQL, Redis, Kafka + observability profile
+├── prometheus.yml                                     # Prometheus scrape config (targets management port :9091)
+├── otel-collector-config.yaml                         # OTel Collector pipeline: OTLP → Jaeger
 │
 ├── backend/                                           # Spring Boot 3.4 modular monolith
 │   ├── pom.xml                                        # Maven build + OWASP dependency-check plugin
@@ -583,7 +655,14 @@ finding-a-bed-tonight/
 │       │   ├── subscription/                          # Webhook subscription module
 │       │   │   ├── api/SubscriptionController.java
 │       │   │   └── service/SubscriptionService.java   # HMAC-SHA256 delivery, retry
-│       │   ├── observability/                         # Logging, metrics, health, i18n
+│       │   ├── observability/                         # Metrics, monitors, tracing, health, i18n
+│       │   │   ├── api/MonitoringController.java      # GET /monitoring/temperature (cached NOAA status)
+│       │   │   ├── ObservabilityMetrics.java           # Micrometer gauges + counter/timer factories
+│       │   │   ├── ObservabilityConfigService.java     # Runtime config from tenant JSONB (cached)
+│       │   │   ├── OperationalMonitorService.java      # 3 @Scheduled monitors (stale, DV canary, temp)
+│       │   │   ├── NoaaClient.java                    # NOAA Weather API + Resilience4J circuit breaker
+│       │   │   ├── ManagementSecurityConfig.java       # permitAll on management port (dev only)
+│       │   │   ├── TracingSamplerConfig.java           # Runtime tracing toggle
 │       │   │   ├── DataAgeResponseAdvice.java         # Enriches responses with data_age_seconds
 │       │   │   ├── DataFreshness.java                 # FRESH/AGING/STALE/UNKNOWN enum
 │       │   │   └── TenantMdcFilter.java               # Tenant context in structured logs
@@ -601,11 +680,12 @@ finding-a-bed-tonight/
 │       │       ├── security/ApiKeyAuthenticationFilter.java
 │       │       └── web/TenantContext.java             # ThreadLocal tenant + dvAccess
 │       ├── main/resources/
-│       │   ├── application.yml                        # Base config (port 8080, PostgreSQL, Flyway)
+│       │   ├── application.yml                        # Base config (port 8080, OTel, Resilience4J)
+│       │   ├── application-observability.yml          # Management port 9091 (for dev Prometheus scrape)
 │       │   ├── db/migration/                          # 19 Flyway migrations (V1–V19 + V8.1)
 │       │   ├── logback-spring.xml                     # Structured JSON logging (Logstash encoder)
 │       │   └── messages/                              # i18n error messages (EN, ES)
-│       └── test/java/org/fabt/                        # 119 integration tests
+│       └── test/java/org/fabt/                        # 143 tests (unit + integration)
 │           ├── BaseIntegrationTest.java               # Singleton Testcontainers PostgreSQL
 │           ├── TestAuthHelper.java                    # Per-role JWT helper for tests
 │           ├── ArchitectureTest.java                  # 15 ArchUnit module boundary rules
@@ -614,6 +694,9 @@ finding-a-bed-tonight/
 │           ├── availability/TestEventListener.java    # Captures DomainEvents for assertions
 │           ├── reservation/ReservationIntegrationTest.java    # 10 tests
 │           ├── shelter/ShelterIntegrationTest.java     # 11 tests
+│           ├── observability/ObservabilityMetricsTest.java   # 10 unit tests (SimpleMeterRegistry)
+│           ├── observability/OperationalMonitorServiceTest.java  # 9 unit tests (mocked monitors)
+│           ├── observability/MetricsIntegrationTest.java  # 5 tests (@AutoConfigureObservability)
 │           └── ...                                    # auth (37), dataimport (7), observability (6), etc.
 │
 ├── frontend/                                          # React 19 + Vite + TypeScript PWA
@@ -626,7 +709,7 @@ finding-a-bed-tonight/
 │       │   ├── LoginPage.tsx                          # Tenant slug + email/password login
 │       │   ├── OutreachSearch.tsx                     # Bed search, hold buttons, reservations panel
 │       │   ├── CoordinatorDashboard.tsx               # Availability update, hold indicators
-│       │   ├── AdminPanel.tsx                         # Users, shelters, API keys, subscriptions
+│       │   ├── AdminPanel.tsx                         # Users, shelters, API keys, subscriptions, observability
 │       │   ├── ShelterForm.tsx                        # Create shelter with constraints + capacity
 │       │   ├── HsdsImportPage.tsx                     # HSDS JSON file upload
 │       │   └── TwoOneOneImportPage.tsx                # 211 CSV import with column mapping
@@ -642,7 +725,7 @@ finding-a-bed-tonight/
 │           └── es.json                                # Spanish (100+ keys)
 │
 ├── e2e/                                               # End-to-end test suites
-│   ├── playwright/                                    # UI tests (26 tests, Chromium)
+│   ├── playwright/                                    # UI tests (30 tests, Chromium)
 │   │   ├── package.json                               # @playwright/test + TypeScript
 │   │   ├── playwright.config.ts                       # baseURL, workers, retries, HTML reporter
 │   │   ├── fixtures/auth.fixture.ts                   # Per-role storageState (admin, cocadmin, outreach)
@@ -655,13 +738,21 @@ finding-a-bed-tonight/
 │   │       ├── auth.spec.ts                           # 4 tests — login per role + failed login
 │   │       ├── outreach-search.spec.ts                # 5 tests — filters, modal, results
 │   │       ├── coordinator-dashboard.spec.ts          # 4 tests — expand, update, save
-│   │       └── admin-panel.spec.ts                    # 4 tests — tabs, create user, API key reveal
+│   │       ├── admin-panel.spec.ts                    # 5 tests — tabs, create user, API key reveal
+│   │       └── observability.spec.ts                  # 4 tests — config toggle, threshold, temp display
 │   ├── karate/                                        # API tests (32 scenarios, JUnit 5 runner)
 │       ├── pom.xml                                    # Standalone Maven project, Karate 1.4.1
 │       └── src/test/java/
 │           ├── KarateRunnerTest.java                  # JUnit 5 entry point
-│           ├── karate-config.js                       # baseUrl, pre-authenticated tokens per role
+│           ├── ObservabilityRunnerTest.java            # @observability tag runner (sequential)
+│           ├── karate-config.js                       # baseUrl, jaegerBaseUrl, grafanaBaseUrl, tokens
 │           ├── common/auth.feature                    # Reusable login helper (@ignore)
+│           ├── observability/                         # @observability-tagged features (optional)
+│           │   ├── get-prometheus.feature             # Helper: fetch + parse Prometheus metrics (@ignore)
+│           │   ├── get-traces.feature                 # Helper: fetch Jaeger traces (@ignore)
+│           │   ├── metrics-polling.feature            # Counter increment verification
+│           │   ├── trace-e2e.feature                  # OTel trace verification via Jaeger API
+│           │   └── grafana-health.feature             # Grafana health + dashboard presence
 │           └── features/
 │               ├── auth/login.feature                 # 5 scenarios — JWT, refresh, 401, API key
 │               ├── shelters/shelter-crud.feature       # 6 scenarios — CRUD, HSDS, filters, 403
@@ -682,7 +773,14 @@ finding-a-bed-tonight/
 │   ├── schema.dbml                                    # Database schema (V1–V19, DBML format)
 │   ├── erd.png                                        # Entity relationship diagram (from dbdiagram.io)
 │   ├── asyncapi.yaml                                  # EventBus contract (AsyncAPI 3.0, x-security)
-│   └── architecture.drawio                            # Architecture diagram (draw.io)
+│   ├── architecture.drawio                            # Architecture diagram (draw.io) — includes observability stack
+│   └── runbook.md                                     # Operational runbook (monitors, thresholds, Grafana, security)
+│
+├── grafana/                                           # Optional Grafana provisioning (observability profile)
+│   ├── dashboards/fabt-operations.json                # FABT Operations dashboard (9 panels)
+│   └── provisioning/
+│       ├── dashboards/dashboard-provider.yaml          # Auto-load dashboards from /var/lib/grafana/dashboards
+│       └── datasources/fabt-datasources.yaml          # Prometheus datasource (http://prometheus:9090)
 │
 ├── infra/
 │   ├── docker/                                        # Dockerfiles (backend, frontend, nginx)

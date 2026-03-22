@@ -1,12 +1,15 @@
 package org.fabt.tenant.api;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.StreamSupport;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import jakarta.validation.Valid;
+import org.fabt.observability.ObservabilityConfigService;
+import org.fabt.observability.ObservabilityConfigService.ObservabilityConfig;
 import org.fabt.tenant.domain.Tenant;
 import org.fabt.tenant.service.TenantService;
 import org.springframework.http.HttpStatus;
@@ -26,9 +29,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class TenantController {
 
     private final TenantService tenantService;
+    private final ObservabilityConfigService observabilityConfigService;
 
-    public TenantController(TenantService tenantService) {
+    public TenantController(TenantService tenantService,
+                            ObservabilityConfigService observabilityConfigService) {
         this.tenantService = tenantService;
+        this.observabilityConfigService = observabilityConfigService;
     }
 
     @Operation(
@@ -89,5 +95,36 @@ public class TenantController {
             @Valid @RequestBody UpdateTenantRequest request) {
         Tenant tenant = tenantService.update(id, request.name());
         return ResponseEntity.ok(TenantResponse.from(tenant));
+    }
+
+    @Operation(
+            summary = "Get observability settings for a tenant",
+            description = "Returns the current observability configuration for the specified tenant, " +
+                    "including Prometheus/tracing toggles and monitor intervals. Settings are read from " +
+                    "tenant config JSONB and cached with a 60-second refresh interval."
+    )
+    @GetMapping("/{id}/observability")
+    public ResponseEntity<ObservabilityConfig> getObservabilityConfig(
+            @Parameter(description = "UUID of the tenant") @PathVariable UUID id) {
+        tenantService.findById(id)
+                .orElseThrow(() -> new java.util.NoSuchElementException("Tenant not found: " + id));
+        return ResponseEntity.ok(observabilityConfigService.getConfig(id));
+    }
+
+    @Operation(
+            summary = "Update observability settings for a tenant",
+            description = "Updates the observability section of the tenant's config JSONB. Accepts a map " +
+                    "of observability settings (prometheus_enabled, tracing_enabled, tracing_endpoint, " +
+                    "monitor intervals). Changes take effect within 60 seconds without restart."
+    )
+    @PutMapping("/{id}/observability")
+    public ResponseEntity<ObservabilityConfig> updateObservabilityConfig(
+            @Parameter(description = "UUID of the tenant") @PathVariable UUID id,
+            @RequestBody Map<String, Object> observabilitySettings) {
+        Map<String, Object> currentConfig = tenantService.getConfig(id);
+        currentConfig.put("observability", observabilitySettings);
+        tenantService.updateConfig(id, currentConfig);
+        observabilityConfigService.refreshCache();
+        return ResponseEntity.ok(observabilityConfigService.getConfig(id));
     }
 }

@@ -32,6 +32,13 @@ spring:
   profiles:
     default: lite
 
+management.otlp.tracing:
+  endpoint: ${MANAGEMENT_OTLP_TRACING_ENDPOINT:http://localhost:4318/v1/traces}
+
+management.tracing:
+  sampling:
+    probability: ${TRACING_SAMPLING_PROBABILITY:0.0}
+
 management:
   endpoints:
     web:
@@ -54,5 +61,23 @@ springdoc:
   swagger-ui:
     path: /api/v1/docs
 
+resilience4j:
+  circuitbreaker:
+    instances:
+      noaa-api:
+        sliding-window-size: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 60s
+        permitted-number-of-calls-in-half-open-state: 3
+      webhook-delivery:
+        sliding-window-size: 10
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+
 fabt:
   deployment-tier: ${FABT_DEPLOYMENT_TIER:lite}
+  monitoring:
+    noaa:
+      coordinates: ${FABT_NOAA_LAT:35.8776},${FABT_NOAA_LON:-78.7875}
+      station-id: ${FABT_NOAA_STATION:KRDU}

@@ -10,6 +10,7 @@ import java.util.UUID;
 import org.fabt.availability.domain.BedAvailability;
 import org.fabt.availability.repository.BedAvailabilityRepository;
 import org.fabt.observability.DataFreshness;
+import org.fabt.observability.ObservabilityMetrics;
 import org.fabt.shared.cache.CacheNames;
 import org.fabt.shared.cache.CacheService;
 import org.fabt.shared.event.DomainEvent;
@@ -57,15 +58,18 @@ public class AvailabilityService {
     private final ShelterService shelterService;
     private final CacheService cacheService;
     private final EventBus eventBus;
+    private final ObservabilityMetrics metrics;
 
     public AvailabilityService(BedAvailabilityRepository repository,
                                ShelterService shelterService,
                                CacheService cacheService,
-                               EventBus eventBus) {
+                               EventBus eventBus,
+                               ObservabilityMetrics metrics) {
         this.repository = repository;
         this.shelterService = shelterService;
         this.cacheService = cacheService;
         this.eventBus = eventBus;
+        this.metrics = metrics;
     }
 
     @Transactional
@@ -127,6 +131,8 @@ public class AvailabilityService {
         payload.put("data_age_seconds", 0);
 
         eventBus.publish(new DomainEvent("availability.updated", tenantId, payload));
+
+        metrics.availabilityUpdateCounter(shelterId.toString(), updatedBy).increment();
 
         return AvailabilitySnapshot.from(saved);
     }

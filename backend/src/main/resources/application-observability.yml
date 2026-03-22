@@ -1,0 +1,9 @@
+# Observability profile — activated when management port separation is needed.
+# Used by dev-start.sh --observability to allow Prometheus scraping without JWT auth.
+#
+# The management port runs actuator endpoints (health, prometheus, info, metrics)
+# on a separate port. In production, bind to 127.0.0.1 and firewall to monitoring network.
+
+management:
+  server:
+    port: 9091

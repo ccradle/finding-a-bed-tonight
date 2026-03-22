@@ -1,6 +1,11 @@
 function fn() {
+  var env = karate.env || 'local';
+
   var config = {
     baseUrl: karate.properties['baseUrl'] || 'http://localhost:8080',
+    managementBaseUrl: karate.properties['managementBaseUrl'] || 'http://localhost:9091',
+    jaegerBaseUrl: env === 'docker' ? 'http://jaeger:16686' : 'http://localhost:16686',
+    grafanaBaseUrl: env === 'docker' ? 'http://grafana:3000' : 'http://localhost:3000',
     tenantSlug: 'dev-coc',
     adminEmail: 'admin@dev.fabt.org',
     adminPassword: 'admin123',

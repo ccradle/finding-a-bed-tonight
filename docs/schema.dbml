@@ -51,7 +51,18 @@ Table tenant {
   id          uuid        [pk, note: 'gen_random_uuid()']
   name        varchar     [not null]
   slug        varchar     [unique, not null, note: 'URL-safe identifier for the CoC/tenant']
-  config      jsonb       [note: 'Tenant-specific feature flags and configuration']
+  config      jsonb       [note: '''Tenant-specific configuration. JSONB schema:
+    hold_duration_minutes: int (default 45)
+    api_key_auth_enabled: bool (default true)
+    default_locale: string (default "en")
+    observability.prometheus_enabled: bool (default true)
+    observability.tracing_enabled: bool (default false)
+    observability.tracing_endpoint: string (default "http://localhost:4318/v1/traces")
+    observability.monitor_stale_interval_minutes: int (default 5)
+    observability.monitor_dv_canary_interval_minutes: int (default 15)
+    observability.monitor_temperature_interval_minutes: int (default 60)
+    observability.temperature_threshold_f: double (default 32.0)
+  ''']
   created_at  timestamptz [not null, default: `now()`]
   updated_at  timestamptz [not null, default: `now()`]
 }

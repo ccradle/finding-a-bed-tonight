@@ -9,6 +9,8 @@ import javax.crypto.spec.SecretKeySpec;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.Timer;
+import org.fabt.observability.ObservabilityMetrics;
 import org.fabt.shared.event.DomainEvent;
 import org.fabt.subscription.domain.Subscription;
 import org.slf4j.Logger;
@@ -28,13 +30,16 @@ public class WebhookDeliveryService {
     private final SubscriptionService subscriptionService;
     private final ObjectMapper objectMapper;
     private final RestClient restClient;
+    private final ObservabilityMetrics metrics;
 
     public WebhookDeliveryService(SubscriptionService subscriptionService,
                                   ObjectMapper objectMapper,
-                                  RestClient.Builder restClientBuilder) {
+                                  RestClient.Builder restClientBuilder,
+                                  ObservabilityMetrics metrics) {
         this.subscriptionService = subscriptionService;
         this.objectMapper = objectMapper;
         this.restClient = restClientBuilder.build();
+        this.metrics = metrics;
     }
 
     @EventListener
@@ -50,8 +55,15 @@ public class WebhookDeliveryService {
                 if (!matchesFilter(event, subscription)) {
                     continue;
                 }
-                deliver(event, subscription);
+                Timer.Sample timerSample = Timer.start();
+                try {
+                    deliver(event, subscription);
+                    metrics.webhookDeliveryCounter(event.type(), "success").increment();
+                } finally {
+                    timerSample.stop(metrics.webhookDeliveryTimer(event.type()));
+                }
             } catch (Exception e) {
+                metrics.webhookDeliveryCounter(event.type(), "failure").increment();
                 log.warn("Failed to deliver event {} to subscription {}: {}",
                         event.id(), subscription.getId(), e.getMessage());
                 // TODO: retry with exponential backoff schedule: 1m, 5m, 30m, 2h

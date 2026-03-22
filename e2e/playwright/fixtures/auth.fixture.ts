@@ -13,6 +13,37 @@ const USERS = {
 
 type Role = keyof typeof USERS;
 
+/**
+ * Check if the cached auth state has a valid (non-expired) access token.
+ * Portfolio Lesson 42: Cached tokens expire (15-min lifespan for FABT).
+ * If token is expired or will expire within 60 seconds, force re-login.
+ */
+function isAuthStateValid(stateFile: string): boolean {
+  if (!fs.existsSync(stateFile)) return false;
+  try {
+    const state = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
+    const origins = state.origins || [];
+    for (const origin of origins) {
+      for (const item of origin.localStorage || []) {
+        if (item.name === 'fabt_access_token' && item.value) {
+          // Decode JWT payload (base64url)
+          const parts = item.value.split('.');
+          if (parts.length !== 3) return false;
+          let payload = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+          while (payload.length % 4) payload += '=';
+          const decoded = JSON.parse(Buffer.from(payload, 'base64').toString());
+          const nowSec = Math.floor(Date.now() / 1000);
+          // Valid if more than 60 seconds until expiry
+          return decoded.exp > nowSec + 60;
+        }
+      }
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
 async function loginAndSaveState(page: Page, role: Role): Promise<void> {
   const authDir = path.join(__dirname, '..', 'auth');
   const stateFile = path.join(authDir, `${role}.json`);
@@ -57,7 +88,7 @@ export const test = base.extend<{
 }>({
   outreachPage: async ({ browser }, use) => {
     const stateFile = path.join(__dirname, '..', 'auth', 'outreach.json');
-    if (!fs.existsSync(stateFile)) {
+    if (!isAuthStateValid(stateFile)) {
       const setupContext = await browser.newContext();
       const setupPage = await setupContext.newPage();
       await loginAndSaveState(setupPage, 'outreach');
@@ -70,7 +101,7 @@ export const test = base.extend<{
   },
   coordinatorPage: async ({ browser }, use) => {
     const stateFile = path.join(__dirname, '..', 'auth', 'cocadmin.json');
-    if (!fs.existsSync(stateFile)) {
+    if (!isAuthStateValid(stateFile)) {
       const setupContext = await browser.newContext();
       const setupPage = await setupContext.newPage();
       await loginAndSaveState(setupPage, 'cocadmin');
@@ -83,7 +114,7 @@ export const test = base.extend<{
   },
   adminPage: async ({ browser }, use) => {
     const stateFile = path.join(__dirname, '..', 'auth', 'admin.json');
-    if (!fs.existsSync(stateFile)) {
+    if (!isAuthStateValid(stateFile)) {
       const setupContext = await browser.newContext();
       const setupPage = await setupContext.newPage();
       await loginAndSaveState(setupPage, 'admin');

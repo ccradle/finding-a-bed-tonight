@@ -13,6 +13,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.fabt.availability.domain.BedAvailability;
 import org.fabt.availability.repository.BedAvailabilityRepository;
 import org.fabt.availability.service.AvailabilityService;
+import org.fabt.observability.ObservabilityMetrics;
 import org.fabt.reservation.domain.Reservation;
 import org.fabt.reservation.domain.ReservationStatus;
 import org.fabt.reservation.repository.ReservationRepository;
@@ -39,6 +40,7 @@ public class ReservationService {
     private final TenantService tenantService;
     private final EventBus eventBus;
     private final ObjectMapper objectMapper;
+    private final ObservabilityMetrics metrics;
 
     public ReservationService(ReservationRepository reservationRepository,
                               BedAvailabilityRepository availabilityRepository,
@@ -46,7 +48,8 @@ public class ReservationService {
                               ShelterService shelterService,
                               TenantService tenantService,
                               EventBus eventBus,
-                              ObjectMapper objectMapper) {
+                              ObjectMapper objectMapper,
+                              ObservabilityMetrics metrics) {
         this.reservationRepository = reservationRepository;
         this.availabilityRepository = availabilityRepository;
         this.availabilityService = availabilityService;
@@ -54,6 +57,7 @@ public class ReservationService {
         this.tenantService = tenantService;
         this.eventBus = eventBus;
         this.objectMapper = objectMapper;
+        this.metrics = metrics;
     }
 
     @Transactional
@@ -98,6 +102,7 @@ public class ReservationService {
 
         // Publish event
         publishEvent("reservation.created", tenantId, saved);
+        metrics.reservationCounter("CREATED").increment();
 
         return saved;
     }
@@ -130,6 +135,7 @@ public class ReservationService {
         reservation.setStatus(ReservationStatus.CONFIRMED);
         reservation.setConfirmedAt(Instant.now());
         publishEvent("reservation.confirmed", tenantId, reservation);
+        metrics.reservationCounter("CONFIRMED").increment();
 
         return reservation;
     }
@@ -161,6 +167,7 @@ public class ReservationService {
         reservation.setStatus(ReservationStatus.CANCELLED);
         reservation.setCancelledAt(Instant.now());
         publishEvent("reservation.cancelled", tenantId, reservation);
+        metrics.reservationCounter("CANCELLED").increment();
 
         return reservation;
     }
@@ -183,6 +190,7 @@ public class ReservationService {
         try {
             adjustAvailability(reservation, -1, 0, "reservation:expire");
             publishEvent("reservation.expired", reservation.getTenantId(), reservation);
+            metrics.reservationCounter("EXPIRED").increment();
         } finally {
             TenantContext.clear();
         }
