@@ -7,7 +7,7 @@
 
 Open-source emergency shelter bed availability platform. Matches homeless individuals and families to available shelter beds in real time.
 
-**[View the Demo Walkthrough](https://github.com/ccradle/findABed/blob/main/demo/index.html)** — 17 annotated screenshots of every key view. No running instance required. See the [docs repo `demo/`](https://github.com/ccradle/findABed/tree/main/demo) folder, or clone and open `demo/index.html` locally.
+**[View the Demo Walkthrough](https://ccradle.github.io/findABed/demo/index.html)** — 17 annotated screenshots of every key view. No running instance required. Also available offline: clone the [docs repo](https://github.com/ccradle/findABed) and open `demo/index.html`.
 
 ---
 
