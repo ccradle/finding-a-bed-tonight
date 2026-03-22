@@ -40,36 +40,57 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
+      - name: Create fabt_app DB role for RLS enforcement
+        run: |
+          PGPASSWORD=fabt psql -h localhost -U fabt -d fabt -c "
+            DO \$\$ BEGIN
+              IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'fabt_app') THEN
+                CREATE ROLE fabt_app WITH LOGIN PASSWORD 'fabt_app' NOSUPERUSER NOCREATEDB NOCREATEROLE;
+              END IF;
+            END \$\$;
+            GRANT CONNECT ON DATABASE fabt TO fabt_app;
+          "
+
       - name: Build backend
         working-directory: backend
         run: mvn compile -q --batch-mode --no-transfer-progress
 
       - name: Start backend
-        working-directory: backend
-        run: mvn spring-boot:run -q > ../logs/backend.log 2>&1 &
+        run: |
+          mkdir -p logs
+          cd backend && mvn spring-boot:run -q > ../logs/backend.log 2>&1 &
         env:
           SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/fabt
-          SPRING_DATASOURCE_USERNAME: fabt
-          SPRING_DATASOURCE_PASSWORD: fabt
+          SPRING_DATASOURCE_USERNAME: fabt_app
+          SPRING_DATASOURCE_PASSWORD: fabt_app
+          FABT_DB_URL: jdbc:postgresql://localhost:5432/fabt
+          FABT_DB_OWNER_USER: fabt
+          FABT_DB_OWNER_PASSWORD: fabt
 
       - name: Wait for backend readiness
         run: |
           echo "Waiting for backend health..."
-          for i in {1..30}; do
+          for i in {1..45}; do
             if curl -sf http://localhost:8080/actuator/health/liveness; then
               echo "Backend is ready after ${i} attempts"
               exit 0
             fi
-            echo "Attempt ${i}/30 — waiting 2s..."
+            echo "Attempt ${i}/45 — waiting 2s..."
             sleep 2
           done
-          echo "Backend failed to start within 60 seconds"
+          echo "Backend failed to start within 90 seconds"
           curl -v http://localhost:8080/actuator/health/liveness || true
-          cat logs/backend.log | tail -50
+          cat logs/backend.log | tail -100 || true
           exit 1
 
-      - name: Load seed data
-        run: PGPASSWORD=fabt psql -h localhost -U fabt -d fabt < infra/scripts/seed-data.sql
+      - name: Grant permissions to fabt_app + load seed data
+        run: |
+          PGPASSWORD=fabt psql -h localhost -U fabt -d fabt -c "
+            GRANT USAGE ON SCHEMA public TO fabt_app;
+            GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO fabt_app;
+            GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO fabt_app;
+          "
+          PGPASSWORD=fabt psql -h localhost -U fabt -d fabt < infra/scripts/seed-data.sql
 
       - name: Run DV canary tests
         working-directory: e2e/karate
@@ -113,36 +134,57 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Create fabt_app DB role for RLS enforcement
+        run: |
+          PGPASSWORD=fabt psql -h localhost -U fabt -d fabt -c "
+            DO \$\$ BEGIN
+              IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'fabt_app') THEN
+                CREATE ROLE fabt_app WITH LOGIN PASSWORD 'fabt_app' NOSUPERUSER NOCREATEDB NOCREATEROLE;
+              END IF;
+            END \$\$;
+            GRANT CONNECT ON DATABASE fabt TO fabt_app;
+          "
+
       - name: Build backend
         working-directory: backend
         run: mvn compile -q --batch-mode --no-transfer-progress
 
       - name: Start backend
-        working-directory: backend
-        run: mvn spring-boot:run -q > ../logs/backend.log 2>&1 &
+        run: |
+          mkdir -p logs
+          cd backend && mvn spring-boot:run -q > ../logs/backend.log 2>&1 &
         env:
           SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/fabt
-          SPRING_DATASOURCE_USERNAME: fabt
-          SPRING_DATASOURCE_PASSWORD: fabt
+          SPRING_DATASOURCE_USERNAME: fabt_app
+          SPRING_DATASOURCE_PASSWORD: fabt_app
+          FABT_DB_URL: jdbc:postgresql://localhost:5432/fabt
+          FABT_DB_OWNER_USER: fabt
+          FABT_DB_OWNER_PASSWORD: fabt
 
       - name: Wait for backend readiness
         run: |
           echo "Waiting for backend health..."
-          for i in {1..30}; do
+          for i in {1..45}; do
             if curl -sf http://localhost:8080/actuator/health/liveness; then
               echo "Backend is ready after ${i} attempts"
               exit 0
             fi
-            echo "Attempt ${i}/30 — waiting 2s..."
+            echo "Attempt ${i}/45 — waiting 2s..."
             sleep 2
           done
-          echo "Backend failed to start within 60 seconds"
+          echo "Backend failed to start within 90 seconds"
           curl -v http://localhost:8080/actuator/health/liveness || true
-          cat logs/backend.log | tail -50
+          cat logs/backend.log | tail -100 || true
           exit 1
 
-      - name: Load seed data
-        run: PGPASSWORD=fabt psql -h localhost -U fabt -d fabt < infra/scripts/seed-data.sql
+      - name: Grant permissions to fabt_app + load seed data
+        run: |
+          PGPASSWORD=fabt psql -h localhost -U fabt -d fabt -c "
+            GRANT USAGE ON SCHEMA public TO fabt_app;
+            GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO fabt_app;
+            GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO fabt_app;
+          "
+          PGPASSWORD=fabt psql -h localhost -U fabt -d fabt < infra/scripts/seed-data.sql
 
       - name: Install frontend dependencies
         working-directory: frontend
@@ -228,26 +270,47 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: Build and start backend
-        working-directory: backend
+      - name: Create fabt_app DB role for RLS enforcement
         run: |
-          mvn compile -q --batch-mode --no-transfer-progress
+          PGPASSWORD=fabt psql -h localhost -U fabt -d fabt -c "
+            DO \$\$ BEGIN
+              IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'fabt_app') THEN
+                CREATE ROLE fabt_app WITH LOGIN PASSWORD 'fabt_app' NOSUPERUSER NOCREATEDB NOCREATEROLE;
+              END IF;
+            END \$\$;
+            GRANT CONNECT ON DATABASE fabt TO fabt_app;
+          "
+
+      - name: Build and start backend
+        run: |
+          mkdir -p logs
+          cd backend && mvn compile -q --batch-mode --no-transfer-progress
           mvn spring-boot:run -q > ../logs/backend.log 2>&1 &
         env:
           SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/fabt
-          SPRING_DATASOURCE_USERNAME: fabt
-          SPRING_DATASOURCE_PASSWORD: fabt
+          SPRING_DATASOURCE_USERNAME: fabt_app
+          SPRING_DATASOURCE_PASSWORD: fabt_app
+          FABT_DB_URL: jdbc:postgresql://localhost:5432/fabt
+          FABT_DB_OWNER_USER: fabt
+          FABT_DB_OWNER_PASSWORD: fabt
 
       - name: Wait for backend readiness
         run: |
-          for i in {1..30}; do
+          for i in {1..45}; do
             if curl -sf http://localhost:8080/actuator/health/liveness; then exit 0; fi
             sleep 2
           done
+          cat logs/backend.log | tail -100 || true
           exit 1
 
-      - name: Load seed data
-        run: PGPASSWORD=fabt psql -h localhost -U fabt -d fabt < infra/scripts/seed-data.sql
+      - name: Grant permissions to fabt_app + load seed data
+        run: |
+          PGPASSWORD=fabt psql -h localhost -U fabt -d fabt -c "
+            GRANT USAGE ON SCHEMA public TO fabt_app;
+            GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO fabt_app;
+            GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO fabt_app;
+          "
+          PGPASSWORD=fabt psql -h localhost -U fabt -d fabt < infra/scripts/seed-data.sql
 
       - name: Run Gatling simulations
         working-directory: e2e/gatling
