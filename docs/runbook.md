@@ -183,6 +183,7 @@ Two Resilience4J circuit breakers protect external API calls.
 |---------|--------|--------|-------------------|-------------|
 | `noaa-api` | NOAA Weather API | 10 calls | 50% | 60s |
 | `webhook-delivery` | Webhook callback URLs | 10 calls | 50% | 30s |
+| `fabt-jwks-endpoint` | Keycloak JWKS | 5 calls | 50% | 10s |
 
 **States:** CLOSED (normal) → OPEN (failures exceeded threshold) → HALF_OPEN (testing recovery)
 
@@ -334,6 +335,37 @@ In production, the management port **must be secured at the network level**:
 4. **If using Kubernetes:** Use a `NetworkPolicy` to restrict access to the management port to the monitoring namespace only.
 
 The management port exposes: `/actuator/health`, `/actuator/prometheus`, `/actuator/info`, `/actuator/metrics`. None of these should be reachable from the public internet.
+
+---
+
+## OAuth2 / Keycloak Troubleshooting
+
+### All authenticated endpoints return 401 after restart
+**Symptom:** Every API call returns 401, but Keycloak is running and tokens look valid.
+**Cause:** JWKS circuit breaker opened during startup because Keycloak realm wasn't ready when the backend started (Portfolio Lesson 37).
+**Investigation:**
+1. Check `resilience4j_circuitbreaker_state{name="fabt-jwks-endpoint"}` — if OPEN, this is the issue
+2. Check startup logs for "JWKS warmup" messages
+3. Verify Keycloak realm is ready: `curl http://localhost:8180/realms/fabt-dev/.well-known/openid-configuration`
+
+**Resolution:** The circuit breaker has `automatic-transition-from-open-to-half-open-enabled: true`, so it will self-recover after 10 seconds. If it doesn't, restart the backend after Keycloak is fully ready.
+
+### "No account found" error on OAuth2 login
+**Symptom:** User authenticates with Google/Microsoft successfully but gets rejected.
+**Cause:** Closed registration — user's email doesn't match any pre-provisioned account in the tenant.
+**Resolution:** CoC admin must create the user account first (Admin Panel → Users → Create User with matching email). Then the OAuth2 login will auto-link.
+
+### SSO buttons don't appear on login page
+**Symptom:** Login page shows only email/password, no "Sign in with Google" buttons.
+**Investigation:**
+1. Check if providers are configured: `GET /api/v1/tenants/{slug}/oauth2-providers/public`
+2. Check if the tenant slug is entered correctly on the login page
+3. Check if the provider is enabled (may have been disabled by admin)
+
+### Token issuer mismatch
+**Symptom:** JWT validation fails with "Invalid issuer" after Docker Compose restart.
+**Cause:** `KC_HOSTNAME_URL` not set — Keycloak issues tokens with different `iss` depending on how it's accessed (localhost vs container name). Portfolio Lesson 61.
+**Resolution:** Ensure `KC_HOSTNAME_URL: http://keycloak:8080` is set in docker-compose.yml.
 
 ---
 

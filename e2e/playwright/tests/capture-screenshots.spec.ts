@@ -25,6 +25,12 @@ test.describe('Demo Screenshot Capture', () => {
   test('01 - Login page', async ({ page }) => {
     await page.goto('/login');
     await page.waitForSelector('input[type="email"]', { timeout: 10000 });
+    // Fill tenant slug to show SSO buttons (providers load via debounced API call)
+    const slugInput = page.locator('input[placeholder*="my-"]');
+    if (await slugInput.count() > 0) {
+      await slugInput.first().fill('dev-coc');
+      await page.waitForTimeout(2500);
+    }
     await page.screenshot({ path: path.join(DEMO_DIR, '01-login.png'), fullPage: true });
   });
 

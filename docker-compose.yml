@@ -46,6 +46,30 @@ services:
     profiles:
       - full
 
+  # --- OAuth2 profile (optional) ---
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0.1
+    ports:
+      - "8180:8080"
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_HEALTH_ENABLED: "true"
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME_URL: http://keycloak:8080
+    command: ["start-dev", "--import-realm"]
+    volumes:
+      - keycloak_data:/var/lib/keycloak/data
+      - ./infra/keycloak/fabt-dev-realm.json:/opt/keycloak/data/import/fabt-dev-realm.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/8080 && printf 'GET /realms/fabt-dev/.well-known/openid-configuration HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && timeout 2 cat <&3 | grep -q '200'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    profiles:
+      - oauth2
+
   # --- Observability profile (optional) ---
   prometheus:
     image: prom/prometheus:v2.51.0
@@ -98,3 +122,4 @@ services:
 
 volumes:
   postgres_data:
+  keycloak_data:

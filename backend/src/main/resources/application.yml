@@ -28,6 +28,9 @@ spring:
     oauth2:
       client:
         registration: {}
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${FABT_JWKS_URI:}
 
   profiles:
     default: lite
@@ -74,6 +77,25 @@ resilience4j:
         failure-rate-threshold: 50
         wait-duration-in-open-state: 30s
         permitted-number-of-calls-in-half-open-state: 3
+      fabt-jwks-endpoint:
+        sliding-window-size: 5
+        sliding-window-type: COUNT_BASED
+        failure-rate-threshold: 50
+        minimum-number-of-calls: 3
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+        register-health-indicator: true
+        ignore-exceptions:
+          - com.nimbusds.jose.JOSEException
+          - org.springframework.security.oauth2.jwt.JwtException
+  retry:
+    instances:
+      jwks-warmup:
+        max-attempts: 30
+        wait-duration: 2s
+        retry-exceptions:
+          - java.lang.Exception
 
 fabt:
   deployment-tier: ${FABT_DEPLOYMENT_TIER:lite}

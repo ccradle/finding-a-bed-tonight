@@ -95,7 +95,7 @@ Three deployment tiers allow the same codebase to serve communities of vastly di
 | Events | Spring Events (Lite) / Kafka (Full) |
 | Auth | JWT + OAuth2/OIDC + API Keys (hybrid) |
 | Frontend | React 19, Vite, TypeScript, Workbox PWA, react-intl (EN/ES) |
-| Testing | JUnit 5, Testcontainers, ArchUnit (143 tests), Playwright (30 UI tests), Karate (36 API tests), Gatling (performance) |
+| Testing | JUnit 5, Testcontainers, ArchUnit (152 tests), Playwright (52 UI tests), Karate (36 API tests), Gatling (performance) |
 | Infra | Docker, GitHub Actions CI/CD + E2E pipeline, Terraform (3 tiers) |
 
 ---
@@ -325,11 +325,11 @@ curl -s http://localhost:8080/actuator/health | python3 -m json.tool
 ```bash
 cd backend
 
-# Run all 143 backend tests
+# Run all 152 backend tests
 mvn test
 
 # Run E2E tests (requires dev-start.sh stack running)
-cd ../e2e/playwright && npx playwright test    # 30 UI tests
+cd ../e2e/playwright && npx playwright test    # 52 UI tests
 cd ../e2e/karate && mvn test                   # 36 API tests (32 + 4 @observability)
 cd ../e2e/gatling && mvn verify -Pperf         # Gatling performance simulations
 
@@ -380,7 +380,7 @@ mvn test -Dtest="AvailabilityIntegrationTest#test_createSnapshot_appendOnly_pres
 | `surge/surge-lifecycle.feature` | 4 | Activate, deactivate, list, outreach 403 |
 | `webhooks/subscription-crud.feature` | 2 | Create + list, delete |
 | | | |
-| **Grand Total** | **209+** | |
+| **Grand Total** | **240+** | |
 
 ---
 
@@ -446,6 +446,32 @@ The `/actuator/prometheus` endpoint on the main port (`:8080`) requires authenti
 
 ---
 
+## OAuth2 Single Sign-On
+
+The platform supports OAuth2 login via Google, Microsoft, and Keycloak (or any OIDC-compliant IdP). Providers are configured per-tenant and loaded dynamically from the database.
+
+### Setup
+
+1. **Register a client** with your IdP (Google Cloud Console, Microsoft Entra Admin Center, or Keycloak)
+2. **Add the provider** via Admin Panel or API: `POST /api/v1/tenants/{id}/oauth2-providers`
+3. **SSO buttons** appear automatically on the login page for that tenant
+4. **Users must be pre-provisioned** — OAuth2 links to existing accounts by email (closed registration)
+
+### Local Development with Keycloak
+
+```bash
+./dev-start.sh --oauth2              # Start with Keycloak at :8180
+./dev-start.sh --oauth2 --observability  # Keycloak + monitoring stack
+```
+
+Keycloak admin: http://localhost:8180 (admin/admin). Realm `fabt-dev` is auto-imported with test users.
+
+### Closed Registration Model
+
+For security, the system does **not** auto-provision users on OAuth2 login. A CoC admin must first create the user account (with email), then the user can "Login with Google/Microsoft" and the system links their identity automatically. Unknown emails are rejected with a clear message.
+
+---
+
 ## REST API Reference
 
 All endpoints are under `/api/v1`. Authentication is via JWT Bearer token (from `/auth/login`) or API key (via `X-API-Key` header) unless noted otherwise.
@@ -469,6 +495,13 @@ All endpoints are under `/api/v1`. Authentication is via JWT Bearer token (from 
 | `PUT` | `/api/v1/tenants/{id}/config` | COC_ADMIN+ | Update tenant configuration (incl. hold_duration_minutes) |
 | `GET` | `/api/v1/tenants/{id}/observability` | PLATFORM_ADMIN | Get observability settings (prometheus, tracing, thresholds) |
 | `PUT` | `/api/v1/tenants/{id}/observability` | PLATFORM_ADMIN | Update observability settings at runtime |
+
+### OAuth2 Flow
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET` | `/oauth2/authorization/{slug}-{provider}` | None | Initiate OAuth2 redirect to IdP (PKCE S256) |
+| `GET` | `/oauth2/callback/{slug}-{provider}` | None | OAuth2 callback — exchanges code for tokens, links user, redirects to frontend |
 
 ### Monitoring
 
@@ -619,8 +652,12 @@ finding-a-bed-tonight/
 │       │   │   ├── api/ApiKeyController.java          # API key CRUD + rotate
 │       │   │   ├── domain/User.java
 │       │   │   ├── domain/ApiKey.java
+│       │   │   ├── api/OAuth2RedirectController.java    # OAuth2 authorize + callback (PKCE S256)
+│       │   │   ├── api/OAuth2TestConnectionController.java  # OIDC discovery validation
 │       │   │   ├── service/JwtService.java
 │       │   │   ├── service/ApiKeyService.java         # SHA-256 hash, validate, rotate
+│       │   │   ├── service/DynamicClientRegistrationSource.java  # Per-tenant OAuth2 provider loading
+│       │   │   ├── service/OAuth2AccountLinkService.java  # Link-or-reject (closed registration)
 │       │   │   └── service/PasswordService.java
 │       │   ├── shelter/                               # Shelter module — CRUD, constraints, HSDS
 │       │   │   ├── api/ShelterController.java         # CRUD + availability enrichment + pagination
@@ -679,6 +716,7 @@ finding-a-bed-tonight/
 │       │       ├── event/SpringEventBus.java          # @Profile("lite","standard")
 │       │       ├── event/KafkaEventBus.java           # @Profile("full")
 │       │       ├── security/SecurityConfig.java       # URL-level + method-level security
+│       │       ├── security/JwtDecoderConfig.java     # JWKS circuit breaker + warmup (OAuth2)
 │       │       ├── security/JwtAuthenticationFilter.java
 │       │       ├── security/ApiKeyAuthenticationFilter.java
 │       │       └── web/TenantContext.java             # ThreadLocal tenant + dvAccess
@@ -688,7 +726,7 @@ finding-a-bed-tonight/
 │       │   ├── db/migration/                          # 19 Flyway migrations (V1–V19 + V8.1)
 │       │   ├── logback-spring.xml                     # Structured JSON logging (Logstash encoder)
 │       │   └── messages/                              # i18n error messages (EN, ES)
-│       └── test/java/org/fabt/                        # 143 tests (unit + integration)
+│       └── test/java/org/fabt/                        # 152 tests (unit + integration)
 │           ├── BaseIntegrationTest.java               # Singleton Testcontainers PostgreSQL
 │           ├── TestAuthHelper.java                    # Per-role JWT helper for tests
 │           ├── ArchitectureTest.java                  # 15 ArchUnit module boundary rules
@@ -712,7 +750,7 @@ finding-a-bed-tonight/
 │       │   ├── LoginPage.tsx                          # Tenant slug + email/password login
 │       │   ├── OutreachSearch.tsx                     # Bed search, hold buttons, reservations panel
 │       │   ├── CoordinatorDashboard.tsx               # Availability update, hold indicators
-│       │   ├── AdminPanel.tsx                         # Users, shelters, API keys, subscriptions, observability
+│       │   ├── AdminPanel.tsx                         # Users, shelters, API keys, subscriptions, observability, OAuth2 providers
 │       │   ├── ShelterForm.tsx                        # Create shelter with constraints + capacity
 │       │   ├── HsdsImportPage.tsx                     # HSDS JSON file upload
 │       │   └── TwoOneOneImportPage.tsx                # 211 CSV import with column mapping
@@ -742,7 +780,9 @@ finding-a-bed-tonight/
 │   │       ├── outreach-search.spec.ts                # 5 tests — filters, modal, results
 │   │       ├── coordinator-dashboard.spec.ts          # 4 tests — expand, update, save
 │   │       ├── admin-panel.spec.ts                    # 5 tests — tabs, create user, API key reveal
-│   │       └── observability.spec.ts                  # 4 tests — config toggle, threshold, temp display
+│   │       ├── observability.spec.ts                  # 4 tests — config toggle, threshold, temp display
+│   │       ├── oauth2-login.spec.ts                   # 3 tests — SSO buttons, no-provider, callback error
+│   │       └── oauth2-providers.spec.ts               # 2 tests — provider tab, add provider form
 │   ├── karate/                                        # API tests (36 scenarios, JUnit 5 runner)
 │       ├── pom.xml                                    # Standalone Maven project, Karate 1.4.1
 │       └── src/test/java/
@@ -789,6 +829,8 @@ finding-a-bed-tonight/
 │   ├── docker/                                        # Dockerfiles (backend, frontend, nginx)
 │   ├── scripts/
 │   │   └── seed-data.sql                              # 10 shelters, 3 users, 13 availability snapshots
+│   └── keycloak/
+│       └── fabt-dev-realm.json                        # Keycloak realm import (PKCE client + service client + test users)
 │   └── terraform/
 │       ├── bootstrap/main.tf                          # S3 state + DynamoDB lock (deletion protected)
 │       └── modules/
@@ -876,11 +918,24 @@ finding-a-bed-tonight/
 - [x] Auth fixture fix: JWT expiry check prevents stale token reuse across test runs
 - [x] Docs: operational runbook, architecture diagram updated, DBML tenant config schema
 
+### Completed: OAuth2 Redirect Flow
+
+- [x] Dynamic client registration: loads OAuth2 providers per-tenant from database with Caffeine cache
+- [x] OAuth2 authorization code flow with PKCE (S256): redirect to IdP, code exchange, FABT JWT issuance
+- [x] Closed registration: link to pre-provisioned accounts by email, reject unknown users with clear error message
+- [x] Branded SSO buttons: "Sign in with Google/Microsoft/Keycloak" loaded dynamically per tenant on login page
+- [x] Frontend callback handling: parse tokens/errors from URL params, i18n error messages (EN/ES)
+- [x] Admin UI OAuth2 Providers tab: CRUD with provider type presets, write-once client secret, OIDC test connection, delete confirmation
+- [x] Keycloak dev profile: docker-compose `--oauth2`, realm-aware healthcheck, pre-imported realm with PKCE client + service client
+- [x] JWKS circuit breaker + warmup: Resilience4J with auto-recovery, warmup via actual NimbusJwtDecoder (portfolio Lessons 37/52/54)
+- [x] dev-start.sh `--oauth2` flag: Keycloak startup, health wait, provider auto-enable, URL output
+- [x] 9 new integration tests (OAuth2FlowIntegrationTest), 5 new Playwright tests (SSO buttons, providers admin tab)
+- [x] Docs: README OAuth2 section, runbook OAuth2 troubleshooting, architecture diagram with Identity Providers
+
 ### Planned: Remaining Phase 1 Capabilities
 
 | Change | Description | Status |
 |--------|-------------|--------|
-| **oauth2-redirect-flow** | Browser OAuth2 redirect/callback with Keycloak, dynamic provider registration | Specced (27 tasks) |
 | **dv-opaque-referral** | Privacy-preserving DV shelter referral with human-in-the-loop confirmation | Not specced |
 | **hmis-bridge** | Async push adapter to HMIS vendors, circuit breaker isolated | Not specced |
 | **coc-analytics** | Aggregate anonymized metrics, unmet demand reporting, HUD grant support | Not specced |

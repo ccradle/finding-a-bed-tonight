@@ -28,12 +28,14 @@ info() { echo -e "${BLUE}[FABT]${NC} $1"; }
 # --- Parse arguments ---
 BACKEND_ONLY=false
 OBSERVABILITY=false
+OAUTH2=false
 
 for arg in "$@"; do
     case "$arg" in
         stop)        ;; # handled below
         backend)     BACKEND_ONLY=true ;;
         --observability) OBSERVABILITY=true ;;
+        --oauth2)    OAUTH2=true ;;
     esac
 done
 
@@ -49,8 +51,8 @@ if [[ "${1:-}" == "stop" ]]; then
         kill "$(cat .pid-frontend)" 2>/dev/null && log "Frontend stopped." || true
         rm -f .pid-frontend
     fi
-    # Tear down all containers including observability profile
-    docker compose --profile observability down 2>/dev/null && log "All containers stopped." || true
+    # Tear down all containers including optional profiles
+    docker compose --profile observability --profile oauth2 down 2>/dev/null && log "All containers stopped." || true
     log "All services stopped."
     exit 0
 fi
@@ -106,6 +108,11 @@ docker compose up -d postgres
 if [[ "$OBSERVABILITY" == true ]]; then
     log "Starting observability stack (Prometheus, Grafana, Jaeger, OTel Collector)..."
     docker compose --profile observability up -d
+fi
+
+if [[ "$OAUTH2" == true ]]; then
+    log "Starting Keycloak (OAuth2 identity provider)..."
+    docker compose --profile oauth2 up -d
 fi
 
 log "Waiting for PostgreSQL to accept connections..."
@@ -225,6 +232,27 @@ if [[ "$OBSERVABILITY" == true ]]; then
     log "Observability stack ready."
 fi
 
+# --- Wait for Keycloak if requested ---
+if [[ "$OAUTH2" == true ]]; then
+    log "Waiting for Keycloak to be ready (realm import may take 30s)..."
+    RETRIES=60
+    until curl -sf http://localhost:8180/realms/fabt-dev/.well-known/openid-configuration >/dev/null 2>&1; do
+        RETRIES=$((RETRIES - 1))
+        if [[ $RETRIES -le 0 ]]; then
+            warn "Keycloak didn't respond in 60s — realm may still be importing. Check http://localhost:8180"
+            break
+        fi
+        sleep 1
+    done
+    log "Keycloak ready."
+    # Enable the keycloak seed provider for this tenant
+    docker compose exec -T postgres psql -U fabt -d fabt -c "
+        UPDATE tenant_oauth2_provider SET enabled = true
+        WHERE provider_name = 'keycloak' AND tenant_id = 'a0000000-0000-0000-0000-000000000001';
+    " >/dev/null 2>&1
+    log "Keycloak provider enabled for dev-coc tenant."
+fi
+
 # --- Done ---
 echo ""
 echo -e "${GREEN}╔══════════════════════════════════════════════╗${NC}"
@@ -241,6 +269,9 @@ if [[ "$OBSERVABILITY" == true ]]; then
     info "Grafana:  http://localhost:3000 (admin/admin)"
     info "Jaeger:   http://localhost:16686"
     info "Prometheus: http://localhost:9090"
+fi
+if [[ "$OAUTH2" == true ]]; then
+    info "Keycloak: http://localhost:8180 (admin/admin)"
 fi
 echo ""
 info "Login credentials (tenant slug: dev-coc):"

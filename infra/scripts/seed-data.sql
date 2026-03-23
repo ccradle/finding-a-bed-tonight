@@ -64,6 +64,19 @@ VALUES (
     NOW()
 ) ON CONFLICT (tenant_id, provider_name) DO NOTHING;
 
+-- Keycloak provider (local dev — enabled when using --oauth2 profile)
+INSERT INTO tenant_oauth2_provider (id, tenant_id, provider_name, client_id, client_secret_encrypted, issuer_uri, enabled, created_at)
+VALUES (
+    'c0000000-0000-0000-0000-000000000002',
+    'a0000000-0000-0000-0000-000000000001',
+    'keycloak',
+    'fabt-ui',
+    'not-used-public-client',
+    'http://localhost:8180/realms/fabt-dev',
+    false,
+    NOW()
+) ON CONFLICT (tenant_id, provider_name) DO NOTHING;
+
 -- 10 synthetic shelters with varied constraints
 -- (Include addresses modeled on Raleigh, NC area patterns)
 

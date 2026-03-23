@@ -6,9 +6,8 @@ import { getDefaultRouteForRoles } from '../auth/AuthGuard';
 import { api, ApiError } from '../services/api';
 
 interface OAuth2Provider {
-  id: string;
-  name: string;
-  authorizationUrl: string;
+  providerName: string;
+  loginUrl: string;
 }
 
 interface LoginResponse {
@@ -27,6 +26,32 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [oauthProviders, setOauthProviders] = useState<OAuth2Provider[]>([]);
+
+  // Handle OAuth2 callback: tokens or error in URL params
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const accessToken = params.get('accessToken');
+    const refreshToken = params.get('refreshToken');
+    const oauthError = params.get('error');
+    const oauthMessage = params.get('message');
+
+    if (accessToken && refreshToken) {
+      // Successful OAuth2 login — store tokens and redirect
+      login(accessToken, refreshToken);
+      window.history.replaceState({}, '', '/login'); // Clean URL
+    } else if (oauthError) {
+      if (oauthMessage) {
+        setError(decodeURIComponent(oauthMessage));
+      } else if (oauthError === 'no_account') {
+        setError(intl.formatMessage({ id: 'login.oauth.noAccount' }));
+      } else if (oauthError === 'email_required') {
+        setError(intl.formatMessage({ id: 'login.oauth.emailRequired' }));
+      } else {
+        setError(intl.formatMessage({ id: 'login.oauth.error' }));
+      }
+      window.history.replaceState({}, '', '/login'); // Clean URL
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (isAuthenticated && user) {
@@ -79,7 +104,7 @@ export function LoginPage() {
   };
 
   const handleOAuthLogin = (provider: OAuth2Provider) => {
-    window.location.href = provider.authorizationUrl;
+    window.location.href = provider.loginUrl;
   };
 
   return (
@@ -249,30 +274,44 @@ export function LoginPage() {
               }}
             >
               <div style={{ flex: 1, height: '1px', backgroundColor: '#e5e7eb' }} />
-              <span style={{ fontSize: '13px', color: '#9ca3af' }}>or</span>
+              <span style={{ fontSize: '13px', color: '#9ca3af' }}>
+                <FormattedMessage id="login.oauth.divider" />
+              </span>
               <div style={{ flex: 1, height: '1px', backgroundColor: '#e5e7eb' }} />
             </div>
-            {oauthProviders.map((provider) => (
-              <button
-                key={provider.id}
-                onClick={() => handleOAuthLogin(provider)}
-                style={{
-                  width: '100%',
-                  padding: '12px',
-                  backgroundColor: '#ffffff',
-                  color: '#374151',
-                  border: '1px solid #d1d5db',
-                  borderRadius: '8px',
-                  fontSize: '15px',
-                  fontWeight: 500,
-                  cursor: 'pointer',
-                  marginBottom: '8px',
-                  minHeight: '44px',
-                }}
-              >
-                {provider.name}
-              </button>
-            ))}
+            {oauthProviders.map((provider) => {
+              const isGoogle = provider.providerName.toLowerCase().includes('google');
+              const isMicrosoft = provider.providerName.toLowerCase().includes('microsoft');
+              return (
+                <button
+                  key={provider.providerName}
+                  onClick={() => handleOAuthLogin(provider)}
+                  style={{
+                    width: '100%',
+                    padding: '12px 16px',
+                    backgroundColor: isGoogle ? '#ffffff' : isMicrosoft ? '#2f2f2f' : '#ffffff',
+                    color: isGoogle ? '#3c4043' : isMicrosoft ? '#ffffff' : '#374151',
+                    border: isGoogle ? '1px solid #dadce0' : isMicrosoft ? 'none' : '1px solid #d1d5db',
+                    borderRadius: '8px',
+                    fontSize: '15px',
+                    fontWeight: 500,
+                    cursor: 'pointer',
+                    marginBottom: '8px',
+                    minHeight: '44px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '10px',
+                  }}
+                >
+                  {isGoogle && <FormattedMessage id="login.oauth.google" />}
+                  {isMicrosoft && <FormattedMessage id="login.oauth.microsoft" />}
+                  {!isGoogle && !isMicrosoft && (
+                    <FormattedMessage id="login.oauth.provider" values={{ name: provider.providerName }} />
+                  )}
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
