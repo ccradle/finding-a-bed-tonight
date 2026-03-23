@@ -12,6 +12,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.fabt.reservation.service.ReservationService;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -30,6 +31,9 @@ class BedAvailabilityHardeningTest extends BaseIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private ReservationService reservationService;
 
     private UUID shelterId;
     private HttpHeaders coordHeaders;
@@ -278,6 +282,28 @@ class BedAvailabilityHardeningTest extends BaseIntegrationTest {
         int availAfter = extractField(after.getBody(), "bedsAvailable");
         assertEquals(3, availAfter,
                 "INV-7: available must increase by 1 on cancel (back to 3)");
+        assertInvariants();
+    }
+
+    @Test
+    void tc_2_4_expiryIncreasesAvailableByOne_INV7() {
+        patchAvailability(10, 7, 0); // available=3
+
+        ResponseEntity<String> holdResponse = placeHold();
+        String resId = extractId(holdResponse.getBody());
+        // available=2, hold=1
+
+        // Mark reservation as past expiry so expireReservation() will process it
+        jdbcTemplate.update(
+                "UPDATE reservation SET expires_at = NOW() - INTERVAL '1 minute' WHERE id = ?::uuid", resId);
+
+        // Call the actual expiry path (same code the @Scheduled poller calls)
+        reservationService.expireReservation(java.util.UUID.fromString(resId));
+
+        var after = getLatestAvailability();
+        int availAfter = extractField(after.getBody(), "bedsAvailable");
+        assertEquals(3, availAfter,
+                "INV-7: available must increase by 1 on expiry (back to 3)");
         assertInvariants();
     }
 
