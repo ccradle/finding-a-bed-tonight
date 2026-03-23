@@ -145,6 +145,19 @@ class ArchitectureTest {
                             "org.fabt.reservation.repository.."
                     ).as("Surge module must not access tenant, auth, dataimport, subscription, or reservation repositories");
 
+    @ArchTest
+    static final ArchRule referral_should_not_access_other_repositories =
+            noClasses().that().resideInAPackage("org.fabt.referral..")
+                    .should().dependOnClassesThat().resideInAnyPackage(
+                            "org.fabt.tenant.repository..",
+                            "org.fabt.auth.repository..",
+                            "org.fabt.dataimport.repository..",
+                            "org.fabt.subscription.repository..",
+                            "org.fabt.availability.repository..",
+                            "org.fabt.reservation.repository..",
+                            "org.fabt.surge.repository.."
+                    ).as("Referral module must not access other modules' repositories (service access allowed)");
+
     // --- No module should directly access another module's domain entities ---
 
     @ArchTest
@@ -203,6 +216,18 @@ class ArchitectureTest {
                             "org.fabt.subscription.domain..",
                             "org.fabt.reservation.domain.."
                     ).as("Surge module must not access auth, dataimport, subscription, or reservation domain entities");
+
+    @ArchTest
+    static final ArchRule referral_should_not_access_other_domain_entities =
+            noClasses().that().resideInAPackage("org.fabt.referral..")
+                    .should().dependOnClassesThat().resideInAnyPackage(
+                            "org.fabt.auth.domain..",
+                            "org.fabt.dataimport.domain..",
+                            "org.fabt.subscription.domain..",
+                            "org.fabt.availability.domain..",
+                            "org.fabt.reservation.domain..",
+                            "org.fabt.surge.domain.."
+                    ).as("Referral module must not access other modules' domain entities");
 
     // --- API controllers must reside in api packages ---
 

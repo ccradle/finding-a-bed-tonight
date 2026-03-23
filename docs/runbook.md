@@ -214,6 +214,26 @@ When running with `--profile observability`, the FABT Operations dashboard is av
 
 **No data showing?** Check time range selector (top right) — set to "Last 15 minutes". Verify Prometheus target is UP at http://localhost:9090/targets.
 
+### DV Referral Dashboard
+
+A separate **FABT DV Referrals** dashboard is provisioned alongside the operations dashboard. It is intentionally separate — DV referral volume patterns are sensitive even in aggregate and may require different Grafana access controls.
+
+For the full DV referral architecture, legal basis (VAWA/FVPSA), and VAWA compliance checklist, see [docs/DV-OPAQUE-REFERRAL.md](DV-OPAQUE-REFERRAL.md). For a visual walkthrough, see the [DV Referral Demo](https://ccradle.github.io/findABed/demo/dvindex.html).
+
+**Panels:**
+- Referral Request Rate — incoming referral volume
+- Acceptance Rate (%) — are shelters accepting? Below 50% warrants investigation
+- Avg Response Time — minutes from request to shelter response. Above 2 hours suggests shelters aren't monitoring
+- Rejection Rate — rejection volume (normal if shelters are at capacity)
+- Expired Rate — high rate means shelters aren't responding before token expiry. **Operational alert threshold: >20% expiry rate**
+- Referral Totals — cumulative counts by status
+
+**Investigation: high expiry rate**
+1. Check if DV shelter coordinators are assigned and active
+2. Verify coordinators have `dvAccess=true` on their user profile
+3. Check if the shelter's notification mechanism is working (event bus logs)
+4. Consider adjusting `dv_referral_expiry_minutes` in tenant config if 4 hours is too short
+
 ---
 
 ## Prometheus Queries
@@ -311,6 +331,36 @@ SELECT id, name, config->'observability' as obs_config FROM tenant;
 
 ---
 
+## DV Opaque Referral Operations
+
+### Token Expiry
+
+`ReferralTokenService.expireTokens()` runs every 60 seconds. PENDING tokens past their `expires_at` are marked EXPIRED. Default expiry: 240 minutes (4 hours), configurable per tenant via `dv_referral_expiry_minutes` in tenant config JSONB.
+
+To change expiry for a tenant:
+```bash
+curl -X PUT http://localhost:8080/api/v1/tenants/<id>/observability \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"dv_referral_expiry_minutes": 120}'
+```
+
+### Token Purge
+
+`ReferralTokenPurgeService.purgeTerminalTokens()` runs every hour. Hard-deletes tokens in terminal state (ACCEPTED/REJECTED/EXPIRED) older than 24 hours. Monitor via log:
+```
+Purged N DV referral tokens (terminal state older than 24h)
+```
+
+**If purge stops running:** Tokens accumulate but have no security impact (they contain zero PII). Restart the backend to resume. Check for scheduler thread exhaustion in logs.
+
+### RLS Defense-in-Depth (D14)
+
+Every JDBC connection executes `SET ROLE fabt_app` to enforce RLS. Additionally, `ReferralTokenService.createToken()` checks `TenantContext.getDvAccess()` independently. If either layer fails, the other blocks unauthorized DV access.
+
+**Verify RLS is enforcing:** Check backend startup logs for `SET ROLE fabt_app` execution. If RLS is misconfigured, DV shelter data may leak — this is a CRITICAL incident.
+
+---
+
 ## Bed Availability Invariants
 
 The `bed_availability` table is the **single source of truth** for bed counts. There is no separate capacity table — `beds_total`, `beds_occupied`, and `beds_on_hold` all live in append-only snapshots.
@@ -400,6 +450,24 @@ The management port exposes: `/actuator/health`, `/actuator/prometheus`, `/actua
 **Symptom:** JWT validation fails with "Invalid issuer" after Docker Compose restart.
 **Cause:** `KC_HOSTNAME_URL` not set — Keycloak issues tokens with different `iss` depending on how it's accessed (localhost vs container name). Portfolio Lesson 61.
 **Resolution:** Ensure `KC_HOSTNAME_URL: http://keycloak:8080` is set in docker-compose.yml.
+
+---
+
+## Test Data Reset Endpoint
+
+> **PRODUCTION SAFETY: This endpoint does not exist in production.** It is gated by `@Profile("dev | test")` — the Spring bean is not created unless the profile is active. The `dev` profile is only activated by `dev-start.sh`. Production uses `lite` only.
+
+`DELETE /api/v1/test/reset` cleans up transient E2E test data:
+- Deletes all `referral_token` rows
+- Cancels all `HELD` reservations
+- Deletes test-created shelters (names matching `E2E Test*`, `Invariant Test*`, etc.)
+
+**Three safeguards:**
+1. `@Profile("dev | test")` — bean doesn't exist in production
+2. `PLATFORM_ADMIN` role required
+3. `X-Confirm-Reset: DESTROY` header required
+
+**If this endpoint responds in an environment where it shouldn't:** The Spring profile configuration is wrong. Check `SPRING_PROFILES_ACTIVE` — it should NOT include `dev` or `test` in production.
 
 ---
 

@@ -17,7 +17,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
  * classes but they all connect to the same PostgreSQL instance.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@ActiveProfiles("lite")
+@ActiveProfiles({"lite", "test"})
 public abstract class BaseIntegrationTest {
 
     static final PostgreSQLContainer<?> POSTGRES;

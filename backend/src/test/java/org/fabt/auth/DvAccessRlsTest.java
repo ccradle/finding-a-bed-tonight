@@ -6,6 +6,7 @@ import java.util.UUID;
 
 import org.fabt.BaseIntegrationTest;
 import org.fabt.TestAuthHelper;
+import org.fabt.shared.web.TenantContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,6 +36,9 @@ class DvAccessRlsTest extends BaseIntegrationTest {
         authHelper.setupTestTenant("rls-test-tenant");
         tenantId = authHelper.getTestTenantId();
 
+        // Test setup needs dvAccess=true to INSERT DV shelters (RLS enforces via SET ROLE fabt_app)
+        TenantContext.setDvAccess(true);
+
         // Clean up previous test shelters
         jdbcTemplate.update(
                 "DELETE FROM shelter WHERE tenant_id = ? AND name IN ('Regular Shelter RLS', 'DV Shelter RLS')",
@@ -53,18 +57,9 @@ class DvAccessRlsTest extends BaseIntegrationTest {
                 UUID.randomUUID(), tenantId
         );
 
-        // Create a non-superuser role for RLS testing (idempotent)
-        try {
-            jdbcTemplate.execute("CREATE ROLE fabt_app_user WITH LOGIN PASSWORD 'fabt_app_user' NOSUPERUSER");
-        } catch (Exception e) {
-            // Role already exists — fine
-        }
-        try {
-            jdbcTemplate.execute("GRANT ALL ON ALL TABLES IN SCHEMA public TO fabt_app_user");
-            jdbcTemplate.execute("GRANT USAGE ON SCHEMA public TO fabt_app_user");
-        } catch (Exception e) {
-            // Already granted
-        }
+        // fabt_app role (created in V16) is NOSUPERUSER — RLS enforces.
+        // No need to create a separate test role; SET ROLE fabt_app is already applied
+        // on every connection by RlsDataSourceConfig (D14).
     }
 
     @Test
@@ -98,7 +93,7 @@ class DvAccessRlsTest extends BaseIntegrationTest {
             boolean origAutoCommit = conn.getAutoCommit();
             conn.setAutoCommit(false);
             try (var stmt = conn.createStatement()) {
-                stmt.execute("SET LOCAL ROLE fabt_app_user");
+                stmt.execute("SET LOCAL ROLE fabt_app");
                 stmt.execute("SET LOCAL app.dv_access = '" + dvAccess + "'");
                 try (var rs = stmt.executeQuery(
                         "SELECT name FROM shelter WHERE tenant_id = '" + tenantId +
@@ -122,7 +117,7 @@ class DvAccessRlsTest extends BaseIntegrationTest {
             boolean origAutoCommit = conn.getAutoCommit();
             conn.setAutoCommit(false);
             try (var stmt = conn.createStatement()) {
-                stmt.execute("SET LOCAL ROLE fabt_app_user");
+                stmt.execute("SET LOCAL ROLE fabt_app");
                 stmt.execute("RESET app.dv_access");
                 try (var rs = stmt.executeQuery(
                         "SELECT name FROM shelter WHERE tenant_id = '" + tenantId +

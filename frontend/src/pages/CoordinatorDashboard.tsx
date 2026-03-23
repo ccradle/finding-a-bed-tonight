@@ -29,6 +29,20 @@ interface Shelter {
   addressState: string;
   addressZip: string;
   updatedAt: string;
+  dvShelter?: boolean;
+}
+
+interface PendingReferral {
+  id: string;
+  householdSize: number;
+  populationType: string;
+  urgency: string;
+  specialNeeds: string | null;
+  callbackNumber: string;
+  status: string;
+  createdAt: string;
+  expiresAt: string;
+  remainingSeconds: number | null;
 }
 
 interface ShelterListItem {
@@ -71,6 +85,9 @@ export function CoordinatorDashboard() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [availSaving, setAvailSaving] = useState<string | null>(null);
   const [availSaved, setAvailSaved] = useState<string | null>(null);
+  const [pendingReferrals, setPendingReferrals] = useState<PendingReferral[]>([]);
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
 
   const fetchShelters = useCallback(async () => {
     setLoading(true);
@@ -114,10 +131,37 @@ export function CoordinatorDashboard() {
       });
       setEditAvailability(availEdit);
       setExpandedId(id);
+
+      // Fetch pending DV referrals for this shelter (silent fail if not DV or no access)
+      try {
+        const refs = await api.get<PendingReferral[]>(`/api/v1/dv-referrals/pending?shelterId=${id}`);
+        setPendingReferrals(refs);
+      } catch { setPendingReferrals([]); }
     } catch {
       setError(intl.formatMessage({ id: 'coord.error' }));
     } finally {
       setDetailLoading(false);
+    }
+  };
+
+  const acceptReferral = async (tokenId: string) => {
+    try {
+      await api.patch(`/api/v1/dv-referrals/${tokenId}/accept`, {});
+      setPendingReferrals(prev => prev.filter(r => r.id !== tokenId));
+    } catch {
+      setError(intl.formatMessage({ id: 'coord.error' }));
+    }
+  };
+
+  const rejectReferral = async (tokenId: string) => {
+    if (!rejectReason.trim()) return;
+    try {
+      await api.patch(`/api/v1/dv-referrals/${tokenId}/reject`, { reason: rejectReason });
+      setPendingReferrals(prev => prev.filter(r => r.id !== tokenId));
+      setRejectingId(null);
+      setRejectReason('');
+    } catch {
+      setError(intl.formatMessage({ id: 'coord.error' }));
     }
   };
 
@@ -228,6 +272,7 @@ export function CoordinatorDashboard() {
           >
             {/* Card header - tappable */}
             <button
+              data-testid={`shelter-card-${s.id}`}
               onClick={() => openShelter(s.id)}
               style={{
                 display: 'block', width: '100%', textAlign: 'left', padding: '18px 20px',
@@ -239,13 +284,21 @@ export function CoordinatorDashboard() {
                   <div style={{ fontSize: 17, fontWeight: 700, color: '#0f172a', marginBottom: 3 }}>{s.name}</div>
                   <div style={{ fontSize: 14, color: '#64748b', marginBottom: 6 }}>{fmtAddr(s)}</div>
                 </div>
-                {summary && summary.totalBedsAvailable != null && (
-                  <span style={{
-                    padding: '4px 10px', borderRadius: 8, fontSize: 14, fontWeight: 800,
-                    backgroundColor: summary.totalBedsAvailable > 0 ? '#f0fdf4' : '#fef2f2',
-                    color: summary.totalBedsAvailable > 0 ? '#166534' : '#991b1b',
-                  }}>{summary.totalBedsAvailable} avail</span>
-                )}
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  {summary && summary.totalBedsAvailable != null && (
+                    <span data-testid={`avail-badge-${s.id}`} style={{
+                      padding: '4px 10px', borderRadius: 8, fontSize: 14, fontWeight: 800,
+                      backgroundColor: summary.totalBedsAvailable > 0 ? '#f0fdf4' : '#fef2f2',
+                      color: summary.totalBedsAvailable > 0 ? '#166534' : '#991b1b',
+                    }}>{summary.totalBedsAvailable} avail</span>
+                  )}
+                  {s.dvShelter && isExpanded && pendingReferrals.length > 0 && (
+                    <span data-testid={`referral-badge-${s.id}`} style={{
+                      padding: '4px 10px', borderRadius: 8, fontSize: 12, fontWeight: 800,
+                      backgroundColor: '#f5f3ff', color: '#7c3aed',
+                    }}>{pendingReferrals.length} referral{pendingReferrals.length > 1 ? 's' : ''}</span>
+                  )}
+                </div>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -344,6 +397,81 @@ export function CoordinatorDashboard() {
                     </div>
                   );
                 })}
+
+                {/* Pending DV Referrals (screening view) */}
+                {s.dvShelter && pendingReferrals.length > 0 && (
+                  <div data-testid="referral-screening" style={{
+                    padding: '12px 16px', backgroundColor: '#f5f3ff', borderRadius: 10,
+                    border: '1px solid #ddd6fe', marginBottom: 16,
+                  }}>
+                    <h4 style={{ fontSize: 13, fontWeight: 700, color: '#7c3aed', margin: '0 0 10px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      <FormattedMessage id="referral.pendingReferrals" /> ({pendingReferrals.length})
+                    </h4>
+                    {pendingReferrals.map(ref => (
+                      <div key={ref.id} data-testid={`screening-${ref.id}`} style={{
+                        padding: '10px 0', borderBottom: '1px solid #ede9fe',
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                          <div>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>
+                              {ref.populationType.replace(/_/g, ' ')} — {ref.householdSize} person{ref.householdSize > 1 ? 's' : ''}
+                            </span>
+                            <span style={{
+                              marginLeft: 8, padding: '2px 6px', borderRadius: 4, fontSize: 10, fontWeight: 700,
+                              backgroundColor: ref.urgency === 'EMERGENCY' ? '#fef2f2' : ref.urgency === 'URGENT' ? '#fefce8' : '#f0fdf4',
+                              color: ref.urgency === 'EMERGENCY' ? '#991b1b' : ref.urgency === 'URGENT' ? '#854d0e' : '#166534',
+                            }}>{ref.urgency}</span>
+                          </div>
+                          {ref.remainingSeconds != null && (
+                            <span style={{ fontSize: 11, color: '#64748b' }}>
+                              {Math.floor(ref.remainingSeconds / 60)}m remaining
+                            </span>
+                          )}
+                        </div>
+                        {ref.specialNeeds && (
+                          <div style={{ fontSize: 12, color: '#475569', marginBottom: 4 }}>
+                            <FormattedMessage id="referral.specialNeedsLabel" />: {ref.specialNeeds}
+                          </div>
+                        )}
+                        <div style={{ fontSize: 12, color: '#475569', marginBottom: 8 }}>
+                          <FormattedMessage id="referral.callbackLabel" />: {ref.callbackNumber}
+                        </div>
+
+                        {rejectingId === ref.id ? (
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <input data-testid={`reject-reason-${ref.id}`}
+                              type="text" value={rejectReason}
+                              onChange={(e) => setRejectReason(e.target.value)}
+                              placeholder={intl.formatMessage({ id: 'referral.rejectReason' })}
+                              style={{ flex: 1, padding: 6, borderRadius: 6, border: '1px solid #ddd6fe', fontSize: 12 }} />
+                            <button data-testid={`reject-confirm-${ref.id}`}
+                              onClick={() => rejectReferral(ref.id)} disabled={!rejectReason.trim()}
+                              style={{ padding: '6px 10px', borderRadius: 6, border: 'none', backgroundColor: '#dc2626', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                              <FormattedMessage id="referral.reject" />
+                            </button>
+                            <button onClick={() => { setRejectingId(null); setRejectReason(''); }}
+                              style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #e2e8f0', backgroundColor: '#fff', color: '#64748b', fontSize: 11, cursor: 'pointer' }}>
+                              <FormattedMessage id="referral.cancel" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button data-testid={`accept-referral-${ref.id}`}
+                              onClick={() => acceptReferral(ref.id)}
+                              style={{ padding: '6px 12px', borderRadius: 6, border: 'none', backgroundColor: '#166534', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                              <FormattedMessage id="referral.accept" />
+                            </button>
+                            <button data-testid={`reject-referral-${ref.id}`}
+                              onClick={() => setRejectingId(ref.id)}
+                              style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #dc2626', backgroundColor: '#fff', color: '#dc2626', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                              <FormattedMessage id="referral.reject" />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
 
                 {/* Active holds indicator */}
                 {editAvailability.some(a => a.bedsOnHold > 0) && (

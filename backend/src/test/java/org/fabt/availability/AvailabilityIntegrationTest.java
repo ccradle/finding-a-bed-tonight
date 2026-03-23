@@ -261,7 +261,10 @@ class AvailabilityIntegrationTest extends BaseIntegrationTest {
 
     @Test
     void test_dvShelters_excludedWithoutDvAccess() {
-        HttpHeaders cocHeaders = authHelper.cocAdminHeaders();
+        // Creating a DV shelter requires dvAccess=true (RLS enforces on INSERT)
+        var dvAdmin = authHelper.setupUserWithDvAccess(
+                "dvadmin-avail@test.fabt.org", "DV Admin", new String[]{"COC_ADMIN"});
+        HttpHeaders dvHeaders = authHelper.headersForUser(dvAdmin);
 
         // Create a DV shelter
         String dvBody = """
@@ -289,7 +292,7 @@ class AvailabilityIntegrationTest extends BaseIntegrationTest {
         ResponseEntity<ShelterResponse> createResponse = restTemplate.exchange(
                 "/api/v1/shelters",
                 HttpMethod.POST,
-                new HttpEntity<>(dvBody, cocHeaders),
+                new HttpEntity<>(dvBody, dvHeaders),
                 ShelterResponse.class
         );
         assertThat(createResponse.getStatusCode()).isEqualTo(HttpStatus.CREATED);

@@ -19,19 +19,21 @@ import org.springframework.jdbc.datasource.DelegatingDataSource;
 /**
  * Configures an RLS-aware DataSource that wraps HikariCP.
  *
- * Every time a JDBC connection is borrowed from the pool, the wrapper executes:
+ * Every time a JDBC connection is borrowed from the pool, the wrapper:
  *
- *   SET LOCAL app.dv_access = 'true' (or 'false')
+ *   1. SET ROLE fabt_app — drops to the restricted application role so RLS enforces.
+ *      PostgreSQL superusers bypass RLS entirely; this ensures enforcement in all
+ *      environments including Testcontainers (which creates a SUPERUSER).
  *
- * SET LOCAL is transaction-scoped in PostgreSQL — it is automatically cleared
- * when the transaction commits or rolls back, making it safe with connection pooling.
+ *   2. set_config('app.dv_access', 'true'/'false', false) — sets the session variable
+ *      that the RLS policy checks. Session-scoped (is_local=false) so it persists for
+ *      all queries on this connection. Reset on every getConnection() call.
  *
  * The RLS policy (V8_1) reads this session variable:
- *
  *   COALESCE(NULLIF(current_setting('app.dv_access', true), '')::boolean, false) = true
  *
- * Pattern validated by: DvAccessRlsTest.java (uses SET LOCAL ROLE + SET LOCAL app.dv_access)
- * Pattern sourced from: github.com/AbdennasserBentaleb/Multi-Tenant-JWT-Security-Gateway
+ * Defense-in-depth: service-layer checks (e.g., ReferralTokenService) also verify
+ * TenantContext.getDvAccess() independently of RLS (Design D14).
  *
  * @see org.fabt.shared.web.TenantContext#getDvAccess()
  */
@@ -80,16 +82,30 @@ public class RlsDataSourceConfig {
 
         private void applyRlsContext(Connection conn) throws SQLException {
             boolean dvAccess = TenantContext.getDvAccess();
-            // Use set_config with is_local=false (session-scoped) so the setting
-            // persists for all queries on this connection regardless of autoCommit.
-            // The value is reset on every getConnection() call, so pooled connections
-            // always get the correct value for the current request.
-            try (java.sql.PreparedStatement pstmt = conn.prepareStatement(
-                    "SELECT set_config('app.dv_access', ?, false)")) {
-                pstmt.setString(1, String.valueOf(dvAccess));
-                pstmt.execute();
+            try {
+                // Always drop to the restricted application role so RLS policies enforce.
+                // PostgreSQL superusers bypass RLS entirely — SET ROLE to a non-superuser
+                // role (fabt_app, created in V16) ensures RLS applies in ALL environments,
+                // including Testcontainers (which creates a SUPERUSER). (Design D14)
+                //
+                // Callers that need DV access must set TenantContext.setDvAccess(true)
+                // BEFORE their first database query. This includes:
+                // - HTTP requests: set by JwtAuthenticationFilter from JWT claims
+                // - @Scheduled jobs: must set TenantContext explicitly
+                // - Test setup: must set TenantContext explicitly
+                try (java.sql.Statement stmt = conn.createStatement()) {
+                    stmt.execute("SET ROLE fabt_app");
+                }
+                // Set the dvAccess session variable for the RLS policy to check.
+                // is_local=false (session-scoped) so the setting persists for all queries
+                // on this connection. Reset on every getConnection() call.
+                try (java.sql.PreparedStatement pstmt = conn.prepareStatement(
+                        "SELECT set_config('app.dv_access', ?, false)")) {
+                    pstmt.setString(1, String.valueOf(dvAccess));
+                    pstmt.execute();
+                }
             } catch (SQLException e) {
-                log.error("Failed to set app.dv_access on connection; closing to prevent data leak", e);
+                log.error("Failed to apply RLS context on connection; closing to prevent data leak", e);
                 conn.close();
                 throw e;
             }

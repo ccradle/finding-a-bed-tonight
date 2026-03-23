@@ -148,6 +148,9 @@ if [[ "$OBSERVABILITY" == true ]]; then
     log "Management port: 9091 (Prometheus scrape target)"
     log "Tracing: enabled (sampling=1.0, endpoint=localhost:4318)"
 fi
+# Activate 'dev' profile for dev-only features (e.g., test reset endpoint).
+# This profile does NOT exist in production deployments.
+export SPRING_PROFILES_ACTIVE=lite,dev
 mvn spring-boot:run $SPRING_ARGS -q > ../logs/backend.log 2>&1 &
 BACKEND_PID=$!
 echo "$BACKEND_PID" > ../.pid-backend
