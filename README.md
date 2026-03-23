@@ -97,7 +97,7 @@ Three deployment tiers allow the same codebase to serve communities of vastly di
 | Events | Spring Events (Lite) / Kafka (Full) |
 | Auth | JWT + OAuth2/OIDC + API Keys (hybrid) |
 | Frontend | React 19, Vite, TypeScript, Workbox PWA, react-intl (EN/ES) |
-| Testing | JUnit 5, Testcontainers, ArchUnit (193 tests), Playwright (70 UI tests), Karate (40 API tests), Gatling (performance) |
+| Testing | JUnit 5, Testcontainers, ArchUnit (194 tests), Playwright (77 UI tests), Karate (42 API tests), Gatling (performance) |
 | Infra | Docker, GitHub Actions CI/CD + E2E pipeline, Terraform (3 tiers) |
 
 ---
@@ -329,12 +329,12 @@ curl -s http://localhost:8080/actuator/health | python3 -m json.tool
 ```bash
 cd backend
 
-# Run all 193 backend tests
+# Run all 194 backend tests
 mvn test
 
 # Run E2E tests (requires dev-start.sh stack running)
-cd ../e2e/playwright && npx playwright test    # 70 UI tests
-cd ../e2e/karate && mvn test                   # 40 API tests (36 + 4 @observability)
+cd ../e2e/playwright && npx playwright test    # 77 UI tests
+cd ../e2e/karate && mvn test                   # 42 API tests (38 + 4 @observability)
 cd ../e2e/gatling && mvn verify -Pperf         # Gatling performance simulations
 
 # Run a specific test class
@@ -371,10 +371,10 @@ mvn test -Dtest="AvailabilityIntegrationTest#test_createSnapshot_appendOnly_pres
 | `BedAvailabilityHardeningTest` | 27 | QA invariants (9 rules), concurrent holds, coordinator hold protection, single source of truth |
 | `ReservationIntegrationTest` | 10 | Reservation lifecycle, concurrency, expiry, creator-only access, events |
 | `SurgeIntegrationTest` | 8 | Surge activation/deactivation, 409, 403, auto-expiry, overflow, search flag |
-| `DvReferralIntegrationTest` | 11 | Token lifecycle, warm handoff, dvAccess enforcement, purge, RLS defense-in-depth |
-| **Backend Total** | **193** | |
+| `DvReferralIntegrationTest` | 12 | Token lifecycle, warm handoff, dvAccess enforcement, purge, RLS defense-in-depth, analytics |
+| **Backend Total** | **194** | |
 | | | |
-| **E2E: Playwright** | **70** | **UI tests (Chromium, data-testid locators)** |
+| **E2E: Playwright** | **77** | **UI tests (Chromium, data-testid locators)** |
 | `auth.spec.ts` | 4 | Login per role, failed login |
 | `outreach-search.spec.ts` | 9 | Results, filters, modal, hold/cancel, language, freshness |
 | `coordinator-dashboard.spec.ts` | 5 | Load, expand, update, save, hold indicator |
@@ -389,7 +389,7 @@ mvn test -Dtest="AvailabilityIntegrationTest#test_createSnapshot_appendOnly_pres
 | `capture-screenshots.spec.ts` | 17 | Demo walkthrough screenshot capture |
 | `capture-dv-screenshots.spec.ts` | 7 | DV referral flow screenshot capture |
 | | | |
-| **E2E: Karate** | **40** | **API contract tests (feature files)** |
+| **E2E: Karate** | **42** | **API contract tests (feature files)** |
 | `auth/login.feature` | 5 | JWT login, refresh, invalid, no-auth 401, API key |
 | `shelters/shelter-crud.feature` | 6 | Create, update, list, filter, HSDS, outreach 403 |
 | `availability/availability.feature` | 6 | PATCH snapshot, bed search, filters, outreach 403, detail |
@@ -397,10 +397,10 @@ mvn test -Dtest="AvailabilityIntegrationTest#test_createSnapshot_appendOnly_pres
 | `reservations/*.feature` | 4 | Lifecycle, cancel, auth, concurrency |
 | `surge/surge-lifecycle.feature` | 4 | Activate, deactivate, list, outreach 403 |
 | `webhooks/subscription-crud.feature` | 2 | Create + list, delete |
-| `dv-referrals/*.feature` | 4 | Token lifecycle, security/RLS, warm handoff, dvAccess enforcement |
+| `dv-referrals/*.feature` | 6 | Token lifecycle, security/RLS, warm handoff, dvAccess enforcement, analytics |
 | `observability/*.feature` | 4 | Grafana health, Prometheus scrape, metrics polling, trace-e2e |
 | | | |
-| **Grand Total** | **303** | |
+| **Grand Total** | **313** | |
 
 ---
 
@@ -766,7 +766,7 @@ finding-a-bed-tonight/
 │       │   ├── db/migration/                          # 21 Flyway migrations (V1–V21 + V8.1)
 │       │   ├── logback-spring.xml                     # Structured JSON logging (Logstash encoder)
 │       │   └── messages/                              # i18n error messages (EN, ES)
-│       └── test/java/org/fabt/                        # 193 tests (unit + integration)
+│       └── test/java/org/fabt/                        # 194 tests (unit + integration)
 │           ├── BaseIntegrationTest.java               # Singleton Testcontainers PostgreSQL
 │           ├── TestAuthHelper.java                    # Per-role JWT helper for tests
 │           ├── ArchitectureTest.java                  # 15 ArchUnit module boundary rules
@@ -806,7 +806,7 @@ finding-a-bed-tonight/
 │           └── es.json                                # Spanish (100+ keys)
 │
 ├── e2e/                                               # End-to-end test suites
-│   ├── playwright/                                    # UI tests (70 tests, Chromium)
+│   ├── playwright/                                    # UI tests (77 tests, Chromium)
 │   │   ├── package.json                               # @playwright/test + TypeScript
 │   │   ├── playwright.config.ts                       # baseURL, workers, retries, HTML reporter
 │   │   ├── fixtures/auth.fixture.ts                   # Per-role storageState (admin, cocadmin, outreach)
@@ -999,7 +999,7 @@ finding-a-bed-tonight/
 - [x] Test data reset endpoint: `DELETE /api/v1/test/reset` (dev/test profile only, PLATFORM_ADMIN + confirmation header)
 - [x] Addendum document: `docs/DV-OPAQUE-REFERRAL.md` with legal basis, architecture, VAWA checklist
 - [x] Demo walkthrough: 7 dedicated DV referral screenshots at `demo/dvindex.html`
-- [x] 11 integration tests, 7 Playwright tests, 4 Karate scenarios
+- [x] 12 integration tests, 7 Playwright tests, 6 Karate scenarios
 
 ### Planned: Remaining Phase 1 Capabilities
 
