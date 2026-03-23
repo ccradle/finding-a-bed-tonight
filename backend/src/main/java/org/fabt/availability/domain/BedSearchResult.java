@@ -15,7 +15,8 @@ public record BedSearchResult(
         String dataFreshness,
         Double distanceMiles,
         ConstraintsSummary constraints,
-        boolean surgeActive
+        boolean surgeActive,
+        boolean dvShelter
 ) {
     public record PopulationAvailability(
             String populationType,

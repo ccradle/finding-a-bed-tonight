@@ -390,3 +390,42 @@ Table surge_event {
 // V19 — RLS for surge_event
 // ---------------------------------------------------------------------------
 // RLS FORCE enabled on surge_event with tenant-scoped access policy.
+
+// ---------------------------------------------------------------------------
+// V20 — Drop shelter_capacity (see bed_availability note above)
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// V21 — DV Opaque Referral Token
+// ---------------------------------------------------------------------------
+// Privacy-preserving referral for DV shelters. Zero client PII.
+// Terminal tokens hard-deleted within 24 hours by ReferralTokenPurgeService.
+
+Table referral_token {
+  id                  uuid        [pk, note: 'gen_random_uuid()']
+  shelter_id          uuid        [not null, ref: > shelter.id, note: 'ON DELETE CASCADE']
+  tenant_id           uuid        [not null, ref: > tenant.id]
+  referring_user_id   uuid        [not null, ref: > app_user.id]
+  household_size      integer     [not null, note: 'CHECK 1-20']
+  population_type     varchar     [not null, note: 'PopulationType enum']
+  urgency             varchar     [not null, note: 'STANDARD, URGENT, EMERGENCY']
+  special_needs       varchar     [note: 'Free text — no client PII']
+  callback_number     varchar     [not null, note: 'Referring worker phone, NOT client phone']
+  status              varchar     [not null, note: 'PENDING, ACCEPTED, REJECTED, EXPIRED']
+  created_at          timestamptz [not null]
+  responded_at        timestamptz
+  responded_by        uuid        [ref: > app_user.id]
+  expires_at          timestamptz [not null]
+  rejection_reason    varchar     [note: 'No client PII advisory']
+
+  indexes {
+    (shelter_id, status) [name: 'idx_referral_token_shelter_status']
+    (referring_user_id, status) [name: 'idx_referral_token_user']
+  }
+
+  note: '''
+  VAWA-compliant opaque referral. Contains zero client PII.
+  Hard-deleted within 24 hours of terminal status.
+  RLS inherits DV shelter access via shelter FK.
+  '''
+}

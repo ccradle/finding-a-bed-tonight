@@ -199,15 +199,19 @@ test.describe('Coordinator Availability Math', () => {
     await coordinatorPage.goto('/coordinator');
     await coordinatorPage.waitForTimeout(2000);
 
-    const badgeLocator = coordinatorPage.locator('span', { hasText: /\d+ avail/ }).first();
-    if (await badgeLocator.count() === 0) return;
+    // Find first shelter with an avail badge via data-testid
+    const badge = coordinatorPage.locator('[data-testid^="avail-badge-"]').first();
+    if (await badge.count() === 0) return;
 
-    const badgeText = await badgeLocator.textContent();
+    const badgeText = await badge.textContent();
     const badgeAvail = parseInt(badgeText?.match(/(\d+)/)?.[1] || '-999');
 
-    // Click the parent card to expand
-    const card = badgeLocator.locator('..').locator('..').locator('..');
-    await card.locator('button').first().click();
+    // Extract shelter ID from the badge's data-testid
+    const badgeTestId = await badge.getAttribute('data-testid');
+    const shelterId = badgeTestId?.replace('avail-badge-', '') || '';
+
+    // Click the shelter card to expand
+    await coordinatorPage.getByTestId(`shelter-card-${shelterId}`).click();
     await coordinatorPage.waitForTimeout(2000);
 
     const values = await readAvailabilityValues(coordinatorPage);

@@ -104,6 +104,12 @@ public class SecurityConfig {
                         // Reservations — outreach workers, coordinators, and admins
                         .requestMatchers("/api/v1/reservations/**").hasAnyRole("OUTREACH_WORKER", "COORDINATOR", "COC_ADMIN", "PLATFORM_ADMIN")
 
+                        // DV opaque referrals — requires dvAccess (enforced in service), role-based per endpoint
+                        .requestMatchers("/api/v1/dv-referrals/**").authenticated()
+
+                        // Test reset — profile-gated (dev/test only), requires PLATFORM_ADMIN + confirmation header
+                        .requestMatchers("/api/v1/test/**").hasRole("PLATFORM_ADMIN")
+
                         // Bed search queries — any authenticated role
                         .requestMatchers("/api/v1/queries/**").authenticated()
 

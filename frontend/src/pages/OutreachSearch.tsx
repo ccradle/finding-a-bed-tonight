@@ -45,6 +45,21 @@ interface BedSearchResult {
   distanceMiles: number | null;
   constraints: ConstraintsSummary;
   surgeActive: boolean;
+  dvShelter: boolean;
+}
+
+interface ReferralToken {
+  id: string;
+  shelterId: string;
+  status: string;
+  urgency: string;
+  householdSize: number;
+  populationType: string;
+  createdAt: string;
+  expiresAt: string;
+  remainingSeconds: number | null;
+  rejectionReason: string | null;
+  shelterPhone: string | null;
 }
 
 interface BedSearchResponse {
@@ -137,6 +152,13 @@ export function OutreachSearch() {
   const [showReservations, setShowReservations] = useState(false);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // DV referral state
+  const [referralModal, setReferralModal] = useState<{ shelterId: string; popType: string } | null>(null);
+  const [referralForm, setReferralForm] = useState({ householdSize: 1, urgency: 'STANDARD', specialNeeds: '', callbackNumber: '' });
+  const [referralSubmitting, setReferralSubmitting] = useState(false);
+  const [myReferrals, setMyReferrals] = useState<ReferralToken[]>([]);
+  const [showReferrals, setShowReferrals] = useState(false);
+
   const fetchBeds = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -167,6 +189,38 @@ export function OutreachSearch() {
   }, []);
 
   useEffect(() => { fetchReservations(); }, [fetchReservations]);
+
+  // Fetch DV referrals
+  const fetchReferrals = useCallback(async () => {
+    try {
+      const data = await api.get<ReferralToken[]>('/api/v1/dv-referrals/mine');
+      setMyReferrals(data);
+    } catch { /* silent — referrals panel is optional (user may not have dvAccess) */ }
+  }, []);
+
+  useEffect(() => { fetchReferrals(); }, [fetchReferrals]);
+
+  const submitReferral = async () => {
+    if (!referralModal) return;
+    setReferralSubmitting(true);
+    try {
+      await api.post('/api/v1/dv-referrals', {
+        shelterId: referralModal.shelterId,
+        householdSize: referralForm.householdSize,
+        populationType: referralModal.popType,
+        urgency: referralForm.urgency,
+        specialNeeds: referralForm.specialNeeds,
+        callbackNumber: referralForm.callbackNumber,
+      });
+      setReferralModal(null);
+      setReferralForm({ householdSize: 1, urgency: 'STANDARD', specialNeeds: '', callbackNumber: '' });
+      fetchReferrals();
+    } catch {
+      setError(intl.formatMessage({ id: 'search.error' }));
+    } finally {
+      setReferralSubmitting(false);
+    }
+  };
 
   // Fetch active surge
   useEffect(() => {
@@ -485,8 +539,9 @@ export function OutreachSearch() {
                       {a.bedsOnHold > 0 && <span style={{ color: '#854d0e' }}> ({a.bedsOnHold} held)</span>}
                       {a.overflowBeds > 0 && <span style={{ color: '#dc2626' }}> +{a.overflowBeds} overflow</span>}
                     </span>
-                    {a.bedsAvailable > 0 && (
+                    {a.bedsAvailable > 0 && !r.dvShelter && (
                       <button
+                        data-testid={`hold-bed-${r.shelterId}-${a.populationType}`}
                         onClick={(e) => { e.stopPropagation(); holdBed(r.shelterId, a.populationType); }}
                         disabled={holdingShelterId === r.shelterId && holdPopType === a.populationType}
                         style={{
@@ -498,6 +553,19 @@ export function OutreachSearch() {
                         {holdingShelterId === r.shelterId && holdPopType === a.populationType
                           ? intl.formatMessage({ id: 'search.holding' })
                           : intl.formatMessage({ id: 'search.holdBed' })}
+                      </button>
+                    )}
+                    {a.bedsAvailable > 0 && r.dvShelter && (
+                      <button
+                        data-testid={`request-referral-${r.shelterId}-${a.populationType}`}
+                        onClick={(e) => { e.stopPropagation(); setReferralModal({ shelterId: r.shelterId, popType: a.populationType }); }}
+                        style={{
+                          padding: '2px 8px', borderRadius: 6, border: 'none',
+                          backgroundColor: '#7c3aed', color: '#fff', fontSize: 10, fontWeight: 700,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <FormattedMessage id="search.requestReferral" />
                       </button>
                     )}
                   </div>
@@ -652,6 +720,134 @@ export function OutreachSearch() {
               border: 'none', borderRadius: 12, fontSize: 15, fontWeight: 600, cursor: 'pointer', minHeight: 50,
             }}><FormattedMessage id="search.close" /></button>
           </div>
+        </div>
+      )}
+
+      {/* DV Referral Request Modal */}
+      {referralModal && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1002, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setReferralModal(null)}>
+          <div data-testid="referral-modal" style={{
+            backgroundColor: '#fff', borderRadius: 16, width: '90%', maxWidth: 440, padding: '28px 24px',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
+          }} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 4px', fontSize: 18, fontWeight: 800, color: '#7c3aed' }}>
+              <FormattedMessage id="referral.title" />
+            </h3>
+            <p style={{ margin: '0 0 16px', fontSize: 13, color: '#64748b' }}>
+              <FormattedMessage id="referral.subtitle" />
+            </p>
+
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 4 }}>
+              <FormattedMessage id="referral.householdSize" />
+            </label>
+            <input data-testid="referral-household-size" type="number" min={1} max={20} value={referralForm.householdSize}
+              onChange={(e) => setReferralForm(f => ({ ...f, householdSize: parseInt(e.target.value) || 1 }))}
+              style={{ width: '100%', padding: 10, borderRadius: 8, border: '2px solid #e2e8f0', fontSize: 14, marginBottom: 12 }} />
+
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 4 }}>
+              <FormattedMessage id="referral.urgency" />
+            </label>
+            <div data-testid="referral-urgency" style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+              {['STANDARD', 'URGENT', 'EMERGENCY'].map(u => (
+                <button key={u} onClick={() => setReferralForm(f => ({ ...f, urgency: u }))}
+                  style={{
+                    flex: 1, padding: 8, borderRadius: 8, border: `2px solid ${referralForm.urgency === u ? '#7c3aed' : '#e2e8f0'}`,
+                    backgroundColor: referralForm.urgency === u ? '#f5f3ff' : '#fff',
+                    color: referralForm.urgency === u ? '#7c3aed' : '#64748b',
+                    fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                  }}>{u}</button>
+              ))}
+            </div>
+
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 4 }}>
+              <FormattedMessage id="referral.specialNeeds" />
+            </label>
+            <textarea data-testid="referral-special-needs" value={referralForm.specialNeeds}
+              onChange={(e) => setReferralForm(f => ({ ...f, specialNeeds: e.target.value }))}
+              placeholder={intl.formatMessage({ id: 'referral.specialNeedsPlaceholder' })}
+              style={{ width: '100%', padding: 10, borderRadius: 8, border: '2px solid #e2e8f0', fontSize: 13, minHeight: 60, resize: 'vertical', marginBottom: 12 }} />
+
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 4 }}>
+              <FormattedMessage id="referral.callbackNumber" />
+            </label>
+            <input data-testid="referral-callback" type="tel" value={referralForm.callbackNumber}
+              onChange={(e) => setReferralForm(f => ({ ...f, callbackNumber: e.target.value }))}
+              placeholder="919-555-0000"
+              style={{ width: '100%', padding: 10, borderRadius: 8, border: '2px solid #e2e8f0', fontSize: 14, marginBottom: 16 }} />
+
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => setReferralModal(null)}
+                style={{ flex: 1, padding: 12, borderRadius: 10, border: '2px solid #e2e8f0', backgroundColor: '#fff', color: '#64748b', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+                <FormattedMessage id="referral.cancel" />
+              </button>
+              <button data-testid="referral-submit" onClick={submitReferral} disabled={referralSubmitting || !referralForm.callbackNumber}
+                style={{
+                  flex: 1, padding: 12, borderRadius: 10, border: 'none',
+                  backgroundColor: referralSubmitting ? '#a78bfa' : '#7c3aed', color: '#fff',
+                  fontSize: 14, fontWeight: 700, cursor: referralSubmitting ? 'default' : 'pointer',
+                }}>
+                {referralSubmitting ? '...' : intl.formatMessage({ id: 'referral.submit' })}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* My DV Referrals section */}
+      {myReferrals.length > 0 && (
+        <div style={{ marginTop: 16, marginBottom: 16 }}>
+          <button onClick={() => setShowReferrals(!showReferrals)}
+            style={{
+              width: '100%', padding: '14px 18px', borderRadius: 12,
+              border: '2px solid #7c3aed', backgroundColor: '#f5f3ff',
+              color: '#7c3aed', fontSize: 14, fontWeight: 700, cursor: 'pointer',
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            }}>
+            <span><FormattedMessage id="referral.myReferrals" /> ({myReferrals.filter(r => r.status === 'PENDING').length} <FormattedMessage id="referral.pending" />)</span>
+            <span>{showReferrals ? '▲' : '▼'}</span>
+          </button>
+          {showReferrals && (
+            <div data-testid="my-referrals" style={{ border: '2px solid #e2e8f0', borderTop: 'none', borderRadius: '0 0 12px 12px', padding: '12px 16px' }}>
+              {myReferrals.map((ref) => (
+                <div key={ref.id} data-testid={`referral-${ref.id}`} style={{
+                  padding: '10px 0', borderBottom: '1px solid #f1f5f9',
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                }}>
+                  <div>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>
+                      {ref.populationType.replace(/_/g, ' ')} — {ref.householdSize} person{ref.householdSize > 1 ? 's' : ''}
+                    </span>
+                    <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                      {ref.status === 'ACCEPTED' && ref.shelterPhone && (
+                        <span data-testid={`referral-phone-${ref.id}`} style={{ color: '#166534', fontWeight: 700 }}>
+                          <FormattedMessage id="referral.callShelter" /> {ref.shelterPhone}
+                        </span>
+                      )}
+                      {ref.status === 'REJECTED' && ref.rejectionReason && (
+                        <span style={{ color: '#991b1b' }}>
+                          <FormattedMessage id="referral.declined" />: {ref.rejectionReason}
+                        </span>
+                      )}
+                      {ref.status === 'PENDING' && ref.remainingSeconds != null && (
+                        <span style={{ color: '#854d0e' }}>
+                          <FormattedMessage id="referral.waiting" /> — {Math.floor(ref.remainingSeconds / 60)}m remaining
+                        </span>
+                      )}
+                      {ref.status === 'EXPIRED' && (
+                        <span style={{ color: '#991b1b' }}><FormattedMessage id="referral.expired" /></span>
+                      )}
+                    </div>
+                  </div>
+                  <span style={{
+                    padding: '3px 8px', borderRadius: 6, fontSize: 10, fontWeight: 700,
+                    backgroundColor: ref.status === 'ACCEPTED' ? '#f0fdf4' : ref.status === 'REJECTED' ? '#fef2f2' : ref.status === 'EXPIRED' ? '#fef2f2' : '#fefce8',
+                    color: ref.status === 'ACCEPTED' ? '#166534' : ref.status === 'REJECTED' || ref.status === 'EXPIRED' ? '#991b1b' : '#854d0e',
+                  }}>{ref.status}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

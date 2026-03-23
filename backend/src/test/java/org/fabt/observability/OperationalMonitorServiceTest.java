@@ -129,7 +129,7 @@ class OperationalMonitorServiceTest {
         // Simulate DV shelter appearing in non-DV search results
         BedSearchResult dvResult = new BedSearchResult(
                 dvShelterId, "DV Safe House", "123 Main St", "555-0001",
-                null, null, List.of(), null, "FRESH", null, null, false);
+                null, null, List.of(), null, "FRESH", null, null, false, true);
         BedSearchResponse response = new BedSearchResponse(List.of(dvResult), 1);
         when(bedSearchService.search(any(BedSearchRequest.class))).thenReturn(response);
 
@@ -151,7 +151,7 @@ class OperationalMonitorServiceTest {
         // Only non-DV shelter in results
         BedSearchResult normalResult = new BedSearchResult(
                 shelterId, "Safe Haven", "456 Oak Ave", "555-0002",
-                null, null, List.of(), null, "FRESH", null, null, false);
+                null, null, List.of(), null, "FRESH", null, null, false, false);
         BedSearchResponse response = new BedSearchResponse(List.of(normalResult), 1);
         when(bedSearchService.search(any(BedSearchRequest.class))).thenReturn(response);
 

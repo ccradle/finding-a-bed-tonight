@@ -201,7 +201,8 @@ public class BedSearchService {
                     freshness,
                     null, // distanceMiles — placeholder until geo-search change
                     constraintsSummary,
-                    surgeActive
+                    surgeActive,
+                    shelter.isDvShelter()
             ));
         }
 

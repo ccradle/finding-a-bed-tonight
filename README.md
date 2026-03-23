@@ -7,7 +7,9 @@
 
 Open-source emergency shelter bed availability platform. Matches homeless individuals and families to available shelter beds in real time.
 
-**[View the Demo Walkthrough](https://ccradle.github.io/findABed/demo/index.html)** — 17 annotated screenshots of every key view. No running instance required. Also available offline: clone the [docs repo](https://github.com/ccradle/findABed) and open `demo/index.html`.
+**[View the Demo Walkthrough](https://ccradle.github.io/findABed/demo/index.html)** — 18 annotated screenshots of every key view. No running instance required. Also available offline: clone the [docs repo](https://github.com/ccradle/findABed) and open `demo/index.html`.
+
+**[DV Opaque Referral Walkthrough](https://ccradle.github.io/findABed/demo/dvindex.html)** — 7 screenshots showing the privacy-preserving referral flow: request, screening, accept/reject, warm handoff. See [docs/DV-OPAQUE-REFERRAL.md](docs/DV-OPAQUE-REFERRAL.md) for the legal basis and architecture.
 
 ---
 
@@ -90,12 +92,12 @@ Three deployment tiers allow the same codebase to serve communities of vastly di
 | Layer | Technology |
 |---|---|
 | Backend | Java 21, Spring Boot 3.4, Spring MVC, Spring Data JDBC |
-| Database | PostgreSQL 16, Flyway (20 migrations), Row Level Security (DV shelters) |
+| Database | PostgreSQL 16, Flyway (21 migrations), Row Level Security (DV shelters) |
 | Cache | Caffeine L1 / + Redis L2 (Standard/Full) |
 | Events | Spring Events (Lite) / Kafka (Full) |
 | Auth | JWT + OAuth2/OIDC + API Keys (hybrid) |
 | Frontend | React 19, Vite, TypeScript, Workbox PWA, react-intl (EN/ES) |
-| Testing | JUnit 5, Testcontainers, ArchUnit (179 tests), Playwright (62 UI tests), Karate (36 API tests), Gatling (performance) |
+| Testing | JUnit 5, Testcontainers, ArchUnit (193 tests), Playwright (70 UI tests), Karate (40 API tests), Gatling (performance) |
 | Infra | Docker, GitHub Actions CI/CD + E2E pipeline, Terraform (3 tiers) |
 
 ---
@@ -141,7 +143,7 @@ Phase 2 will add an MCP server as a thin wrapper around the REST API, enabling n
 
 ## Database Schema
 
-20 Flyway migrations (V1–V20 + V8.1):
+21 Flyway migrations (V1–V21 + V8.1):
 
 | Migration | Description |
 |---|---|
@@ -166,6 +168,7 @@ Phase 2 will add an MCP server as a thin wrapper around the REST API, enabling n
 | V18 | `overflow_beds` column on `bed_availability` — temporary surge capacity |
 | V19 | RLS for `surge_event` — tenant-scoped access |
 | V20 | Drop `shelter_capacity` — migrate data to `bed_availability`, single source of truth |
+| V21 | `referral_token` — DV opaque referral tokens (zero PII, hard-delete purge, RLS) |
 
 ### Entity Relationship Diagram
 
@@ -326,12 +329,12 @@ curl -s http://localhost:8080/actuator/health | python3 -m json.tool
 ```bash
 cd backend
 
-# Run all 179 backend tests
+# Run all 193 backend tests
 mvn test
 
 # Run E2E tests (requires dev-start.sh stack running)
-cd ../e2e/playwright && npx playwright test    # 62 UI tests
-cd ../e2e/karate && mvn test                   # 36 API tests (32 + 4 @observability)
+cd ../e2e/playwright && npx playwright test    # 70 UI tests
+cd ../e2e/karate && mvn test                   # 40 API tests (36 + 4 @observability)
 cd ../e2e/gatling && mvn verify -Pperf         # Gatling performance simulations
 
 # Run a specific test class
@@ -368,9 +371,10 @@ mvn test -Dtest="AvailabilityIntegrationTest#test_createSnapshot_appendOnly_pres
 | `BedAvailabilityHardeningTest` | 27 | QA invariants (9 rules), concurrent holds, coordinator hold protection, single source of truth |
 | `ReservationIntegrationTest` | 10 | Reservation lifecycle, concurrency, expiry, creator-only access, events |
 | `SurgeIntegrationTest` | 8 | Surge activation/deactivation, 409, 403, auto-expiry, overflow, search flag |
-| **Backend Total** | **179** | |
+| `DvReferralIntegrationTest` | 11 | Token lifecycle, warm handoff, dvAccess enforcement, purge, RLS defense-in-depth |
+| **Backend Total** | **193** | |
 | | | |
-| **E2E: Playwright** | **62** | **UI tests (Chromium, data-testid locators)** |
+| **E2E: Playwright** | **70** | **UI tests (Chromium, data-testid locators)** |
 | `auth.spec.ts` | 4 | Login per role, failed login |
 | `outreach-search.spec.ts` | 9 | Results, filters, modal, hold/cancel, language, freshness |
 | `coordinator-dashboard.spec.ts` | 5 | Load, expand, update, save, hold indicator |
@@ -381,9 +385,11 @@ mvn test -Dtest="AvailabilityIntegrationTest#test_createSnapshot_appendOnly_pres
 | `oauth2-providers.spec.ts` | 2 | Admin OAuth2 provider management |
 | `observability.spec.ts` | 4 | Admin observability tab, config toggles |
 | `offline-behavior.spec.ts` | 3 | Offline banner, stale cache, queue replay |
+| `dv-referral.spec.ts` | 7 | DV referral request, screening, accept, reject, warm handoff |
 | `capture-screenshots.spec.ts` | 17 | Demo walkthrough screenshot capture |
+| `capture-dv-screenshots.spec.ts` | 7 | DV referral flow screenshot capture |
 | | | |
-| **E2E: Karate** | **36** | **API contract tests (feature files)** |
+| **E2E: Karate** | **40** | **API contract tests (feature files)** |
 | `auth/login.feature` | 5 | JWT login, refresh, invalid, no-auth 401, API key |
 | `shelters/shelter-crud.feature` | 6 | Create, update, list, filter, HSDS, outreach 403 |
 | `availability/availability.feature` | 6 | PATCH snapshot, bed search, filters, outreach 403, detail |
@@ -391,9 +397,10 @@ mvn test -Dtest="AvailabilityIntegrationTest#test_createSnapshot_appendOnly_pres
 | `reservations/*.feature` | 4 | Lifecycle, cancel, auth, concurrency |
 | `surge/surge-lifecycle.feature` | 4 | Activate, deactivate, list, outreach 403 |
 | `webhooks/subscription-crud.feature` | 2 | Create + list, delete |
+| `dv-referrals/*.feature` | 4 | Token lifecycle, security/RLS, warm handoff, dvAccess enforcement |
 | `observability/*.feature` | 4 | Grafana health, Prometheus scrape, metrics polling, trace-e2e |
 | | | |
-| **Grand Total** | **277** | |
+| **Grand Total** | **303** | |
 
 ---
 
@@ -425,6 +432,18 @@ Three `@Scheduled` monitors run inside the application:
 3. **Temperature/surge gap** (every 1hr) — logs WARNING if temperature <32°F with no active surge
 
 See [docs/runbook.md](docs/runbook.md) for investigation and response procedures.
+
+### DV Privacy — Opaque Referral
+
+FABT implements a **privacy-preserving referral system** for domestic violence shelters, compliant with VAWA (34 U.S.C. 12291(b)(2)), FVPSA, and HUD HMIS prohibitions. Key guarantees:
+
+- **Zero client PII** in the database — referral tokens contain only household size, population type, urgency, and the worker's callback number
+- **Shelter address never displayed** — shared verbally during warm handoff phone call only
+- **Human-in-the-loop** — DV shelter staff screen every referral for safety before accepting
+- **Hard-delete purge** — all referral tokens are permanently deleted within 24 hours of completion
+- **Aggregate analytics only** — Micrometer counters track referral volume for HUD reporting; durable analytics require the observability stack (Prometheus)
+
+See **[docs/DV-OPAQUE-REFERRAL.md](docs/DV-OPAQUE-REFERRAL.md)** for the full legal basis, architecture, VAWA compliance checklist, and operational notes. See the **[DV Referral Demo Walkthrough](https://ccradle.github.io/findABed/demo/dvindex.html)** for annotated screenshots of the full flow.
 
 ### Tracing
 
@@ -693,6 +712,12 @@ finding-a-bed-tonight/
 │       │   │   ├── service/AvailabilityInvariantViolation.java  # 422 for invariant violations (INV-1 through INV-5)
 │       │   │   └── service/BedSearchService.java      # Cache-aside, ranking, constraint filtering
 │       │   ├── reservation/                           # Reservation module — soft-hold lifecycle
+│       │   ├── referral/                              # DV opaque referral module — zero-PII tokens
+│       │   │   ├── api/ReferralTokenController.java   # Create, accept, reject, list (VAWA compliant)
+│       │   │   ├── domain/ReferralToken.java          # PENDING → ACCEPTED/REJECTED/EXPIRED → purged
+│       │   │   ├── repository/ReferralTokenRepository.java
+│       │   │   ├── service/ReferralTokenService.java  # Lifecycle, dvAccess defense-in-depth (D14)
+│       │   │   └── service/ReferralTokenPurgeService.java  # @Scheduled hard-delete within 24h
 │       │   ├── surge/                                 # Surge module — White Flag activation, overflow
 │       │   │   ├── api/ReservationController.java     # Create, confirm, cancel, list
 │       │   │   ├── api/ReservationResponse.java       # Includes remainingSeconds for countdown
@@ -736,10 +761,10 @@ finding-a-bed-tonight/
 │       ├── main/resources/
 │       │   ├── application.yml                        # Base config (port 8080, OTel, Resilience4J)
 │       │   ├── application-observability.yml          # Management port 9091 (for dev Prometheus scrape)
-│       │   ├── db/migration/                          # 20 Flyway migrations (V1–V20 + V8.1)
+│       │   ├── db/migration/                          # 21 Flyway migrations (V1–V21 + V8.1)
 │       │   ├── logback-spring.xml                     # Structured JSON logging (Logstash encoder)
 │       │   └── messages/                              # i18n error messages (EN, ES)
-│       └── test/java/org/fabt/                        # 179 tests (unit + integration)
+│       └── test/java/org/fabt/                        # 193 tests (unit + integration)
 │           ├── BaseIntegrationTest.java               # Singleton Testcontainers PostgreSQL
 │           ├── TestAuthHelper.java                    # Per-role JWT helper for tests
 │           ├── ArchitectureTest.java                  # 15 ArchUnit module boundary rules
@@ -779,7 +804,7 @@ finding-a-bed-tonight/
 │           └── es.json                                # Spanish (100+ keys)
 │
 ├── e2e/                                               # End-to-end test suites
-│   ├── playwright/                                    # UI tests (62 tests, Chromium)
+│   ├── playwright/                                    # UI tests (70 tests, Chromium)
 │   │   ├── package.json                               # @playwright/test + TypeScript
 │   │   ├── playwright.config.ts                       # baseURL, workers, retries, HTML reporter
 │   │   ├── fixtures/auth.fixture.ts                   # Per-role storageState (admin, cocadmin, outreach)
@@ -863,7 +888,7 @@ finding-a-bed-tonight/
 ### Completed: Platform Foundation (archived)
 
 - [x] Modular monolith backend (Java 21, Spring Boot 3.4, 6 modules, ArchUnit boundaries)
-- [x] 20 Flyway migrations (V1–V20 + V8.1), PostgreSQL 16, Row Level Security for DV shelters
+- [x] 21 Flyway migrations (V1–V21 + V8.1), PostgreSQL 16, Row Level Security for DV shelters
 - [x] 3 deployment profiles (Lite / Standard / Full) with CacheService + EventBus abstractions
 - [x] Multi-tenant auth: JWT + API keys + OAuth2 provider management, 4 roles, dual-layer security
 - [x] Shelter module: CRUD, constraints, capacities, HSDS 3.0 export, coordinator assignments
@@ -962,6 +987,18 @@ finding-a-bed-tonight/
 - [x] dev-start.sh: `--observability` now enables OTel tracing (`TRACING_SAMPLING_PROBABILITY=1.0`)
 - [x] Runbook: bed availability invariants section with investigation guide
 
+### Completed: DV Opaque Referral
+
+- [x] Token-based opaque referral: zero client PII, VAWA/FVPSA compliant, human-in-the-loop safety screening
+- [x] Warm handoff: shelter phone shared on acceptance, shelter address shared verbally only (never in system)
+- [x] Token purge: hard-delete within 24 hours, no audit trail of individual referrals
+- [x] Defense-in-depth RLS: `SET ROLE fabt_app` on every connection + service-layer `dvAccess` check (D14)
+- [x] DV Referral Grafana dashboard: separate from operations (sensitive aggregate patterns)
+- [x] Test data reset endpoint: `DELETE /api/v1/test/reset` (dev/test profile only, PLATFORM_ADMIN + confirmation header)
+- [x] Addendum document: `docs/DV-OPAQUE-REFERRAL.md` with legal basis, architecture, VAWA checklist
+- [x] Demo walkthrough: 7 dedicated DV referral screenshots at `demo/dvindex.html`
+- [x] 11 integration tests, 7 Playwright tests, 4 Karate scenarios
+
 ### Planned: Remaining Phase 1 Capabilities
 
 | Change | Description | Status |
@@ -969,6 +1006,25 @@ finding-a-bed-tonight/
 | **dv-opaque-referral** | Privacy-preserving DV shelter referral with human-in-the-loop confirmation | Not specced |
 | **hmis-bridge** | Async push adapter to HMIS vendors, circuit breaker isolated | Not specced |
 | **coc-analytics** | Aggregate anonymized metrics, unmet demand reporting, HUD grant support | Not specced |
+
+---
+
+## Test Data Reset (dev/test only)
+
+> **WARNING: This endpoint MUST NOT exist in production.** It is profile-gated with `@Profile("dev | test")` — the bean is not created unless the `dev` or `test` Spring profile is active. Production deployments use the `lite` profile only.
+
+A `DELETE /api/v1/test/reset` endpoint is available in dev/test environments to clean up transient data (referral tokens, held reservations, test-created shelters) between E2E test runs.
+
+**Safeguards:**
+- `@Profile("dev | test")` — bean does not exist in production
+- Requires `PLATFORM_ADMIN` role
+- Requires `X-Confirm-Reset: DESTROY` header — prevents accidental calls
+
+```bash
+curl -X DELETE http://localhost:8080/api/v1/test/reset \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "X-Confirm-Reset: DESTROY"
+```
 
 ---
 
