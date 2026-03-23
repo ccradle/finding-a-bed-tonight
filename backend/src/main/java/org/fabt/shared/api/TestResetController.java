@@ -1,7 +1,9 @@
-package org.fabt.shared.web;
+package org.fabt.shared.api;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+
+import org.fabt.shared.web.TenantContext;
 
 import io.swagger.v3.oas.annotations.Operation;
 import org.slf4j.Logger;
