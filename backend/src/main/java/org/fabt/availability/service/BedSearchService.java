@@ -187,15 +187,19 @@ public class BedSearchService {
             )
                     : new ConstraintsSummary(false, false, false, false, false);
 
-            String address = formatAddress(shelter);
+            // Redact location data for DV shelters — FVPSA compliance.
+            // Address shared verbally during warm handoff only.
+            String address = shelter.isDvShelter() ? null : formatAddress(shelter);
+            Double lat = shelter.isDvShelter() ? null : shelter.getLatitude();
+            Double lng = shelter.isDvShelter() ? null : shelter.getLongitude();
 
             results.add(new BedSearchResult(
                     shelter.getId(),
                     shelter.getName(),
                     address,
                     shelter.getPhone(),
-                    shelter.getLatitude(),
-                    shelter.getLongitude(),
+                    lat,
+                    lng,
                     popAvail,
                     dataAgeSeconds,
                     freshness,

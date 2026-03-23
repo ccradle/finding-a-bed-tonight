@@ -89,6 +89,7 @@
   "surge.overflowHint": "Capacidad temporal (catres, colchonetas) durante emergencia",
   "surge.noActiveSurge": "Sin emergencia activa",
 
+  "search.dvAddressHidden": "Dirección oculta por seguridad — compartida verbalmente después de aceptar la referencia",
   "search.requestReferral": "Solicitar Referencia",
   "referral.title": "Solicitar Referencia a Refugio de VD",
   "referral.subtitle": "No se almacena información identificable del cliente. Esta referencia contiene solo datos operativos.",

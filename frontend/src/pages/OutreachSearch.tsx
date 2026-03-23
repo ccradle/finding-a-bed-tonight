@@ -515,7 +515,9 @@ export function OutreachSearch() {
                 }}>{avail}</span>
               )}
             </div>
-            <div style={{ fontSize: 14, color: '#64748b', marginBottom: 6 }}>{r.address}</div>
+            <div style={{ fontSize: 14, color: r.dvShelter ? '#7c3aed' : '#64748b', fontStyle: r.dvShelter ? 'italic' : 'normal', marginBottom: 6 }}>
+              {r.dvShelter ? intl.formatMessage({ id: 'search.dvAddressHidden' }) : r.address}
+            </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 {r.phone && <span style={{ fontSize: 14, color: '#1a56db', fontWeight: 600 }}>📞 {r.phone}</span>}
@@ -595,10 +597,16 @@ export function OutreachSearch() {
             <div style={{ width: 40, height: 4, backgroundColor: '#d1d5db', borderRadius: 2, margin: '0 auto 22px' }} />
 
             <h2 style={{ margin: '0 0 4px', fontSize: 22, fontWeight: 800, color: '#0f172a' }}>{selectedShelter.shelter.name}</h2>
-            <p style={{ margin: '0 0 16px', fontSize: 14, color: '#64748b' }}>
-              {[selectedShelter.shelter.addressStreet, selectedShelter.shelter.addressCity,
-                selectedShelter.shelter.addressState, selectedShelter.shelter.addressZip].filter(Boolean).join(', ')}
-            </p>
+            {selectedShelter.shelter.dvShelter ? (
+              <p style={{ margin: '0 0 16px', fontSize: 14, color: '#7c3aed', fontStyle: 'italic' }}>
+                <FormattedMessage id="search.dvAddressHidden" />
+              </p>
+            ) : (
+              <p style={{ margin: '0 0 16px', fontSize: 14, color: '#64748b' }}>
+                {[selectedShelter.shelter.addressStreet, selectedShelter.shelter.addressCity,
+                  selectedShelter.shelter.addressState, selectedShelter.shelter.addressZip].filter(Boolean).join(', ')}
+              </p>
+            )}
 
             {selectedShelter.data_age_seconds !== undefined && (
               <div style={{ marginBottom: 18 }}><DataAge dataAgeSeconds={selectedShelter.data_age_seconds} /></div>
@@ -613,19 +621,23 @@ export function OutreachSearch() {
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
                 }}>📞 <FormattedMessage id="search.call" /></a>
               )}
-              <a href={mapsUrl({
-                shelterId: selectedShelter.shelter.id, shelterName: selectedShelter.shelter.name,
-                address: [selectedShelter.shelter.addressStreet, selectedShelter.shelter.addressCity].filter(Boolean).join(', '),
-                phone: selectedShelter.shelter.phone, latitude: selectedShelter.shelter.latitude,
-                longitude: selectedShelter.shelter.longitude, availability: [], dataAgeSeconds: null,
-                dataFreshness: 'UNKNOWN', distanceMiles: null,
-                constraints: { petsAllowed: false, wheelchairAccessible: false, sobrietyRequired: false, idRequired: false, referralRequired: false },
-                surgeActive: false,
-              })} target="_blank" rel="noopener noreferrer" style={{
-                flex: 1, padding: 14, backgroundColor: '#1a56db', color: '#fff', borderRadius: 12,
-                textAlign: 'center', textDecoration: 'none', fontSize: 16, fontWeight: 700, minHeight: 50,
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-              }}>🗺️ <FormattedMessage id="search.directions" /></a>
+              {/* Hide directions for DV shelters — address shared verbally only (FVPSA) */}
+              {!selectedShelter.shelter.dvShelter && (
+                <a href={mapsUrl({
+                  shelterId: selectedShelter.shelter.id, shelterName: selectedShelter.shelter.name,
+                  address: [selectedShelter.shelter.addressStreet, selectedShelter.shelter.addressCity].filter(Boolean).join(', '),
+                  phone: selectedShelter.shelter.phone, latitude: selectedShelter.shelter.latitude,
+                  longitude: selectedShelter.shelter.longitude, availability: [], dataAgeSeconds: null,
+                  dataFreshness: 'UNKNOWN', distanceMiles: null,
+                  constraints: { petsAllowed: false, wheelchairAccessible: false, sobrietyRequired: false, idRequired: false, referralRequired: false },
+                  surgeActive: false,
+                  dvShelter: false,
+                })} target="_blank" rel="noopener noreferrer" style={{
+                  flex: 1, padding: 14, backgroundColor: '#1a56db', color: '#fff', borderRadius: 12,
+                  textAlign: 'center', textDecoration: 'none', fontSize: 16, fontWeight: 700, minHeight: 50,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                }}>🗺️ <FormattedMessage id="search.directions" /></a>
+              )}
             </div>
 
             {/* Availability */}
