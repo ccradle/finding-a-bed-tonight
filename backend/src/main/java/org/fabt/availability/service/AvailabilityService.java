@@ -92,6 +92,26 @@ public class AvailabilityService {
         Shelter shelter = shelterService.findById(shelterId)
                 .orElseThrow(() -> new java.util.NoSuchElementException("Shelter not found: " + shelterId));
 
+        // Enforce bed availability invariants (QA briefing INV-1 through INV-5)
+        if (bedsTotal < 0) {
+            throw new AvailabilityInvariantViolation("beds_total cannot be negative (INV-4)");
+        }
+        if (bedsOccupied < 0) {
+            throw new AvailabilityInvariantViolation("beds_occupied cannot be negative");
+        }
+        if (bedsOnHold < 0) {
+            throw new AvailabilityInvariantViolation("beds_on_hold cannot be negative");
+        }
+        if (bedsOccupied > bedsTotal) {
+            throw new AvailabilityInvariantViolation(
+                    "beds_occupied (" + bedsOccupied + ") cannot exceed beds_total (" + bedsTotal + ") (INV-2)");
+        }
+        if (bedsOccupied + bedsOnHold > bedsTotal) {
+            throw new AvailabilityInvariantViolation(
+                    "beds_occupied (" + bedsOccupied + ") + beds_on_hold (" + bedsOnHold
+                            + ") cannot exceed beds_total (" + bedsTotal + ") (INV-5)");
+        }
+
         // Get current latest BEFORE inserting the new one (for event payload delta)
         List<BedAvailability> currentLatest = repository.findLatestByShelterId(shelterId);
         BedAvailability previousForType = currentLatest.stream()

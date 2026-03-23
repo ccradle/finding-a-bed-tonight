@@ -10,19 +10,19 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import org.fabt.availability.service.AvailabilityService;
+import org.fabt.availability.service.AvailabilityService.AvailabilitySnapshot;
 import org.fabt.shelter.api.CreateShelterRequest;
-import org.fabt.shelter.api.ShelterCapacityDto;
 import org.fabt.shelter.api.ShelterConstraintsDto;
 import org.fabt.shelter.api.ShelterDetailResponse.AvailabilityDto;
 import org.fabt.shelter.api.UpdateShelterRequest;
 import org.fabt.shelter.domain.PopulationType;
 import org.fabt.shelter.domain.Shelter;
-import org.fabt.shelter.domain.ShelterCapacity;
 import org.fabt.shelter.domain.ShelterConstraints;
-import org.fabt.shelter.repository.ShelterCapacityRepository;
 import org.fabt.shelter.repository.ShelterConstraintsRepository;
 import org.fabt.shelter.repository.ShelterRepository;
 import org.fabt.shared.web.TenantContext;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,8 +30,15 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class ShelterService {
 
+    /**
+     * Capacity data derived from latest bed_availability snapshots.
+     * Replaces the former ShelterCapacity domain object (shelter_capacity table dropped in V20).
+     */
+    public record CapacityFromAvailability(String populationType, int bedsTotal) {
+    }
+
     public record ShelterDetail(Shelter shelter, ShelterConstraints constraints,
-                                List<ShelterCapacity> capacities, List<AvailabilityDto> availability) {
+                                List<CapacityFromAvailability> capacities, List<AvailabilityDto> availability) {
     }
 
     public record ShelterFilterCriteria(Boolean petsAllowed, Boolean wheelchairAccessible,
@@ -40,16 +47,16 @@ public class ShelterService {
 
     private final ShelterRepository shelterRepository;
     private final ShelterConstraintsRepository constraintsRepository;
-    private final ShelterCapacityRepository capacityRepository;
+    private final AvailabilityService availabilityService;
     private final JdbcTemplate jdbcTemplate;
 
     public ShelterService(ShelterRepository shelterRepository,
                           ShelterConstraintsRepository constraintsRepository,
-                          ShelterCapacityRepository capacityRepository,
+                          @Lazy AvailabilityService availabilityService,
                           JdbcTemplate jdbcTemplate) {
         this.shelterRepository = shelterRepository;
         this.constraintsRepository = constraintsRepository;
-        this.capacityRepository = capacityRepository;
+        this.availabilityService = availabilityService;
         this.jdbcTemplate = jdbcTemplate;
     }
 
@@ -64,7 +71,7 @@ public class ShelterService {
 
         // Validate population types in capacities
         if (req.capacities() != null) {
-            for (ShelterCapacityDto cap : req.capacities()) {
+            for (var cap : req.capacities()) {
                 validatePopulationType(cap.populationType());
             }
         }
@@ -92,10 +99,12 @@ public class ShelterService {
             constraintsRepository.save(constraints);
         }
 
-        // Save capacities if provided
+        // Write initial capacity as bed_availability snapshots (single source of truth — D10)
         if (req.capacities() != null) {
-            for (ShelterCapacityDto cap : req.capacities()) {
-                capacityRepository.save(saved.getId(), cap.populationType(), cap.bedsTotal());
+            for (var cap : req.capacities()) {
+                availabilityService.createSnapshot(
+                        saved.getId(), cap.populationType(), cap.bedsTotal(),
+                        0, 0, true, null, "shelter-create");
             }
         }
 
@@ -116,7 +125,7 @@ public class ShelterService {
 
         // Validate population types in capacities
         if (req.capacities() != null) {
-            for (ShelterCapacityDto cap : req.capacities()) {
+            for (var cap : req.capacities()) {
                 validatePopulationType(cap.populationType());
             }
         }
@@ -143,11 +152,21 @@ public class ShelterService {
             constraintsRepository.save(constraints);
         }
 
-        // Update capacities if provided — delete and re-insert
+        // Update capacity via new availability snapshots — preserves current occupied/onHold (D10)
         if (req.capacities() != null) {
-            capacityRepository.deleteByShelterId(saved.getId());
-            for (ShelterCapacityDto cap : req.capacities()) {
-                capacityRepository.save(saved.getId(), cap.populationType(), cap.bedsTotal());
+            // Get latest snapshots to preserve operational data (occupied, onHold)
+            List<AvailabilitySnapshot> currentSnapshots = availabilityService.getLatestByShelterId(saved.getId());
+            java.util.Map<String, AvailabilitySnapshot> snapshotByType = currentSnapshots.stream()
+                    .collect(java.util.stream.Collectors.toMap(AvailabilitySnapshot::populationType, s -> s));
+
+            for (var cap : req.capacities()) {
+                AvailabilitySnapshot existing = snapshotByType.get(cap.populationType());
+                int occupied = existing != null ? existing.bedsOccupied() : 0;
+                int onHold = existing != null ? existing.bedsOnHold() : 0;
+                boolean accepting = existing != null ? existing.acceptingNewGuests() : true;
+                availabilityService.createSnapshot(
+                        saved.getId(), cap.populationType(), cap.bedsTotal(),
+                        occupied, onHold, accepting, null, "shelter-update");
             }
         }
 
@@ -227,7 +246,7 @@ public class ShelterService {
         Shelter shelter = shelterRepository.findByTenantIdAndId(tenantId, id)
                 .orElseThrow(() -> new NoSuchElementException("Shelter not found: " + id));
 
-        capacityRepository.deleteByShelterId(shelter.getId());
+        // bed_availability rows have ON DELETE CASCADE via shelter FK — no manual cleanup needed
         constraintsRepository.deleteById(shelter.getId());
         shelterRepository.delete(shelter);
     }
@@ -240,9 +259,14 @@ public class ShelterService {
                 .orElseThrow(() -> new NoSuchElementException("Shelter not found: " + id));
 
         ShelterConstraints constraints = constraintsRepository.findById(shelter.getId()).orElse(null);
-        List<ShelterCapacity> capacities = capacityRepository.findByShelterId(shelter.getId());
 
-        // Availability is populated by AvailabilityService when available (injected via controller)
+        // Capacity is derived from latest bed_availability snapshots (single source of truth — D10)
+        List<AvailabilitySnapshot> snapshots = availabilityService.getLatestByShelterId(shelter.getId());
+        List<CapacityFromAvailability> capacities = snapshots.stream()
+                .map(s -> new CapacityFromAvailability(s.populationType(), s.bedsTotal()))
+                .toList();
+
+        // Availability is further enriched by the controller with AvailabilityDto data
         return new ShelterDetail(shelter, constraints, capacities, null);
     }
 

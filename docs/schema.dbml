@@ -146,18 +146,10 @@ Table shelter_constraints {
 }
 
 // ---------------------------------------------------------------------------
-// V6 — Shelter Capacity
+// V6/V20 — Shelter Capacity (DROPPED in V20)
 // ---------------------------------------------------------------------------
-
-Table shelter_capacity {
-  shelter_id      uuid        [ref: > shelter.id, note: 'ON DELETE CASCADE']
-  population_type varchar     [not null, note: 'PopulationType enum value']
-  beds_total      integer     [not null, note: 'CHECK beds_total >= 0']
-
-  indexes {
-    (shelter_id, population_type) [pk, name: 'pk_shelter_capacity']
-  }
-}
+// shelter_capacity table was dropped in V20. beds_total is now single-sourced
+// from bed_availability snapshots. See bed_availability table below.
 
 // ---------------------------------------------------------------------------
 // V7 — Coordinator Assignment
@@ -251,6 +243,8 @@ Table subscription {
 // V12 — Bed Availability (append-only snapshots)
 // ---------------------------------------------------------------------------
 
+// Single source of truth for beds_total (D10 — shelter_capacity dropped in V20).
+// beds_total in this table is THE capacity. All capacity reads/writes go through here.
 Table bed_availability {
   id                   uuid        [pk, note: 'gen_random_uuid()']
   shelter_id           uuid        [not null, ref: > shelter.id, note: 'ON DELETE CASCADE']

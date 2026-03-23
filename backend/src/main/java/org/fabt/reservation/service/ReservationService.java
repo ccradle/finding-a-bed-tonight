@@ -64,6 +64,10 @@ public class ReservationService {
     public Reservation createReservation(UUID shelterId, String populationType, String notes, UUID userId) {
         UUID tenantId = TenantContext.getTenantId();
 
+        // Acquire advisory lock to prevent concurrent double-hold (TC-3.2).
+        // Only one transaction can hold this lock per shelter+populationType at a time.
+        reservationRepository.acquireAdvisoryLock(shelterId, populationType);
+
         // Verify shelter exists
         shelterService.findById(shelterId)
                 .orElseThrow(() -> new NoSuchElementException("Shelter not found: " + shelterId));
@@ -88,14 +92,30 @@ public class ReservationService {
         Reservation reservation = new Reservation(shelterId, tenantId, populationType, userId, expiresAt, notes);
         Reservation saved = reservationRepository.insert(reservation);
 
-        // Create availability snapshot with beds_on_hold incremented
-        int newBedsOnHold = (current != null ? current.getBedsOnHold() : 0) + 1;
+        // Re-read latest snapshot to get the most current state (concurrent hold protection).
+        // Another thread may have placed a hold between our initial read and now.
+        List<BedAvailability> refreshed = availabilityRepository.findLatestByShelterId(shelterId);
+        BedAvailability freshState = refreshed.stream()
+                .filter(ba -> ba.getPopulationType().equals(populationType))
+                .findFirst()
+                .orElse(current);
+
+        int bedsTotal = freshState != null ? freshState.getBedsTotal() : 0;
+        int bedsOccupied = freshState != null ? freshState.getBedsOccupied() : 0;
+        int currentHold = freshState != null ? freshState.getBedsOnHold() : 0;
+        int newBedsOnHold = currentHold + 1;
+
+        // Verify invariant (INV-5: occupied + hold <= total)
+        if (bedsOccupied + newBedsOnHold > bedsTotal) {
+            // Race condition lost or beds became unavailable — cancel the reservation
+            reservationRepository.updateStatus(saved.getId(), ReservationStatus.CANCELLED);
+            throw new IllegalStateException("No beds available for population type: " + populationType);
+        }
+
         availabilityService.createSnapshot(
                 shelterId, populationType,
-                current != null ? current.getBedsTotal() : 0,
-                current != null ? current.getBedsOccupied() : 0,
-                newBedsOnHold,
-                current != null ? current.isAcceptingNewGuests() : true,
+                bedsTotal, bedsOccupied, newBedsOnHold,
+                freshState != null ? freshState.isAcceptingNewGuests() : true,
                 "reservation:create",
                 "system:reservation"
         );
@@ -203,6 +223,16 @@ public class ReservationService {
     public List<Reservation> getActiveReservations(UUID userId) {
         UUID tenantId = TenantContext.getTenantId();
         return reservationRepository.findActiveByUserId(tenantId, userId);
+    }
+
+    /**
+     * Count active HELD reservations for a shelter and population type.
+     * Used by AvailabilityController to enforce hold protection — coordinators
+     * cannot reduce beds_on_hold below this count.
+     */
+    @Transactional(readOnly = true)
+    public int countActiveHolds(UUID shelterId, String populationType) {
+        return reservationRepository.countActiveByShelterId(shelterId, populationType);
     }
 
     private void adjustAvailability(Reservation reservation, int holdDelta, int occupiedDelta, String actor) {

@@ -311,6 +311,40 @@ SELECT id, name, config->'observability' as obs_config FROM tenant;
 
 ---
 
+## Bed Availability Invariants
+
+The `bed_availability` table is the **single source of truth** for bed counts. There is no separate capacity table — `beds_total`, `beds_occupied`, and `beds_on_hold` all live in append-only snapshots.
+
+### The 9 invariants
+
+| ID | Rule | Description |
+|----|------|-------------|
+| INV-1 | `beds_available >= 0` | Available beds can never be negative |
+| INV-2 | `beds_occupied <= beds_total` | Occupied cannot exceed total |
+| INV-3 | `beds_on_hold <= (beds_total - beds_occupied)` | Holds cannot exceed remaining capacity |
+| INV-4 | `beds_total >= 0` | Total beds cannot be negative |
+| INV-5 | `beds_occupied + beds_on_hold <= beds_total` | Combined occupied + held cannot exceed total |
+| INV-6 | Confirm does not change available | Confirming a hold converts hold→occupied |
+| INV-7 | Cancel increases available by 1 | Cancelling a hold releases the bed |
+| INV-8 | Hold decreases available by 1 | Placing a hold reserves a bed |
+| INV-9 | `beds_available == beds_total - beds_occupied - beds_on_hold` | The formula always holds |
+
+### Enforcement
+
+- **Server-side**: `AvailabilityService.createSnapshot()` validates INV-1 through INV-5 before writing. Returns 422 on violation.
+- **Coordinator hold protection**: PATCH availability cannot reduce `beds_on_hold` below active HELD reservation count.
+- **Concurrent holds**: PostgreSQL advisory locks (`pg_advisory_xact_lock`) prevent double-holds on the last bed.
+- **UI bounds**: Coordinator dashboard enforces stepper bounds; on-hold is read-only (system-managed).
+
+### Investigation: Wrong available count
+
+1. Check the latest snapshot: `SELECT * FROM bed_availability WHERE shelter_id = '<id>' ORDER BY snapshot_ts DESC LIMIT 5;`
+2. Verify `beds_available = beds_total - beds_occupied - beds_on_hold` in the snapshot
+3. Check for active held reservations: `SELECT COUNT(*) FROM reservation WHERE shelter_id = '<id>' AND status = 'HELD';`
+4. If values don't match, the invariant checker in tests (`AvailabilityInvariantChecker`) can help diagnose
+
+---
+
 ## Management Port Security (Production)
 
 The `/actuator/prometheus` endpoint on the main application port (`:8080`) requires JWT authentication — it is **not** `permitAll()`. This is intentional: FABT handles DV shelter data and must not expose business metrics publicly.

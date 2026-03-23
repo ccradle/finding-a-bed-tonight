@@ -13,11 +13,6 @@ const POPULATION_TYPES = [
   'DV_SURVIVOR',
 ];
 
-interface ShelterCapacity {
-  populationType: string;
-  bedsTotal: number;
-}
-
 interface AvailabilitySummary {
   totalBedsAvailable: number | null;
   populationTypesServed: number;
@@ -43,7 +38,6 @@ interface ShelterListItem {
 
 interface ShelterDetail {
   shelter: Shelter;
-  capacities: ShelterCapacity[];
   availability?: AvailabilityDto[];
 }
 
@@ -73,11 +67,8 @@ export function CoordinatorDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [editCapacities, setEditCapacities] = useState<ShelterCapacity[]>([]);
   const [editAvailability, setEditAvailability] = useState<AvailabilityEdit[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [savedId, setSavedId] = useState<string | null>(null);
   const [availSaving, setAvailSaving] = useState<string | null>(null);
   const [availSaved, setAvailSaved] = useState<string | null>(null);
 
@@ -108,21 +99,14 @@ export function CoordinatorDashboard() {
     setError(null);
     try {
       const detail = await api.get<ShelterDetail>(`/api/v1/shelters/${id}`);
-      const existing = detail.capacities || [];
-      const capacityMap = new Map(existing.map((c) => [c.populationType, c.bedsTotal]));
-      const full = POPULATION_TYPES.map((pt) => ({
-        populationType: pt,
-        bedsTotal: capacityMap.get(pt) ?? 0,
-      }));
-      setEditCapacities(full);
 
-      // Initialize availability edit from current snapshots
+      // Initialize availability edit from current snapshots (single source of truth — D10)
       const availMap = new Map((detail.availability || []).map((a) => [a.populationType, a]));
       const availEdit = POPULATION_TYPES.map((pt) => {
         const a = availMap.get(pt);
         return {
           populationType: pt,
-          bedsTotal: a?.bedsTotal ?? (capacityMap.get(pt) ?? 0),
+          bedsTotal: a?.bedsTotal ?? 0,
           bedsOccupied: a?.bedsOccupied ?? 0,
           bedsOnHold: a?.bedsOnHold ?? 0,
           overflowBeds: 0,
@@ -137,49 +121,26 @@ export function CoordinatorDashboard() {
     }
   };
 
-  const adjustCount = (popType: string, delta: number) => {
-    setEditCapacities((prev) =>
-      prev.map((c) =>
-        c.populationType === popType
-          ? { ...c, bedsTotal: Math.max(0, c.bedsTotal + delta) }
-          : c
-      )
-    );
-    // Also update availability bedsTotal so beds_available calculation stays correct
+  const updateAvailField = (popType: string, field: 'bedsTotal' | 'bedsOccupied' | 'bedsOnHold', delta: number) => {
     setEditAvailability((prev) =>
-      prev.map((a) =>
-        a.populationType === popType
-          ? { ...a, bedsTotal: Math.max(0, a.bedsTotal + delta) }
-          : a
-      )
+      prev.map((a) => {
+        if (a.populationType !== popType) return a;
+        const newVal = Math.max(0, a[field] + delta);
+        if (field === 'bedsTotal') {
+          // When total changes, clamp occupied and on_hold to not exceed new total
+          const newTotal = newVal;
+          const clampedOccupied = Math.min(a.bedsOccupied, newTotal);
+          const clampedOnHold = Math.min(a.bedsOnHold, newTotal - clampedOccupied);
+          return { ...a, bedsTotal: newTotal, bedsOccupied: clampedOccupied, bedsOnHold: clampedOnHold };
+        }
+        // Enforce INV-5: occupied + on_hold <= total
+        if (field === 'bedsOccupied') {
+          return { ...a, bedsOccupied: Math.min(newVal, a.bedsTotal - a.bedsOnHold) };
+        } else {
+          return { ...a, bedsOnHold: Math.min(newVal, a.bedsTotal - a.bedsOccupied) };
+        }
+      })
     );
-  };
-
-  const updateAvailField = (popType: string, field: 'bedsOccupied' | 'bedsOnHold', delta: number) => {
-    setEditAvailability((prev) =>
-      prev.map((a) =>
-        a.populationType === popType
-          ? { ...a, [field]: Math.max(0, a[field] + delta) }
-          : a
-      )
-    );
-  };
-
-  const saveShelter = async (id: string) => {
-    setSaving(true);
-    setError(null);
-    try {
-      await api.put(`/api/v1/shelters/${id}`, { capacities: editCapacities });
-      setSavedId(id);
-      setTimeout(() => {
-        setSavedId(null);
-        setExpandedId(null);
-      }, 1200);
-    } catch {
-      setError(intl.formatMessage({ id: 'coord.error' }));
-    } finally {
-      setSaving(false);
-    }
   };
 
   const submitAvailability = async (shelterId: string, popType: string) => {
@@ -253,15 +214,14 @@ export function CoordinatorDashboard() {
         const s = item.shelter;
         const summary = item.availabilitySummary;
         const isExpanded = expandedId === s.id;
-        const isSaved = savedId === s.id;
 
         return (
           <div
             key={s.id}
             style={{
               marginBottom: 10, borderRadius: 14,
-              border: `2px solid ${isSaved ? '#22c55e' : isExpanded ? '#1a56db' : '#e2e8f0'}`,
-              backgroundColor: isSaved ? '#f0fdf4' : '#fff',
+              border: `2px solid ${isExpanded ? '#1a56db' : '#e2e8f0'}`,
+              backgroundColor: '#fff',
               transition: 'border-color 0.2s, background-color 0.3s',
               overflow: 'hidden',
             }}
@@ -316,47 +276,58 @@ export function CoordinatorDashboard() {
                   <FormattedMessage id="coord.availability" />
                 </h4>
 
-                {editAvailability.filter(a => a.bedsTotal > 0).map((avail) => {
+                {editAvailability.filter(a => a.bedsTotal > 0 || a.bedsOccupied > 0).map((avail) => {
                   const bedsAvailable = avail.bedsTotal - avail.bedsOccupied - avail.bedsOnHold;
                   const isSavingThis = availSaving === avail.populationType;
                   const isSavedThis = availSaved === avail.populationType;
 
                   return (
-                    <div key={avail.populationType} style={{
+                    <div key={avail.populationType} data-testid={`avail-row-${avail.populationType}`} style={{
                       padding: '12px 0', borderBottom: '1px solid #f1f5f9',
                     }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                         <span style={{ fontSize: 14, fontWeight: 600, color: '#0f172a', textTransform: 'capitalize' }}>
                           {avail.populationType.replace(/_/g, ' ').toLowerCase()}
                         </span>
-                        <span style={{
+                        <span data-testid={`available-value-${avail.populationType}`} style={{
                           fontSize: 16, fontWeight: 800,
                           color: bedsAvailable > 0 ? '#166534' : '#991b1b',
                         }}>
                           {bedsAvailable} <span style={{ fontSize: 11, fontWeight: 600 }}><FormattedMessage id="coord.bedsAvail" /></span>
                         </span>
                       </div>
-                      <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 8 }}>
+                      <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+                        {/* Total beds stepper */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600, minWidth: 40 }}>
+                            <FormattedMessage id="coord.bedsTotal" />
+                          </span>
+                          <StepperButton label="−" data-testid={`total-minus-${avail.populationType}`} onClick={() => updateAvailField(avail.populationType, 'bedsTotal', -1)} disabled={avail.bedsTotal <= avail.bedsOccupied + avail.bedsOnHold} />
+                          <span data-testid={`total-value-${avail.populationType}`} style={{ fontSize: 18, fontWeight: 800, minWidth: 32, textAlign: 'center' }}>{avail.bedsTotal}</span>
+                          <StepperButton label="+" data-testid={`total-plus-${avail.populationType}`} onClick={() => updateAvailField(avail.populationType, 'bedsTotal', 1)} />
+                        </div>
                         {/* Occupied stepper */}
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                           <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600, minWidth: 60 }}>
                             <FormattedMessage id="coord.bedsOccupied" />
                           </span>
-                          <StepperButton label="−" onClick={() => updateAvailField(avail.populationType, 'bedsOccupied', -1)} disabled={avail.bedsOccupied <= 0} />
-                          <span style={{ fontSize: 18, fontWeight: 800, minWidth: 32, textAlign: 'center' }}>{avail.bedsOccupied}</span>
-                          <StepperButton label="+" onClick={() => updateAvailField(avail.populationType, 'bedsOccupied', 1)} />
+                          <StepperButton label="−" data-testid={`occupied-minus-${avail.populationType}`} onClick={() => updateAvailField(avail.populationType, 'bedsOccupied', -1)} disabled={avail.bedsOccupied <= 0} />
+                          <span data-testid={`occupied-value-${avail.populationType}`} style={{ fontSize: 18, fontWeight: 800, minWidth: 32, textAlign: 'center' }}>{avail.bedsOccupied}</span>
+                          <StepperButton label="+" data-testid={`occupied-plus-${avail.populationType}`} onClick={() => updateAvailField(avail.populationType, 'bedsOccupied', 1)} disabled={avail.bedsOccupied >= avail.bedsTotal - avail.bedsOnHold} />
                         </div>
-                        {/* On-hold stepper */}
+                        {/* On-hold display (read-only — holds are managed by the reservation system) */}
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                           <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600, minWidth: 50 }}>
                             <FormattedMessage id="coord.bedsOnHold" />
                           </span>
-                          <StepperButton label="−" onClick={() => updateAvailField(avail.populationType, 'bedsOnHold', -1)} disabled={avail.bedsOnHold <= 0} />
-                          <span style={{ fontSize: 18, fontWeight: 800, minWidth: 32, textAlign: 'center' }}>{avail.bedsOnHold}</span>
-                          <StepperButton label="+" onClick={() => updateAvailField(avail.populationType, 'bedsOnHold', 1)} />
+                          <span data-testid={`onhold-value-${avail.populationType}`} style={{ fontSize: 18, fontWeight: 800, minWidth: 32, textAlign: 'center', color: avail.bedsOnHold > 0 ? '#1a56db' : '#94a3b8' }}>{avail.bedsOnHold}</span>
+                          {avail.bedsOnHold > 0 && (
+                            <span style={{ fontSize: 10, color: '#94a3b8' }}>(system)</span>
+                          )}
                         </div>
                       </div>
                       <button
+                        data-testid={`save-avail-${avail.populationType}`}
                         onClick={() => submitAvailability(s.id, avail.populationType)}
                         disabled={isSavingThis}
                         style={{
@@ -396,50 +367,8 @@ export function CoordinatorDashboard() {
                   </div>
                 )}
 
-                {/* Capacity section (existing) */}
-                <h4 style={{ fontSize: 13, fontWeight: 700, color: '#64748b', margin: '20px 0 12px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  <FormattedMessage id="coord.bedsTotal" />
-                </h4>
-
-                {editCapacities.map((cap) => (
-                  <div
-                    key={cap.populationType}
-                    style={{
-                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                      padding: '10px 0', borderBottom: '1px solid #f1f5f9',
-                    }}
-                  >
-                    <span style={{
-                      fontSize: 14, fontWeight: 600, color: '#0f172a', flex: 1,
-                      textTransform: 'capitalize',
-                    }}>
-                      {cap.populationType.replace(/_/g, ' ').toLowerCase()}
-                    </span>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                      <StepperButton label="−" onClick={() => adjustCount(cap.populationType, -1)} disabled={cap.bedsTotal <= 0} size={44} fontSize={22} />
-                      <span style={{ fontSize: 28, fontWeight: 800, color: '#0f172a', minWidth: 48, textAlign: 'center', lineHeight: 1 }}>
-                        {cap.bedsTotal}
-                      </span>
-                      <StepperButton label="+" onClick={() => adjustCount(cap.populationType, 1)} size={44} fontSize={22} />
-                    </div>
-                  </div>
-                ))}
-
-                {/* Save capacity button */}
-                <button
-                  onClick={() => saveShelter(s.id)}
-                  disabled={saving}
-                  style={{
-                    width: '100%', padding: 16, backgroundColor: '#059669', color: '#fff',
-                    border: 'none', borderRadius: 12, fontSize: 16, fontWeight: 700,
-                    cursor: saving ? 'default' : 'pointer', minHeight: 50, marginTop: 16,
-                    opacity: saving ? 0.7 : 1, transition: 'opacity 0.15s',
-                  }}
-                >
-                  {saving
-                    ? <FormattedMessage id="coord.loading" />
-                    : <FormattedMessage id="coord.save" />}
-                </button>
+                {/* NOTE: Capacity editing is unified into the availability section above (D10).
+                   Total beds stepper is part of each population type row. Single save per population. */}
               </div>
             )}
           </div>
@@ -456,13 +385,14 @@ export function CoordinatorDashboard() {
   );
 }
 
-function StepperButton({ label, onClick, disabled, size = 36, fontSize = 18 }: {
-  label: string; onClick: () => void; disabled?: boolean; size?: number; fontSize?: number
+function StepperButton({ label, onClick, disabled, size = 36, fontSize = 18, 'data-testid': testId }: {
+  label: string; onClick: () => void; disabled?: boolean; size?: number; fontSize?: number; 'data-testid'?: string
 }) {
   return (
     <button
       onClick={onClick}
       disabled={disabled}
+      data-testid={testId}
       style={{
         width: size, height: size, borderRadius: '50%',
         border: '2px solid #e2e8f0', backgroundColor: '#fff',

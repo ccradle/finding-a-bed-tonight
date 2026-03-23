@@ -119,6 +119,10 @@ public class SecurityConfig {
                         // Subscriptions — any authenticated role
                         .requestMatchers("/api/v1/subscriptions/**").authenticated()
 
+                        // Error page must be accessible so @ResponseStatus exceptions
+                        // render the correct status code (not 401). See Spring Boot #33341.
+                        .requestMatchers("/error").permitAll()
+
                         // OWASP A01: Default deny — everything else requires authentication
                         .anyRequest().authenticated())
                 .exceptionHandling(ex -> ex

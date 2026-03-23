@@ -180,9 +180,11 @@ class AvailabilityIntegrationTest extends BaseIntegrationTest {
         List<Map<String, Object>> availability = (List<Map<String, Object>>) response.getBody().get("availability");
         assertThat(availability).isNotEmpty();
 
-        Map<String, Object> first = availability.get(0);
-        assertThat(first.get("populationType")).isEqualTo("SINGLE_ADULT");
-        assertThat(first.get("bedsAvailable")).isEqualTo(18); // 50 - 30 - 2
+        Map<String, Object> singleAdult = availability.stream()
+                .filter(a -> "SINGLE_ADULT".equals(a.get("populationType")))
+                .findFirst().orElseThrow();
+        assertThat(singleAdult.get("populationType")).isEqualTo("SINGLE_ADULT");
+        assertThat(singleAdult.get("bedsAvailable")).isEqualTo(18); // 50 - 30 - 2
     }
 
     // -------------------------------------------------------------------------
