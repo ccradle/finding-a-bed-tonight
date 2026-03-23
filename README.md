@@ -122,7 +122,7 @@ The backend is a **modular monolith** — not a flat package-by-layer structure.
 
 **Shared kernel:** `org.fabt.shared` — config, cache (`CacheService`, `CacheNames`), event (`EventBus`, `DomainEvent`), security (`JwtAuthenticationFilter`, `ApiKeyAuthenticationFilter`, `SecurityConfig`), web (`TenantContext`, `GlobalExceptionHandler`).
 
-**ArchUnit enforcement:** 17 architecture tests verify that modules do not access each other's `domain`, `repository`, or `service` packages. Only `api` and `shared` packages are accessible across module boundaries.
+**ArchUnit enforcement:** 19 architecture tests verify that modules do not access each other's `domain`, `repository`, or `service` packages. Only `api` and `shared` packages are accessible across module boundaries.
 
 ---
 
@@ -754,9 +754,11 @@ finding-a-bed-tonight/
 │       │       ├── event/SpringEventBus.java          # @Profile("lite","standard")
 │       │       ├── event/KafkaEventBus.java           # @Profile("full")
 │       │       ├── security/SecurityConfig.java       # URL-level + method-level security
+│       │       ├── security/RlsDataSourceConfig.java  # SET ROLE fabt_app + dvAccess on every connection (D14)
 │       │       ├── security/JwtDecoderConfig.java     # JWKS circuit breaker + warmup (OAuth2)
 │       │       ├── security/JwtAuthenticationFilter.java
 │       │       ├── security/ApiKeyAuthenticationFilter.java
+│       │       ├── api/TestResetController.java       # @Profile("dev|test") — E2E test data cleanup
 │       │       └── web/TenantContext.java             # ThreadLocal tenant + dvAccess
 │       ├── main/resources/
 │       │   ├── application.yml                        # Base config (port 8080, OTel, Resilience4J)

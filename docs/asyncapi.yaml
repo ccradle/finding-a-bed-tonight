@@ -144,6 +144,40 @@ channels:
       surgeDeactivatedMessage:
         $ref: '#/components/messages/SurgeDeactivatedMessage'
 
+  dvReferralRequested:
+    address: dv-referral.requested
+    title: DV Referral Requested
+    description: |
+      Published when an outreach worker requests a privacy-preserving
+      referral to a DV shelter. The payload contains ZERO client PII —
+      only the token ID, shelter ID, tenant ID, and urgency level.
+      VAWA 34 U.S.C. 12291(b)(2) compliant.
+    x-security:
+      dv-access-control: |
+        This event ALWAYS relates to DV shelters. ALL consumers MUST hold
+        the DV_REFERRAL authorization role. Full-tier Kafka: topic ACLs MUST
+        restrict to DV_REFERRAL service accounts only. Unauthorized consumption
+        of referral events could reveal DV shelter operational patterns.
+    messages:
+      dvReferralRequestedMessage:
+        $ref: '#/components/messages/DvReferralEventMessage'
+
+  dvReferralResponded:
+    address: dv-referral.responded
+    title: DV Referral Responded
+    description: |
+      Published when DV shelter staff accepts or rejects a referral token.
+      The payload contains ZERO client PII — only the token ID, shelter ID,
+      and response status (ACCEPTED or REJECTED). No rejection reason is
+      included in the event payload to minimize information in the event stream.
+    x-security:
+      dv-access-control: |
+        This event ALWAYS relates to DV shelters. ALL consumers MUST hold
+        the DV_REFERRAL authorization role.
+    messages:
+      dvReferralRespondedMessage:
+        $ref: '#/components/messages/DvReferralEventMessage'
+
 # ---------------------------------------------------------------------------
 # Operations
 # ---------------------------------------------------------------------------
@@ -205,6 +239,22 @@ operations:
     messages:
       - $ref: '#/channels/surgeDeactivated/messages/surgeDeactivatedMessage'
 
+  onDvReferralRequested:
+    action: receive
+    channel:
+      $ref: '#/channels/dvReferralRequested'
+    summary: Receive DV referral request events (DV_REFERRAL role required)
+    messages:
+      - $ref: '#/channels/dvReferralRequested/messages/dvReferralRequestedMessage'
+
+  onDvReferralResponded:
+    action: receive
+    channel:
+      $ref: '#/channels/dvReferralResponded'
+    summary: Receive DV referral response events (DV_REFERRAL role required)
+    messages:
+      - $ref: '#/channels/dvReferralResponded/messages/dvReferralRespondedMessage'
+
 # ---------------------------------------------------------------------------
 # Components
 # ---------------------------------------------------------------------------
@@ -243,6 +293,17 @@ components:
       contentType: application/json
       payload:
         $ref: '#/components/schemas/SurgeDeactivatedEvent'
+
+    DvReferralEventMessage:
+      name: DvReferralEventMessage
+      title: DV Referral Event
+      summary: |
+        Published on dv-referral.requested and dv-referral.responded channels.
+        Contains ZERO client PII — only token ID, shelter ID, and status.
+        VAWA 34 U.S.C. 12291(b)(2) compliant.
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/DvReferralEvent'
 
   # -------------------------------------------------------------------------
   # Schemas
@@ -565,3 +626,50 @@ components:
           format: date-time
           nullable: true
           description: When the hold expires. Present on reservation.created events.
+
+    # -- dv-referral.* events ------------------------------------------------
+
+    DvReferralEvent:
+      allOf:
+        - $ref: '#/components/schemas/DomainEventEnvelope'
+        - type: object
+          properties:
+            type:
+              type: string
+              enum:
+                - dv-referral.requested
+                - dv-referral.responded
+            payload:
+              $ref: '#/components/schemas/DvReferralPayload'
+
+    DvReferralPayload:
+      type: object
+      description: |
+        DV referral event payload. Contains ZERO client PII — only operational
+        identifiers. VAWA 34 U.S.C. 12291(b)(2) compliant. No client name, DOB,
+        SSN, address, or phone is included. The token_id references a row that
+        is hard-deleted within 24 hours of reaching terminal status.
+      required:
+        - token_id
+        - shelter_id
+      properties:
+        token_id:
+          type: string
+          format: uuid
+          description: Referral token identifier (hard-deleted within 24h).
+        shelter_id:
+          type: string
+          format: uuid
+          description: DV shelter this referral targets (RLS-protected).
+        tenant_id:
+          type: string
+          format: uuid
+          description: Continuum of Care tenant.
+        urgency:
+          type: string
+          enum: [STANDARD, URGENT, EMERGENCY]
+          description: Urgency level. Present on dv-referral.requested events.
+        status:
+          type: string
+          enum: [ACCEPTED, REJECTED]
+          description: Shelter response. Present on dv-referral.responded events only.
