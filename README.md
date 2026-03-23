@@ -90,12 +90,12 @@ Three deployment tiers allow the same codebase to serve communities of vastly di
 | Layer | Technology |
 |---|---|
 | Backend | Java 21, Spring Boot 3.4, Spring MVC, Spring Data JDBC |
-| Database | PostgreSQL 16, Flyway (19 migrations), Row Level Security (DV shelters) |
+| Database | PostgreSQL 16, Flyway (20 migrations), Row Level Security (DV shelters) |
 | Cache | Caffeine L1 / + Redis L2 (Standard/Full) |
 | Events | Spring Events (Lite) / Kafka (Full) |
 | Auth | JWT + OAuth2/OIDC + API Keys (hybrid) |
 | Frontend | React 19, Vite, TypeScript, Workbox PWA, react-intl (EN/ES) |
-| Testing | JUnit 5, Testcontainers, ArchUnit (152 tests), Playwright (52 UI tests), Karate (36 API tests), Gatling (performance) |
+| Testing | JUnit 5, Testcontainers, ArchUnit (179 tests), Playwright (62 UI tests), Karate (36 API tests), Gatling (performance) |
 | Infra | Docker, GitHub Actions CI/CD + E2E pipeline, Terraform (3 tiers) |
 
 ---
@@ -326,11 +326,11 @@ curl -s http://localhost:8080/actuator/health | python3 -m json.tool
 ```bash
 cd backend
 
-# Run all 152 backend tests
+# Run all 179 backend tests
 mvn test
 
 # Run E2E tests (requires dev-start.sh stack running)
-cd ../e2e/playwright && npx playwright test    # 52 UI tests
+cd ../e2e/playwright && npx playwright test    # 62 UI tests
 cd ../e2e/karate && mvn test                   # 36 API tests (32 + 4 @observability)
 cd ../e2e/gatling && mvn verify -Pperf         # Gatling performance simulations
 
@@ -355,24 +355,35 @@ mvn test -Dtest="AvailabilityIntegrationTest#test_createSnapshot_appendOnly_pres
 | `DvAccessRlsTest` | 3 | PostgreSQL RLS for DV shelter data protection |
 | `RoleBasedAccessTest` | 10 | 4-role access control (PLATFORM_ADMIN, COC_ADMIN, COORDINATOR, OUTREACH_WORKER) |
 | `OAuth2ProviderTest` | 6 | OAuth2 provider CRUD, public endpoint, tenant leakage prevention |
+| `OAuth2FlowIntegrationTest` | 9 | OAuth2 authorization code + PKCE flow, JWKS, account linking |
 | `OAuth2AccountLinkTest` | 4 | Account linking, rejection of unknown emails, JWT identity |
 | `ShelterIntegrationTest` | 11 | Shelter CRUD, constraints, HSDS export, coordinator assignment, pagination |
 | `ImportIntegrationTest` | 7 | HSDS import, 211 CSV import, fuzzy matching, duplicate detection |
 | `ObservabilityIntegrationTest` | 6 | Health endpoints, i18n error responses, error structure |
+| `ObservabilityMetricsTest` | 10 | Custom Micrometer metrics registration and counting |
+| `OperationalMonitorServiceTest` | 9 | Stale shelter, DV canary, temperature/surge gap monitors |
+| `MetricsIntegrationTest` | 5 | Prometheus endpoint, metric tags, actuator integration |
 | `SubscriptionIntegrationTest` | 5 | Webhook subscription CRUD, error validation |
 | `AvailabilityIntegrationTest` | 10 | Availability snapshots, bed search, ranking, data freshness, events |
+| `BedAvailabilityHardeningTest` | 27 | QA invariants (9 rules), concurrent holds, coordinator hold protection, single source of truth |
 | `ReservationIntegrationTest` | 10 | Reservation lifecycle, concurrency, expiry, creator-only access, events |
 | `SurgeIntegrationTest` | 8 | Surge activation/deactivation, 409, 403, auto-expiry, overflow, search flag |
-| **Backend Total** | **119** | |
+| **Backend Total** | **179** | |
 | | | |
-| **E2E: Playwright** | **30** | **UI tests (Chromium, Page Object Model)** |
+| **E2E: Playwright** | **62** | **UI tests (Chromium, data-testid locators)** |
 | `auth.spec.ts` | 4 | Login per role, failed login |
-| `outreach-search.spec.ts` | 10 | Results, filters, modal, hold/cancel, language, freshness |
+| `outreach-search.spec.ts` | 9 | Results, filters, modal, hold/cancel, language, freshness |
 | `coordinator-dashboard.spec.ts` | 5 | Load, expand, update, save, hold indicator |
+| `coordinator-beds.spec.ts` | 5 | Occupied/total steppers, on-hold read-only, save+reload |
+| `coordinator-availability-math.spec.ts` | 5 | INV-9 math verification: page load, total change, occupied change, save+reload, badge |
 | `admin-panel.spec.ts` | 5 | Tabs, create user, shelter list, API key reveal, surge tab |
+| `oauth2-login.spec.ts` | 3 | SSO buttons, provider-driven login |
+| `oauth2-providers.spec.ts` | 2 | Admin OAuth2 provider management |
+| `observability.spec.ts` | 4 | Admin observability tab, config toggles |
 | `offline-behavior.spec.ts` | 3 | Offline banner, stale cache, queue replay |
+| `capture-screenshots.spec.ts` | 17 | Demo walkthrough screenshot capture |
 | | | |
-| **E2E: Karate** | **32** | **API contract tests (feature files)** |
+| **E2E: Karate** | **36** | **API contract tests (feature files)** |
 | `auth/login.feature` | 5 | JWT login, refresh, invalid, no-auth 401, API key |
 | `shelters/shelter-crud.feature` | 6 | Create, update, list, filter, HSDS, outreach 403 |
 | `availability/availability.feature` | 6 | PATCH snapshot, bed search, filters, outreach 403, detail |
@@ -380,8 +391,9 @@ mvn test -Dtest="AvailabilityIntegrationTest#test_createSnapshot_appendOnly_pres
 | `reservations/*.feature` | 4 | Lifecycle, cancel, auth, concurrency |
 | `surge/surge-lifecycle.feature` | 4 | Activate, deactivate, list, outreach 403 |
 | `webhooks/subscription-crud.feature` | 2 | Create + list, delete |
+| `observability/*.feature` | 4 | Grafana health, Prometheus scrape, metrics polling, trace-e2e |
 | | | |
-| **Grand Total** | **240+** | |
+| **Grand Total** | **277** | |
 
 ---
 
@@ -668,9 +680,8 @@ finding-a-bed-tonight/
 │       │   │   ├── domain/ShelterConstraints.java     # Persistable<UUID> for FK-as-PK
 │       │   │   ├── domain/PopulationType.java         # 7 population type enum values
 │       │   │   ├── repository/ShelterRepository.java
-│       │   │   ├── repository/ShelterCapacityRepository.java  # JdbcTemplate, composite PK
 │       │   │   ├── repository/CoordinatorAssignmentRepository.java
-│       │   │   └── service/ShelterService.java
+│       │   │   └── service/ShelterService.java        # Capacity writes routed to AvailabilityService (D10)
 │       │   ├── availability/                          # Availability module — snapshots, bed search
 │       │   │   ├── api/AvailabilityController.java    # PATCH /shelters/{id}/availability
 │       │   │   ├── api/BedSearchController.java       # POST /queries/beds
@@ -678,7 +689,8 @@ finding-a-bed-tonight/
 │       │   │   ├── domain/BedSearchRequest.java       # Filter body (populationType, constraints, location)
 │       │   │   ├── domain/BedSearchResult.java        # Ranked result with availability + freshness
 │       │   │   ├── repository/BedAvailabilityRepository.java  # DISTINCT ON, ON CONFLICT DO NOTHING
-│       │   │   ├── service/AvailabilityService.java   # createSnapshot, cache evict, event publish
+│       │   │   ├── service/AvailabilityService.java   # createSnapshot, invariant validation, cache evict, event publish
+│       │   │   ├── service/AvailabilityInvariantViolation.java  # 422 for invariant violations (INV-1 through INV-5)
 │       │   │   └── service/BedSearchService.java      # Cache-aside, ranking, constraint filtering
 │       │   ├── reservation/                           # Reservation module — soft-hold lifecycle
 │       │   ├── surge/                                 # Surge module — White Flag activation, overflow
@@ -727,7 +739,7 @@ finding-a-bed-tonight/
 │       │   ├── db/migration/                          # 20 Flyway migrations (V1–V20 + V8.1)
 │       │   ├── logback-spring.xml                     # Structured JSON logging (Logstash encoder)
 │       │   └── messages/                              # i18n error messages (EN, ES)
-│       └── test/java/org/fabt/                        # 152 tests (unit + integration)
+│       └── test/java/org/fabt/                        # 179 tests (unit + integration)
 │           ├── BaseIntegrationTest.java               # Singleton Testcontainers PostgreSQL
 │           ├── TestAuthHelper.java                    # Per-role JWT helper for tests
 │           ├── ArchitectureTest.java                  # 15 ArchUnit module boundary rules
@@ -767,7 +779,7 @@ finding-a-bed-tonight/
 │           └── es.json                                # Spanish (100+ keys)
 │
 ├── e2e/                                               # End-to-end test suites
-│   ├── playwright/                                    # UI tests (30 tests, Chromium)
+│   ├── playwright/                                    # UI tests (62 tests, Chromium)
 │   │   ├── package.json                               # @playwright/test + TypeScript
 │   │   ├── playwright.config.ts                       # baseURL, workers, retries, HTML reporter
 │   │   ├── fixtures/auth.fixture.ts                   # Per-role storageState (admin, cocadmin, outreach)
@@ -851,7 +863,7 @@ finding-a-bed-tonight/
 ### Completed: Platform Foundation (archived)
 
 - [x] Modular monolith backend (Java 21, Spring Boot 3.4, 6 modules, ArchUnit boundaries)
-- [x] 12 Flyway migrations, PostgreSQL 16, Row Level Security for DV shelters
+- [x] 20 Flyway migrations (V1–V20 + V8.1), PostgreSQL 16, Row Level Security for DV shelters
 - [x] 3 deployment profiles (Lite / Standard / Full) with CacheService + EventBus abstractions
 - [x] Multi-tenant auth: JWT + API keys + OAuth2 provider management, 4 roles, dual-layer security
 - [x] Shelter module: CRUD, constraints, capacities, HSDS 3.0 export, coordinator assignments
@@ -885,8 +897,8 @@ finding-a-bed-tonight/
 
 ### Completed: E2E Test Automation + Hardening
 
-- [x] Playwright UI tests: 30 tests (login, search, dashboard, admin, offline, reservations, language, freshness, surge, observability)
-- [x] Karate API tests: 36 scenarios (auth, shelters, availability, search, subscriptions, DV canary, reservations, surge, observability)
+- [x] Playwright UI tests: 62 tests with `data-testid` locators (login, search, dashboard, beds, availability math, admin, offline, OAuth2, observability, screenshots)
+- [x] Karate API tests: 36 scenarios (auth, shelters, availability, search, subscriptions, DV canary, reservations, surge, observability/tracing)
 - [x] Gatling performance suite: BedSearch (50 VU), AvailabilityUpdate (multi/same-shelter), SurgeLoad (stub)
 - [x] RLS enforcement: JDBC connection interceptor (`set_config`), restricted `fabt_app` DB role, DV canary gate
 - [x] CI pipeline: dv-canary blocking gate, e2e-tests job, performance-tests main-only job
@@ -933,14 +945,21 @@ finding-a-bed-tonight/
 - [x] 9 new integration tests (OAuth2FlowIntegrationTest), 5 new Playwright tests (SSO buttons, providers admin tab)
 - [x] Docs: README OAuth2 section, runbook OAuth2 troubleshooting, architecture diagram with Identity Providers
 
+### Completed: Security Dependency Upgrade
+
+- [x] Spring Boot 3.4.4 → 3.4.13, springdoc 2.8.6 → 2.8.16
+- [x] 16 CVEs resolved (CVE-2024-38819, CVE-2024-38820, CVE-2025-22228, and 13 others)
+- [x] Full regression: 179 backend tests, 62 Playwright, 36 Karate, 3 Gatling simulations
+
 ### Completed: Bed Availability Calculation Hardening
 
 - [x] Server-side invariant enforcement: 9 invariants validated in `AvailabilityService.createSnapshot()`, 422 on violation
 - [x] Single source of truth: eliminated `shelter_capacity` table (V20), `bed_availability` is sole owner of `beds_total`
 - [x] Coordinator hold protection: PATCH availability cannot reduce `beds_on_hold` below active HELD reservation count
-- [x] Concurrent hold safety: PostgreSQL advisory locks prevent double-hold on last bed
-- [x] UI unified bed editing: total/occupied/on-hold in single section, on-hold read-only (system-managed)
-- [x] 27 integration tests (Groups 1-7), `AvailabilityInvariantChecker` utility, 6 Playwright math verification tests
+- [x] Concurrent hold safety: PostgreSQL advisory locks + `clock_timestamp()` prevent double-hold on last bed
+- [x] UI unified bed editing: total/occupied/on-hold in single section with `data-testid` locators, on-hold read-only (system-managed)
+- [x] 27 integration tests (Groups 1-7), `AvailabilityInvariantChecker` utility, 10 Playwright math verification tests
+- [x] dev-start.sh: `--observability` now enables OTel tracing (`TRACING_SAMPLING_PROBABILITY=1.0`)
 - [x] Runbook: bed availability invariants section with investigation guide
 
 ### Planned: Remaining Phase 1 Capabilities
