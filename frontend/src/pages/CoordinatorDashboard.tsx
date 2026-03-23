@@ -145,6 +145,14 @@ export function CoordinatorDashboard() {
           : c
       )
     );
+    // Also update availability bedsTotal so beds_available calculation stays correct
+    setEditAvailability((prev) =>
+      prev.map((a) =>
+        a.populationType === popType
+          ? { ...a, bedsTotal: Math.max(0, a.bedsTotal + delta) }
+          : a
+      )
+    );
   };
 
   const updateAvailField = (popType: string, field: 'bedsOccupied' | 'bedsOnHold', delta: number) => {
