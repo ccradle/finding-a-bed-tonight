@@ -1,0 +1,9 @@
+# Production profile — disables Swagger UI and API docs.
+# Swagger UI in production is a security risk (DOMPurify XSS, information disclosure).
+# Activate with: --spring.profiles.active=prod
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
