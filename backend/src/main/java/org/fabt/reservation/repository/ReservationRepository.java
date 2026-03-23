@@ -124,6 +124,17 @@ public class ReservationRepository {
         );
     }
 
+    /**
+     * Acquires a PostgreSQL advisory lock for the shelter + population type combination.
+     * Released automatically when the transaction ends.
+     * Prevents concurrent hold creation on the same bed pool.
+     */
+    public void acquireAdvisoryLock(UUID shelterId, String populationType) {
+        // Hash shelter ID + population type into a long for pg_advisory_xact_lock
+        long lockKey = (shelterId.hashCode() * 31L) + populationType.hashCode();
+        jdbcTemplate.execute("SELECT pg_advisory_xact_lock(" + lockKey + ")");
+    }
+
     public int countActiveByShelterId(UUID shelterId, String populationType) {
         Integer count = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM reservation WHERE shelter_id = ? AND population_type = ? AND status = 'HELD'",

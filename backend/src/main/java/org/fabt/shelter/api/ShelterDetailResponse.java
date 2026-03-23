@@ -45,7 +45,7 @@ public record ShelterDetailResponse(
         List<ShelterCapacityDto> capacityDtos = null;
         if (detail.capacities() != null) {
             capacityDtos = detail.capacities().stream()
-                    .map(cap -> new ShelterCapacityDto(cap.getPopulationType(), cap.getBedsTotal()))
+                    .map(cap -> new ShelterCapacityDto(cap.populationType(), cap.bedsTotal()))
                     .toList();
         }
 

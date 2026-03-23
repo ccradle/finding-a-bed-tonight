@@ -141,7 +141,7 @@ Phase 2 will add an MCP server as a thin wrapper around the REST API, enabling n
 
 ## Database Schema
 
-19 Flyway migrations (V1–V19 + V8.1):
+20 Flyway migrations (V1–V20 + V8.1):
 
 | Migration | Description |
 |---|---|
@@ -150,7 +150,7 @@ Phase 2 will add an MCP server as a thin wrapper around the REST API, enabling n
 | V3 | `api_key` — shelter-scoped and org-level API keys |
 | V4 | `shelter` — shelter profiles |
 | V5 | `shelter_constraints` — accessibility, pets, sobriety requirements |
-| V6 | `shelter_capacity` — bed counts by population type |
+| V6 | `shelter_capacity` — bed counts by population type (dropped in V20) |
 | V7 | `coordinator_assignment` — shelter-to-coordinator mapping |
 | V8 | Row Level Security policies — DV shelter protection |
 | V8.1 | RLS fix for empty string tenant context |
@@ -165,6 +165,7 @@ Phase 2 will add an MCP server as a thin wrapper around the REST API, enabling n
 | V17 | `surge_event` — White Flag / emergency surge lifecycle |
 | V18 | `overflow_beds` column on `bed_availability` — temporary surge capacity |
 | V19 | RLS for `surge_event` — tenant-scoped access |
+| V20 | Drop `shelter_capacity` — migrate data to `bed_availability`, single source of truth |
 
 ### Entity Relationship Diagram
 
@@ -723,7 +724,7 @@ finding-a-bed-tonight/
 │       ├── main/resources/
 │       │   ├── application.yml                        # Base config (port 8080, OTel, Resilience4J)
 │       │   ├── application-observability.yml          # Management port 9091 (for dev Prometheus scrape)
-│       │   ├── db/migration/                          # 19 Flyway migrations (V1–V19 + V8.1)
+│       │   ├── db/migration/                          # 20 Flyway migrations (V1–V20 + V8.1)
 │       │   ├── logback-spring.xml                     # Structured JSON logging (Logstash encoder)
 │       │   └── messages/                              # i18n error messages (EN, ES)
 │       └── test/java/org/fabt/                        # 152 tests (unit + integration)
@@ -813,7 +814,7 @@ finding-a-bed-tonight/
 │           └── SurgeLoadSimulation.scala              # Stub (requires surge-mode — implemented)
 │
 ├── docs/
-│   ├── schema.dbml                                    # Database schema (V1–V19, DBML format)
+│   ├── schema.dbml                                    # Database schema (V1–V20, DBML format)
 │   ├── erd.png                                        # Entity relationship diagram (from dbdiagram.io)
 │   ├── asyncapi.yaml                                  # EventBus contract (AsyncAPI 3.0, x-security)
 │   ├── architecture.drawio                            # Architecture diagram (draw.io) — includes observability stack
@@ -931,6 +932,16 @@ finding-a-bed-tonight/
 - [x] dev-start.sh `--oauth2` flag: Keycloak startup, health wait, provider auto-enable, URL output
 - [x] 9 new integration tests (OAuth2FlowIntegrationTest), 5 new Playwright tests (SSO buttons, providers admin tab)
 - [x] Docs: README OAuth2 section, runbook OAuth2 troubleshooting, architecture diagram with Identity Providers
+
+### Completed: Bed Availability Calculation Hardening
+
+- [x] Server-side invariant enforcement: 9 invariants validated in `AvailabilityService.createSnapshot()`, 422 on violation
+- [x] Single source of truth: eliminated `shelter_capacity` table (V20), `bed_availability` is sole owner of `beds_total`
+- [x] Coordinator hold protection: PATCH availability cannot reduce `beds_on_hold` below active HELD reservation count
+- [x] Concurrent hold safety: PostgreSQL advisory locks prevent double-hold on last bed
+- [x] UI unified bed editing: total/occupied/on-hold in single section, on-hold read-only (system-managed)
+- [x] 27 integration tests (Groups 1-7), `AvailabilityInvariantChecker` utility, 6 Playwright math verification tests
+- [x] Runbook: bed availability invariants section with investigation guide
 
 ### Planned: Remaining Phase 1 Capabilities
 

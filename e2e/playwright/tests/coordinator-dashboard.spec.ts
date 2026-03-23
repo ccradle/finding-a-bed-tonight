@@ -36,12 +36,13 @@ test.describe('Coordinator Dashboard', () => {
     expect(await errorBanner.count()).toBe(0);
   });
 
-  test('capacity stepper adjusts bed counts and saves', async ({ coordinatorPage }) => {
+  test('total beds stepper adjusts bed counts and saves', async ({ coordinatorPage }) => {
     const dashboard = new CoordinatorDashboardPage(coordinatorPage);
     await dashboard.goto();
     await dashboard.waitForShelters();
     await dashboard.expandShelter(0);
-    const saveButton = coordinatorPage.locator('main button', { hasText: /save/i });
+    // In unified layout (D10), use Update Availability button
+    const saveButton = coordinatorPage.locator('[data-testid^="save-avail-"]').first();
     await expect(saveButton).toBeVisible();
     await saveButton.click();
     await coordinatorPage.waitForTimeout(2000);

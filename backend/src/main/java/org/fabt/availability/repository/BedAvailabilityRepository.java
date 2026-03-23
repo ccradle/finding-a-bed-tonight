@@ -73,17 +73,20 @@ public class BedAvailabilityRepository {
     }
 
     /**
-     * Append-only insert. Uses ON CONFLICT DO NOTHING for concurrent insert safety —
-     * if two coordinators submit at the exact same millisecond for the same
-     * shelter/population type, one insert is silently dropped.
+     * Append-only insert. Uses clock_timestamp() for the snapshot_ts to ensure each
+     * insert within the same transaction gets a distinct timestamp (unlike NOW() which
+     * returns the transaction start time). ON CONFLICT DO NOTHING handles the rare case
+     * where two coordinator updates collide at the same microsecond — one is silently
+     * dropped. For system-driven writes (reservations), the advisory lock serializes
+     * transactions so clock_timestamp() guarantees distinct timestamps.
      */
     public BedAvailability insert(BedAvailability ba) {
         List<BedAvailability> results = jdbcTemplate.query(
                 """
                 INSERT INTO bed_availability
                     (shelter_id, tenant_id, population_type, beds_total, beds_occupied,
-                     beds_on_hold, accepting_new_guests, updated_by, notes, overflow_beds)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     beds_on_hold, accepting_new_guests, snapshot_ts, updated_by, notes, overflow_beds)
+                VALUES (?, ?, ?, ?, ?, ?, ?, clock_timestamp(), ?, ?, ?)
                 ON CONFLICT ON CONSTRAINT uq_bed_avail_shelter_pop_ts DO NOTHING
                 RETURNING *
                 """,

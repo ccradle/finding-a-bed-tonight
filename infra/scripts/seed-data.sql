@@ -107,22 +107,8 @@ INSERT INTO shelter_constraints (shelter_id, sobriety_required, id_required, ref
 ('d0000000-0000-0000-0000-000000000010', false, false, false, false, true, NULL, 1, ARRAY['SINGLE_ADULT'])
 ON CONFLICT DO NOTHING;
 
--- Shelter capacities
-INSERT INTO shelter_capacity (shelter_id, population_type, beds_total) VALUES
-('d0000000-0000-0000-0000-000000000001', 'SINGLE_ADULT', 50),
-('d0000000-0000-0000-0000-000000000002', 'FAMILY_WITH_CHILDREN', 30),
-('d0000000-0000-0000-0000-000000000003', 'SINGLE_ADULT', 25),
-('d0000000-0000-0000-0000-000000000003', 'VETERAN', 10),
-('d0000000-0000-0000-0000-000000000004', 'VETERAN', 40),
-('d0000000-0000-0000-0000-000000000005', 'YOUTH_18_24', 20),
-('d0000000-0000-0000-0000-000000000005', 'YOUTH_UNDER_18', 15),
-('d0000000-0000-0000-0000-000000000006', 'WOMEN_ONLY', 35),
-('d0000000-0000-0000-0000-000000000007', 'SINGLE_ADULT', 20),
-('d0000000-0000-0000-0000-000000000008', 'FAMILY_WITH_CHILDREN', 25),
-('d0000000-0000-0000-0000-000000000009', 'DV_SURVIVOR', 15),
-('d0000000-0000-0000-0000-000000000009', 'FAMILY_WITH_CHILDREN', 10),
-('d0000000-0000-0000-0000-000000000010', 'SINGLE_ADULT', 100)
-ON CONFLICT DO NOTHING;
+-- NOTE: shelter_capacity table dropped in V20 — beds_total is now single-sourced
+-- from bed_availability snapshots below. No separate capacity INSERT needed.
 
 -- Coordinator assignments (cocadmin assigned to first 5 shelters)
 INSERT INTO coordinator_assignment (user_id, shelter_id) VALUES

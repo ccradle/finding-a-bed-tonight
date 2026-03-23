@@ -6,8 +6,8 @@ import java.util.List;
 import java.util.Map;
 
 import org.fabt.shelter.domain.Shelter;
-import org.fabt.shelter.domain.ShelterCapacity;
 import org.fabt.shelter.domain.ShelterConstraints;
+import org.fabt.shelter.service.ShelterService.CapacityFromAvailability;
 import org.springframework.stereotype.Service;
 
 /**
@@ -20,7 +20,7 @@ public class ShelterHsdsMapper {
     public Map<String, Object> toHsds(ShelterService.ShelterDetail detail) {
         Shelter shelter = detail.shelter();
         ShelterConstraints constraints = detail.constraints();
-        List<ShelterCapacity> capacities = detail.capacities();
+        List<CapacityFromAvailability> capacities = detail.capacities();
 
         Map<String, Object> hsds = new LinkedHashMap<>();
 
@@ -73,10 +73,10 @@ public class ShelterHsdsMapper {
         // fabt:capacity extension
         if (capacities != null && !capacities.isEmpty()) {
             List<Map<String, Object>> fabtCapacities = new ArrayList<>();
-            for (ShelterCapacity cap : capacities) {
+            for (CapacityFromAvailability cap : capacities) {
                 Map<String, Object> capMap = new LinkedHashMap<>();
-                capMap.put("population_type", cap.getPopulationType());
-                capMap.put("beds_total", cap.getBedsTotal());
+                capMap.put("population_type", cap.populationType());
+                capMap.put("beds_total", cap.bedsTotal());
                 fabtCapacities.add(capMap);
             }
             hsds.put("fabt:capacity", fabtCapacities);

@@ -143,7 +143,10 @@ if [[ "$OBSERVABILITY" == true ]]; then
     # Separate management port so Prometheus can scrape without JWT auth
     # Port 9091 avoids conflict with Prometheus on 9090
     SPRING_ARGS="-Dspring-boot.run.arguments=--management.server.port=9091"
+    # Enable OTel tracing (default is 0.0 = disabled)
+    export TRACING_SAMPLING_PROBABILITY=1.0
     log "Management port: 9091 (Prometheus scrape target)"
+    log "Tracing: enabled (sampling=1.0, endpoint=localhost:4318)"
 fi
 mvn spring-boot:run $SPRING_ARGS -q > ../logs/backend.log 2>&1 &
 BACKEND_PID=$!

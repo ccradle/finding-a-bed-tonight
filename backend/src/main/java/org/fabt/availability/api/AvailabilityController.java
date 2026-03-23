@@ -7,6 +7,7 @@ import io.swagger.v3.oas.annotations.Parameter;
 import jakarta.validation.Valid;
 import org.fabt.availability.service.AvailabilityService;
 import org.fabt.availability.service.AvailabilityService.AvailabilitySnapshot;
+import org.fabt.reservation.service.ReservationService;
 import org.fabt.shelter.domain.PopulationType;
 import org.fabt.shelter.repository.CoordinatorAssignmentRepository;
 import org.springframework.http.ResponseEntity;
@@ -24,12 +25,17 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/shelters")
 public class AvailabilityController {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(AvailabilityController.class);
+
     private final AvailabilityService availabilityService;
+    private final ReservationService reservationService;
     private final CoordinatorAssignmentRepository coordinatorAssignmentRepository;
 
     public AvailabilityController(AvailabilityService availabilityService,
+                                   ReservationService reservationService,
                                    CoordinatorAssignmentRepository coordinatorAssignmentRepository) {
         this.availabilityService = availabilityService;
+        this.reservationService = reservationService;
         this.coordinatorAssignmentRepository = coordinatorAssignmentRepository;
     }
 
@@ -69,9 +75,19 @@ public class AvailabilityController {
 
         String updatedBy = authentication.getName();
 
+        // Coordinator hold protection (TC-2.7): beds_on_hold cannot be reduced
+        // below the count of active HELD reservations for this shelter + population type.
+        int requestedHold = request.bedsOnHoldOrDefault();
+        int activeHeldCount = reservationService.countActiveHolds(id, request.populationType());
+        int effectiveHold = Math.max(requestedHold, activeHeldCount);
+        if (effectiveHold != requestedHold) {
+            log.warn("Coordinator beds_on_hold overridden from {} to {} due to {} active reservation(s) " +
+                    "for shelter {} / {}", requestedHold, effectiveHold, activeHeldCount, id, request.populationType());
+        }
+
         AvailabilitySnapshot snapshot = availabilityService.createSnapshot(
                 id, request.populationType(),
-                request.bedsTotal(), request.bedsOccupied(), request.bedsOnHoldOrDefault(),
+                request.bedsTotal(), request.bedsOccupied(), effectiveHold,
                 request.acceptingNewGuests(), request.notes(), updatedBy,
                 request.overflowBedsOrDefault()
         );
