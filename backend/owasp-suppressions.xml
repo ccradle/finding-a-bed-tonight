@@ -24,4 +24,55 @@
         <cvssBelow>7</cvssBelow>
     </suppress>
 
+    <!-- CVE-2025-68161: Log4j Socket Appender TLS hostname verification.
+         FABT uses SLF4J/Logback (Spring Boot default). Socket Appender is never instantiated.
+         log4j-api is present only as a bridge artifact.
+         Review date: 2026-06-22 -->
+    <suppress>
+        <notes>Socket Appender not used; SLF4J/Logback is the logging backend</notes>
+        <cve>CVE-2025-68161</cve>
+    </suppress>
+
+    <!-- CVE-2020-29582: Kotlin stdlib insecure temp file creation.
+         FABT is a Java project. kotlin-stdlib is a transitive dependency from Spring Boot.
+         The vulnerable createTempDir/createTempFile Kotlin APIs are not called from Java code.
+         Review date: 2026-06-22 -->
+    <suppress>
+        <notes>Transitive dependency; Kotlin temp file APIs not called from Java code</notes>
+        <cve>CVE-2020-29582</cve>
+    </suppress>
+
+    <!-- CVE-2025-49124: Tomcat Windows installer untrusted search path.
+         Not applicable to embedded Tomcat (Spring Boot). Installer-only vulnerability.
+         Review date: 2026-06-22 -->
+    <suppress>
+        <notes>Installer-only; not applicable to embedded Tomcat via Spring Boot</notes>
+        <cve>CVE-2025-49124</cve>
+    </suppress>
+
+    <!-- CVE-2026-24734: Tomcat Native OCSP responder input validation.
+         Tomcat Native library is not used with embedded Tomcat in Spring Boot.
+         Review date: 2026-06-22 -->
+    <suppress>
+        <notes>Tomcat Native not used with embedded Tomcat</notes>
+        <cve>CVE-2026-24734</cve>
+    </suppress>
+
+    <!-- CVE-2025-46701: Tomcat CGI servlet case sensitivity bypass.
+         CGI servlet is not used in Spring Boot applications.
+         Review date: 2026-06-22 -->
+    <suppress>
+        <notes>CGI servlet not used in Spring Boot</notes>
+        <cve>CVE-2025-46701</cve>
+    </suppress>
+
+    <!-- CVE-2025-55668: Tomcat session fixation via rewrite valve.
+         Rewrite valve is not configured. FABT uses embedded Tomcat via Spring Boot
+         with no custom valve configuration. Stateless JWT auth (no sessions).
+         Review date: 2026-06-22 -->
+    <suppress>
+        <notes>Rewrite valve not configured; stateless JWT auth (no sessions)</notes>
+        <cve>CVE-2025-55668</cve>
+    </suppress>
+
 </suppressions>
