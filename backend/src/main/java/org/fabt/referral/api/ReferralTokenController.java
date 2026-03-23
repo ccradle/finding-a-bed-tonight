@@ -1,8 +1,13 @@
 package org.fabt.referral.api;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import jakarta.validation.Valid;
@@ -31,9 +36,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class ReferralTokenController {
 
     private final ReferralTokenService referralTokenService;
+    private final MeterRegistry meterRegistry;
 
-    public ReferralTokenController(ReferralTokenService referralTokenService) {
+    public ReferralTokenController(ReferralTokenService referralTokenService, MeterRegistry meterRegistry) {
         this.referralTokenService = referralTokenService;
+        this.meterRegistry = meterRegistry;
     }
 
     @Operation(
@@ -130,5 +137,37 @@ public class ReferralTokenController {
         UUID respondedBy = UUID.fromString(authentication.getName());
         ReferralToken token = referralTokenService.rejectToken(id, respondedBy, request.reason());
         return ResponseEntity.ok(ReferralTokenResponse.from(token, null));
+    }
+
+    @Operation(
+            summary = "Get aggregate DV referral analytics",
+            description = "Returns aggregate counts of DV referrals by status (requested, accepted, " +
+                    "rejected, expired) and average response time. Backed by Micrometer counters — " +
+                    "no PII, no individual referral data. Counters persist in Prometheus when the " +
+                    "observability stack is active; otherwise reset on backend restart. " +
+                    "Requires COC_ADMIN or PLATFORM_ADMIN role."
+    )
+    @GetMapping("/analytics")
+    @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+    public ResponseEntity<Map<String, Object>> analytics() {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("requested", getCounterValue("requested"));
+        result.put("accepted", getCounterValue("accepted"));
+        result.put("rejected", getCounterValue("rejected"));
+        result.put("expired", getCounterValue("expired"));
+
+        Timer timer = meterRegistry.find("fabt.dv.referral.response").timer();
+        if (timer != null && timer.count() > 0) {
+            result.put("averageResponseSeconds", timer.mean(java.util.concurrent.TimeUnit.SECONDS));
+            result.put("responseCount", timer.count());
+        }
+
+        result.put("note", "Counters reset on backend restart unless observability stack (Prometheus) is active");
+        return ResponseEntity.ok(result);
+    }
+
+    private double getCounterValue(String status) {
+        Counter counter = meterRegistry.find("fabt.dv.referral.total").tag("status", status).counter();
+        return counter != null ? counter.count() : 0.0;
     }
 }

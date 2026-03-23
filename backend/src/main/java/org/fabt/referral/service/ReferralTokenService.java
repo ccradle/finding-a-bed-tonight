@@ -22,6 +22,7 @@ import org.fabt.shelter.service.ShelterService;
 import org.fabt.tenant.service.TenantService;
 
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import org.slf4j.Logger;
@@ -60,6 +61,18 @@ public class ReferralTokenService {
         this.eventBus = eventBus;
         this.meterRegistry = meterRegistry;
         this.objectMapper = objectMapper;
+
+        // Gauge for current pending referral count — queried on each Prometheus scrape
+        Gauge.builder("fabt.dv.referral.pending", repository, r -> {
+            try {
+                TenantContext.setDvAccess(true);
+                Integer count = r.countAllPending();
+                return count != null ? count.doubleValue() : 0.0;
+            } finally {
+                TenantContext.clear();
+            }
+        }).description("Current count of pending DV referral tokens")
+          .register(meterRegistry);
     }
 
     /**

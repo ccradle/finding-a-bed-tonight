@@ -102,6 +102,13 @@ public class ReferralTokenRepository {
                 Timestamp.from(olderThan), Timestamp.from(olderThan));
     }
 
+    public int countAllPending() {
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM referral_token WHERE status = 'PENDING'",
+                Integer.class);
+        return count != null ? count : 0;
+    }
+
     public int countPendingByShelterId(UUID shelterId) {
         Integer count = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM referral_token WHERE shelter_id = ? AND status = 'PENDING'",

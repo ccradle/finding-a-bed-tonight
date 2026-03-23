@@ -279,6 +279,38 @@ class DvReferralIntegrationTest extends BaseIntegrationTest {
     }
 
     // =========================================================================
+    // Analytics
+    // =========================================================================
+
+    @Test
+    void tc_analytics_returnsAggregateCounts_noPII() {
+        // Create and accept a referral to generate counter data
+        ResponseEntity<String> createResp = createReferral(dvShelterId, outreachHeaders);
+        String tokenId = extractField(createResp.getBody(), "id");
+        restTemplate.exchange("/api/v1/dv-referrals/" + tokenId + "/accept",
+                HttpMethod.PATCH, new HttpEntity<>(coordHeaders), String.class);
+
+        // Query analytics
+        ResponseEntity<String> analyticsResp = restTemplate.exchange(
+                "/api/v1/dv-referrals/analytics", HttpMethod.GET,
+                new HttpEntity<>(adminHeaders), String.class);
+        assertEquals(HttpStatus.OK, analyticsResp.getStatusCode());
+        String body = analyticsResp.getBody();
+        assertNotNull(body);
+
+        // Should contain aggregate counts — no PII
+        assertTrue(body.contains("\"requested\""), "Analytics must include requested count");
+        assertTrue(body.contains("\"accepted\""), "Analytics must include accepted count");
+        assertTrue(body.contains("\"rejected\""), "Analytics must include rejected count");
+        assertTrue(body.contains("\"expired\""), "Analytics must include expired count");
+
+        // Must NOT contain any PII fields
+        assertFalse(body.contains("callbackNumber"), "Analytics must NOT contain callback numbers");
+        assertFalse(body.contains("specialNeeds"), "Analytics must NOT contain special needs");
+        assertFalse(body.contains("householdSize"), "Analytics must NOT contain household size");
+    }
+
+    // =========================================================================
     // Referrals Don't Affect Bed Availability
     // =========================================================================
 
