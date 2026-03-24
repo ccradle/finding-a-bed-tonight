@@ -97,7 +97,7 @@ Three deployment tiers allow the same codebase to serve communities of vastly di
 | Events | Spring Events (Lite) / Kafka (Full) |
 | Auth | JWT + OAuth2/OIDC + API Keys (hybrid) |
 | Frontend | React 19, Vite, TypeScript, Workbox PWA, react-intl (EN/ES) |
-| Testing | JUnit 5, Testcontainers, ArchUnit (194 tests), Playwright (77 UI tests), Karate (42 API tests), Gatling (performance) |
+| Testing | JUnit 5, Testcontainers, ArchUnit (207 tests), Playwright (77 UI tests), Karate (42 API tests), Gatling (performance) |
 | Infra | Docker, GitHub Actions CI/CD + E2E pipeline, Terraform (3 tiers) |
 
 ---
@@ -329,7 +329,7 @@ curl -s http://localhost:8080/actuator/health | python3 -m json.tool
 ```bash
 cd backend
 
-# Run all 194 backend tests
+# Run all 207 backend tests
 mvn test
 
 # Run E2E tests (requires dev-start.sh stack running)
@@ -372,7 +372,8 @@ mvn test -Dtest="AvailabilityIntegrationTest#test_createSnapshot_appendOnly_pres
 | `ReservationIntegrationTest` | 10 | Reservation lifecycle, concurrency, expiry, creator-only access, events |
 | `SurgeIntegrationTest` | 8 | Surge activation/deactivation, 409, 403, auto-expiry, overflow, search flag |
 | `DvReferralIntegrationTest` | 12 | Token lifecycle, warm handoff, dvAccess enforcement, purge, RLS defense-in-depth, analytics |
-| **Backend Total** | **194** | |
+| `DvAddressRedactionTest` | 13 | Policy-based address redaction: ADMIN_AND_ASSIGNED, ADMIN_ONLY, ALL_DV_ACCESS, NONE, safeguards |
+| **Backend Total** | **207** | |
 | | | |
 | **E2E: Playwright** | **77** | **UI tests (Chromium, data-testid locators)** |
 | `auth.spec.ts` | 4 | Login per role, failed login |
@@ -443,7 +444,9 @@ FABT implements a **privacy-preserving referral system** for domestic violence s
 - **Hard-delete purge** — all referral tokens are permanently deleted within 24 hours of completion
 - **Aggregate analytics only** — Micrometer counters track referral volume for HUD reporting; durable analytics require the observability stack (Prometheus)
 
-See **[docs/DV-OPAQUE-REFERRAL.md](docs/DV-OPAQUE-REFERRAL.md)** for the full legal basis, architecture, VAWA compliance checklist, and operational notes. See the **[DV Referral Demo Walkthrough](https://ccradle.github.io/findABed/demo/dvindex.html)** for annotated screenshots of the full flow.
+DV shelter address visibility is controlled by a configurable tenant-level policy (`dv_address_visibility`). Default: admins and assigned coordinators see the address; outreach workers do not. Policy changeable via API only (PLATFORM_ADMIN + confirmation header — endpoint should not be exposed outside the firewall).
+
+See **[docs/DV-OPAQUE-REFERRAL.md](docs/DV-OPAQUE-REFERRAL.md)** for the full legal basis, architecture, address visibility policies, VAWA compliance checklist, and operational notes. See the **[DV Referral Demo Walkthrough](https://ccradle.github.io/findABed/demo/dvindex.html)** for annotated screenshots of the full flow.
 
 ### Tracing
 
@@ -766,7 +769,7 @@ finding-a-bed-tonight/
 │       │   ├── db/migration/                          # 21 Flyway migrations (V1–V21 + V8.1)
 │       │   ├── logback-spring.xml                     # Structured JSON logging (Logstash encoder)
 │       │   └── messages/                              # i18n error messages (EN, ES)
-│       └── test/java/org/fabt/                        # 194 tests (unit + integration)
+│       └── test/java/org/fabt/                        # 207 tests (unit + integration)
 │           ├── BaseIntegrationTest.java               # Singleton Testcontainers PostgreSQL
 │           ├── TestAuthHelper.java                    # Per-role JWT helper for tests
 │           ├── ArchitectureTest.java                  # 15 ArchUnit module boundary rules

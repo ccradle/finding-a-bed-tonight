@@ -186,6 +186,28 @@ A separate **FABT DV Referrals** Grafana dashboard (`fabt-dv-referrals`) is prov
 | Expired Rate | `rate(fabt_dv_referral_total{status="expired"})` | High rate = shelters not responding |
 | Referral Totals | `fabt_dv_referral_total` by status | Overall counts |
 
+### Address Visibility Policy
+
+DV shelter addresses are redacted in API responses based on a configurable tenant-level policy (`dv_address_visibility` in tenant config JSONB).
+
+| Policy | Who Sees Address | Use Case |
+|--------|-----------------|----------|
+| `ADMIN_AND_ASSIGNED` (default) | PLATFORM_ADMIN, COC_ADMIN, coordinators assigned to the shelter | Most deployments |
+| `ADMIN_ONLY` | PLATFORM_ADMIN, COC_ADMIN only | Stricter — even assigned coordinators don't see address in API |
+| `ALL_DV_ACCESS` | Any user with dvAccess=true | Permissive / legacy behavior |
+| `NONE` | No one sees address in API | Maximum restriction — address only via verbal handoff |
+
+Change the policy via API (PLATFORM_ADMIN only):
+```bash
+curl -X PUT http://localhost:8080/api/v1/tenants/<id>/dv-address-policy \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "X-Confirm-Policy-Change: CONFIRM" \
+  -H "Content-Type: application/json" \
+  -d '{"policy": "ADMIN_AND_ASSIGNED"}'
+```
+
+**IMPORTANT:** This endpoint should not be exposed outside the corporate firewall. It requires PLATFORM_ADMIN role and a confirmation header to prevent accidental invocation.
+
 ### Token Expiry
 
 Default: 4 hours (`dv_referral_expiry_minutes: 240` in tenant config). Configurable per tenant without restart (cached with 60-second refresh).

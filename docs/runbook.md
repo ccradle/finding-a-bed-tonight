@@ -359,6 +359,20 @@ Every JDBC connection executes `SET ROLE fabt_app` to enforce RLS. Additionally,
 
 **Verify RLS is enforcing:** Check backend startup logs for `SET ROLE fabt_app` execution. If RLS is misconfigured, DV shelter data may leak — this is a CRITICAL incident.
 
+### Address Visibility Policy
+
+DV shelter addresses are redacted in API responses based on `dv_address_visibility` in tenant config. Default: `ADMIN_AND_ASSIGNED`. Change via:
+
+```bash
+PUT /api/v1/tenants/{id}/dv-address-policy
+Header: X-Confirm-Policy-Change: CONFIRM
+Body: {"policy": "ADMIN_AND_ASSIGNED"}
+```
+
+**This endpoint should NOT be exposed outside the corporate firewall.** Requires PLATFORM_ADMIN role. Policy changes are logged at WARN level.
+
+Valid policies: `ADMIN_AND_ASSIGNED` (default), `ADMIN_ONLY`, `ALL_DV_ACCESS`, `NONE`.
+
 ---
 
 ## Bed Availability Invariants

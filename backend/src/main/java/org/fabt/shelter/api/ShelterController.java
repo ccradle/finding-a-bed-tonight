@@ -11,6 +11,8 @@ import org.fabt.availability.service.AvailabilityService;
 import org.fabt.availability.service.AvailabilityService.AvailabilitySnapshot;
 import org.fabt.shelter.domain.Shelter;
 import org.fabt.shelter.repository.CoordinatorAssignmentRepository;
+import org.fabt.shelter.domain.DvAddressPolicy;
+import org.fabt.shelter.service.DvAddressRedactionHelper;
 import org.fabt.shelter.service.ShelterHsdsMapper;
 import org.fabt.shelter.service.ShelterService;
 import org.fabt.shelter.service.ShelterService.ShelterDetail;
@@ -39,15 +41,18 @@ public class ShelterController {
     private final ShelterHsdsMapper hsdsMapper;
     private final CoordinatorAssignmentRepository coordinatorAssignmentRepository;
     private final AvailabilityService availabilityService;
+    private final DvAddressRedactionHelper redactionHelper;
 
     public ShelterController(ShelterService shelterService,
                              ShelterHsdsMapper hsdsMapper,
                              CoordinatorAssignmentRepository coordinatorAssignmentRepository,
-                             AvailabilityService availabilityService) {
+                             AvailabilityService availabilityService,
+                             DvAddressRedactionHelper redactionHelper) {
         this.shelterService = shelterService;
         this.hsdsMapper = hsdsMapper;
         this.coordinatorAssignmentRepository = coordinatorAssignmentRepository;
         this.availabilityService = availabilityService;
+        this.redactionHelper = redactionHelper;
     }
 
     @Operation(
@@ -95,7 +100,8 @@ public class ShelterController {
             @Parameter(description = "Page number (0-indexed). Omit for all results.")
             @RequestParam(required = false) Integer page,
             @Parameter(description = "Page size. Defaults to 20 when page is specified.")
-            @RequestParam(required = false, defaultValue = "20") int size) {
+            @RequestParam(required = false, defaultValue = "20") int size,
+            Authentication authentication) {
         boolean hasFilters = petsAllowed != null || wheelchairAccessible != null
                 || sobrietyRequired != null || populationType != null;
 
@@ -114,11 +120,21 @@ public class ShelterController {
         Map<UUID, List<AvailabilitySnapshot>> snapshotsByShelter = allSnapshots.stream()
                 .collect(java.util.stream.Collectors.groupingBy(AvailabilitySnapshot::shelterId));
 
+        // DV address redaction policy
+        DvAddressPolicy policy = shelterService.getDvAddressPolicy(
+                org.fabt.shared.web.TenantContext.getTenantId());
+
         List<ShelterListResponse> responses = shelterList.stream()
                 .map(s -> {
                     List<AvailabilitySnapshot> shelterSnapshots = snapshotsByShelter.get(s.getId());
                     ShelterListResponse.AvailabilitySummary summary = buildAvailabilitySummary(shelterSnapshots);
-                    return ShelterListResponse.from(s, summary);
+                    ShelterListResponse resp = ShelterListResponse.from(s, summary);
+                    // Redact DV shelter address per policy (FVPSA)
+                    if (redactionHelper.shouldRedact(s, authentication, policy)) {
+                        resp = new ShelterListResponse(
+                                DvAddressRedactionHelper.redactAddress(resp.shelter()), resp.availabilitySummary());
+                    }
+                    return resp;
                 })
                 .toList();
 
@@ -176,7 +192,8 @@ public class ShelterController {
     public ResponseEntity<?> getById(
             @Parameter(description = "UUID of the shelter to retrieve") @PathVariable UUID id,
             @Parameter(description = "Response format. Omit for native format. Set to 'hsds' for HSDS 3.0 JSON output.")
-            @RequestParam(required = false) String format) {
+            @RequestParam(required = false) String format,
+            Authentication authentication) {
         ShelterDetail detail = shelterService.getDetail(id);
 
         // Enrich with availability data
@@ -191,12 +208,33 @@ public class ShelterController {
         ShelterDetail enriched = new ShelterDetail(
                 detail.shelter(), detail.constraints(), detail.capacities(), availDtos);
 
+        // DV address redaction (FVPSA) — policy-based per tenant
+        DvAddressPolicy policy = shelterService.getDvAddressPolicy(
+                org.fabt.shared.web.TenantContext.getTenantId());
+
         if ("hsds".equalsIgnoreCase(format)) {
             Map<String, Object> hsds = hsdsMapper.toHsds(enriched);
+            // Redact HSDS physical_address for DV shelters if policy restricts
+            if (redactionHelper.shouldRedact(detail.shelter(), authentication, policy)) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> location = (Map<String, Object>) hsds.get("location");
+                if (location != null) {
+                    location.remove("physical_address");
+                    location.put("latitude", null);
+                    location.put("longitude", null);
+                }
+            }
             return ResponseEntity.ok(hsds);
         }
 
-        return ResponseEntity.ok(ShelterDetailResponse.from(enriched));
+        ShelterDetailResponse response = ShelterDetailResponse.from(enriched);
+        if (redactionHelper.shouldRedact(detail.shelter(), authentication, policy)) {
+            // Redact the shelter sub-object's address fields
+            response = new ShelterDetailResponse(
+                    DvAddressRedactionHelper.redactAddress(response.shelter()),
+                    response.constraints(), response.capacities(), response.availability());
+        }
+        return ResponseEntity.ok(response);
     }
 
     @Operation(

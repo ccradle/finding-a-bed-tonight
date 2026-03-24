@@ -10,8 +10,13 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import org.fabt.availability.service.AvailabilityService;
 import org.fabt.availability.service.AvailabilityService.AvailabilitySnapshot;
+import org.fabt.shelter.domain.DvAddressPolicy;
+import org.fabt.tenant.service.TenantService;
 import org.fabt.shelter.api.CreateShelterRequest;
 import org.fabt.shelter.api.ShelterConstraintsDto;
 import org.fabt.shelter.api.ShelterDetailResponse.AvailabilityDto;
@@ -48,16 +53,44 @@ public class ShelterService {
     private final ShelterRepository shelterRepository;
     private final ShelterConstraintsRepository constraintsRepository;
     private final AvailabilityService availabilityService;
+    private final TenantService tenantService;
+    private final ObjectMapper objectMapper;
     private final JdbcTemplate jdbcTemplate;
 
     public ShelterService(ShelterRepository shelterRepository,
                           ShelterConstraintsRepository constraintsRepository,
                           @Lazy AvailabilityService availabilityService,
+                          TenantService tenantService,
+                          ObjectMapper objectMapper,
                           JdbcTemplate jdbcTemplate) {
         this.shelterRepository = shelterRepository;
         this.constraintsRepository = constraintsRepository;
         this.availabilityService = availabilityService;
+        this.tenantService = tenantService;
+        this.objectMapper = objectMapper;
         this.jdbcTemplate = jdbcTemplate;
+    }
+
+    /**
+     * Read the DV address visibility policy from tenant config.
+     */
+    public DvAddressPolicy getDvAddressPolicy(UUID tenantId) {
+        try {
+            return tenantService.findById(tenantId)
+                    .filter(t -> t.getConfig() != null && t.getConfig().value() != null)
+                    .map(t -> {
+                        try {
+                            JsonNode node = objectMapper.readTree(t.getConfig().value());
+                            JsonNode policy = node.get("dv_address_visibility");
+                            return policy != null ? DvAddressPolicy.fromString(policy.asText()) : DvAddressPolicy.ADMIN_AND_ASSIGNED;
+                        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                            return DvAddressPolicy.ADMIN_AND_ASSIGNED;
+                        }
+                    })
+                    .orElse(DvAddressPolicy.ADMIN_AND_ASSIGNED);
+        } catch (Exception e) {
+            return DvAddressPolicy.ADMIN_AND_ASSIGNED;
+        }
     }
 
     @Transactional
