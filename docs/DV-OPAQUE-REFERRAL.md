@@ -6,6 +6,14 @@ This document describes how Finding A Bed Tonight (FABT) enables referrals to do
 
 ---
 
+## Important Notice
+
+This document describes the architectural and operational design of FABT's DV referral feature as it relates to applicable federal and state confidentiality requirements. It is intended as a technical reference for evaluation purposes only.
+
+**This document does not constitute legal advice.** Organizations deploying FABT for domestic violence shelter referrals should consult qualified legal counsel regarding their specific compliance obligations under applicable federal, state, and local law. Confidentiality requirements vary by jurisdiction and may be more stringent than the federal baseline described here. The legal citations and statutory summaries in this document reflect the authors' understanding at the time of writing and should be independently verified before reliance.
+
+---
+
 ## Legal Basis
 
 ### Federal Requirements
@@ -117,6 +125,8 @@ This document describes how Finding A Bed Tonight (FABT) enables referrals to do
 
 **Even if the database is compromised**, an attacker learns only: "an outreach worker requested a DV bed at time T for a household of size N." There is no way to identify the survivor.
 
+> **Free-text field risk note:** The "Special needs" field accepts free text. While the UI displays an advisory — "Do not include client identifying information" — no automated scrubbing or validation prevents a coordinator from typing PII into this field. CoC administrators should include this field in staff training: only operational descriptors (e.g., "wheelchair," "service dog," "requires ground floor") should be entered. FABT does not guarantee that this field is PII-free at the time of token purge. The 24-hour hard deletion mitigates the exposure window, but does not eliminate the risk entirely if PII is entered contrary to the advisory.
+
 ---
 
 ## VAWA Compliance Checklist
@@ -133,6 +143,8 @@ CoC administrators deploying FABT can use this checklist for self-assessment:
 - [ ] Aggregate analytics contain only counts, no identifying data
 - [ ] Rejection reasons do not contain client PII (advisory label shown to shelter staff)
 - [ ] Consent is obtained verbally during the warm handoff call, not through FABT
+
+  > **Why verbal consent at warm handoff satisfies VAWA:** VAWA's written consent requirements apply to disclosures of victim information to outside entities. The FABT warm handoff is not such a disclosure — the shelter's intake phone number is shared with the outreach worker who is actively facilitating the client's placement, not forwarded to a third party. The outreach worker then calls the shelter directly, equivalent to the worker calling the shelter without any platform intermediary. No survivor-identifying information is shared in either direction through the FABT system. Consent for shelter placement is obtained by the outreach worker and shelter staff during the warm handoff call itself, consistent with standard coordinated entry practice. Organizations with specific consent policy requirements should consult their VAWA administrator or legal counsel.
 
 ---
 
