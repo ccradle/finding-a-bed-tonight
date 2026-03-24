@@ -7,8 +7,8 @@ test.describe('Coordinator Dashboard', () => {
     await dashboard.goto();
     await dashboard.waitForShelters();
     await expect(dashboard.heading).toContainText(/shelter dashboard/i);
-    const cardCount = await dashboard.shelterCards.count();
-    expect(cardCount).toBeGreaterThan(0);
+    // Use auto-retry assertion instead of snapshot count() to avoid race with React re-render
+    await expect(dashboard.shelterCards.first()).toBeVisible();
   });
 
   test('expanding shelter shows availability update form with steppers', async ({ coordinatorPage }) => {
