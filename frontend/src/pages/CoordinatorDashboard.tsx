@@ -220,7 +220,7 @@ export function CoordinatorDashboard() {
         borderRadius: 16, padding: '28px 24px', marginBottom: 20, color: '#fff',
         boxShadow: '0 4px 24px rgba(0,0,0,0.15)',
       }}>
-        <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, letterSpacing: '-0.03em' }}>
+        <h1 data-testid="coordinator-heading" style={{ margin: 0, fontSize: 24, fontWeight: 800, letterSpacing: '-0.03em' }}>
           <FormattedMessage id="coord.title" />
         </h1>
         <p style={{ margin: '6px 0 0', fontSize: 14, color: '#94b8d8' }}>

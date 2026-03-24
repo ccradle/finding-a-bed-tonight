@@ -7,8 +7,8 @@ export class CoordinatorDashboardPage {
 
   constructor(page: Page) {
     this.page = page;
-    this.heading = page.locator('main h1');
-    this.shelterCards = page.locator('main button[style*="text-align: left"]');
+    this.heading = page.getByTestId('coordinator-heading');
+    this.shelterCards = page.locator('[data-testid^="shelter-card-"]');
   }
 
   async goto() {
@@ -16,7 +16,8 @@ export class CoordinatorDashboardPage {
   }
 
   async waitForShelters() {
-    await this.page.waitForSelector('button[style*="text-align: left"]', { timeout: 10000 });
+    // Wait for at least one shelter card to be visible (auto-retry)
+    await this.shelterCards.first().waitFor({ state: 'visible', timeout: 15000 });
   }
 
   async expandShelter(index = 0) {
@@ -26,9 +27,5 @@ export class CoordinatorDashboardPage {
 
   async clickUpdateAvailability() {
     await this.page.locator('button', { hasText: /update availability/i }).first().click();
-  }
-
-  async clickSaveCapacity() {
-    await this.page.locator('button', { hasText: /save/i }).click();
   }
 }

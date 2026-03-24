@@ -1,215 +1,171 @@
-<mxfile host="app.diagrams.net" modified="2026-03-20T00:00:00.000Z" agent="FABT Docs" version="24.0.0" type="device">
+<mxfile host="Electron" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/29.6.1 Chrome/142.0.7444.265 Electron/39.8.0 Safari/537.36" version="29.6.1">
   <diagram id="fabt-architecture" name="FABT Architecture">
-    <mxGraphModel dx="1422" dy="762" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+    <mxGraphModel dx="1028" dy="645" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
-
-        <!-- ============================================================ -->
-        <!-- Title                                                        -->
-        <!-- ============================================================ -->
-        <mxCell id="title" value="Finding A Bed Tonight — System Architecture" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=20;fontStyle=1;fontColor=#1a1a1a;" vertex="1" parent="1">
-          <mxGeometry x="440" y="10" width="520" height="40" as="geometry" />
+        <mxCell id="title" parent="1" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=20;fontStyle=1;fontColor=#1a1a1a;" value="Finding A Bed Tonight — System Architecture" vertex="1">
+          <mxGeometry height="40" width="520" x="440" y="10" as="geometry" />
         </mxCell>
-
-        <!-- ============================================================ -->
-        <!-- Deployment Tier Labels (right side)                          -->
-        <!-- ============================================================ -->
-        <mxCell id="tier-label" value="Deployment Tiers" style="text;html=1;align=left;verticalAlign=top;fontSize=14;fontStyle=5;fontColor=#6c6c6c;strokeColor=none;fillColor=none;" vertex="1" parent="1">
-          <mxGeometry x="1280" y="60" width="200" height="30" as="geometry" />
+        <mxCell id="tier-label" parent="1" style="text;html=1;align=left;verticalAlign=top;fontSize=14;fontStyle=5;fontColor=#6c6c6c;strokeColor=none;fillColor=none;" value="Deployment Tiers" vertex="1">
+          <mxGeometry height="30" width="200" x="1280" y="60" as="geometry" />
         </mxCell>
-        <mxCell id="tier-lite" value="&lt;b&gt;Lite&lt;/b&gt;&lt;br&gt;JAR + PostgreSQL&lt;br&gt;Spring Events / PG NOTIFY&lt;br&gt;Caffeine cache&lt;br&gt;~$15–30/mo" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;fontColor=#333333;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingTop=4;" vertex="1" parent="1">
-          <mxGeometry x="1280" y="100" width="200" height="90" as="geometry" />
+        <mxCell id="tier-lite" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;fontColor=#333333;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingTop=4;" value="&lt;b&gt;Lite&lt;/b&gt;&lt;br&gt;JAR + PostgreSQL&lt;br&gt;Spring Events / PG NOTIFY&lt;br&gt;Caffeine cache&lt;br&gt;~$15–30/mo" vertex="1">
+          <mxGeometry height="90" width="200" x="1280" y="100" as="geometry" />
         </mxCell>
-        <mxCell id="tier-standard" value="&lt;b&gt;Standard&lt;/b&gt;&lt;br&gt;+ Redis&lt;br&gt;Distributed cache + reservation accel.&lt;br&gt;$30–75/mo" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;fontColor=#333333;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingTop=4;" vertex="1" parent="1">
-          <mxGeometry x="1280" y="200" width="200" height="80" as="geometry" />
+        <mxCell id="tier-standard" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;fontColor=#333333;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingTop=4;" value="&lt;b&gt;Standard&lt;/b&gt;&lt;br&gt;+ Redis&lt;br&gt;Distributed cache + reservation accel.&lt;br&gt;$30–75/mo" vertex="1">
+          <mxGeometry height="80" width="200" x="1280" y="200" as="geometry" />
         </mxCell>
-        <mxCell id="tier-full" value="&lt;b&gt;Full&lt;/b&gt;&lt;br&gt;+ Kafka&lt;br&gt;Event-driven, multi-service ready&lt;br&gt;$100+/mo" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;fontColor=#333333;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingTop=4;" vertex="1" parent="1">
-          <mxGeometry x="1280" y="290" width="200" height="80" as="geometry" />
+        <mxCell id="tier-full" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#999999;fontColor=#333333;fontSize=11;align=left;verticalAlign=top;spacingLeft=8;spacingTop=4;" value="&lt;b&gt;Full&lt;/b&gt;&lt;br&gt;+ Kafka&lt;br&gt;Event-driven, multi-service ready&lt;br&gt;$100+/mo" vertex="1">
+          <mxGeometry height="80" width="200" x="1280" y="290" as="geometry" />
         </mxCell>
-
-        <!-- ============================================================ -->
-        <!-- Frontend Layer                                               -->
-        <!-- ============================================================ -->
-        <mxCell id="frontend-group" value="Frontend" style="swimlane;startSize=24;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;fontSize=13;rounded=1;arcSize=8;collapsible=0;" vertex="1" parent="1">
-          <mxGeometry x="340" y="70" width="720" height="100" as="geometry" />
+        <mxCell id="frontend-group" parent="1" style="swimlane;startSize=24;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;fontSize=13;rounded=1;arcSize=8;collapsible=0;" value="Frontend" vertex="1">
+          <mxGeometry height="100" width="720" x="340" y="70" as="geometry" />
         </mxCell>
-        <mxCell id="pwa" value="React PWA&lt;br&gt;&lt;font style=&quot;font-size:10px;color:#666;&quot;&gt;Vite + Workbox + react-intl&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="frontend-group">
-          <mxGeometry x="20" y="35" width="200" height="50" as="geometry" />
+        <mxCell id="pwa" parent="frontend-group" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#6c8ebf;fontSize=12;" value="React PWA&lt;br&gt;&lt;font style=&quot;font-size:10px;color:#666;&quot;&gt;Vite + Workbox + react-intl&lt;/font&gt;" vertex="1">
+          <mxGeometry height="50" width="200" x="20" y="35" as="geometry" />
         </mxCell>
-        <mxCell id="coordinator-ui" value="Coordinator View&lt;br&gt;&lt;font style=&quot;font-size:10px;color:#666;&quot;&gt;3-tap bed update&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="frontend-group">
-          <mxGeometry x="240" y="35" width="140" height="50" as="geometry" />
+        <mxCell id="coordinator-ui" parent="frontend-group" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#6c8ebf;fontSize=11;" value="Coordinator View&lt;br&gt;&lt;font style=&quot;font-size:10px;color:#666;&quot;&gt;3-tap bed update&lt;/font&gt;" vertex="1">
+          <mxGeometry height="50" width="140" x="240" y="35" as="geometry" />
         </mxCell>
-        <mxCell id="outreach-ui" value="Outreach Worker&lt;br&gt;&lt;font style=&quot;font-size:10px;color:#666;&quot;&gt;Query / Reserve&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="frontend-group">
-          <mxGeometry x="400" y="35" width="140" height="50" as="geometry" />
+        <mxCell id="outreach-ui" parent="frontend-group" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#6c8ebf;fontSize=11;" value="Outreach Worker&lt;br&gt;&lt;font style=&quot;font-size:10px;color:#666;&quot;&gt;Query / Reserve&lt;/font&gt;" vertex="1">
+          <mxGeometry height="50" width="140" x="400" y="35" as="geometry" />
         </mxCell>
-        <mxCell id="admin-ui" value="CoC Admin Dashboard&lt;br&gt;&lt;font style=&quot;font-size:10px;color:#666;&quot;&gt;Surge / Analytics&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="frontend-group">
-          <mxGeometry x="560" y="35" width="140" height="50" as="geometry" />
+        <mxCell id="admin-ui" parent="frontend-group" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#6c8ebf;fontSize=11;" value="CoC Admin Dashboard&lt;br&gt;&lt;font style=&quot;font-size:10px;color:#666;&quot;&gt;Surge / Analytics&lt;/font&gt;" vertex="1">
+          <mxGeometry height="50" width="140" x="560" y="35" as="geometry" />
         </mxCell>
-
-        <!-- ============================================================ -->
-        <!-- Arrow: Frontend → Backend                                    -->
-        <!-- ============================================================ -->
-        <mxCell id="arrow-fe-be" value="REST API /api/v1/*" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontSize=10;fontColor=#666666;strokeColor=#333333;strokeWidth=2;" edge="1" parent="1" source="frontend-group" target="backend-group">
+        <mxCell id="arrow-fe-be" edge="1" parent="1" source="frontend-group" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontSize=10;fontColor=#666666;strokeColor=#333333;strokeWidth=2;" target="backend-group" value="REST API /api/v1/*">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-
-        <!-- ============================================================ -->
-        <!-- Backend Layer                                                -->
-        <!-- ============================================================ -->
-        <mxCell id="backend-group" value="Backend — Spring Boot Modular Monolith (org.fabt)" style="swimlane;startSize=28;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=13;rounded=1;arcSize=6;collapsible=0;" vertex="1" parent="1">
-          <mxGeometry x="200" y="230" width="1000" height="320" as="geometry" />
+        <mxCell id="backend-group" parent="1" style="swimlane;startSize=28;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=13;rounded=1;arcSize=6;collapsible=0;" value="Backend — Spring Boot Modular Monolith (org.fabt)" vertex="1">
+          <mxGeometry height="320" width="1000" x="200" y="230" as="geometry" />
         </mxCell>
-
-        <!-- Row 1: Domain Modules -->
-        <mxCell id="mod-tenant" value="&lt;b&gt;tenant&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;Tenant CRUD&lt;br&gt;Config&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82b366;fontSize=11;" vertex="1" parent="backend-group">
-          <mxGeometry x="20" y="45" width="120" height="60" as="geometry" />
+        <mxCell id="mod-tenant" parent="backend-group" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82b366;fontSize=11;" value="&lt;b&gt;tenant&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;Tenant CRUD&lt;br&gt;Config&lt;/font&gt;" vertex="1">
+          <mxGeometry height="60" width="120" x="20" y="45" as="geometry" />
         </mxCell>
-        <mxCell id="mod-auth" value="&lt;b&gt;auth&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;Users, API Keys&lt;br&gt;OAuth2, Roles&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82b366;fontSize=11;" vertex="1" parent="backend-group">
-          <mxGeometry x="160" y="45" width="120" height="60" as="geometry" />
+        <mxCell id="mod-auth" parent="backend-group" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82b366;fontSize=11;" value="&lt;b&gt;auth&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;Users, API Keys&lt;br&gt;OAuth2, Roles&lt;/font&gt;" vertex="1">
+          <mxGeometry height="60" width="120" x="160" y="45" as="geometry" />
         </mxCell>
-        <mxCell id="mod-shelter" value="&lt;b&gt;shelter&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;Profiles, Capacity&lt;br&gt;Constraints, Search&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82b366;fontSize=11;" vertex="1" parent="backend-group">
-          <mxGeometry x="300" y="45" width="130" height="60" as="geometry" />
+        <mxCell id="mod-shelter" parent="backend-group" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82b366;fontSize=11;" value="&lt;b&gt;shelter&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;Profiles, Capacity&lt;br&gt;Constraints, Search&lt;/font&gt;" vertex="1">
+          <mxGeometry height="60" width="130" x="300" y="45" as="geometry" />
         </mxCell>
-        <mxCell id="mod-availability" value="&lt;b&gt;availability&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;Bed counts&lt;br&gt;Real-time query&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82b366;fontSize=11;" vertex="1" parent="backend-group">
-          <mxGeometry x="450" y="45" width="120" height="60" as="geometry" />
+        <mxCell id="mod-availability" parent="backend-group" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82b366;fontSize=11;" value="&lt;b&gt;availability&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;Bed counts&lt;br&gt;Real-time query&lt;/font&gt;" vertex="1">
+          <mxGeometry height="60" width="120" x="450" y="45" as="geometry" />
         </mxCell>
-        <mxCell id="mod-reservation" value="&lt;b&gt;reservation&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;Soft-hold&lt;br&gt;Opaque tokens&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82b366;fontSize=11;" vertex="1" parent="backend-group">
-          <mxGeometry x="590" y="45" width="120" height="60" as="geometry" />
+        <mxCell id="mod-reservation" parent="backend-group" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82b366;fontSize=11;" value="&lt;b&gt;reservation&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;Soft-hold&lt;br&gt;Opaque tokens&lt;/font&gt;" vertex="1">
+          <mxGeometry height="60" width="120" x="590" y="45" as="geometry" />
         </mxCell>
-        <mxCell id="mod-surge" value="&lt;b&gt;surge&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;White Flag&lt;br&gt;Surge events&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82b366;fontSize=11;" vertex="1" parent="backend-group">
-          <mxGeometry x="730" y="45" width="120" height="60" as="geometry" />
+        <mxCell id="mod-surge" parent="backend-group" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82b366;fontSize=11;" value="&lt;b&gt;surge&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;White Flag&lt;br&gt;Surge events&lt;/font&gt;" vertex="1">
+          <mxGeometry height="60" width="120" x="730" y="45" as="geometry" />
         </mxCell>
-        <mxCell id="mod-dataimport" value="&lt;b&gt;dataimport&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;HSDS / CSV / 211&lt;br&gt;Import log&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82b366;fontSize=11;" vertex="1" parent="backend-group">
-          <mxGeometry x="870" y="45" width="110" height="60" as="geometry" />
+        <mxCell id="mod-dataimport" parent="backend-group" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82b366;fontSize=11;" value="&lt;b&gt;dataimport&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;HSDS / CSV / 211&lt;br&gt;Import log&lt;/font&gt;" vertex="1">
+          <mxGeometry height="60" width="110" x="870" y="45" as="geometry" />
         </mxCell>
-
-        <!-- Row 2: Cross-cutting modules -->
-        <mxCell id="mod-webhook" value="&lt;b&gt;webhook&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;Subscriptions&lt;br&gt;Delivery&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82b366;fontSize=11;" vertex="1" parent="backend-group">
-          <mxGeometry x="20" y="125" width="120" height="55" as="geometry" />
+        <mxCell id="mod-webhook" parent="backend-group" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82b366;fontSize=11;" value="&lt;b&gt;webhook&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;Subscriptions&lt;br&gt;Delivery&lt;/font&gt;" vertex="1">
+          <mxGeometry height="55" width="120" x="20" y="125" as="geometry" />
         </mxCell>
-        <mxCell id="mod-analytics" value="&lt;b&gt;analytics&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;CoC reporting&lt;br&gt;Dashboards&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82b366;fontSize=11;" vertex="1" parent="backend-group">
-          <mxGeometry x="160" y="125" width="120" height="55" as="geometry" />
+        <mxCell id="mod-analytics" parent="backend-group" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82b366;fontSize=11;" value="&lt;b&gt;analytics&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;CoC reporting&lt;br&gt;Dashboards&lt;/font&gt;" vertex="1">
+          <mxGeometry height="55" width="120" x="160" y="125" as="geometry" />
         </mxCell>
-        <mxCell id="mod-hmis" value="&lt;b&gt;hmis-bridge&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;HMIS integration&lt;br&gt;Future extraction&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82b366;fontSize=11;" vertex="1" parent="backend-group">
-          <mxGeometry x="300" y="125" width="130" height="55" as="geometry" />
+        <mxCell id="mod-hmis" parent="backend-group" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82b366;fontSize=11;" value="&lt;b&gt;hmis-bridge&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;HMIS integration&lt;br&gt;Future extraction&lt;/font&gt;" vertex="1">
+          <mxGeometry height="55" width="130" x="300" y="125" as="geometry" />
         </mxCell>
-        <mxCell id="mod-observability" value="&lt;b&gt;observability&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;Micrometer Metrics, OTel Tracing&lt;br&gt;@Scheduled Monitors, Resilience4J&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82b366;fontSize=11;" vertex="1" parent="backend-group">
-          <mxGeometry x="450" y="125" width="160" height="55" as="geometry" />
+        <mxCell id="mod-observability" parent="backend-group" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82b366;fontSize=11;" value="&lt;b&gt;observability&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;Micrometer Metrics, OTel Tracing&lt;br&gt;@Scheduled Monitors, Resilience4J&lt;/font&gt;" vertex="1">
+          <mxGeometry height="55" width="160" x="450" y="125" as="geometry" />
         </mxCell>
-
-        <!-- Shared Kernel bar -->
-        <mxCell id="shared-kernel" value="shared/ — Config, Cache, EventBus, Security, Web, i18n" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;fontStyle=1;" vertex="1" parent="backend-group">
-          <mxGeometry x="20" y="200" width="960" height="40" as="geometry" />
+        <mxCell id="shared-kernel" parent="backend-group" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;fontStyle=1;" value="shared/ — Config, Cache, EventBus, Security, Web, i18n" vertex="1">
+          <mxGeometry height="40" width="960" x="20" y="200" as="geometry" />
         </mxCell>
-
-        <!-- EventBus callout -->
-        <mxCell id="eventbus-note" value="EventBus&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;Spring Events → PG NOTIFY → Kafka&lt;br&gt;(tier-dependent transport)&lt;/font&gt;" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;size=14;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;fontStyle=0;align=center;" vertex="1" parent="backend-group">
-          <mxGeometry x="630" y="120" width="200" height="60" as="geometry" />
+        <mxCell id="eventbus-note" parent="backend-group" style="shape=note;whiteSpace=wrap;html=1;backgroundOutline=1;size=14;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;fontStyle=0;align=center;" value="EventBus&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;Spring Events → PG NOTIFY → Kafka&lt;br&gt;(tier-dependent transport)&lt;/font&gt;" vertex="1">
+          <mxGeometry height="60" width="200" x="630" y="120" as="geometry" />
         </mxCell>
-
-        <!-- ArchUnit label -->
-        <mxCell id="archunit-label" value="&lt;font style=&quot;font-size:10px;color:#999;&quot;&gt;Module boundaries enforced by ArchUnit tests&lt;/font&gt;" style="text;html=1;align=center;verticalAlign=middle;strokeColor=none;fillColor=none;" vertex="1" parent="backend-group">
-          <mxGeometry x="300" y="255" width="400" height="20" as="geometry" />
+        <mxCell id="archunit-label" parent="backend-group" style="text;html=1;align=center;verticalAlign=middle;strokeColor=none;fillColor=none;" value="&lt;font style=&quot;font-size:10px;color:#999;&quot;&gt;Module boundaries enforced by ArchUnit tests&lt;/font&gt;" vertex="1">
+          <mxGeometry height="20" width="400" x="300" y="255" as="geometry" />
         </mxCell>
-
-        <!-- ============================================================ -->
-        <!-- Infrastructure Layer                                         -->
-        <!-- ============================================================ -->
-        <mxCell id="infra-group" value="Infrastructure" style="swimlane;startSize=24;fillColor=#f8cecc;strokeColor=#b85450;fontStyle=1;fontSize=13;rounded=1;arcSize=8;collapsible=0;" vertex="1" parent="1">
-          <mxGeometry x="340" y="620" width="720" height="120" as="geometry" />
+        <mxCell id="infra-group" parent="1" style="swimlane;startSize=24;fillColor=#f8cecc;strokeColor=#b85450;fontStyle=1;fontSize=13;rounded=1;arcSize=8;collapsible=0;" value="Infrastructure" vertex="1">
+          <mxGeometry height="120" width="720" x="340" y="620" as="geometry" />
         </mxCell>
-        <mxCell id="postgres" value="&lt;b&gt;PostgreSQL&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;All tiers — source of truth&lt;br&gt;Flyway migrations&lt;br&gt;RLS for DV data&lt;/font&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#FFFFFF;strokeColor=#b85450;fontSize=11;" vertex="1" parent="infra-group">
-          <mxGeometry x="40" y="30" width="160" height="80" as="geometry" />
+        <mxCell id="postgres" parent="infra-group" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#FFFFFF;strokeColor=#b85450;fontSize=11;" value="&lt;b&gt;PostgreSQL&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;All tiers — source of truth&lt;br&gt;Flyway migrations&lt;br&gt;RLS for DV data&lt;/font&gt;" vertex="1">
+          <mxGeometry height="80" width="160" x="40" y="30" as="geometry" />
         </mxCell>
-        <mxCell id="redis" value="&lt;b&gt;Redis&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;Standard + Full tiers&lt;br&gt;Cache, reservation accel.&lt;/font&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#FFFFFF;strokeColor=#b85450;fontSize=11;strokeDasharray=3 3;" vertex="1" parent="infra-group">
-          <mxGeometry x="280" y="30" width="160" height="80" as="geometry" />
+        <mxCell id="redis" parent="infra-group" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#FFFFFF;strokeColor=#b85450;fontSize=11;strokeDasharray=3 3;" value="&lt;b&gt;Redis&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;Standard + Full tiers&lt;br&gt;Cache, reservation accel.&lt;/font&gt;" vertex="1">
+          <mxGeometry height="80" width="160" x="280" y="30" as="geometry" />
         </mxCell>
-        <mxCell id="kafka" value="&lt;b&gt;Kafka&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;Full tier only&lt;br&gt;Event streaming&lt;/font&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#FFFFFF;strokeColor=#b85450;fontSize=11;strokeDasharray=3 3;" vertex="1" parent="infra-group">
-          <mxGeometry x="520" y="30" width="160" height="80" as="geometry" />
+        <mxCell id="kafka" parent="infra-group" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#FFFFFF;strokeColor=#b85450;fontSize=11;strokeDasharray=3 3;" value="&lt;b&gt;Kafka&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;Full tier only&lt;br&gt;Event streaming&lt;/font&gt;" vertex="1">
+          <mxGeometry height="80" width="160" x="520" y="30" as="geometry" />
         </mxCell>
-
-        <!-- ============================================================ -->
-        <!-- Observability Infrastructure (optional profile)              -->
-        <!-- ============================================================ -->
-        <mxCell id="obs-group" value="Observability (optional — docker compose --profile observability)" style="swimlane;startSize=24;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;fontSize=12;rounded=1;arcSize=8;collapsible=0;strokeDasharray=3 3;" vertex="1" parent="1">
-          <mxGeometry x="340" y="770" width="720" height="100" as="geometry" />
+        <mxCell id="obs-group" parent="1" style="swimlane;startSize=24;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;fontSize=12;rounded=1;arcSize=8;collapsible=0;strokeDasharray=3 3;" value="Observability (optional — docker compose --profile observability)" vertex="1">
+          <mxGeometry height="100" width="720" x="340" y="770" as="geometry" />
         </mxCell>
-        <mxCell id="prometheus" value="&lt;b&gt;Prometheus&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;:9090 scrapes :9091&lt;br&gt;Management port&lt;/font&gt;" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#FFFFFF;strokeColor=#9673a6;fontSize=11;strokeDasharray=3 3;" vertex="1" parent="obs-group">
-          <mxGeometry x="20" y="30" width="150" height="60" as="geometry" />
+        <mxCell id="prometheus" parent="obs-group" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#FFFFFF;strokeColor=#9673a6;fontSize=11;strokeDasharray=3 3;" value="&lt;b&gt;Prometheus&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;:9090 scrapes :9091&lt;br&gt;Management port&lt;/font&gt;" vertex="1">
+          <mxGeometry height="60" width="150" x="20" y="30" as="geometry" />
         </mxCell>
-        <mxCell id="grafana" value="&lt;b&gt;Grafana&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;:3000&lt;br&gt;FABT Operations dashboard&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9673a6;fontSize=11;strokeDasharray=3 3;" vertex="1" parent="obs-group">
-          <mxGeometry x="190" y="30" width="160" height="60" as="geometry" />
+        <mxCell id="grafana" parent="obs-group" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9673a6;fontSize=11;strokeDasharray=3 3;" value="&lt;b&gt;Grafana&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;:3000&lt;br&gt;FABT Operations dashboard&lt;/font&gt;" vertex="1">
+          <mxGeometry height="60" width="160" x="190" y="30" as="geometry" />
         </mxCell>
-        <mxCell id="jaeger" value="&lt;b&gt;Jaeger&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;:16686&lt;br&gt;Trace visualization&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9673a6;fontSize=11;strokeDasharray=3 3;" vertex="1" parent="obs-group">
-          <mxGeometry x="370" y="30" width="150" height="60" as="geometry" />
+        <mxCell id="jaeger" parent="obs-group" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9673a6;fontSize=11;strokeDasharray=3 3;" value="&lt;b&gt;Jaeger&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;:16686&lt;br&gt;Trace visualization&lt;/font&gt;" vertex="1">
+          <mxGeometry height="60" width="150" x="370" y="30" as="geometry" />
         </mxCell>
-        <mxCell id="otel-collector" value="&lt;b&gt;OTel Collector&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;OTLP → Jaeger&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9673a6;fontSize=11;strokeDasharray=3 3;" vertex="1" parent="obs-group">
-          <mxGeometry x="540" y="30" width="150" height="60" as="geometry" />
+        <mxCell id="otel-collector" parent="obs-group" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9673a6;fontSize=11;strokeDasharray=3 3;" value="&lt;b&gt;OTel Collector&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;OTLP → Jaeger&lt;/font&gt;" vertex="1">
+          <mxGeometry height="60" width="150" x="540" y="30" as="geometry" />
         </mxCell>
-
-        <!-- ============================================================ -->
-        <!-- External: NOAA API                                           -->
-        <!-- ============================================================ -->
-        <mxCell id="noaa-api" value="&lt;b&gt;NOAA Weather API&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;Temperature monitoring&lt;br&gt;Resilience4J circuit breaker&lt;/font&gt;" style="shape=hexagon;perimeter=hexagonPerimeter2;whiteSpace=wrap;html=1;fixedSize=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;strokeDasharray=3 3;" vertex="1" parent="1">
-          <mxGeometry x="60" y="370" width="180" height="70" as="geometry" />
+        <mxCell id="keycloak-idp" parent="1" style="shape=hexagon;perimeter=hexagonPerimeter2;whiteSpace=wrap;html=1;fixedSize=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;strokeDasharray=3 3;" value="&lt;b&gt;Identity Providers&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;Keycloak / Google / Microsoft&lt;br&gt;OAuth2 + PKCE (OIDC)&lt;/font&gt;" vertex="1">
+          <mxGeometry height="70" width="180" x="10" y="370" as="geometry" />
         </mxCell>
-        <mxCell id="arrow-be-noaa" value="HTTPS" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;fontSize=10;fontColor=#666666;strokeColor=#333333;strokeWidth=1;strokeDasharray=3 3;" edge="1" parent="1" source="backend-group" target="noaa-api">
+        <mxCell id="arrow-fe-idp" edge="1" parent="1" source="frontend-group" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;fontSize=10;fontColor=#666666;strokeColor=#333333;strokeWidth=1;strokeDasharray=3 3;" target="keycloak-idp" value="OAuth2 redirect">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-
-        <!-- Arrow: Backend → Observability Infrastructure -->
-        <mxCell id="arrow-be-obs" value="OTLP / Prometheus scrape" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;fontSize=10;fontColor=#666666;strokeColor=#9673a6;strokeWidth=2;strokeDasharray=3 3;" edge="1" parent="1" source="backend-group" target="obs-group">
+        <mxCell id="arrow-be-idp" edge="1" parent="1" source="backend-group" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;fontSize=10;fontColor=#666666;strokeColor=#333333;strokeWidth=1;strokeDasharray=3 3;" target="keycloak-idp" value="JWKS / token exchange">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-
-        <!-- ============================================================ -->
-        <!-- Arrows: Backend → Infrastructure                             -->
-        <!-- ============================================================ -->
-        <mxCell id="arrow-be-pg" value="JDBC" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;exitX=0.3;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontSize=10;fontColor=#666666;strokeColor=#333333;strokeWidth=2;" edge="1" parent="1" source="backend-group" target="postgres">
+        <mxCell id="noaa-api" parent="1" style="shape=hexagon;perimeter=hexagonPerimeter2;whiteSpace=wrap;html=1;fixedSize=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;strokeDasharray=3 3;" value="&lt;b&gt;NOAA Weather API&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;Temperature monitoring&lt;br&gt;Resilience4J circuit breaker&lt;/font&gt;" vertex="1">
+          <mxGeometry height="70" width="180" x="10" y="640" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow-be-noaa" edge="1" parent="1" source="backend-group" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;fontSize=10;fontColor=#666666;strokeColor=#333333;strokeWidth=1;strokeDasharray=3 3;" target="noaa-api" value="HTTPS">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="arrow-be-redis" value="Lettuce" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontSize=10;fontColor=#666666;strokeColor=#333333;strokeWidth=2;strokeDasharray=3 3;" edge="1" parent="1" source="backend-group" target="redis">
+        <mxCell id="arrow-be-obs" edge="1" parent="1" source="backend-group" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;fontSize=10;fontColor=#666666;strokeColor=#9673a6;strokeWidth=2;strokeDasharray=3 3;" target="obs-group" value="OTLP / Prometheus scrape">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="arrow-be-kafka" value="Spring Kafka" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;exitX=0.7;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontSize=10;fontColor=#666666;strokeColor=#333333;strokeWidth=2;strokeDasharray=3 3;" edge="1" parent="1" source="backend-group" target="kafka">
+        <mxCell id="arrow-be-pg" edge="1" parent="1" source="backend-group" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;exitX=0.3;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontSize=10;fontColor=#666666;strokeColor=#333333;strokeWidth=2;" target="postgres" value="JDBC">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-
-        <!-- ============================================================ -->
-        <!-- Legend (optional indicator)                                   -->
-        <!-- ============================================================ -->
-        <mxCell id="legend-title" value="Legend" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;fontStyle=5;fontColor=#666;strokeColor=none;fillColor=none;" vertex="1" parent="1">
-          <mxGeometry x="1280" y="400" width="60" height="20" as="geometry" />
+        <mxCell id="arrow-be-redis" edge="1" parent="1" source="backend-group" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontSize=10;fontColor=#666666;strokeColor=#333333;strokeWidth=2;strokeDasharray=3 3;" target="redis" value="Lettuce">
+          <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="legend-solid" value="" style="endArrow=classic;html=1;strokeWidth=2;strokeColor=#333333;" edge="1" parent="1">
-          <mxGeometry width="80" relative="1" as="geometry">
+        <mxCell id="arrow-be-kafka" edge="1" parent="1" source="backend-group" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;exitX=0.7;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontSize=10;fontColor=#666666;strokeColor=#333333;strokeWidth=2;strokeDasharray=3 3;" target="kafka" value="Spring Kafka">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-title" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;fontStyle=5;fontColor=#666;strokeColor=none;fillColor=none;" value="Legend" vertex="1">
+          <mxGeometry height="20" width="60" x="1280" y="400" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-solid" edge="1" parent="1" style="endArrow=classic;html=1;strokeWidth=2;strokeColor=#333333;" value="">
+          <mxGeometry relative="1" width="80" as="geometry">
             <mxPoint x="1280" y="440" as="sourcePoint" />
             <mxPoint x="1360" y="440" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="legend-solid-label" value="All tiers" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;fontColor=#666;strokeColor=none;fillColor=none;" vertex="1" parent="1">
-          <mxGeometry x="1370" y="430" width="80" height="20" as="geometry" />
+        <mxCell id="legend-solid-label" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;fontColor=#666;strokeColor=none;fillColor=none;" value="All tiers" vertex="1">
+          <mxGeometry height="20" width="80" x="1370" y="430" as="geometry" />
         </mxCell>
-        <mxCell id="legend-dashed" value="" style="endArrow=classic;html=1;strokeWidth=2;strokeColor=#333333;strokeDasharray=3 3;" edge="1" parent="1">
-          <mxGeometry width="80" relative="1" as="geometry">
+        <mxCell id="legend-dashed" edge="1" parent="1" style="endArrow=classic;html=1;strokeWidth=2;strokeColor=#333333;strokeDasharray=3 3;" value="">
+          <mxGeometry relative="1" width="80" as="geometry">
             <mxPoint x="1280" y="465" as="sourcePoint" />
             <mxPoint x="1360" y="465" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="legend-dashed-label" value="Optional (tier-dependent)" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;fontColor=#666;strokeColor=none;fillColor=none;" vertex="1" parent="1">
-          <mxGeometry x="1370" y="455" width="160" height="20" as="geometry" />
+        <mxCell id="legend-dashed-label" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;fontColor=#666;strokeColor=none;fillColor=none;" value="Optional (tier-dependent)" vertex="1">
+          <mxGeometry height="20" width="160" x="1370" y="455" as="geometry" />
         </mxCell>
-        <mxCell id="legend-obs" value="" style="endArrow=classic;html=1;strokeWidth=2;strokeColor=#9673a6;strokeDasharray=3 3;" edge="1" parent="1">
-          <mxGeometry width="80" relative="1" as="geometry">
+        <mxCell id="legend-obs" edge="1" parent="1" style="endArrow=classic;html=1;strokeWidth=2;strokeColor=#9673a6;strokeDasharray=3 3;" value="">
+          <mxGeometry relative="1" width="80" as="geometry">
             <mxPoint x="1280" y="490" as="sourcePoint" />
             <mxPoint x="1360" y="490" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="legend-obs-label" value="Observability profile (optional)" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;fontColor=#666;strokeColor=none;fillColor=none;" vertex="1" parent="1">
-          <mxGeometry x="1370" y="480" width="180" height="20" as="geometry" />
+        <mxCell id="legend-obs-label" parent="1" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;fontColor=#666;strokeColor=none;fillColor=none;" value="Observability profile (optional)" vertex="1">
+          <mxGeometry height="20" width="180" x="1370" y="480" as="geometry" />
         </mxCell>
-
       </root>
     </mxGraphModel>
   </diagram>

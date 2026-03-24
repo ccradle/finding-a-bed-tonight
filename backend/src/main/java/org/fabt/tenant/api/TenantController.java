@@ -8,6 +8,8 @@ import java.util.stream.StreamSupport;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import jakarta.validation.Valid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.fabt.observability.ObservabilityConfigService;
 import org.fabt.observability.ObservabilityConfigService.ObservabilityConfig;
 import org.fabt.tenant.domain.Tenant;
@@ -19,14 +21,18 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/v1/tenants")
 @PreAuthorize("hasRole('PLATFORM_ADMIN')")
 public class TenantController {
+
+    private static final Logger log = LoggerFactory.getLogger(TenantController.class);
 
     private final TenantService tenantService;
     private final ObservabilityConfigService observabilityConfigService;
@@ -126,5 +132,52 @@ public class TenantController {
         tenantService.updateConfig(id, currentConfig);
         observabilityConfigService.refreshCache();
         return ResponseEntity.ok(observabilityConfigService.getConfig(id));
+    }
+
+    @Operation(
+            summary = "Change DV address visibility policy",
+            description = "Updates the DV shelter address visibility policy for a tenant. " +
+                    "Valid policies: ADMIN_AND_ASSIGNED (default), ADMIN_ONLY, ALL_DV_ACCESS, NONE. " +
+                    "Requires PLATFORM_ADMIN role and X-Confirm-Policy-Change: CONFIRM header. " +
+                    "INTERNAL/ADMIN-ONLY — this endpoint should not be exposed outside the corporate firewall."
+    )
+    @PutMapping("/{id}/dv-address-policy")
+    @PreAuthorize("hasRole('PLATFORM_ADMIN')")
+    public ResponseEntity<?> updateDvAddressPolicy(
+            @Parameter(description = "UUID of the tenant") @PathVariable UUID id,
+            @RequestBody Map<String, String> body,
+            @RequestHeader(value = "X-Confirm-Policy-Change", required = false) String confirmHeader,
+            Authentication authentication) {
+
+        if (!"CONFIRM".equals(confirmHeader)) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Missing or invalid X-Confirm-Policy-Change header. Send 'CONFIRM' to proceed."));
+        }
+
+        String policyValue = body.get("policy");
+        if (policyValue == null || policyValue.isBlank()) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Missing 'policy' field", "validPolicies",
+                            java.util.Arrays.stream(org.fabt.shelter.domain.DvAddressPolicy.values())
+                                    .map(Enum::name).toList()));
+        }
+
+        try {
+            org.fabt.shelter.domain.DvAddressPolicy.valueOf(policyValue);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Invalid policy: " + policyValue, "validPolicies",
+                            java.util.Arrays.stream(org.fabt.shelter.domain.DvAddressPolicy.values())
+                                    .map(Enum::name).toList()));
+        }
+
+        Map<String, Object> config = tenantService.getConfig(id);
+        config.put("dv_address_visibility", policyValue);
+        tenantService.updateConfig(id, config);
+
+        log.warn("DV address visibility policy changed to {} for tenant {} by user {}",
+                policyValue, id, authentication.getName());
+
+        return ResponseEntity.ok(Map.of("policy", policyValue, "tenantId", id.toString()));
     }
 }
