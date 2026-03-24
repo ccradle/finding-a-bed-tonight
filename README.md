@@ -97,7 +97,7 @@ Three deployment tiers allow the same codebase to serve communities of vastly di
 | Events | Spring Events (Lite) / Kafka (Full) |
 | Auth | JWT + OAuth2/OIDC + API Keys (hybrid) |
 | Frontend | React 19, Vite, TypeScript, Workbox PWA, react-intl (EN/ES) |
-| Testing | JUnit 5, Testcontainers, ArchUnit (207 tests), Playwright (77 UI tests), Karate (42 API tests), Gatling (performance) |
+| Testing | JUnit 5, Testcontainers, ArchUnit (207 tests), Playwright (77 UI tests), Karate (48 API tests), Gatling (performance) |
 | Infra | Docker, GitHub Actions CI/CD + E2E pipeline, Terraform (3 tiers) |
 
 ---
@@ -334,7 +334,7 @@ mvn test
 
 # Run E2E tests (requires dev-start.sh stack running)
 cd ../e2e/playwright && npx playwright test    # 77 UI tests
-cd ../e2e/karate && mvn test                   # 42 API tests (38 + 4 @observability)
+cd ../e2e/karate && mvn test                   # 48 API tests (44 + 4 @observability)
 cd ../e2e/gatling && mvn verify -Pperf         # Gatling performance simulations
 
 # Run a specific test class
@@ -390,7 +390,7 @@ mvn test -Dtest="AvailabilityIntegrationTest#test_createSnapshot_appendOnly_pres
 | `capture-screenshots.spec.ts` | 17 | Demo walkthrough screenshot capture |
 | `capture-dv-screenshots.spec.ts` | 7 | DV referral flow screenshot capture |
 | | | |
-| **E2E: Karate** | **42** | **API contract tests (feature files)** |
+| **E2E: Karate** | **48** | **API contract tests (feature files)** |
 | `auth/login.feature` | 5 | JWT login, refresh, invalid, no-auth 401, API key |
 | `shelters/shelter-crud.feature` | 6 | Create, update, list, filter, HSDS, outreach 403 |
 | `availability/availability.feature` | 6 | PATCH snapshot, bed search, filters, outreach 403, detail |
@@ -399,9 +399,10 @@ mvn test -Dtest="AvailabilityIntegrationTest#test_createSnapshot_appendOnly_pres
 | `surge/surge-lifecycle.feature` | 4 | Activate, deactivate, list, outreach 403 |
 | `webhooks/subscription-crud.feature` | 2 | Create + list, delete |
 | `dv-referrals/*.feature` | 6 | Token lifecycle, security/RLS, warm handoff, dvAccess enforcement, analytics |
+| `dv-address/*.feature` | 6 | Policy-based address redaction, policy change safeguards |
 | `observability/*.feature` | 4 | Grafana health, Prometheus scrape, metrics polling, trace-e2e |
 | | | |
-| **Grand Total** | **313** | |
+| **Grand Total** | **332** | |
 
 ---
 
@@ -1003,6 +1004,14 @@ finding-a-bed-tonight/
 - [x] Addendum document: `docs/DV-OPAQUE-REFERRAL.md` with legal basis, architecture, VAWA checklist
 - [x] Demo walkthrough: 7 dedicated DV referral screenshots at `demo/dvindex.html`
 - [x] 12 integration tests, 7 Playwright tests, 6 Karate scenarios
+
+### Completed: DV Address Redaction
+
+- [x] Configurable tenant-level policy (`dv_address_visibility`): ADMIN_AND_ASSIGNED (default), ADMIN_ONLY, ALL_DV_ACCESS, NONE
+- [x] API-level redaction on shelter detail, list, and HSDS export endpoints
+- [x] Policy change endpoint: PLATFORM_ADMIN + confirmation header (internal/admin-only, not exposed outside firewall)
+- [x] 13 integration tests, 6 Karate scenarios
+- [x] Fixed flaky coordinator dashboard test (count() → toBeVisible() auto-retry)
 
 ### Planned: Remaining Phase 1 Capabilities
 
