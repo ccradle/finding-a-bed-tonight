@@ -8,6 +8,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.fabt.analytics.config.BatchJobScheduler;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -36,6 +39,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/batch/jobs")
 @Tag(name = "Batch Jobs", description = "Spring Batch job management and monitoring")
 public class BatchJobController {
+
+    private static final Logger log = LoggerFactory.getLogger(BatchJobController.class);
 
     private final JobExplorer jobExplorer;
     private final JobOperator jobOperator;
@@ -141,6 +146,7 @@ public class BatchJobController {
             batchJobScheduler.triggerJob(jobName, params);
             return ResponseEntity.ok(Map.of("status", "triggered", "jobName", jobName));
         } catch (Exception e) {
+            log.warn("Batch job operation failed: {}", e.getMessage(), e);
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
     }
@@ -159,6 +165,7 @@ public class BatchJobController {
                     "originalExecutionId", executionId,
                     "newExecutionId", newExecutionId));
         } catch (Exception e) {
+            log.warn("Batch job operation failed: {}", e.getMessage(), e);
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
     }
@@ -178,6 +185,7 @@ public class BatchJobController {
             batchJobScheduler.rescheduleJob(jobName, cron);
             return ResponseEntity.ok(Map.of("jobName", jobName, "cron", cron));
         } catch (Exception e) {
+            log.warn("Batch job operation failed: {}", e.getMessage(), e);
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
     }
@@ -197,6 +205,7 @@ public class BatchJobController {
             batchJobScheduler.setEnabled(jobName, enabled);
             return ResponseEntity.ok(Map.of("jobName", jobName, "enabled", enabled));
         } catch (Exception e) {
+            log.warn("Batch job operation failed: {}", e.getMessage(), e);
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
     }

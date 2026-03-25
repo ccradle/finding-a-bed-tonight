@@ -277,11 +277,13 @@ public class ReferralTokenService {
                             JsonNode expiry = node.get("dv_referral_expiry_minutes");
                             return expiry != null ? expiry.asInt(DEFAULT_EXPIRY_MINUTES) : DEFAULT_EXPIRY_MINUTES;
                         } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                            log.warn("Failed to read DV referral expiry from tenant config, using default: {}", e.getMessage());
                             return DEFAULT_EXPIRY_MINUTES;
                         }
                     })
                     .orElse(DEFAULT_EXPIRY_MINUTES);
         } catch (Exception e) {
+            log.warn("Failed to read DV referral expiry from tenant config, using default: {}", e.getMessage());
             return DEFAULT_EXPIRY_MINUTES;
         }
     }

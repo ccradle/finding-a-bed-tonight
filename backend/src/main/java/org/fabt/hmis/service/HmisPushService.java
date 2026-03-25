@@ -217,6 +217,7 @@ public class HmisPushService {
             for (byte b : hash) hex.append(String.format("%02x", b));
             return hex.toString();
         } catch (Exception e) {
+            log.error("SHA-256 hashing failed — deduplication may be affected: {}", e.getMessage(), e);
             return "hash-error";
         }
     }

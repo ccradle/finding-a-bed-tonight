@@ -13,6 +13,9 @@ import java.util.stream.Collectors;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.fabt.availability.service.AvailabilityService;
 import org.fabt.availability.service.AvailabilityService.AvailabilitySnapshot;
 import org.fabt.shelter.domain.DvAddressPolicy;
@@ -34,6 +37,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class ShelterService {
+
+    private static final Logger log = LoggerFactory.getLogger(ShelterService.class);
 
     /**
      * Capacity data derived from latest bed_availability snapshots.
@@ -84,11 +89,13 @@ public class ShelterService {
                             JsonNode policy = node.get("dv_address_visibility");
                             return policy != null ? DvAddressPolicy.fromString(policy.asText()) : DvAddressPolicy.ADMIN_AND_ASSIGNED;
                         } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                            log.warn("Failed to read DV address policy from tenant config, using default: {}", e.getMessage());
                             return DvAddressPolicy.ADMIN_AND_ASSIGNED;
                         }
                     })
                     .orElse(DvAddressPolicy.ADMIN_AND_ASSIGNED);
         } catch (Exception e) {
+            log.warn("Failed to read DV address policy from tenant config, using default: {}", e.getMessage());
             return DvAddressPolicy.ADMIN_AND_ASSIGNED;
         }
     }

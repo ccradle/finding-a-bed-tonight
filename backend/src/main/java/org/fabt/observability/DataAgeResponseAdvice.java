@@ -5,6 +5,9 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.fabt.shelter.api.ShelterController;
 import org.fabt.shelter.api.ShelterDetailResponse;
 import org.springframework.core.MethodParameter;
@@ -17,6 +20,8 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyAdvice;
 
 @RestControllerAdvice
 public class DataAgeResponseAdvice implements ResponseBodyAdvice<Object> {
+
+    private static final Logger log = LoggerFactory.getLogger(DataAgeResponseAdvice.class);
 
     @Override
     public boolean supports(MethodParameter returnType, Class<? extends HttpMessageConverter<?>> converterType) {
@@ -90,6 +95,7 @@ public class DataAgeResponseAdvice implements ResponseBodyAdvice<Object> {
             try {
                 return Instant.parse(str);
             } catch (Exception e) {
+                log.debug("Failed to extract updatedAt timestamp: {}", e.getMessage());
                 return null;
             }
         }
