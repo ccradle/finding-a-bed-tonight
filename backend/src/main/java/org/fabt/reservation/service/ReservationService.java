@@ -263,11 +263,13 @@ public class ReservationService {
                             JsonNode holdDuration = node.get("hold_duration_minutes");
                             return holdDuration != null ? holdDuration.asInt(DEFAULT_HOLD_DURATION_MINUTES) : DEFAULT_HOLD_DURATION_MINUTES;
                         } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                            log.warn("Failed to read hold duration from tenant config, using default: {}", e.getMessage());
                             return DEFAULT_HOLD_DURATION_MINUTES;
                         }
                     })
                     .orElse(DEFAULT_HOLD_DURATION_MINUTES);
         } catch (org.springframework.dao.DataAccessException e) {
+            log.warn("Failed to read hold duration from tenant config, using default: {}", e.getMessage());
             return DEFAULT_HOLD_DURATION_MINUTES;
         }
     }

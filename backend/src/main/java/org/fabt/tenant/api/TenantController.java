@@ -165,6 +165,7 @@ public class TenantController {
         try {
             org.fabt.shelter.domain.DvAddressPolicy.valueOf(policyValue);
         } catch (IllegalArgumentException e) {
+            log.warn("Invalid DV address policy value: {}", e.getMessage());
             return ResponseEntity.badRequest()
                     .body(Map.of("error", "Invalid policy: " + policyValue, "validPolicies",
                             java.util.Arrays.stream(org.fabt.shelter.domain.DvAddressPolicy.values())

@@ -195,6 +195,10 @@ log "Loading seed data..."
 docker compose exec -T postgres psql -U fabt -d fabt < infra/scripts/seed-data.sql >/dev/null 2>&1
 log "Seed data loaded (10 shelters, 3 users, 1 tenant)."
 
+log "Loading demo activity data (28 days of snapshots, searches, reservations)..."
+docker compose exec -T postgres psql -U fabt -d fabt < infra/scripts/demo-activity-seed.sql >/dev/null 2>&1
+log "Demo activity data loaded."
+
 # --- Step 5: Start frontend (unless backend-only mode) ---
 if [[ "$BACKEND_ONLY" == false ]]; then
     log "Starting frontend on http://localhost:5173 ..."

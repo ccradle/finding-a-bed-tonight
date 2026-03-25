@@ -1,5 +1,8 @@
 package org.fabt.auth.api;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
 import org.fabt.auth.domain.User;
@@ -18,6 +21,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/v1/auth")
 public class AuthController {
+
+    private static final Logger log = LoggerFactory.getLogger(AuthController.class);
 
     private final TenantService tenantService;
     private final UserRepository userRepository;
@@ -90,6 +95,7 @@ public class AuthController {
         try {
             claims = jwtService.validateToken(request.refreshToken());
         } catch (Exception e) {
+            log.debug("Token refresh failed: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(new ErrorBody("Invalid refresh token"));
         }

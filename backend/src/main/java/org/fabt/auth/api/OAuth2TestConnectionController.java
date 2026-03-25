@@ -2,6 +2,9 @@ package org.fabt.auth.api;
 
 import java.util.Map;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import io.swagger.v3.oas.annotations.Operation;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -15,6 +18,8 @@ import org.springframework.web.client.RestClient;
 @RequestMapping("/api/v1/oauth2")
 @PreAuthorize("hasRole('PLATFORM_ADMIN')")
 public class OAuth2TestConnectionController {
+
+    private static final Logger log = LoggerFactory.getLogger(OAuth2TestConnectionController.class);
 
     private final RestClient restClient;
 
@@ -42,6 +47,7 @@ public class OAuth2TestConnectionController {
                 return ResponseEntity.ok(Map.of("success", false, "message", "Response does not contain OIDC configuration"));
             }
         } catch (Exception e) {
+            log.warn("OIDC discovery test failed: {}", e.getMessage());
             return ResponseEntity.ok(Map.of("success", false, "message", "Could not reach OIDC discovery endpoint: " + e.getMessage()));
         }
     }

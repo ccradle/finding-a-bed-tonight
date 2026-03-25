@@ -208,6 +208,7 @@ public class HsdsImportAdapter {
             try {
                 return Double.parseDouble(child.asText());
             } catch (NumberFormatException e) {
+                log.debug("Unparseable numeric value during HSDS import: {}", e.getMessage());
                 return null;
             }
         }
