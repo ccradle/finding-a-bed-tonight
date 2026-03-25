@@ -234,7 +234,18 @@ class AnalyticsIntegrationTest extends BaseIntegrationTest {
     // 16.15 DV summary suppressed for single-shelter CoC
     @Test
     void dvSummary_suppressedWhenOnlyOneDvShelter() {
+        // Clean slate: remove all DV shelters for this tenant, then create exactly 1
+        jdbcTemplate.update(
+                "DELETE FROM bed_availability WHERE shelter_id IN (SELECT id FROM shelter WHERE tenant_id = ? AND dv_shelter = true)",
+                tenantId);
+        jdbcTemplate.update(
+                "DELETE FROM shelter_constraints WHERE shelter_id IN (SELECT id FROM shelter WHERE tenant_id = ? AND dv_shelter = true)",
+                tenantId);
+        jdbcTemplate.update("DELETE FROM shelter WHERE tenant_id = ? AND dv_shelter = true", tenantId);
         createTestShelter("Single DV Shelter", true);
+
+        // Evict cached DV summary
+        cacheService.evictAll("analytics-dv-summary");
 
         var dvAdmin = authHelper.setupUserWithDvAccess(
                 "dv-suppress-admin@test.fabt.org", "DV Suppress Admin", new String[]{"COC_ADMIN"});
@@ -287,13 +298,18 @@ class AnalyticsIntegrationTest extends BaseIntegrationTest {
     // 16.17 HMIS transformer suppresses DV aggregate for single-shelter CoC
     @Test
     void hmisTransformer_suppressesDvAggregateForSingleShelterCoC() {
+        // Clean slate: remove all DV shelters, then create exactly 1
+        jdbcTemplate.update(
+                "DELETE FROM bed_availability WHERE shelter_id IN (SELECT id FROM shelter WHERE tenant_id = ? AND dv_shelter = true)",
+                tenantId);
+        jdbcTemplate.update(
+                "DELETE FROM shelter_constraints WHERE shelter_id IN (SELECT id FROM shelter WHERE tenant_id = ? AND dv_shelter = true)",
+                tenantId);
+        jdbcTemplate.update("DELETE FROM shelter WHERE tenant_id = ? AND dv_shelter = true", tenantId);
         createTestShelter("HMIS DV Single", true);
         createTestShelter("HMIS Non-DV", false);
 
-        org.fabt.hmis.service.HmisTransformer transformer =
-                restTemplate.getRestTemplate().getInterceptors() != null
-                        ? null : null; // Use autowired below
-        // Transformer test is covered via the HIC export endpoint which uses same logic
+        // Transformer test is covered via the HIC export endpoint which uses same suppression logic
         ResponseEntity<String> response = restTemplate.exchange(
                 "/api/v1/analytics/hic?date=2026-01-29",
                 HttpMethod.GET,

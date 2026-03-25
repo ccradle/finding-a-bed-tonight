@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useContext, lazy, Suspense } from 'react';
-import { FormattedMessage, useIntl } from 'react-intl';
+import { FormattedMessage } from 'react-intl';
 import { api } from '../services/api';
 import { AuthContext } from '../auth/AuthContext';
 
@@ -136,7 +136,6 @@ function ragColor(utilization: number): { color: string; bg: string } {
 // --- Main Analytics Tab Component ---
 
 export default function AnalyticsTab() {
-  const intl = useIntl();
   const { user } = useContext(AuthContext);
   const isPlatformAdmin = user?.roles?.includes('PLATFORM_ADMIN');
 
@@ -391,7 +390,6 @@ function UtilizationChart({ data }: { data: Array<{ summaryDate: string; avgUtil
 // --- Batch Jobs Section ---
 
 function BatchJobsSection({ isPlatformAdmin }: { isPlatformAdmin: boolean }) {
-  const intl = useIntl();
   const [jobs, setJobs] = useState<BatchJob[]>([]);
   const [selectedJob, setSelectedJob] = useState<string | null>(null);
   const [executions, setExecutions] = useState<JobExecution[]>([]);
