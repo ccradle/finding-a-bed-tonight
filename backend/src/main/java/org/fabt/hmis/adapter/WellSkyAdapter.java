@@ -26,15 +26,13 @@ public class WellSkyAdapter implements HmisVendorAdapter {
         csv.append("ProjectID,ProjectName,HouseholdType,BedInventory,BedsOccupied,Utilization,InventoryDate\n");
 
         for (HmisInventoryRecord record : records) {
-            csv.append(String.format("%s,%s,%s,%d,%d,%.1f,%s\n",
-                    record.projectId() != null ? record.projectId() : "AGGREGATED",
-                    escapeCsv(record.projectName()),
-                    record.householdType(),
-                    record.bedInventory(),
-                    record.bedsOccupied(),
-                    record.utilizationPercent(),
-                    record.inventoryDate()
-            ));
+            csv.append(record.projectId() != null ? record.projectId() : "AGGREGATED").append(',')
+               .append(escapeCsv(record.projectName())).append(',')
+               .append(record.householdType()).append(',')
+               .append(record.bedInventory()).append(',')
+               .append(record.bedsOccupied()).append(',')
+               .append(String.format("%.1f", record.utilizationPercent())).append(',')
+               .append(record.inventoryDate()).append('\n');
         }
 
         log.info("Generated WellSky CSV with {} records ({} bytes) for {}",

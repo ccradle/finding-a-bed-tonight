@@ -58,10 +58,11 @@ public class BatchJobController {
         Map<String, String> crons = batchJobScheduler.getCurrentCrons();
         Map<String, Boolean> enabled = batchJobScheduler.getEnabledState();
 
-        for (String jobName : crons.keySet()) {
+        for (Map.Entry<String, String> entry : crons.entrySet()) {
+            String jobName = entry.getKey();
             Map<String, Object> jobInfo = new HashMap<>();
             jobInfo.put("jobName", jobName);
-            jobInfo.put("cron", crons.get(jobName));
+            jobInfo.put("cron", entry.getValue());
             jobInfo.put("enabled", enabled.getOrDefault(jobName, false));
 
             // Last execution status
@@ -97,8 +98,10 @@ public class BatchJobController {
                 execInfo.put("status", execution.getStatus().name());
                 execInfo.put("startTime", execution.getStartTime());
                 execInfo.put("endTime", execution.getEndTime());
-                execInfo.put("exitCode", execution.getExitStatus().getExitCode());
-                execInfo.put("exitMessage", execution.getExitStatus().getExitDescription());
+                if (execution.getExitStatus() != null) {
+                    execInfo.put("exitCode", execution.getExitStatus().getExitCode());
+                    execInfo.put("exitMessage", execution.getExitStatus().getExitDescription());
+                }
 
                 if (execution.getStartTime() != null && execution.getEndTime() != null) {
                     execInfo.put("durationMs", Duration.between(

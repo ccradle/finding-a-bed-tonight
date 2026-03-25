@@ -54,12 +54,14 @@ public class HmisConfigService {
                                 ));
                             }
                             return result;
-                        } catch (Exception e) {
+                        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                            return List.<HmisVendorConfig>of();
+                        } catch (IllegalArgumentException e) {
                             return List.<HmisVendorConfig>of();
                         }
                     })
                     .orElse(List.of());
-        } catch (Exception e) {
+        } catch (java.util.NoSuchElementException e) {
             return List.of();
         }
     }
