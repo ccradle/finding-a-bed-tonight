@@ -13,6 +13,8 @@ Open-source emergency shelter bed availability platform. Matches homeless indivi
 
 **[HMIS Bridge Walkthrough](https://ccradle.github.io/findABed/demo/hmisindex.html)** — 4 screenshots showing the HMIS export flow: data preview with DV aggregation, push controls, Grafana operational dashboard.
 
+**[CoC Analytics Walkthrough](https://ccradle.github.io/findABed/demo/analyticsindex.html)** — 5 screenshots showing the analytics dashboard: executive summary, utilization trends, demand signals, batch job management, HIC/PIT export.
+
 ---
 
 ## Problem Statement & Business Value
@@ -58,6 +60,9 @@ An open-source platform that matches homeless individuals and families to availa
 │  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐                    │
 │  │ subscription │ │ observability │ │     hmis    │───────────────┐    │
 │  └──────────────┘ └──────────────┘ └──────────────┘               │    │
+│  ┌──────────────────────────────────────────────┐                 │    │
+│  │ analytics (Spring Batch · HIC/PIT · Recharts)│                 │    │
+│  └──────────────────────────────────────────────┘                 │    │
 │  ┌─────────────────── shared kernel ───────────────────────┐      │    │
 │  │ config · cache · event · security · web                 │      │    │
 │  └─────────────────────────────────────────────────────────┘      │    │
@@ -73,7 +78,7 @@ An open-source platform that matches homeless individuals and families to availa
 
 ## Architecture
 
-The backend is a Spring Boot 3.4 modular monolith. Each bounded context lives in its own top-level package under `org.fabt.*` with enforced boundaries (15 ArchUnit rules). A shared kernel provides cross-cutting infrastructure (security filters, caching, event bus, JDBC configuration).
+The backend is a Spring Boot 3.4 modular monolith. Each bounded context lives in its own top-level package under `org.fabt.*` with enforced boundaries (21 ArchUnit rules). A shared kernel provides cross-cutting infrastructure (security filters, caching, event bus, JDBC configuration).
 
 Three deployment tiers allow the same codebase to serve communities of vastly different size and budget:
 
@@ -94,12 +99,12 @@ Three deployment tiers allow the same codebase to serve communities of vastly di
 | Layer | Technology |
 |---|---|
 | Backend | Java 21, Spring Boot 3.4, Spring MVC, Spring Data JDBC |
-| Database | PostgreSQL 16, Flyway (22 migrations), Row Level Security (DV shelters) |
+| Database | PostgreSQL 16, Flyway (25 migrations), Row Level Security (DV shelters) |
 | Cache | Caffeine L1 / + Redis L2 (Standard/Full) |
 | Events | Spring Events (Lite) / Kafka (Full) |
 | Auth | JWT + OAuth2/OIDC + API Keys (hybrid) |
 | Frontend | React 19, Vite, TypeScript, Workbox PWA, react-intl (EN/ES) |
-| Testing | JUnit 5, Testcontainers, ArchUnit (218 tests), Playwright (82 UI tests), Karate (48 API tests), Gatling (performance) |
+| Testing | JUnit 5, Testcontainers, ArchUnit (234 tests), Playwright (98 UI tests), Karate (73 API tests), Gatling (5 simulations) |
 | Infra | Docker, GitHub Actions CI/CD + E2E pipeline, Terraform (3 tiers) |
 
 ---
@@ -121,10 +126,13 @@ The backend is a **modular monolith** — not a flat package-by-layer structure.
 | `dataimport` | `org.fabt.dataimport` | HSDS JSON import, 211 CSV import (fuzzy matching), import audit log |
 | `observability` | `org.fabt.observability` | Structured JSON logging, Micrometer metrics, health probes, data freshness, i18n |
 | `subscription` | `org.fabt.subscription` | Webhook subscriptions, HMAC-SHA256 event delivery, MCP-ready |
+| `referral` | `org.fabt.referral` | DV opaque referral tokens: create, accept, reject, expire, warm handoff |
+| `hmis` | `org.fabt.hmis` | HMIS bridge: async push to vendors (Clarity/WellSky/ClientTrack), outbox pattern, DV aggregation |
+| `analytics` | `org.fabt.analytics` | CoC analytics: utilization trends, demand signals, HIC/PIT export, Spring Batch jobs, separate connection pool |
 
 **Shared kernel:** `org.fabt.shared` — config, cache (`CacheService`, `CacheNames`), event (`EventBus`, `DomainEvent`), security (`JwtAuthenticationFilter`, `ApiKeyAuthenticationFilter`, `SecurityConfig`), web (`TenantContext`, `GlobalExceptionHandler`).
 
-**ArchUnit enforcement:** 19 architecture tests verify that modules do not access each other's `domain`, `repository`, or `service` packages. Only `api` and `shared` packages are accessible across module boundaries.
+**ArchUnit enforcement:** 21 architecture tests verify that modules do not access each other's `domain`, `repository`, or `service` packages. Only `api` and `shared` packages are accessible across module boundaries.
 
 ---
 
@@ -145,7 +153,7 @@ Phase 2 will add an MCP server as a thin wrapper around the REST API, enabling n
 
 ## Database Schema
 
-22 Flyway migrations (V1–V22 + V8.1):
+25 Flyway migrations (V1–V24 + V8.1):
 
 | Migration | Description |
 |---|---|
@@ -172,6 +180,8 @@ Phase 2 will add an MCP server as a thin wrapper around the REST API, enabling n
 | V20 | Drop `shelter_capacity` — migrate data to `bed_availability`, single source of truth |
 | V21 | `referral_token` — DV opaque referral tokens (zero PII, hard-delete purge, RLS) |
 | V22 | `hmis_outbox` + `hmis_audit_log` — async push outbox and audit trail for HMIS bridge |
+| V23 | `bed_search_log` + `daily_utilization_summary` — analytics demand logging and pre-aggregation. BRIN index on `bed_availability.snapshot_ts` |
+| V24 | Spring Batch schema (6 tables, 3 sequences) — job/step execution history for batch jobs |
 
 ### Entity Relationship Diagram
 
@@ -332,12 +342,12 @@ curl -s http://localhost:8080/actuator/health | python3 -m json.tool
 ```bash
 cd backend
 
-# Run all 218 backend tests
+# Run all 234 backend tests
 mvn test
 
 # Run E2E tests (requires dev-start.sh stack running)
-cd ../e2e/playwright && npx playwright test    # 82 UI tests
-cd ../e2e/karate && mvn test                   # 54 API tests (50 + 4 @observability)
+cd ../e2e/playwright && npx playwright test    # 98 UI tests
+cd ../e2e/karate && mvn test                   # 73 API tests (69 + 4 @observability)
 cd ../e2e/gatling && mvn verify -Pperf         # Gatling performance simulations
 
 # Run a specific test class
@@ -354,7 +364,7 @@ mvn test -Dtest="AvailabilityIntegrationTest#test_createSnapshot_appendOnly_pres
 | Test Class | Tests | What It Covers |
 |---|---|---|
 | `ApplicationTest` | 1 | Spring context loads successfully |
-| `ArchitectureTest` | 17 | ArchUnit module boundary enforcement (9 modules) |
+| `ArchitectureTest` | 21 | ArchUnit module boundary enforcement (12 modules) |
 | `TenantIntegrationTest` | 8 | Tenant CRUD, config defaults, config update |
 | `AuthIntegrationTest` | 7 | JWT login, refresh, wrong password/email/tenant |
 | `ApiKeyAuthTest` | 6 | API key auth, rotation, deactivation, role resolution |
@@ -377,9 +387,9 @@ mvn test -Dtest="AvailabilityIntegrationTest#test_createSnapshot_appendOnly_pres
 | `DvReferralIntegrationTest` | 12 | Token lifecycle, warm handoff, dvAccess enforcement, purge, RLS defense-in-depth, analytics |
 | `DvAddressRedactionTest` | 13 | Policy-based address redaction: ADMIN_AND_ASSIGNED, ADMIN_ONLY, ALL_DV_ACCESS, NONE, safeguards |
 | `HmisBridgeIntegrationTest` | 10 | Transformer, DV aggregation, outbox, push, preview, status, security |
-| **Backend Total** | **218** | |
+| **Backend Total** | **234** | |
 | | | |
-| **E2E: Playwright** | **82** | **UI tests (Chromium, data-testid locators)** |
+| **E2E: Playwright** | **98** | **UI tests (Chromium, data-testid locators)** |
 | `auth.spec.ts` | 4 | Login per role, failed login |
 | `outreach-search.spec.ts` | 9 | Results, filters, modal, hold/cancel, language, freshness |
 | `coordinator-dashboard.spec.ts` | 5 | Load, expand, update, save, hold indicator |
@@ -395,7 +405,7 @@ mvn test -Dtest="AvailabilityIntegrationTest#test_createSnapshot_appendOnly_pres
 | `hmis-export.spec.ts` | 5 | HMIS Export admin tab, preview, history, push |
 | `capture-dv-screenshots.spec.ts` | 7 | DV referral flow screenshot capture |
 | | | |
-| **E2E: Karate** | **54** | **API contract tests (feature files)** |
+| **E2E: Karate** | **73** | **API contract tests (feature files)** |
 | `auth/login.feature` | 5 | JWT login, refresh, invalid, no-auth 401, API key |
 | `shelters/shelter-crud.feature` | 6 | Create, update, list, filter, HSDS, outreach 403 |
 | `availability/availability.feature` | 6 | PATCH snapshot, bed search, filters, outreach 403, detail |
@@ -408,7 +418,7 @@ mvn test -Dtest="AvailabilityIntegrationTest#test_createSnapshot_appendOnly_pres
 | `hmis/*.feature` | 6 | HMIS push, preview, status, security |
 | `observability/*.feature` | 4 | Grafana health, Prometheus scrape, metrics polling, trace-e2e |
 | | | |
-| **Grand Total** | **354** | |
+| **Grand Total** | **405** | |
 
 ---
 
@@ -781,13 +791,13 @@ finding-a-bed-tonight/
 │       ├── main/resources/
 │       │   ├── application.yml                        # Base config (port 8080, OTel, Resilience4J)
 │       │   ├── application-observability.yml          # Management port 9091 (for dev Prometheus scrape)
-│       │   ├── db/migration/                          # 22 Flyway migrations (V1–V22 + V8.1)
+│       │   ├── db/migration/                          # 25 Flyway migrations (V1–V24 + V8.1)
 │       │   ├── logback-spring.xml                     # Structured JSON logging (Logstash encoder)
 │       │   └── messages/                              # i18n error messages (EN, ES)
-│       └── test/java/org/fabt/                        # 218 tests (unit + integration)
+│       └── test/java/org/fabt/                        # 234 tests (unit + integration)
 │           ├── BaseIntegrationTest.java               # Singleton Testcontainers PostgreSQL
 │           ├── TestAuthHelper.java                    # Per-role JWT helper for tests
-│           ├── ArchitectureTest.java                  # 15 ArchUnit module boundary rules
+│           ├── ArchitectureTest.java                  # 21 ArchUnit module boundary rules
 │           ├── availability/AvailabilityIntegrationTest.java  # 10 tests
 │           ├── surge/SurgeIntegrationTest.java         # 8 tests
 │           ├── availability/TestEventListener.java    # Captures DomainEvents for assertions
@@ -862,16 +872,17 @@ finding-a-bed-tonight/
 │               ├── reservations/*.feature              # 4 scenarios — lifecycle, cancel, auth, concurrency
 │               ├── surge/surge-lifecycle.feature        # 4 scenarios — activate, deactivate, list, 403
 │               └── webhooks/subscription-crud.feature  # 2 scenarios — create, delete
-│   └── gatling/                                       # Performance tests (Gatling 3.x, Scala)
+│   └── gatling/                                       # Performance tests (Gatling 3.x, Java)
 │       ├── pom.xml                                    # Standalone Maven project, `perf` profile
-│       └── src/test/scala/fabt/
-│           ├── FabtSimulation.scala                   # Base class — HTTP protocol, JWT acquisition
-│           ├── BedSearchSimulation.scala              # 50 VU ramp, 4 payload variants, SLO assertions
-│           ├── AvailabilityUpdateSimulation.scala      # Multi-shelter + same-shelter stress
-│           └── SurgeLoadSimulation.scala              # Stub (requires surge-mode — implemented)
+│       └── src/gatling/java/fabt/
+│           ├── FabtSimulation.java                    # Base class — HTTP protocol, JWT acquisition
+│           ├── BedSearchSimulation.java               # 50 VU ramp, 4 payload variants, SLO assertions
+│           ├── AvailabilityUpdateSimulation.java       # Multi-shelter + same-shelter stress
+│           ├── SurgeLoadSimulation.java               # Stub (requires surge-mode — implemented)
+│           └── AnalyticsMixedLoadSimulation.java      # OLTP + analytics concurrent load, p99 assertions
 │
 ├── docs/
-│   ├── schema.dbml                                    # Database schema (V1–V20, DBML format)
+│   ├── schema.dbml                                    # Database schema (V1–V24, DBML format)
 │   ├── erd.png                                        # Entity relationship diagram (from dbdiagram.io)
 │   ├── asyncapi.yaml                                  # EventBus contract (AsyncAPI 3.0, x-security)
 │   ├── architecture.drawio                            # Architecture diagram (draw.io) — includes observability stack
@@ -908,7 +919,7 @@ finding-a-bed-tonight/
 ### Completed: Platform Foundation (archived)
 
 - [x] Modular monolith backend (Java 21, Spring Boot 3.4, 6 modules, ArchUnit boundaries)
-- [x] 22 Flyway migrations (V1–V22 + V8.1), PostgreSQL 16, Row Level Security for DV shelters
+- [x] 25 Flyway migrations (V1–V24 + V8.1), PostgreSQL 16, Row Level Security for DV shelters
 - [x] 3 deployment profiles (Lite / Standard / Full) with CacheService + EventBus abstractions
 - [x] Multi-tenant auth: JWT + API keys + OAuth2 provider management, 4 roles, dual-layer security
 - [x] Shelter module: CRUD, constraints, capacities, HSDS 3.0 export, coordinator assignments
@@ -1037,17 +1048,20 @@ finding-a-bed-tonight/
 - [x] Grafana HMIS Bridge dashboard: push rate, failures, latency, circuit breaker, dead letter count (observability-dependent)
 - [x] 10 integration tests, 5 Playwright tests, 6 Karate scenarios
 
-### In Progress: CoC Analytics
+### Completed: CoC Analytics
 
-- [ ] Aggregate analytics dashboard (utilization trends, demand signals, geographic view)
-- [ ] Spring Batch for complex jobs (pre-aggregation, HMIS push, HIC/PIT export) — all tiers
-- [ ] Admin UI job management: schedule editing, run history, step-level detail, restart
-- [ ] HIC/PIT one-click export in HUD format
-- [ ] Separate HikariCP connection pools (OLTP vs analytics isolation)
-- [ ] Pre-aggregation summary table with BRIN index
-- [ ] Unmet demand tracking via bed search zero-result logging
-- [ ] Gatling mixed-load performance test
-- [ ] 9 requirements, 36 scenarios, 115 tasks specced — ready for implementation
+- [x] Aggregate analytics dashboard (utilization trends, demand signals, shelter performance, geographic view)
+- [x] Spring Batch for complex jobs (daily aggregation, HMIS push, HIC/PIT export) — all tiers, zero additional infrastructure
+- [x] Admin UI job management: schedule editing, run history with step-level detail, manual trigger, restart failed jobs
+- [x] HIC/PIT one-click CSV export in HUD format
+- [x] Separate HikariCP connection pools (OLTP 10 connections vs analytics 3 connections, read-only, 30s timeout)
+- [x] Pre-aggregation summary table (`daily_utilization_summary`) with BRIN index on `bed_availability.snapshot_ts`
+- [x] Unmet demand tracking via bed search zero-result logging (`bed_search_log` table + Micrometer counter)
+- [x] DV small-cell suppression (D18): dual threshold — minimum 3 distinct DV shelters AND 5 beds for aggregation
+- [x] Recharts lazy-loaded via `React.lazy()` — ~200KB bundle only downloads when admin opens Analytics tab
+- [x] Grafana CoC Analytics dashboard: utilization gauge, zero-result rate, capacity trend, batch job metrics
+- [x] Gatling mixed-load performance test: bed search p99 136ms under concurrent analytics load (threshold: 200ms)
+- [x] 13 integration tests, 7 Playwright tests, 19 Karate scenarios, 1 Gatling simulation
 
 ---
 

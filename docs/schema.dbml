@@ -1,7 +1,7 @@
 // ============================================================================
 // Finding A Bed Tonight (FABT) — Database Schema
-// Source: Flyway migrations V1–V19 + V8.1
-// Generated: 2026-03-20
+// Source: Flyway migrations V1–V24 + V8.1
+// Generated: 2026-03-25
 // ============================================================================
 
 Project fabt {
@@ -472,4 +472,135 @@ Table hmis_audit_log {
   Append-only audit log of HMIS data transmissions.
   Required by HMIS security standards.
   '''
+}
+
+// ---------------------------------------------------------------------------
+// V23 — CoC Analytics (bed search log + daily utilization summary + BRIN)
+// ---------------------------------------------------------------------------
+// Bed search demand logging captures every search including zero-result searches
+// — the strongest unmet demand signal. Pre-aggregated daily summary avoids
+// querying raw snapshots (1,460+ rows/shelter/year → 365 rows/shelter/year).
+// BRIN index on bed_availability.snapshot_ts for efficient analytics range queries.
+
+Table bed_search_log {
+  id              uuid        [pk, note: 'gen_random_uuid()']
+  tenant_id       uuid        [not null, ref: > tenant.id]
+  population_type varchar     [note: 'PopulationType enum, nullable (unfiltered search)']
+  results_count   integer     [not null]
+  search_ts       timestamptz [not null, default: `now()`]
+
+  indexes {
+    (tenant_id, search_ts) [name: 'idx_bed_search_log_tenant_ts']
+  }
+
+  note: '''
+  Every bed search is logged here — especially zero-result searches.
+  Zero-result search count is the strongest unmet demand signal:
+  "47 searches for SINGLE_ADULT beds with zero results last Tuesday night."
+  Used for HUD grant applications and operational planning.
+  '''
+}
+
+Table daily_utilization_summary {
+  id               uuid             [pk, note: 'gen_random_uuid()']
+  tenant_id        uuid             [not null, ref: > tenant.id]
+  shelter_id       uuid             [not null, ref: > shelter.id, note: 'ON DELETE CASCADE']
+  population_type  varchar          [not null, note: 'PopulationType enum']
+  summary_date     date             [not null]
+  avg_utilization  "double precision" [not null]
+  max_occupied     integer          [not null]
+  min_available    integer          [not null]
+  snapshot_count   integer          [not null]
+
+  indexes {
+    (tenant_id, shelter_id, population_type, summary_date) [unique, name: 'uq_daily_util_tenant_shelter_pop_date']
+  }
+
+  note: '''
+  Pre-aggregated utilization summary populated by Spring Batch daily
+  aggregation job (3 AM). Analytics dashboard queries hit this table
+  instead of raw bed_availability snapshots.
+  One row per (tenant, shelter, population_type, date).
+  '''
+}
+
+// ---------------------------------------------------------------------------
+// V23 — BRIN index on bed_availability.snapshot_ts
+// ---------------------------------------------------------------------------
+// idx_bed_avail_snapshot_brin: BRIN index on bed_availability(snapshot_ts)
+// with pages_per_range=128. Ideal for append-only table where physical row
+// order correlates with timestamp. ~0.1% the size of a B-tree, near-zero
+// insert cost. Existing B-tree indexes remain for OLTP.
+
+// ---------------------------------------------------------------------------
+// V24 — Spring Batch schema
+// ---------------------------------------------------------------------------
+// Spring Batch 5.1.x execution metadata tables. Managed by Flyway
+// (spring.batch.jdbc.initialize-schema=never). Stores job/step execution
+// history for: daily aggregation, HMIS push, HIC/PIT export.
+
+Table batch_job_instance {
+  job_instance_id bigint      [pk]
+  version         bigint
+  job_name        varchar(100) [not null]
+  job_key         varchar(32) [not null]
+
+  indexes {
+    (job_name, job_key) [unique, name: 'JOB_INST_UN']
+  }
+}
+
+Table batch_job_execution {
+  job_execution_id bigint      [pk]
+  version          bigint
+  job_instance_id  bigint      [not null, ref: > batch_job_instance.job_instance_id]
+  create_time      timestamp   [not null]
+  start_time       timestamp
+  end_time         timestamp
+  status           varchar(10)
+  exit_code        varchar(2500)
+  exit_message     varchar(2500)
+  last_updated     timestamp
+}
+
+Table batch_job_execution_params {
+  job_execution_id bigint      [not null, ref: > batch_job_execution.job_execution_id]
+  parameter_name   varchar(100) [not null]
+  parameter_type   varchar(100) [not null]
+  parameter_value  varchar(2500)
+  identifying      "char(1)"   [not null]
+}
+
+Table batch_step_execution {
+  step_execution_id  bigint      [pk]
+  version            bigint      [not null]
+  step_name          varchar(100) [not null]
+  job_execution_id   bigint      [not null, ref: > batch_job_execution.job_execution_id]
+  create_time        timestamp   [not null]
+  start_time         timestamp
+  end_time           timestamp
+  status             varchar(10)
+  commit_count       bigint
+  read_count         bigint
+  filter_count       bigint
+  write_count        bigint
+  read_skip_count    bigint
+  write_skip_count   bigint
+  process_skip_count bigint
+  rollback_count     bigint
+  exit_code          varchar(2500)
+  exit_message       varchar(2500)
+  last_updated       timestamp
+}
+
+Table batch_step_execution_context {
+  step_execution_id  bigint      [pk, ref: - batch_step_execution.step_execution_id]
+  short_context      varchar(2500) [not null]
+  serialized_context text
+}
+
+Table batch_job_execution_context {
+  job_execution_id   bigint      [pk, ref: - batch_job_execution.job_execution_id]
+  short_context      varchar(2500) [not null]
+  serialized_context text
 }

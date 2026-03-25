@@ -522,6 +522,53 @@ The management port exposes: `/actuator/health`, `/actuator/prometheus`, `/actua
 
 ---
 
+## CoC Analytics Operations
+
+### Pre-Aggregation Schedule
+The `dailyAggregation` Spring Batch job runs at 3 AM by default. It reads `bed_availability` snapshots for the previous day, computes utilization metrics, and upserts to `daily_utilization_summary`. Analytics dashboard queries hit the summary table (365 rows/shelter/year) instead of raw snapshots (1,460+/shelter/year).
+
+**Cron default:** `0 0 3 * * *` — configurable via Admin UI or tenant config JSONB `batch_schedules.dailyAggregation.cron`.
+
+### Batch Job Monitoring
+Spring Batch execution metadata is stored in `BATCH_JOB_EXECUTION`, `BATCH_STEP_EXECUTION`, etc. (V24 migration). View from Admin UI → Analytics → Batch Jobs, or query directly:
+```sql
+SELECT job_name, status, start_time, end_time FROM batch_job_execution ORDER BY start_time DESC LIMIT 10;
+```
+
+**Grafana panels:** `FABT — CoC Analytics` dashboard includes batch job success/failure rate and duration trends.
+
+### Connection Pool Tuning
+Analytics queries run on a separate HikariCP pool (`analytics-pool`, max 3 connections, read-only, 30s statement_timeout, 256MB work_mem). OLTP pool (10 connections) is unaffected.
+
+**Verify pool separation:**
+```
+SELECT pool_name, active_connections, idle_connections FROM pg_stat_activity WHERE application_name LIKE 'analytics%';
+```
+
+**If analytics queries are slow:** Check `pg_stat_activity` for long-running analytics queries. The 30s statement_timeout kills runaway queries automatically.
+
+### HIC/PIT Generation
+One-click CSV export from Admin UI → Analytics → HIC/PIT Export. Also available via API:
+```
+GET /api/v1/analytics/hic?date=2026-01-29  (returns CSV)
+GET /api/v1/analytics/pit?date=2026-01-29  (returns CSV)
+```
+
+### DV Suppression Rules (Design D18)
+DV aggregate data is suppressed when:
+1. Fewer than 3 distinct DV shelters exist in the CoC (prevents "aggregate = individual")
+2. Total DV beds < 5 (minimum cell size)
+
+Applied to: analytics DV summary endpoint, HMIS push (HmisTransformer), HIC export, PIT export. When suppressed, DV data is omitted entirely — no partial data.
+
+### HMIS Push (Spring Batch)
+The `hmisPush` batch job replaced the old `@Scheduled` hourly push. Default cron: `0 0 */6 * * *` (every 6 hours). Business logic unchanged (outbox pattern, 3 retries, dead letter). Execution history visible in Admin UI → Batch Jobs.
+
+### Bed Search Demand Logging
+Every bed search is logged to `bed_search_log`. Zero-result searches increment the `fabt_search_zero_results_total` Micrometer counter. This data feeds the demand analytics and Grafana zero-result rate panel.
+
+---
+
 ## Common Issues
 
 ### Webhook delivery failures
