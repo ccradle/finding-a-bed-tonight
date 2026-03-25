@@ -63,7 +63,7 @@ interface SubscriptionRow {
   createdAt: string;
 }
 
-type TabKey = 'users' | 'shelters' | 'apiKeys' | 'imports' | 'subscriptions' | 'surge' | 'observability' | 'oauth2Providers';
+type TabKey = 'users' | 'shelters' | 'apiKeys' | 'imports' | 'subscriptions' | 'surge' | 'observability' | 'oauth2Providers' | 'hmisExport';
 
 const TABS: { key: TabKey; labelId: string }[] = [
   { key: 'users', labelId: 'admin.users' },
@@ -74,6 +74,7 @@ const TABS: { key: TabKey; labelId: string }[] = [
   { key: 'subscriptions', labelId: 'admin.subscriptions' },
   { key: 'observability', labelId: 'admin.observability' },
   { key: 'oauth2Providers', labelId: 'admin.oauth2Providers' },
+  { key: 'hmisExport', labelId: 'admin.hmisExport' },
 ];
 
 const ROLE_OPTIONS = ['PLATFORM_ADMIN', 'COC_ADMIN', 'COORDINATOR', 'OUTREACH_WORKER'];
@@ -132,6 +133,7 @@ export function AdminPanel() {
       {activeTab === 'surge' && <SurgeTab />}
       {activeTab === 'observability' && <ObservabilityTab />}
       {activeTab === 'oauth2Providers' && <OAuth2ProvidersTab />}
+      {activeTab === 'hmisExport' && <HmisExportTab />}
     </div>
   );
 }
@@ -1525,6 +1527,211 @@ function OAuth2ProvidersTab() {
               </div>
             </div>
           </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// --- HMIS Export Tab ---
+
+interface HmisInventoryRecord {
+  projectId: string | null;
+  projectName: string;
+  householdType: string;
+  bedInventory: number;
+  bedsOccupied: number;
+  utilizationPercent: number;
+  isDvAggregated: boolean;
+}
+
+interface HmisAuditEntry {
+  vendorType: string;
+  pushTimestamp: string;
+  status: string;
+  recordCount: number;
+  errorMessage: string | null;
+}
+
+function HmisExportTab() {
+  const intl = useIntl();
+  const [preview, setPreview] = useState<HmisInventoryRecord[]>([]);
+  const [history, setHistory] = useState<HmisAuditEntry[]>([]);
+  const [status, setStatus] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [pushing, setPushing] = useState(false);
+  const [dvFilter, setDvFilter] = useState<boolean | null>(null);
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [statusData, previewData, historyData] = await Promise.all([
+        api.get<any>('/api/v1/hmis/status'),
+        api.get<HmisInventoryRecord[]>('/api/v1/hmis/preview'),
+        api.get<HmisAuditEntry[]>('/api/v1/hmis/history?limit=20'),
+      ]);
+      setStatus(statusData);
+      setPreview(previewData);
+      setHistory(historyData);
+    } catch { /* silent */ }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  const handlePush = async () => {
+    setPushing(true);
+    try {
+      await api.post('/api/v1/hmis/push', {});
+      await fetchData();
+    } catch { /* silent */ }
+    setPushing(false);
+  };
+
+  const filteredPreview = dvFilter === null ? preview
+    : preview.filter(r => r.isDvAggregated === dvFilter);
+
+  if (loading) return <div style={{ padding: 20, color: '#64748b' }}><FormattedMessage id="coord.loading" /></div>;
+
+  return (
+    <div>
+      {/* Export Status */}
+      <div data-testid="hmis-status" style={{ marginBottom: 20 }}>
+        <h3 style={{ fontSize: 15, fontWeight: 700, color: '#0f172a', marginBottom: 10 }}>
+          <FormattedMessage id="hmis.exportStatus" />
+        </h3>
+        {status?.vendors?.length > 0 ? (
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            {status.vendors.map((v: any, i: number) => (
+              <div key={i} style={{
+                padding: '10px 16px', borderRadius: 10, border: '1px solid #e2e8f0',
+                backgroundColor: v.enabled ? '#f0fdf4' : '#fef2f2',
+              }}>
+                <span style={{ fontWeight: 700, fontSize: 13 }}>{v.type}</span>
+                <span style={{ marginLeft: 8, fontSize: 12, color: v.enabled ? '#166534' : '#991b1b' }}>
+                  {v.enabled ? 'Enabled' : 'Disabled'}
+                </span>
+                <span style={{ marginLeft: 8, fontSize: 11, color: '#64748b' }}>
+                  every {v.pushIntervalHours}h
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p style={{ fontSize: 14, color: '#64748b' }}><FormattedMessage id="hmis.noVendors" /></p>
+        )}
+        {status?.deadLetterCount > 0 && (
+          <div style={{ marginTop: 8, padding: '6px 12px', backgroundColor: '#fef2f2', borderRadius: 8, display: 'inline-block' }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#991b1b' }}>
+              {status.deadLetterCount} dead letter{status.deadLetterCount > 1 ? 's' : ''}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Manual Push */}
+      <div style={{ marginBottom: 20 }}>
+        <button data-testid="hmis-push-now" onClick={handlePush} disabled={pushing}
+          style={{
+            padding: '10px 20px', borderRadius: 10, border: 'none',
+            backgroundColor: pushing ? '#94a3b8' : '#1a56db', color: '#fff',
+            fontSize: 14, fontWeight: 700, cursor: pushing ? 'default' : 'pointer',
+          }}>
+          {pushing ? '...' : intl.formatMessage({ id: 'hmis.pushNow' })}
+        </button>
+      </div>
+
+      {/* Data Preview */}
+      <div data-testid="hmis-preview" style={{ marginBottom: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+          <h3 style={{ fontSize: 15, fontWeight: 700, color: '#0f172a' }}>
+            <FormattedMessage id="hmis.dataPreview" />
+          </h3>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button onClick={() => setDvFilter(null)} style={{
+              padding: '4px 10px', borderRadius: 6, border: `1px solid ${dvFilter === null ? '#1a56db' : '#e2e8f0'}`,
+              backgroundColor: dvFilter === null ? '#eff6ff' : '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+              color: dvFilter === null ? '#1a56db' : '#64748b',
+            }}>All</button>
+            <button onClick={() => setDvFilter(false)} style={{
+              padding: '4px 10px', borderRadius: 6, border: `1px solid ${dvFilter === false ? '#1a56db' : '#e2e8f0'}`,
+              backgroundColor: dvFilter === false ? '#eff6ff' : '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+              color: dvFilter === false ? '#1a56db' : '#64748b',
+            }}>Non-DV</button>
+            <button onClick={() => setDvFilter(true)} style={{
+              padding: '4px 10px', borderRadius: 6, border: `1px solid ${dvFilter === true ? '#7c3aed' : '#e2e8f0'}`,
+              backgroundColor: dvFilter === true ? '#f5f3ff' : '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+              color: dvFilter === true ? '#7c3aed' : '#64748b',
+            }}>DV (Aggregated)</button>
+          </div>
+        </div>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead>
+            <tr style={{ borderBottom: '2px solid #e2e8f0', textAlign: 'left' }}>
+              <th style={{ padding: '8px 12px', fontWeight: 700, color: '#475569' }}>Shelter</th>
+              <th style={{ padding: '8px 12px', fontWeight: 700, color: '#475569' }}>Population</th>
+              <th style={{ padding: '8px 12px', fontWeight: 700, color: '#475569', textAlign: 'right' }}>Total</th>
+              <th style={{ padding: '8px 12px', fontWeight: 700, color: '#475569', textAlign: 'right' }}>Occupied</th>
+              <th style={{ padding: '8px 12px', fontWeight: 700, color: '#475569', textAlign: 'right' }}>Util %</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredPreview.map((r, i) => (
+              <tr key={i} data-testid={`hmis-preview-row-${i}`} style={{
+                borderBottom: '1px solid #f1f5f9',
+                backgroundColor: r.isDvAggregated ? '#f5f3ff' : 'transparent',
+              }}>
+                <td style={{ padding: '8px 12px', fontWeight: r.isDvAggregated ? 700 : 400, color: r.isDvAggregated ? '#7c3aed' : '#0f172a' }}>
+                  {r.projectName}
+                </td>
+                <td style={{ padding: '8px 12px', color: '#475569', textTransform: 'capitalize' }}>
+                  {r.householdType.replace(/_/g, ' ').toLowerCase()}
+                </td>
+                <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600 }}>{r.bedInventory}</td>
+                <td style={{ padding: '8px 12px', textAlign: 'right' }}>{r.bedsOccupied}</td>
+                <td style={{ padding: '8px 12px', textAlign: 'right', color: r.utilizationPercent > 100 ? '#991b1b' : '#475569' }}>
+                  {r.utilizationPercent.toFixed(1)}%
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Export History */}
+      <div data-testid="hmis-history">
+        <h3 style={{ fontSize: 15, fontWeight: 700, color: '#0f172a', marginBottom: 10 }}>
+          <FormattedMessage id="hmis.exportHistory" />
+        </h3>
+        {history.length === 0 ? (
+          <p style={{ fontSize: 14, color: '#64748b' }}><FormattedMessage id="hmis.noHistory" /></p>
+        ) : (
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead>
+              <tr style={{ borderBottom: '2px solid #e2e8f0', textAlign: 'left' }}>
+                <th style={{ padding: '8px 12px', fontWeight: 700, color: '#475569' }}>Time</th>
+                <th style={{ padding: '8px 12px', fontWeight: 700, color: '#475569' }}>Vendor</th>
+                <th style={{ padding: '8px 12px', fontWeight: 700, color: '#475569' }}>Records</th>
+                <th style={{ padding: '8px 12px', fontWeight: 700, color: '#475569' }}>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {history.map((h, i) => (
+                <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                  <td style={{ padding: '8px 12px' }}>{new Date(h.pushTimestamp).toLocaleString()}</td>
+                  <td style={{ padding: '8px 12px' }}>{h.vendorType}</td>
+                  <td style={{ padding: '8px 12px' }}>{h.recordCount}</td>
+                  <td style={{ padding: '8px 12px' }}>
+                    <span style={{
+                      padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700,
+                      backgroundColor: h.status === 'SUCCESS' ? '#f0fdf4' : '#fef2f2',
+                      color: h.status === 'SUCCESS' ? '#166534' : '#991b1b',
+                    }}>{h.status}</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
     </div>

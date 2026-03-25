@@ -107,6 +107,9 @@ public class SecurityConfig {
                         // DV opaque referrals — requires dvAccess (enforced in service), role-based per endpoint
                         .requestMatchers("/api/v1/dv-referrals/**").authenticated()
 
+                        // HMIS bridge — admin endpoints, fine-grained via @PreAuthorize
+                        .requestMatchers("/api/v1/hmis/**").authenticated()
+
                         // Test reset — profile-gated (dev/test only), requires PLATFORM_ADMIN + confirmation header
                         .requestMatchers("/api/v1/test/**").hasRole("PLATFORM_ADMIN")
 

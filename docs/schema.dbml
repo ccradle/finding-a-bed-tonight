@@ -429,3 +429,47 @@ Table referral_token {
   RLS inherits DV shelter access via shelter FK.
   '''
 }
+
+// ---------------------------------------------------------------------------
+// V22 — HMIS Bridge (outbox + audit)
+// ---------------------------------------------------------------------------
+// Async push of bed inventory to HMIS vendors. No client PII.
+// Outbox pattern: PENDING → SENT/FAILED → DEAD_LETTER after 3 retries.
+
+Table hmis_outbox {
+  id              uuid        [pk, note: 'gen_random_uuid()']
+  tenant_id       uuid        [not null, ref: > tenant.id]
+  shelter_id      uuid        [ref: > shelter.id, note: 'ON DELETE SET NULL']
+  vendor_type     varchar     [not null, note: 'CLARITY, WELLSKY, CLIENTTRACK']
+  status          varchar     [not null, note: 'PENDING, SENT, FAILED, DEAD_LETTER']
+  payload         text        [not null, note: 'JSON or CSV payload']
+  created_at      timestamptz [not null]
+  sent_at         timestamptz
+  error_message   varchar
+  retry_count     integer     [not null, default: 0]
+
+  indexes {
+    (status, created_at) [name: 'idx_hmis_outbox_status']
+    (tenant_id, status) [name: 'idx_hmis_outbox_tenant']
+  }
+}
+
+Table hmis_audit_log {
+  id              uuid        [pk, note: 'gen_random_uuid()']
+  tenant_id       uuid        [not null, ref: > tenant.id]
+  vendor_type     varchar     [not null]
+  push_timestamp  timestamptz [not null]
+  record_count    integer     [not null]
+  status          varchar     [not null, note: 'SUCCESS, FAILED']
+  error_message   varchar
+  payload_hash    varchar     [note: 'SHA-256 of payload']
+
+  indexes {
+    (tenant_id, push_timestamp) [name: 'idx_hmis_audit_tenant_ts']
+  }
+
+  note: '''
+  Append-only audit log of HMIS data transmissions.
+  Required by HMIS security standards.
+  '''
+}
