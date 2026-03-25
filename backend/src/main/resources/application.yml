@@ -19,6 +19,12 @@ spring:
     user: ${FABT_DB_OWNER_USER:fabt}
     password: ${FABT_DB_OWNER_PASSWORD:fabt}
 
+  batch:
+    job:
+      enabled: false
+    jdbc:
+      initialize-schema: never
+
   jackson:
     serialization:
       write-dates-as-timestamps: false

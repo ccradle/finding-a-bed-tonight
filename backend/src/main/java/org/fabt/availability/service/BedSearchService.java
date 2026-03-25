@@ -10,6 +10,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
+import org.fabt.analytics.service.BedSearchLogger;
 import org.fabt.availability.domain.BedAvailability;
 import org.fabt.availability.domain.BedSearchRequest;
 import org.fabt.availability.domain.BedSearchResult;
@@ -39,17 +40,20 @@ public class BedSearchService {
     private final ShelterConstraintsRepository constraintsRepository;
     private final CacheService cacheService;
     private final ObservabilityMetrics metrics;
+    private final BedSearchLogger bedSearchLogger;
 
     public BedSearchService(BedAvailabilityRepository availabilityRepository,
                             ShelterService shelterService,
                             ShelterConstraintsRepository constraintsRepository,
                             CacheService cacheService,
-                            ObservabilityMetrics metrics) {
+                            ObservabilityMetrics metrics,
+                            BedSearchLogger bedSearchLogger) {
         this.availabilityRepository = availabilityRepository;
         this.shelterService = shelterService;
         this.constraintsRepository = constraintsRepository;
         this.cacheService = cacheService;
         this.metrics = metrics;
+        this.bedSearchLogger = bedSearchLogger;
     }
 
     @Transactional(readOnly = true)
@@ -64,6 +68,11 @@ public class BedSearchService {
         try {
             BedSearchResponse response = doSearch(request, surgeActive);
             metrics.bedSearchCounter(populationType).increment();
+            // Log search for demand analytics (Design D2)
+            bedSearchLogger.logSearch(
+                    TenantContext.getTenantId(),
+                    request.populationType(),
+                    response.totalCount());
             return response;
         } finally {
             timerSample.stop(metrics.bedSearchTimer(populationType));

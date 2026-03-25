@@ -28,7 +28,8 @@ class ArchitectureTest {
                             "org.fabt.subscription..",
                             "org.fabt.availability..",
                             "org.fabt.reservation..",
-                            "org.fabt.surge.."
+                            "org.fabt.surge..",
+                            "org.fabt.analytics.."
                     ).as("Shared kernel (except security) must not depend on any domain module");
 
     @ArchTest
@@ -42,7 +43,8 @@ class ArchitectureTest {
                             "org.fabt.subscription..",
                             "org.fabt.availability..",
                             "org.fabt.reservation..",
-                            "org.fabt.surge.."
+                            "org.fabt.surge..",
+                            "org.fabt.analytics.."
                     ).as("Shared security may depend on auth module but not other modules");
 
     // --- Modules must not access other modules' repositories ---
@@ -170,6 +172,26 @@ class ArchitectureTest {
                             "org.fabt.referral.repository..",
                             "org.fabt.surge.repository.."
                     ).as("HMIS module must not access other modules' repositories (service access allowed)");
+
+    // --- Analytics module boundary (Design D1) ---
+    // Analytics can access services from shelter, availability, reservation, referral,
+    // surge, and hmis modules — but NOT their repositories.
+
+    @ArchTest
+    static final ArchRule analytics_should_not_access_other_repositories =
+            noClasses().that().resideInAPackage("org.fabt.analytics..")
+                    .should().dependOnClassesThat().resideInAnyPackage(
+                            "org.fabt.tenant.repository..",
+                            "org.fabt.auth.repository..",
+                            "org.fabt.shelter.repository..",
+                            "org.fabt.dataimport.repository..",
+                            "org.fabt.subscription.repository..",
+                            "org.fabt.availability.repository..",
+                            "org.fabt.reservation.repository..",
+                            "org.fabt.referral.repository..",
+                            "org.fabt.surge.repository..",
+                            "org.fabt.hmis.repository.."
+                    ).as("Analytics module must not access other modules' repositories (service access allowed)");
 
     // --- No module should directly access another module's domain entities ---
 

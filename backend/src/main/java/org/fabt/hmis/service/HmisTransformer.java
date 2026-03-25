@@ -46,6 +46,7 @@ public class HmisTransformer {
             // Accumulators for DV aggregation
             int dvTotalBeds = 0;
             int dvOccupied = 0;
+            int dvShelterCount = 0; // D18: count distinct DV shelters for suppression check
 
             for (Shelter shelter : shelters) {
                 List<AvailabilitySnapshot> shelterSnapshots = allSnapshots.stream()
@@ -53,6 +54,7 @@ public class HmisTransformer {
                         .toList();
 
                 if (shelter.isDvShelter()) {
+                    dvShelterCount++;
                     // Aggregate DV — sum totals, don't create individual records
                     for (AvailabilitySnapshot snap : shelterSnapshots) {
                         dvTotalBeds += snap.bedsTotal();
@@ -82,8 +84,10 @@ public class HmisTransformer {
                 }
             }
 
-            // Add aggregated DV record if any DV beds exist
-            if (dvTotalBeds > 0) {
+            // Add aggregated DV record only if enough DV shelters exist (Design D18).
+            // If a CoC has fewer than 3 DV shelters, the aggregate count could identify
+            // individual shelters — suppress entirely to prevent re-identification.
+            if (dvTotalBeds > 0 && dvShelterCount >= 3) {
                 double dvUtilization = (double) dvOccupied / dvTotalBeds * 100.0;
                 records.add(new HmisInventoryRecord(
                         null, // no individual project ID

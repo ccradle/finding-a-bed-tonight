@@ -1,8 +1,11 @@
-import { useState, useEffect, useCallback, useContext } from 'react';
+import { useState, useEffect, useCallback, useContext, lazy, Suspense } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import { api } from '../services/api';
 import { DataAge } from '../components/DataAge';
 import { AuthContext } from '../auth/AuthContext';
+
+// Lazy-load Analytics tab — ~200KB Recharts bundle only downloads when admin opens it.
+const LazyAnalyticsTab = lazy(() => import('./AnalyticsTab'));
 
 // --- Types ---
 
@@ -63,7 +66,7 @@ interface SubscriptionRow {
   createdAt: string;
 }
 
-type TabKey = 'users' | 'shelters' | 'apiKeys' | 'imports' | 'subscriptions' | 'surge' | 'observability' | 'oauth2Providers' | 'hmisExport';
+type TabKey = 'users' | 'shelters' | 'apiKeys' | 'imports' | 'subscriptions' | 'surge' | 'observability' | 'oauth2Providers' | 'hmisExport' | 'analytics';
 
 const TABS: { key: TabKey; labelId: string }[] = [
   { key: 'users', labelId: 'admin.users' },
@@ -75,6 +78,7 @@ const TABS: { key: TabKey; labelId: string }[] = [
   { key: 'observability', labelId: 'admin.observability' },
   { key: 'oauth2Providers', labelId: 'admin.oauth2Providers' },
   { key: 'hmisExport', labelId: 'admin.hmisExport' },
+  { key: 'analytics', labelId: 'admin.analytics' },
 ];
 
 const ROLE_OPTIONS = ['PLATFORM_ADMIN', 'COC_ADMIN', 'COORDINATOR', 'OUTREACH_WORKER'];
@@ -134,6 +138,11 @@ export function AdminPanel() {
       {activeTab === 'observability' && <ObservabilityTab />}
       {activeTab === 'oauth2Providers' && <OAuth2ProvidersTab />}
       {activeTab === 'hmisExport' && <HmisExportTab />}
+      {activeTab === 'analytics' && (
+        <Suspense fallback={<div style={{ textAlign: 'center', padding: 40, color: '#64748b' }}>Loading analytics...</div>}>
+          <LazyAnalyticsTab />
+        </Suspense>
+      )}
     </div>
   );
 }
