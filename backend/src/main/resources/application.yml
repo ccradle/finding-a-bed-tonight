@@ -9,6 +9,12 @@ spring:
     url: jdbc:postgresql://localhost:5432/fabt
     username: ${FABT_DB_APP_USER:fabt_app}
     password: ${FABT_DB_APP_PASSWORD:fabt_app}
+    hikari:
+      # Little's Law: 70 peak concurrent × 0.17s avg hold = 12 connections needed.
+      # 20 provides ~60% headroom for traffic spikes and GC pauses.
+      maximum-pool-size: ${FABT_DB_POOL_SIZE:20}
+      connection-timeout: 5000
+      leak-detection-threshold: 10000
 
   flyway:
     enabled: true
