@@ -11,6 +11,8 @@ Open-source emergency shelter bed availability platform. Matches homeless indivi
 
 **[DV Opaque Referral Walkthrough](https://ccradle.github.io/findABed/demo/dvindex.html)** — 7 screenshots showing the privacy-preserving referral flow: request, screening, accept/reject, warm handoff. See [docs/DV-OPAQUE-REFERRAL.md](docs/DV-OPAQUE-REFERRAL.md) for the legal basis and architecture.
 
+**[HMIS Bridge Walkthrough](https://ccradle.github.io/findABed/demo/hmisindex.html)** — 4 screenshots showing the HMIS export flow: data preview with DV aggregation, push controls, Grafana operational dashboard.
+
 ---
 
 ## Problem Statement & Business Value
@@ -44,27 +46,27 @@ An open-source platform that matches homeless individuals and families to availa
 └─────────────────────────┬────────────────────────────────────────┘
                           │ REST API (/api/v1)
                           ▼
-┌──────────────────────────────────────────────────────────────────┐
-│              Spring Boot 3.4 (Modular Monolith)                  │
-│                                                                  │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────┐       │
-│  │  tenant  │ │   auth   │ │ shelter  │ │  dataimport  │       │
-│  └──────────┘ └──────────┘ └──────────┘ └──────────────┘       │
-│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐            │
-│  │ availability │ │ reservation  │ │    surge     │            │
-│  └──────────────┘ └──────────────┘ └──────────────┘            │
-│  ┌──────────────┐ ┌──────────────┐                              │
-│  │ subscription │ │ observability │                             │
-│  └──────────────┘ └──────────────┘                              │
-│  ┌─────────────────── shared kernel ───────────────────────┐     │
-│  │ config · cache · event · security · web                 │     │
-│  └─────────────────────────────────────────────────────────┘     │
-└──────┬──────────────┬───────────────────┬────────────────────────┘
-       │              │                   │
-  ┌────▼────┐   ┌─────▼─────┐      ┌─────▼─────┐
-  │PostgreSQL│  │   Redis   │      │   Kafka   │
-  │  16 +RLS │  │ (Std/Full)│      │  (Full)   │
-  └─────────┘   └───────────┘      └───────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│                  Spring Boot 3.4 (Modular Monolith)                      │
+│                                                                          │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────┐               │
+│  │  tenant  │ │   auth   │ │ shelter  │ │  dataimport  │               │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────────┘               │
+│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────┐      │
+│  │ availability │ │ reservation  │ │    surge     │ │ referral │      │
+│  └──────────────┘ └──────────────┘ └──────────────┘ └──────────┘      │
+│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐                    │
+│  │ subscription │ │ observability │ │     hmis    │───────────────┐    │
+│  └──────────────┘ └──────────────┘ └──────────────┘               │    │
+│  ┌─────────────────── shared kernel ───────────────────────┐      │    │
+│  │ config · cache · event · security · web                 │      │    │
+│  └─────────────────────────────────────────────────────────┘      │    │
+└──────┬──────────────┬───────────────────┬─────────────────────────┘    │
+       │              │                   │                              │
+  ┌────▼────┐   ┌─────▼─────┐      ┌─────▼─────┐              ┌────────▼────────┐
+  │PostgreSQL│  │   Redis   │      │   Kafka   │              │  HMIS Vendors   │
+  │  16 +RLS │  │ (Std/Full)│      │  (Full)   │              │ Clarity·WellSky │
+  └─────────┘   └───────────┘      └───────────┘              └─────────────────┘
 ```
 
 ---
@@ -92,12 +94,12 @@ Three deployment tiers allow the same codebase to serve communities of vastly di
 | Layer | Technology |
 |---|---|
 | Backend | Java 21, Spring Boot 3.4, Spring MVC, Spring Data JDBC |
-| Database | PostgreSQL 16, Flyway (21 migrations), Row Level Security (DV shelters) |
+| Database | PostgreSQL 16, Flyway (22 migrations), Row Level Security (DV shelters) |
 | Cache | Caffeine L1 / + Redis L2 (Standard/Full) |
 | Events | Spring Events (Lite) / Kafka (Full) |
 | Auth | JWT + OAuth2/OIDC + API Keys (hybrid) |
 | Frontend | React 19, Vite, TypeScript, Workbox PWA, react-intl (EN/ES) |
-| Testing | JUnit 5, Testcontainers, ArchUnit (207 tests), Playwright (77 UI tests), Karate (48 API tests), Gatling (performance) |
+| Testing | JUnit 5, Testcontainers, ArchUnit (218 tests), Playwright (82 UI tests), Karate (48 API tests), Gatling (performance) |
 | Infra | Docker, GitHub Actions CI/CD + E2E pipeline, Terraform (3 tiers) |
 
 ---
@@ -143,7 +145,7 @@ Phase 2 will add an MCP server as a thin wrapper around the REST API, enabling n
 
 ## Database Schema
 
-21 Flyway migrations (V1–V21 + V8.1):
+22 Flyway migrations (V1–V22 + V8.1):
 
 | Migration | Description |
 |---|---|
@@ -169,6 +171,7 @@ Phase 2 will add an MCP server as a thin wrapper around the REST API, enabling n
 | V19 | RLS for `surge_event` — tenant-scoped access |
 | V20 | Drop `shelter_capacity` — migrate data to `bed_availability`, single source of truth |
 | V21 | `referral_token` — DV opaque referral tokens (zero PII, hard-delete purge, RLS) |
+| V22 | `hmis_outbox` + `hmis_audit_log` — async push outbox and audit trail for HMIS bridge |
 
 ### Entity Relationship Diagram
 
@@ -329,12 +332,12 @@ curl -s http://localhost:8080/actuator/health | python3 -m json.tool
 ```bash
 cd backend
 
-# Run all 207 backend tests
+# Run all 218 backend tests
 mvn test
 
 # Run E2E tests (requires dev-start.sh stack running)
-cd ../e2e/playwright && npx playwright test    # 77 UI tests
-cd ../e2e/karate && mvn test                   # 48 API tests (44 + 4 @observability)
+cd ../e2e/playwright && npx playwright test    # 82 UI tests
+cd ../e2e/karate && mvn test                   # 54 API tests (50 + 4 @observability)
 cd ../e2e/gatling && mvn verify -Pperf         # Gatling performance simulations
 
 # Run a specific test class
@@ -373,9 +376,10 @@ mvn test -Dtest="AvailabilityIntegrationTest#test_createSnapshot_appendOnly_pres
 | `SurgeIntegrationTest` | 8 | Surge activation/deactivation, 409, 403, auto-expiry, overflow, search flag |
 | `DvReferralIntegrationTest` | 12 | Token lifecycle, warm handoff, dvAccess enforcement, purge, RLS defense-in-depth, analytics |
 | `DvAddressRedactionTest` | 13 | Policy-based address redaction: ADMIN_AND_ASSIGNED, ADMIN_ONLY, ALL_DV_ACCESS, NONE, safeguards |
-| **Backend Total** | **207** | |
+| `HmisBridgeIntegrationTest` | 10 | Transformer, DV aggregation, outbox, push, preview, status, security |
+| **Backend Total** | **218** | |
 | | | |
-| **E2E: Playwright** | **77** | **UI tests (Chromium, data-testid locators)** |
+| **E2E: Playwright** | **82** | **UI tests (Chromium, data-testid locators)** |
 | `auth.spec.ts` | 4 | Login per role, failed login |
 | `outreach-search.spec.ts` | 9 | Results, filters, modal, hold/cancel, language, freshness |
 | `coordinator-dashboard.spec.ts` | 5 | Load, expand, update, save, hold indicator |
@@ -388,9 +392,10 @@ mvn test -Dtest="AvailabilityIntegrationTest#test_createSnapshot_appendOnly_pres
 | `offline-behavior.spec.ts` | 3 | Offline banner, stale cache, queue replay |
 | `dv-referral.spec.ts` | 7 | DV referral request, screening, accept, reject, warm handoff |
 | `capture-screenshots.spec.ts` | 17 | Demo walkthrough screenshot capture |
+| `hmis-export.spec.ts` | 5 | HMIS Export admin tab, preview, history, push |
 | `capture-dv-screenshots.spec.ts` | 7 | DV referral flow screenshot capture |
 | | | |
-| **E2E: Karate** | **48** | **API contract tests (feature files)** |
+| **E2E: Karate** | **54** | **API contract tests (feature files)** |
 | `auth/login.feature` | 5 | JWT login, refresh, invalid, no-auth 401, API key |
 | `shelters/shelter-crud.feature` | 6 | Create, update, list, filter, HSDS, outreach 403 |
 | `availability/availability.feature` | 6 | PATCH snapshot, bed search, filters, outreach 403, detail |
@@ -400,9 +405,10 @@ mvn test -Dtest="AvailabilityIntegrationTest#test_createSnapshot_appendOnly_pres
 | `webhooks/subscription-crud.feature` | 2 | Create + list, delete |
 | `dv-referrals/*.feature` | 6 | Token lifecycle, security/RLS, warm handoff, dvAccess enforcement, analytics |
 | `dv-address/*.feature` | 6 | Policy-based address redaction, policy change safeguards |
+| `hmis/*.feature` | 6 | HMIS push, preview, status, security |
 | `observability/*.feature` | 4 | Grafana health, Prometheus scrape, metrics polling, trace-e2e |
 | | | |
-| **Grand Total** | **332** | |
+| **Grand Total** | **354** | |
 
 ---
 
@@ -722,6 +728,14 @@ finding-a-bed-tonight/
 │       │   │   ├── repository/ReferralTokenRepository.java
 │       │   │   ├── service/ReferralTokenService.java  # Lifecycle, dvAccess defense-in-depth (D14)
 │       │   │   └── service/ReferralTokenPurgeService.java  # @Scheduled hard-delete within 24h
+│       │   ├── hmis/                                   # HMIS bridge module — async push to HMIS vendors
+│       │   │   ├── api/HmisExportController.java      # Admin endpoints: status, preview, history, push, vendors
+│       │   │   ├── adapter/HmisVendorAdapter.java     # Strategy interface per vendor
+│       │   │   ├── adapter/ClarityAdapter.java        # Bitfocus REST API push
+│       │   │   ├── adapter/WellSkyAdapter.java        # HMIS CSV generation
+│       │   │   ├── service/HmisPushService.java       # Outbox orchestrator with retry + audit
+│       │   │   ├── service/HmisTransformer.java       # bed_availability → HMIS Element 2.07 (DV aggregation)
+│       │   │   └── schedule/HmisPushScheduler.java    # @Scheduled hourly push
 │       │   ├── surge/                                 # Surge module — White Flag activation, overflow
 │       │   │   ├── api/ReservationController.java     # Create, confirm, cancel, list
 │       │   │   ├── api/ReservationResponse.java       # Includes remainingSeconds for countdown
@@ -767,10 +781,10 @@ finding-a-bed-tonight/
 │       ├── main/resources/
 │       │   ├── application.yml                        # Base config (port 8080, OTel, Resilience4J)
 │       │   ├── application-observability.yml          # Management port 9091 (for dev Prometheus scrape)
-│       │   ├── db/migration/                          # 21 Flyway migrations (V1–V21 + V8.1)
+│       │   ├── db/migration/                          # 22 Flyway migrations (V1–V22 + V8.1)
 │       │   ├── logback-spring.xml                     # Structured JSON logging (Logstash encoder)
 │       │   └── messages/                              # i18n error messages (EN, ES)
-│       └── test/java/org/fabt/                        # 207 tests (unit + integration)
+│       └── test/java/org/fabt/                        # 218 tests (unit + integration)
 │           ├── BaseIntegrationTest.java               # Singleton Testcontainers PostgreSQL
 │           ├── TestAuthHelper.java                    # Per-role JWT helper for tests
 │           ├── ArchitectureTest.java                  # 15 ArchUnit module boundary rules
@@ -810,7 +824,7 @@ finding-a-bed-tonight/
 │           └── es.json                                # Spanish (100+ keys)
 │
 ├── e2e/                                               # End-to-end test suites
-│   ├── playwright/                                    # UI tests (77 tests, Chromium)
+│   ├── playwright/                                    # UI tests (82 tests, Chromium)
 │   │   ├── package.json                               # @playwright/test + TypeScript
 │   │   ├── playwright.config.ts                       # baseURL, workers, retries, HTML reporter
 │   │   ├── fixtures/auth.fixture.ts                   # Per-role storageState (admin, cocadmin, outreach)
@@ -894,7 +908,7 @@ finding-a-bed-tonight/
 ### Completed: Platform Foundation (archived)
 
 - [x] Modular monolith backend (Java 21, Spring Boot 3.4, 6 modules, ArchUnit boundaries)
-- [x] 21 Flyway migrations (V1–V21 + V8.1), PostgreSQL 16, Row Level Security for DV shelters
+- [x] 22 Flyway migrations (V1–V22 + V8.1), PostgreSQL 16, Row Level Security for DV shelters
 - [x] 3 deployment profiles (Lite / Standard / Full) with CacheService + EventBus abstractions
 - [x] Multi-tenant auth: JWT + API keys + OAuth2 provider management, 4 roles, dual-layer security
 - [x] Shelter module: CRUD, constraints, capacities, HSDS 3.0 export, coordinator assignments
@@ -1012,6 +1026,16 @@ finding-a-bed-tonight/
 - [x] Policy change endpoint: PLATFORM_ADMIN + confirmation header (internal/admin-only, not exposed outside firewall)
 - [x] 13 integration tests, 6 Karate scenarios
 - [x] Fixed flaky coordinator dashboard test (count() → toBeVisible() auto-retry)
+
+### Completed: HMIS Bridge
+
+- [x] Async push adapter: bed inventory (Element 2.07) to HMIS vendors — no client PII required
+- [x] Strategy pattern: ClarityAdapter (REST), WellSkyAdapter (CSV), ClientTrackAdapter (REST), NoOpAdapter
+- [x] Outbox pattern: survives restart, 3 retries, dead letter with manual retry
+- [x] DV shelter aggregation: individual DV shelter occupancy never pushed — summed across all DV shelters
+- [x] Admin UI: HMIS Export tab with status, data preview (DV filter), export history, Push Now
+- [x] Grafana HMIS Bridge dashboard: push rate, failures, latency, circuit breaker, dead letter count (observability-dependent)
+- [x] 10 integration tests, 5 Playwright tests, 6 Karate scenarios
 
 ### Planned: Remaining Phase 1 Capabilities
 

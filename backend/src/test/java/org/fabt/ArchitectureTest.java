@@ -158,6 +158,19 @@ class ArchitectureTest {
                             "org.fabt.surge.repository.."
                     ).as("Referral module must not access other modules' repositories (service access allowed)");
 
+    @ArchTest
+    static final ArchRule hmis_should_not_access_other_repositories =
+            noClasses().that().resideInAPackage("org.fabt.hmis..")
+                    .should().dependOnClassesThat().resideInAnyPackage(
+                            "org.fabt.tenant.repository..",
+                            "org.fabt.auth.repository..",
+                            "org.fabt.dataimport.repository..",
+                            "org.fabt.subscription.repository..",
+                            "org.fabt.reservation.repository..",
+                            "org.fabt.referral.repository..",
+                            "org.fabt.surge.repository.."
+                    ).as("HMIS module must not access other modules' repositories (service access allowed)");
+
     // --- No module should directly access another module's domain entities ---
 
     @ArchTest

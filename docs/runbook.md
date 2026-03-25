@@ -375,6 +375,43 @@ Valid policies: `ADMIN_AND_ASSIGNED` (default), `ADMIN_ONLY`, `ALL_DV_ACCESS`, `
 
 ---
 
+## HMIS Bridge Operations
+
+### Push Schedule
+
+`HmisPushScheduler` runs every hour. For each tenant with enabled HMIS vendors, it creates outbox entries and processes them. Push frequency per vendor is controlled by `push_interval_hours` in the vendor config.
+
+### Outbox Lifecycle
+
+`PENDING` → `SENT` (success) or `FAILED` (retry) → `DEAD_LETTER` (after 3 failures)
+
+Dead letter entries are visible in the Admin UI (HMIS Export tab) and can be retried manually.
+
+### DV Shelter Data
+
+DV shelter bed counts are **aggregated** before push — individual DV shelter occupancy is never sent to HMIS vendors. This prevents small-n inference that could identify survivors.
+
+### Monitoring
+
+- **Grafana HMIS Bridge dashboard** (observability-dependent): push rate, failure rate, latency, circuit breaker state, dead letter count
+- **Log search**: `HmisPushService` logs at INFO on success, ERROR on failure
+
+### Investigation: High failure rate
+
+1. Check circuit breaker state in Grafana — is the vendor endpoint down?
+2. Check dead letter entries in Admin UI — what error messages?
+3. Verify vendor API credentials in tenant config
+4. Check vendor's status page for maintenance windows
+
+### Investigation: Dead letters accumulating
+
+1. View dead letter entries in Admin UI (HMIS Export tab)
+2. Check error messages — common: authentication failure, rate limit, endpoint not found
+3. Fix the root cause (credentials, URL, vendor downtime)
+4. Retry via Admin UI or API: `POST /api/v1/hmis/retry/{outboxId}`
+
+---
+
 ## Bed Availability Invariants
 
 The `bed_availability` table is the **single source of truth** for bed counts. There is no separate capacity table — `beds_total`, `beds_occupied`, and `beds_on_hold` all live in append-only snapshots.
