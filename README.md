@@ -1037,13 +1037,17 @@ finding-a-bed-tonight/
 - [x] Grafana HMIS Bridge dashboard: push rate, failures, latency, circuit breaker, dead letter count (observability-dependent)
 - [x] 10 integration tests, 5 Playwright tests, 6 Karate scenarios
 
-### Planned: Remaining Phase 1 Capabilities
+### In Progress: CoC Analytics
 
-| Change | Description | Status |
-|--------|-------------|--------|
-| **dv-opaque-referral** | Privacy-preserving DV shelter referral with human-in-the-loop confirmation | Not specced |
-| **hmis-bridge** | Async push adapter to HMIS vendors, circuit breaker isolated | Not specced |
-| **coc-analytics** | Aggregate anonymized metrics, unmet demand reporting, HUD grant support | Not specced |
+- [ ] Aggregate analytics dashboard (utilization trends, demand signals, geographic view)
+- [ ] Spring Batch for complex jobs (pre-aggregation, HMIS push, HIC/PIT export) — all tiers
+- [ ] Admin UI job management: schedule editing, run history, step-level detail, restart
+- [ ] HIC/PIT one-click export in HUD format
+- [ ] Separate HikariCP connection pools (OLTP vs analytics isolation)
+- [ ] Pre-aggregation summary table with BRIN index
+- [ ] Unmet demand tracking via bed search zero-result logging
+- [ ] Gatling mixed-load performance test
+- [ ] 9 requirements, 36 scenarios, 115 tasks specced — ready for implementation
 
 ---
 
