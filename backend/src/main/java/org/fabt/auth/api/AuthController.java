@@ -77,7 +77,7 @@ public class AuthController {
         String accessToken = jwtService.generateAccessToken(user);
         String refreshToken = jwtService.generateRefreshToken(user);
 
-        return ResponseEntity.ok(new TokenResponse(accessToken, refreshToken));
+        return ResponseEntity.ok(new TokenResponse(accessToken, refreshToken, jwtService.getAccessTokenExpirySeconds()));
     }
 
     @Operation(
@@ -113,7 +113,7 @@ public class AuthController {
 
         String accessToken = jwtService.generateAccessToken(user);
 
-        return ResponseEntity.ok(new TokenResponse(accessToken, request.refreshToken()));
+        return ResponseEntity.ok(new TokenResponse(accessToken, request.refreshToken(), jwtService.getAccessTokenExpirySeconds()));
     }
 
     private record ErrorBody(String message) {

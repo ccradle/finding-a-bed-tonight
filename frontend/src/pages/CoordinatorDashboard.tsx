@@ -229,7 +229,7 @@ export function CoordinatorDashboard() {
       </div>
 
       {/* Status */}
-      <div style={{ fontSize: 13, color: '#64748b', marginBottom: 10, fontWeight: 600, letterSpacing: '0.02em' }}>
+      <div style={{ fontSize: 13, color: '#475569', marginBottom: 10, fontWeight: 600, letterSpacing: '0.02em' }}>
         {loading
           ? <FormattedMessage id="coord.loading" />
           : <FormattedMessage id="coord.bedsTotal" values={{ count: shelters.length }} />}
@@ -282,7 +282,7 @@ export function CoordinatorDashboard() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
                   <div style={{ fontSize: 17, fontWeight: 700, color: '#0f172a', marginBottom: 3 }}>{s.name}</div>
-                  <div style={{ fontSize: 14, color: '#64748b', marginBottom: 6 }}>{fmtAddr(s)}</div>
+                  <div style={{ fontSize: 14, color: '#475569', marginBottom: 6 }}>{fmtAddr(s)}</div>
                 </div>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                   {summary && summary.totalBedsAvailable != null && (
@@ -308,14 +308,14 @@ export function CoordinatorDashboard() {
                     <DataAge dataAgeSeconds={s.updatedAt ? Math.floor((Date.now() - new Date(s.updatedAt).getTime()) / 1000) : null} />
                   )}
                   {summary?.lastUpdated && (
-                    <span style={{ fontSize: 11, color: '#94a3b8' }}>
+                    <span style={{ fontSize: 11, color: '#6b7280' }}>
                       <FormattedMessage id="coord.lastAvailUpdate" />: {new Date(summary.lastUpdated).toLocaleString()}
                     </span>
                   )}
                 </div>
                 {isExpanded
                   ? <span style={{ fontSize: 12, color: '#1a56db', fontWeight: 600 }}>▲</span>
-                  : <span style={{ fontSize: 12, color: '#94a3b8', fontWeight: 600 }}>▼</span>}
+                  : <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 600 }}>▼</span>}
               </div>
             </button>
 
@@ -352,7 +352,7 @@ export function CoordinatorDashboard() {
                       <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
                         {/* Total beds stepper */}
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600, minWidth: 40 }}>
+                          <span style={{ fontSize: 12, color: '#475569', fontWeight: 600, minWidth: 40 }}>
                             <FormattedMessage id="coord.bedsTotal" />
                           </span>
                           <StepperButton label="−" data-testid={`total-minus-${avail.populationType}`} onClick={() => updateAvailField(avail.populationType, 'bedsTotal', -1)} disabled={avail.bedsTotal <= avail.bedsOccupied + avail.bedsOnHold} />
@@ -361,7 +361,7 @@ export function CoordinatorDashboard() {
                         </div>
                         {/* Occupied stepper */}
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600, minWidth: 60 }}>
+                          <span style={{ fontSize: 12, color: '#475569', fontWeight: 600, minWidth: 60 }}>
                             <FormattedMessage id="coord.bedsOccupied" />
                           </span>
                           <StepperButton label="−" data-testid={`occupied-minus-${avail.populationType}`} onClick={() => updateAvailField(avail.populationType, 'bedsOccupied', -1)} disabled={avail.bedsOccupied <= 0} />
@@ -370,12 +370,12 @@ export function CoordinatorDashboard() {
                         </div>
                         {/* On-hold display (read-only — holds are managed by the reservation system) */}
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600, minWidth: 50 }}>
+                          <span style={{ fontSize: 12, color: '#475569', fontWeight: 600, minWidth: 50 }}>
                             <FormattedMessage id="coord.bedsOnHold" />
                           </span>
-                          <span data-testid={`onhold-value-${avail.populationType}`} style={{ fontSize: 18, fontWeight: 800, minWidth: 32, textAlign: 'center', color: avail.bedsOnHold > 0 ? '#1a56db' : '#94a3b8' }}>{avail.bedsOnHold}</span>
+                          <span data-testid={`onhold-value-${avail.populationType}`} style={{ fontSize: 18, fontWeight: 800, minWidth: 32, textAlign: 'center', color: avail.bedsOnHold > 0 ? '#1a56db' : '#6b7280' }}>{avail.bedsOnHold}</span>
                           {avail.bedsOnHold > 0 && (
-                            <span style={{ fontSize: 10, color: '#94a3b8' }}>(system)</span>
+                            <span style={{ fontSize: 10, color: '#6b7280' }}>(system)</span>
                           )}
                         </div>
                       </div>
@@ -383,11 +383,12 @@ export function CoordinatorDashboard() {
                         data-testid={`save-avail-${avail.populationType}`}
                         onClick={() => submitAvailability(s.id, avail.populationType)}
                         disabled={isSavingThis}
+                        aria-live="polite"
                         style={{
                           padding: '8px 16px', backgroundColor: isSavedThis ? '#22c55e' : '#1a56db', color: '#fff',
                           border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700,
                           cursor: isSavingThis ? 'default' : 'pointer',
-                          opacity: isSavingThis ? 0.7 : 1, transition: 'all 0.15s',
+                          minHeight: 44, transition: 'all 0.15s',
                         }}
                       >
                         {isSavedThis ? intl.formatMessage({ id: 'coord.availabilityUpdated' })
@@ -423,7 +424,7 @@ export function CoordinatorDashboard() {
                             }}>{ref.urgency}</span>
                           </div>
                           {ref.remainingSeconds != null && (
-                            <span style={{ fontSize: 11, color: '#64748b' }}>
+                            <span style={{ fontSize: 11, color: '#475569' }}>
                               {Math.floor(ref.remainingSeconds / 60)}m remaining
                             </span>
                           )}
@@ -450,7 +451,7 @@ export function CoordinatorDashboard() {
                               <FormattedMessage id="referral.reject" />
                             </button>
                             <button onClick={() => { setRejectingId(null); setRejectReason(''); }}
-                              style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #e2e8f0', backgroundColor: '#fff', color: '#64748b', fontSize: 11, cursor: 'pointer' }}>
+                              style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #e2e8f0', backgroundColor: '#fff', color: '#475569', fontSize: 11, cursor: 'pointer' }}>
                               <FormattedMessage id="referral.cancel" />
                             </button>
                           </div>
@@ -504,7 +505,7 @@ export function CoordinatorDashboard() {
       })}
 
       {!loading && shelters.length === 0 && (
-        <div style={{ textAlign: 'center', padding: 48, color: '#94a3b8' }}>
+        <div style={{ textAlign: 'center', padding: 48, color: '#6b7280' }}>
           <div style={{ fontSize: 48, marginBottom: 12 }}>🏠</div>
           <div style={{ fontSize: 16, fontWeight: 500 }}><FormattedMessage id="coord.error" /></div>
         </div>
@@ -513,14 +514,15 @@ export function CoordinatorDashboard() {
   );
 }
 
-function StepperButton({ label, onClick, disabled, size = 36, fontSize = 18, 'data-testid': testId }: {
-  label: string; onClick: () => void; disabled?: boolean; size?: number; fontSize?: number; 'data-testid'?: string
+function StepperButton({ label, onClick, disabled, size = 44, fontSize = 18, 'data-testid': testId, 'aria-label': ariaLabel }: {
+  label: string; onClick: () => void; disabled?: boolean; size?: number; fontSize?: number; 'data-testid'?: string; 'aria-label'?: string
 }) {
   return (
     <button
       onClick={onClick}
       disabled={disabled}
       data-testid={testId}
+      aria-label={ariaLabel || (label === '+' ? 'Increase' : label === '−' ? 'Decrease' : label)}
       style={{
         width: size, height: size, borderRadius: '50%',
         border: '2px solid #e2e8f0', backgroundColor: '#fff',
@@ -535,7 +537,7 @@ function StepperButton({ label, onClick, disabled, size = 36, fontSize = 18, 'da
 
 function Spinner() {
   return (
-    <div style={{ textAlign: 'center', padding: 32, color: '#94a3b8' }}>
+    <div style={{ textAlign: 'center', padding: 32, color: '#6b7280' }}>
       <div style={{
         width: 32, height: 32, border: '3px solid #e2e8f0', borderTopColor: '#1a56db',
         borderRadius: '50%', animation: 'fabt-spin 0.7s linear infinite', margin: '0 auto 10px',

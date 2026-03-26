@@ -1,9 +1,34 @@
-import { type ReactNode, useState, useEffect } from 'react';
+import { type ReactNode, useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { FormattedMessage } from 'react-intl';
 import { useAuth } from '../auth/useAuth';
 import { LocaleSelector } from './LocaleSelector';
 import { OfflineBanner } from './OfflineBanner';
+import { SessionTimeoutWarning } from './SessionTimeoutWarning';
+
+/**
+ * Visually hidden styles — content accessible to screen readers but not visible.
+ * Used for skip link (visible on focus) and route announcer.
+ */
+const visuallyHiddenStyle: React.CSSProperties = {
+  position: 'absolute',
+  width: '1px',
+  height: '1px',
+  padding: 0,
+  margin: '-1px',
+  overflow: 'hidden',
+  clip: 'rect(0, 0, 0, 0)',
+  whiteSpace: 'nowrap',
+  border: 0,
+};
+
+/**
+ * Skip link styles — visible only on focus (keyboard users).
+ * WCAG 2.4.1 Bypass Blocks.
+ */
+const skipLinkStyle: React.CSSProperties = {
+  ...visuallyHiddenStyle,
+};
 
 interface LayoutProps {
   children: ReactNode;
@@ -24,7 +49,7 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
-  const { user, logout } = useAuth();
+  const { user, logout, expiresIn } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -46,9 +71,56 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
 
   const isActive = (path: string) => location.pathname.startsWith(path);
 
+  // Route announcer — announces page changes to screen readers (WCAG 2.4.3, D2)
+  const [routeAnnouncement, setRouteAnnouncement] = useState('');
+  const mainRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    // Map paths to page titles for screen reader announcement
+    const titleMap: Record<string, string> = {
+      '/login': 'Sign In',
+      '/outreach': 'Search Beds',
+      '/coordinator': 'Shelter Dashboard',
+      '/admin': 'Administration',
+    };
+    const title = titleMap[location.pathname] || 'Finding A Bed Tonight';
+    setRouteAnnouncement(`Navigated to ${title}`);
+
+    // Move focus to main content on route change
+    if (mainRef.current) {
+      mainRef.current.focus();
+    }
+  }, [location.pathname]);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+      {/* Skip to content link — WCAG 2.4.1 Bypass Blocks (D3) */}
+      <a
+        href="#main-content"
+        style={skipLinkStyle}
+        onFocus={(e) => {
+          // Make visible on focus
+          Object.assign(e.currentTarget.style, {
+            position: 'fixed', top: '8px', left: '8px', width: 'auto', height: 'auto',
+            clip: 'auto', whiteSpace: 'normal', overflow: 'visible', margin: 0,
+            padding: '12px 20px', backgroundColor: '#1a56db', color: '#fff',
+            borderRadius: '8px', zIndex: '9999', fontSize: '14px', fontWeight: '700',
+          });
+        }}
+        onBlur={(e) => {
+          Object.assign(e.currentTarget.style, skipLinkStyle);
+        }}
+      >
+        Skip to main content
+      </a>
+
+      {/* Route announcer — screen readers hear page changes (D2) */}
+      <div aria-live="polite" aria-atomic="true" style={visuallyHiddenStyle}>
+        {routeAnnouncement}
+      </div>
+
       <OfflineBanner />
+      <SessionTimeoutWarning expiresIn={expiresIn} onLogout={handleLogout} />
 
       {/* Header */}
       <header
@@ -128,11 +200,15 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
 
         {/* Main Content */}
         <main
+          id="main-content"
+          ref={mainRef}
+          tabIndex={-1}
           style={{
             flex: 1,
             padding: '24px',
             paddingBottom: isMobile ? '80px' : '24px',
             overflowY: 'auto',
+            outline: 'none',
           }}
         >
           {children}

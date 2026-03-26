@@ -451,9 +451,23 @@ Three `@Scheduled` monitors run inside the application:
 
 See [docs/runbook.md](docs/runbook.md) for investigation and response procedures.
 
+### Accessibility — WCAG 2.1 AA
+
+FABT is designed to meet WCAG 2.1 Level AA (the standard mandated by the ADA Title II final rule for state and local government web content). A self-assessed **[Accessibility Conformance Report](docs/WCAG-ACR.md)** (VPAT 2.5 WCAG edition) documents conformance for all 50 Level A and AA criteria.
+
+Key accessibility features:
+- **axe-core CI gate** — 8-page automated scan blocks builds on any WCAG violation
+- **Color independence** — all status indicators include text labels alongside color (WCAG 1.4.1)
+- **Keyboard navigation** — admin tab bar follows W3C APG tabs pattern, skip-to-content link on every page
+- **Touch targets** — minimum 44x44px on all interactive elements (outdoor one-handed use)
+- **Focus management** — route changes announced via aria-live, focus moved to main content
+- **i18n** — `lang` attribute switches between `en`/`es` for screen reader voice selection
+
+See **[docs/WCAG-ACR.md](docs/WCAG-ACR.md)** for the full conformance report, remediation plan, and testing methodology.
+
 ### DV Privacy — Opaque Referral
 
-FABT implements a **privacy-preserving referral system** for domestic violence shelters, compliant with VAWA (34 U.S.C. 12291(b)(2)), FVPSA, and HUD HMIS prohibitions. Key guarantees:
+FABT implements a **privacy-preserving referral system** for domestic violence shelters, designed to support VAWA (34 U.S.C. 12291(b)(2)), FVPSA, and HUD HMIS requirements. Key guarantees:
 
 - **Zero client PII** in the database — referral tokens contain only household size, population type, urgency, and the worker's callback number
 - **Shelter address never displayed** — shared verbally during warm handoff phone call only
@@ -733,7 +747,7 @@ finding-a-bed-tonight/
 │       │   │   └── service/BedSearchService.java      # Cache-aside, ranking, constraint filtering
 │       │   ├── reservation/                           # Reservation module — soft-hold lifecycle
 │       │   ├── referral/                              # DV opaque referral module — zero-PII tokens
-│       │   │   ├── api/ReferralTokenController.java   # Create, accept, reject, list (VAWA compliant)
+│       │   │   ├── api/ReferralTokenController.java   # Create, accept, reject, list (designed for VAWA compliance)
 │       │   │   ├── domain/ReferralToken.java          # PENDING → ACCEPTED/REJECTED/EXPIRED → purged
 │       │   │   ├── repository/ReferralTokenRepository.java
 │       │   │   ├── service/ReferralTokenService.java  # Lifecycle, dvAccess defense-in-depth (D14)
@@ -1020,7 +1034,7 @@ finding-a-bed-tonight/
 
 ### Completed: DV Opaque Referral
 
-- [x] Token-based opaque referral: zero client PII, VAWA/FVPSA compliant, human-in-the-loop safety screening
+- [x] Token-based opaque referral: zero client PII, designed to support VAWA/FVPSA, human-in-the-loop safety screening
 - [x] Warm handoff: shelter phone shared on acceptance, shelter address shared verbally only (never in system)
 - [x] Token purge: hard-delete within 24 hours, no audit trail of individual referrals
 - [x] Defense-in-depth RLS: `SET ROLE fabt_app` on every connection + service-layer `dvAccess` check (D14)

@@ -6,10 +6,18 @@ const FRESH_THRESHOLD = 2 * 60 * 60; // 2 hours in seconds
 const AGING_THRESHOLD = 8 * 60 * 60; // 8 hours in seconds
 
 function getColor(seconds: number | null): string {
-  if (seconds === null) return '#9ca3af'; // gray - UNKNOWN
-  if (seconds < FRESH_THRESHOLD) return '#22c55e'; // green - FRESH
-  if (seconds < AGING_THRESHOLD) return '#eab308'; // yellow - AGING
-  return '#ef4444'; // red - STALE
+  if (seconds === null) return '#6b7280'; // gray - UNKNOWN
+  if (seconds < FRESH_THRESHOLD) return '#166534'; // dark green - FRESH (4.5:1 on white)
+  if (seconds < AGING_THRESHOLD) return '#92400e'; // dark amber - AGING (4.5:1 on white)
+  return '#991b1b'; // dark red - STALE (4.5:1 on white)
+}
+
+// WCAG 1.4.1 — status label text so color is not the sole indicator
+function getStatusLabel(seconds: number | null): string {
+  if (seconds === null) return 'Unknown';
+  if (seconds < FRESH_THRESHOLD) return 'Fresh';
+  if (seconds < AGING_THRESHOLD) return 'Aging';
+  return 'Stale';
 }
 
 function formatAge(seconds: number | null): string {
@@ -26,6 +34,7 @@ function formatAge(seconds: number | null): string {
 export function DataAge({ dataAgeSeconds }: DataAgeProps) {
   const color = getColor(dataAgeSeconds);
   const text = formatAge(dataAgeSeconds);
+  const statusLabel = getStatusLabel(dataAgeSeconds);
 
   return (
     <span
@@ -37,6 +46,7 @@ export function DataAge({ dataAgeSeconds }: DataAgeProps) {
         alignItems: 'center',
         gap: '4px',
       }}
+      aria-label={`${statusLabel}: ${text}`}
     >
       <span
         style={{
@@ -46,7 +56,10 @@ export function DataAge({ dataAgeSeconds }: DataAgeProps) {
           backgroundColor: color,
           display: 'inline-block',
         }}
+        aria-hidden="true"
       />
+      <span style={{ fontWeight: 600 }}>{statusLabel}</span>
+      {' · '}
       {text}
     </span>
   );

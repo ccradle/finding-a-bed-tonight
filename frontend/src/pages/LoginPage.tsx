@@ -13,6 +13,7 @@ interface OAuth2Provider {
 interface LoginResponse {
   accessToken: string;
   refreshToken: string;
+  expiresIn: number;
 }
 
 export function LoginPage() {
@@ -91,7 +92,7 @@ export function LoginPage() {
         password,
       });
 
-      login(response.accessToken, response.refreshToken);
+      login(response.accessToken, response.refreshToken, response.expiresIn);
     } catch (err) {
       if (err instanceof ApiError) {
         setError(err.message);

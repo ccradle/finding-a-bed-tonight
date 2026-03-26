@@ -187,7 +187,7 @@ export function TwoOneOneImportPage() {
                 <p style={{ fontSize: '16px', fontWeight: 500, color: '#374151', margin: '0 0 8px' }}>
                   Drag and drop a 211 CSV file here, or click to browse
                 </p>
-                <p style={{ fontSize: '14px', color: '#9ca3af', margin: 0 }}>
+                <p style={{ fontSize: '14px', color: '#6b7280', margin: 0 }}>
                   Accepts .csv files
                 </p>
               </div>
@@ -331,7 +331,7 @@ export function TwoOneOneImportPage() {
                 <p style={{ fontSize: '13px', color: '#6b7280', margin: 0 }}>Updated</p>
               </div>
               <div>
-                <p style={{ fontSize: '24px', fontWeight: 700, color: '#9ca3af', margin: 0 }}>
+                <p style={{ fontSize: '24px', fontWeight: 700, color: '#6b7280', margin: 0 }}>
                   {result.skipped}
                 </p>
                 <p style={{ fontSize: '13px', color: '#6b7280', margin: 0 }}>Skipped</p>

@@ -63,6 +63,10 @@ public class JwtService {
                 .build();
     }
 
+    public long getAccessTokenExpirySeconds() {
+        return accessTokenExpiryMinutes * 60;
+    }
+
     public String generateAccessToken(User user) {
         Instant now = Instant.now();
         Instant exp = now.plusSeconds(accessTokenExpiryMinutes * 60);
