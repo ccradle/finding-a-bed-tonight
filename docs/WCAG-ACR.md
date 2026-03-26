@@ -22,10 +22,11 @@
 | Method | Details |
 |---|---|
 | **Automated scanning** | axe-core 4.x via @axe-core/playwright — 8 page scans covering login, search, coordinator dashboard, admin panel (users, shelters, analytics, observability tabs). Zero violations on all pages. Tags: wcag2a, wcag2aa, wcag21a, wcag21aa. |
+| **Virtual screen reader** | @guidepup/virtual-screen-reader — 6 automated tests verifying screen reader navigation output, ARIA role announcements, status label announcements, and lang attribute switching. |
 | **Manual review** | Keyboard-only navigation testing of core workflows. Visual inspection of color contrast, touch targets, and focus indicators. |
 | **Browsers tested** | Chromium (via Playwright). Manual spot checks in Chrome and Firefox. |
-| **Assistive technology** | Manual testing with screen reader not yet completed (planned for v0.13.0). |
-| **CI integration** | Accessibility scans run as part of the Playwright E2E test suite. Zero violations is a blocking gate. |
+| **Assistive technology** | Virtual screen reader (automated). Real screen reader testing (NVDA/VoiceOver) planned for release-gate CI via @guidepup/playwright. |
+| **CI integration** | 113 Playwright tests including 8 axe-core scans + 6 virtual screen reader tests. Zero violations is a blocking gate. |
 
 ## Conformance Level Definitions
 
@@ -54,7 +55,7 @@
 | **2.1.1 Keyboard** | Partially Supports | All primary workflows are keyboard-operable. Admin tab bar supports arrow key navigation per W3C APG tabs pattern. Skip-to-content link available. Some modal dialogs may not fully trap focus. Full keyboard audit of all interactive elements pending. |
 | **2.1.2 No Keyboard Trap** | Supports | No known keyboard traps. Tab/Shift+Tab navigates freely. Escape closes modal dialogs. |
 | **2.1.4 Character Key Shortcuts** | Not Applicable | No single-character keyboard shortcuts are implemented. |
-| **2.2.1 Timing Adjustable** | Partially Supports | Bed reservation hold has a configurable timeout (default 45 minutes) with visible countdown. JWT session timeout does not yet warn before expiry — session timeout warning planned. |
+| **2.2.1 Timing Adjustable** | Supports | Bed reservation hold has a configurable timeout (default 45 minutes) with visible countdown. JWT session timeout shows a modal alertdialog 2 minutes before expiry with "Continue Session" (triggers token refresh) and "Log Out" options. Uses role="alertdialog" with focus trap, aria-modal, and BroadcastChannel for cross-tab sync. Users can extend unlimited times. |
 | **2.2.2 Pause, Stop, Hide** | Not Applicable | No auto-updating, moving, or blinking content. Reservation countdown is informational text, not animated. |
 | **2.3.1 Three Flashes or Below Threshold** | Supports | No flashing content. |
 | **2.4.1 Bypass Blocks** | Supports | Skip-to-content link is the first focusable element on every page. Visible on keyboard focus, hidden from mouse users. Links to main content area. |
@@ -71,7 +72,7 @@
 | **3.3.1 Error Identification** | Supports | Form validation errors are displayed inline with descriptive messages. Error states use both color and text. |
 | **3.3.2 Labels or Instructions** | Supports | All form inputs have visible labels or placeholders with aria-label. Required fields are indicated. |
 | **4.1.1 Parsing** | Not Applicable | WCAG 2.1 notes this criterion is always satisfied for content using HTML or XML specifications. |
-| **4.1.2 Name, Role, Value** | Partially Supports | Admin tab bar uses correct ARIA roles. Toggle switches use role="switch" with aria-checked. Stepper buttons have aria-label. Select elements have aria-label. Date picker has aria-label. Sortable table columns do not yet expose sort state via aria-sort. |
+| **4.1.2 Name, Role, Value** | Supports | Admin tab bar uses role="tablist"/role="tab" with aria-selected and aria-controls. Toggle switches use role="switch" with aria-checked. Stepper buttons have aria-label ("Increase"/"Decrease") at 44px touch target. All selects, inputs, and date picker have aria-label. Icon-only buttons have aria-label. Session timeout dialog uses role="alertdialog" with aria-modal, aria-labelledby, and aria-describedby. Tables do not have sort functionality (N/A for aria-sort). |
 
 ---
 
@@ -96,7 +97,7 @@
 | **3.2.4 Consistent Identification** | Supports | Components that have the same functionality are identified consistently. Save buttons, status badges, and navigation elements use consistent labeling. |
 | **3.3.3 Error Suggestion** | Supports | When form input errors are detected, suggestions for correction are provided (e.g., "Email is required", "Password must be at least 8 characters"). |
 | **3.3.4 Error Prevention (Legal, Financial, Data)** | Supports | Destructive actions (surge activation, user deletion, test data reset) require confirmation dialogs. Bed holds are reversible (cancel). DV referral acceptance/rejection requires explicit action. |
-| **4.1.3 Status Messages** | Partially Supports | Save confirmation on coordinator dashboard uses aria-live="polite" for screen reader announcement. Some status messages (toast notifications, error banners) may not yet use aria-live regions consistently. |
+| **4.1.3 Status Messages** | Supports | Save confirmation on coordinator dashboard uses aria-live="polite" for screen reader announcement. Route changes announced via aria-live region. Session timeout warning uses role="alertdialog" which is announced immediately. Error states use visible text messages. |
 
 ---
 
@@ -104,13 +105,16 @@
 
 | Item | Target Version | Description |
 |---|---|---|
-| Sortable table aria-sort | v0.13.0 | Add aria-sort attributes to sortable column headers in admin tables |
-| Recharts accessibilityLayer | v0.13.0 | Enable keyboard navigation in charts, add data table toggle |
-| Session timeout warning | v0.13.0 | Warn users 2 minutes before JWT expiry with option to extend |
-| Screen reader testing | v0.13.0 | Complete manual testing with NVDA + Chrome and VoiceOver + Safari |
-| Focus visible enhancement | v0.13.0 | Add explicit focus ring styles to all custom interactive elements |
-| Autocomplete attributes | v0.13.0 | Add autocomplete attributes to login and form inputs |
-| Consistent aria-live usage | v0.13.0 | Ensure all dynamic status messages use aria-live regions |
+| Real screen reader CI gate | v0.14.0 | Add @guidepup/playwright with NVDA on Windows CI runners for release-gate testing |
+| Focus visible enhancement | v0.14.0 | Add explicit focus ring styles to all custom interactive elements |
+| Autocomplete attributes | v0.14.0 | Add autocomplete attributes to login and form inputs |
+| Keyboard-only flow test | v0.14.0 | Automated Playwright test for outreach search→hold→confirm via keyboard only |
+
+**Completed in v0.13.0:**
+- ~~Session timeout warning~~ — implemented with role="alertdialog", BroadcastChannel sync
+- ~~Recharts data table toggle~~ — "Show as table" toggle with prefers-reduced-motion support
+- ~~Screen reader testing~~ — automated via @guidepup/virtual-screen-reader (6 tests)
+- ~~Consistent aria-live~~ — save confirmations, route announcements use aria-live
 
 ---
 
@@ -120,6 +124,7 @@
 |---|---|---|
 | axe-core | 4.x | Automated WCAG 2.1 AA scanning (8 page scans, zero violations) |
 | @axe-core/playwright | Latest | Integration with Playwright E2E test suite |
+| @guidepup/virtual-screen-reader | 0.32.x | Virtual screen reader simulation (6 tests, no real SR required) |
 | Playwright | Latest | Browser automation for accessibility and functional testing |
 | Chromium | Latest | Primary test browser |
 
