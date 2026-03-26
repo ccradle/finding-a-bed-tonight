@@ -94,7 +94,7 @@ export function CoordinatorDashboard() {
     setError(null);
     try {
       const data = await api.get<ShelterListItem[]>('/api/v1/shelters');
-      setShelters(data);
+      setShelters(data || []);
     } catch {
       setError(intl.formatMessage({ id: 'coord.error' }));
     } finally {
@@ -135,7 +135,7 @@ export function CoordinatorDashboard() {
       // Fetch pending DV referrals for this shelter (silent fail if not DV or no access)
       try {
         const refs = await api.get<PendingReferral[]>(`/api/v1/dv-referrals/pending?shelterId=${id}`);
-        setPendingReferrals(refs);
+        setPendingReferrals(refs || []);
       } catch { setPendingReferrals([]); }
     } catch {
       setError(intl.formatMessage({ id: 'coord.error' }));

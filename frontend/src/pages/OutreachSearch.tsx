@@ -171,7 +171,7 @@ export function OutreachSearch() {
       if (Object.keys(constraints).length > 0) body.constraints = constraints;
 
       const data = await api.post<BedSearchResponse>('/api/v1/queries/beds', body);
-      setResults(data.results);
+      setResults(data?.results || []);
     } catch {
       setError(intl.formatMessage({ id: 'search.error' }));
     } finally {
@@ -184,7 +184,7 @@ export function OutreachSearch() {
   const fetchReservations = useCallback(async () => {
     try {
       const data = await api.get<ReservationResponse[]>('/api/v1/reservations');
-      setReservations(data);
+      setReservations(data || []);
     } catch { /* silent — reservations panel is optional */ }
   }, []);
 
@@ -194,7 +194,7 @@ export function OutreachSearch() {
   const fetchReferrals = useCallback(async () => {
     try {
       const data = await api.get<ReferralToken[]>('/api/v1/dv-referrals/mine');
-      setMyReferrals(data);
+      setMyReferrals(data || []);
     } catch { /* silent — referrals panel is optional (user may not have dvAccess) */ }
   }, []);
 
@@ -227,7 +227,7 @@ export function OutreachSearch() {
     (async () => {
       try {
         const surges = await api.get<SurgeEventResponse[]>('/api/v1/surge-events');
-        const active = surges.find(s => s.status === 'ACTIVE');
+        const active = (surges || []).find(s => s.status === 'ACTIVE');
         setActiveSurge(active || null);
       } catch { /* silent */ }
     })();

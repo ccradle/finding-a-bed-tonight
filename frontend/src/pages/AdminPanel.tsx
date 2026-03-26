@@ -364,7 +364,7 @@ function UsersTab() {
     setError(null);
     try {
       const data = await api.get<User[]>('/api/v1/users');
-      setUsers(data);
+      setUsers(data || []);
     } catch {
       setError(intl.formatMessage({ id: 'coord.error' }));
     } finally {
@@ -535,7 +535,7 @@ function SheltersTab() {
     setError(null);
     try {
       const data = await api.get<ShelterListItem[]>('/api/v1/shelters');
-      setShelters(data);
+      setShelters(data || []);
     } catch {
       setError(intl.formatMessage({ id: 'coord.error' }));
     } finally {
@@ -628,7 +628,7 @@ function ApiKeysTab() {
     setError(null);
     try {
       const data = await api.get<ApiKeyRow[]>('/api/v1/api-keys');
-      setKeys(data);
+      setKeys(data || []);
     } catch {
       setError(intl.formatMessage({ id: 'coord.error' }));
     } finally {
@@ -770,7 +770,7 @@ function ImportsTab() {
     setError(null);
     try {
       const data = await api.get<ImportRow[]>('/api/v1/import/history');
-      setImports(data);
+      setImports(data || []);
     } catch {
       setError(intl.formatMessage({ id: 'coord.error' }));
     } finally {
@@ -853,7 +853,7 @@ function SubscriptionsTab() {
     setError(null);
     try {
       const data = await api.get<SubscriptionRow[]>('/api/v1/subscriptions');
-      setSubs(data);
+      setSubs(data || []);
     } catch {
       setError(intl.formatMessage({ id: 'coord.error' }));
     } finally {
@@ -977,7 +977,7 @@ function SurgeTab() {
     setLoading(true);
     try {
       const data = await api.get<typeof surges>('/api/v1/surge-events');
-      setSurges(data);
+      setSurges(data || []);
     } catch {
       setError(intl.formatMessage({ id: 'coord.error' }));
     } finally {
@@ -1385,7 +1385,7 @@ function OAuth2ProvidersTab() {
     if (!tenantId) return;
     try {
       const data = await api.get<OAuth2ProviderRow[]>(`/api/v1/tenants/${tenantId}/oauth2-providers`);
-      setProviders(data);
+      setProviders(data || []);
     } catch { /* ignore */ }
   }, [tenantId]);
 
@@ -1707,8 +1707,8 @@ function HmisExportTab() {
         api.get<HmisAuditEntry[]>('/api/v1/hmis/history?limit=20'),
       ]);
       setStatus(statusData);
-      setPreview(previewData);
-      setHistory(historyData);
+      setPreview(previewData || []);
+      setHistory(historyData || []);
     } catch { /* silent */ }
     setLoading(false);
   }, []);
@@ -1826,7 +1826,7 @@ function HmisExportTab() {
                 <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600 }}>{r.bedInventory}</td>
                 <td style={{ padding: '8px 12px', textAlign: 'right' }}>{r.bedsOccupied}</td>
                 <td style={{ padding: '8px 12px', textAlign: 'right', color: r.utilizationPercent > 100 ? '#991b1b' : '#475569' }}>
-                  {r.utilizationPercent.toFixed(1)}%
+                  {(r.utilizationPercent ?? 0).toFixed(1)}%
                 </td>
               </tr>
             ))}

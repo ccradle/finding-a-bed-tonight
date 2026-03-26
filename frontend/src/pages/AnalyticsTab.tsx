@@ -438,7 +438,7 @@ function BatchJobsSection({ isPlatformAdmin }: { isPlatformAdmin: boolean }) {
     setLoading(true);
     try {
       const res = await api.get<BatchJob[]>('/api/v1/batch/jobs');
-      setJobs(res);
+      setJobs(res || []);
     } catch (e: any) {
       setError(e instanceof Error ? e.message : 'Failed to load batch jobs');
     } finally {
@@ -451,7 +451,7 @@ function BatchJobsSection({ isPlatformAdmin }: { isPlatformAdmin: boolean }) {
   const loadExecutions = useCallback(async (jobName: string) => {
     try {
       const res = await api.get<JobExecution[]>(`/api/v1/batch/jobs/${jobName}/executions`);
-      setExecutions(res);
+      setExecutions(res || []);
       setSelectedJob(jobName);
     } catch (e: any) {
       setError(e instanceof Error ? e.message : 'Failed to load executions');
