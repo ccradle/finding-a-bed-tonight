@@ -365,6 +365,11 @@ function DashboardSection() {
 // --- Utilization Chart (lazy-loaded Recharts) ---
 
 function UtilizationChart({ data }: { data: Array<{ summaryDate: string; avgUtilization: number }> }) {
+  const [showTable, setShowTable] = useState(false);
+  // Respect prefers-reduced-motion (WCAG 2.3.3)
+  const prefersReducedMotion = typeof window !== 'undefined'
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
   // Aggregate by date for the line chart
   const byDate = new Map<string, number[]>();
   for (const d of data) {
@@ -378,14 +383,43 @@ function UtilizationChart({ data }: { data: Array<{ summaryDate: string; avgUtil
   })).sort((a, b) => a.date.localeCompare(b.date));
 
   return (
-    <LazyResponsiveContainer width="100%" height={250}>
-      <LazyLineChart data={chartData}>
-        <LazyXAxis dataKey="date" tick={{ fontSize: 11 }} />
-        <LazyYAxis tick={{ fontSize: 11 }} domain={[0, 120]} unit="%" />
-        <LazyTooltip />
-        <LazyLine type="monotone" dataKey="utilization" stroke="#1a56db" strokeWidth={2} dot={false} />
-      </LazyLineChart>
-    </LazyResponsiveContainer>
+    <div>
+      <button
+        onClick={() => setShowTable(!showTable)}
+        style={{ fontSize: 12, color: '#1a56db', background: 'none', border: 'none', cursor: 'pointer', marginBottom: 8, textDecoration: 'underline' }}
+        aria-label={showTable ? 'Show as chart' : 'Show as table'}
+      >
+        {showTable ? 'Show as chart' : 'Show as table'}
+      </button>
+      {showTable ? (
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <thead>
+            <tr>
+              <th style={{ textAlign: 'left', padding: '6px 10px', borderBottom: '2px solid #e2e8f0' }}>Date</th>
+              <th style={{ textAlign: 'right', padding: '6px 10px', borderBottom: '2px solid #e2e8f0' }}>Utilization</th>
+            </tr>
+          </thead>
+          <tbody>
+            {chartData.map(d => (
+              <tr key={d.date}>
+                <td style={{ padding: '4px 10px', borderBottom: '1px solid #f1f5f9' }}>{d.date}</td>
+                <td style={{ padding: '4px 10px', borderBottom: '1px solid #f1f5f9', textAlign: 'right' }}>{d.utilization}%</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <LazyResponsiveContainer width="100%" height={250}>
+          <LazyLineChart data={chartData}>
+            <LazyXAxis dataKey="date" tick={{ fontSize: 11 }} />
+            <LazyYAxis tick={{ fontSize: 11 }} domain={[0, 120]} unit="%" />
+            <LazyTooltip />
+            <LazyLine type="monotone" dataKey="utilization" stroke="#1a56db" strokeWidth={2} dot={false}
+              isAnimationActive={!prefersReducedMotion} />
+          </LazyLineChart>
+        </LazyResponsiveContainer>
+      )}
+    </div>
   );
 }
 
