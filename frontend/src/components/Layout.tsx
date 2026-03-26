@@ -2,6 +2,7 @@ import { type ReactNode, useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { FormattedMessage } from 'react-intl';
 import { useAuth } from '../auth/useAuth';
+import { getDefaultRouteForRoles } from '../auth/AuthGuard';
 import { LocaleSelector } from './LocaleSelector';
 import { OfflineBanner } from './OfflineBanner';
 import { SessionTimeoutWarning } from './SessionTimeoutWarning';
@@ -135,7 +136,14 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
         }}
       >
         <h1 style={{ margin: 0, fontSize: '18px', fontWeight: 700 }}>
-          <FormattedMessage id="app.name" />
+          <a
+            href="#"
+            onClick={(e) => { e.preventDefault(); navigate(user ? getDefaultRouteForRoles(user.roles) : '/'); }}
+            style={{ color: '#ffffff', textDecoration: 'none', cursor: 'pointer' }}
+            aria-label="Finding A Bed Tonight — go to home page"
+          >
+            <FormattedMessage id="app.name" />
+          </a>
         </h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           {user && (
