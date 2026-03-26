@@ -111,6 +111,10 @@ resilience4j:
 
 fabt:
   deployment-tier: ${FABT_DEPLOYMENT_TIER:lite}
+  jwt:
+    # 60 minutes for dev/test (Playwright suites take 8-10 min).
+    # Production should override to 15 via FABT_JWT_ACCESS_TOKEN_EXPIRY_MINUTES env var.
+    access-token-expiry-minutes: ${FABT_JWT_ACCESS_TOKEN_EXPIRY_MINUTES:60}
   monitoring:
     noaa:
       coordinates: ${FABT_NOAA_LAT:35.8776},${FABT_NOAA_LON:-78.7875}

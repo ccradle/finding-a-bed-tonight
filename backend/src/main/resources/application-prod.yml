@@ -7,3 +7,7 @@ springdoc:
     enabled: false
   swagger-ui:
     enabled: false
+
+fabt:
+  jwt:
+    access-token-expiry-minutes: 15

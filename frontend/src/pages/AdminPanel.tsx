@@ -1248,7 +1248,8 @@ function ObservabilityTab() {
           <button onClick={() => setConfig(c => ({ ...c, prometheusEnabled: !c.prometheusEnabled }))}
             style={toggleBtn(config.prometheusEnabled)}
             role="switch" aria-checked={config.prometheusEnabled}
-            aria-label="Toggle Prometheus metrics">
+            aria-label="Toggle Prometheus metrics"
+            data-testid="toggle-prometheus">
             <span style={toggleDot(config.prometheusEnabled)} />
           </button>
         </div>
@@ -1258,7 +1259,8 @@ function ObservabilityTab() {
           <button onClick={() => setConfig(c => ({ ...c, tracingEnabled: !c.tracingEnabled }))}
             style={toggleBtn(config.tracingEnabled)}
             role="switch" aria-checked={config.tracingEnabled}
-            aria-label="Toggle OpenTelemetry tracing">
+            aria-label="Toggle OpenTelemetry tracing"
+            data-testid="toggle-tracing">
             <span style={toggleDot(config.tracingEnabled)} />
           </button>
         </div>
@@ -1313,7 +1315,7 @@ function ObservabilityTab() {
               <label style={{ display: 'block', fontSize: 13, color: '#475569', marginBottom: 4 }}>
                 <FormattedMessage id="admin.observability.tempThreshold" />
               </label>
-              <input id="temp-threshold" type="number" value={config.temperatureThresholdF}
+              <input id="temp-threshold" data-testid="temp-threshold" type="number" value={config.temperatureThresholdF}
                 onChange={e => setConfig(c => ({ ...c, temperatureThresholdF: parseFloat(e.target.value) || 32 }))}
                 aria-label="Temperature threshold in Fahrenheit"
                 style={inputStyle} />
@@ -1324,10 +1326,11 @@ function ObservabilityTab() {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 16 }}>
           <button onClick={handleSave} disabled={saving}
+            data-testid="observability-save"
             style={{
               padding: '10px 24px', background: '#1a56db', color: '#fff', border: 'none',
               borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer',
-              opacity: saving ? 0.6 : 1,
+              opacity: saving ? 0.6 : 1, minHeight: 44,
             }}>
             {saving ? '...' : intl.formatMessage({ id: 'admin.observability.save' })}
           </button>

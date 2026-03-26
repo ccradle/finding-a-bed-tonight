@@ -16,7 +16,7 @@ function clearAdminAuthState() {
 async function goToObservabilityTab(page: import('@playwright/test').Page) {
   await page.goto('/admin');
   await expect(page.locator('main h1')).toContainText(/administration/i);
-  await page.locator('main button', { hasText: /^Observability$/ }).first().click();
+  await page.locator('button[role="tab"]', { hasText: /^Observability$/ }).click();
   await expect(page.locator('main h3', { hasText: /observability configuration/i }))
     .toBeVisible({ timeout: 5000 });
   await page.waitForTimeout(500);
@@ -42,64 +42,64 @@ test.describe('Observability Tab', () => {
   test('toggle tracing on, save, and verify persists on reload', async ({ adminPage }) => {
     await goToObservabilityTab(adminPage);
 
-    // Toggle tracing on via the API directly (avoids fragile toggle button targeting)
-    // then verify the UI reflects the change after reload
-    const tenantId = 'a0000000-0000-0000-0000-000000000001';
-    await adminPage.evaluate(async (tid) => {
-      const token = localStorage.getItem('fabt_access_token');
-      await fetch(`/api/v1/tenants/${tid}/observability`, {
-        method: 'PUT',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prometheus_enabled: true, tracing_enabled: true,
-          tracing_endpoint: 'http://localhost:4318/v1/traces',
-          monitor_stale_interval_minutes: 5, monitor_dv_canary_interval_minutes: 15,
-          monitor_temperature_interval_minutes: 60, temperature_threshold_f: 32,
-        }),
-      });
-    }, tenantId);
+    // Toggle tracing on via UI
+    const tracingToggle = adminPage.getByTestId('toggle-tracing');
+    await expect(tracingToggle).toBeVisible();
 
-    // Reload and verify tracing is reflected in the UI
+    // Check initial state — should be off (aria-checked="false")
+    const initialState = await tracingToggle.getAttribute('aria-checked');
+    if (initialState === 'true') {
+      // Already on — toggle off first, save, then toggle on
+      await tracingToggle.click();
+      await adminPage.getByTestId('observability-save').click();
+      await adminPage.waitForTimeout(500);
+      await goToObservabilityTab(adminPage);
+    }
+
+    // Toggle tracing ON
+    await adminPage.getByTestId('toggle-tracing').click();
+    await adminPage.waitForTimeout(200);
+
+    // Save via UI
+    await adminPage.getByTestId('observability-save').click();
+    await adminPage.waitForTimeout(1000);
+    await expect(adminPage.locator('main', { hasText: /saved/i })).toBeVisible();
+
+    // Reload and verify tracing persists
     await goToObservabilityTab(adminPage);
 
     // OTLP endpoint should be visible (tracing is on)
     await expect(adminPage.locator('main', { hasText: /otlp endpoint/i })).toBeVisible({ timeout: 5000 });
 
-    // Clean up: toggle tracing back off via API
-    await adminPage.evaluate(async (tid) => {
-      const token = localStorage.getItem('fabt_access_token');
-      await fetch(`/api/v1/tenants/${tid}/observability`, {
-        method: 'PUT',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prometheus_enabled: true, tracing_enabled: false,
-          tracing_endpoint: 'http://localhost:4318/v1/traces',
-          monitor_stale_interval_minutes: 5, monitor_dv_canary_interval_minutes: 15,
-          monitor_temperature_interval_minutes: 60, temperature_threshold_f: 32,
-        }),
-      });
-    }, tenantId);
+    // Verify toggle shows ON state
+    await expect(adminPage.getByTestId('toggle-tracing')).toHaveAttribute('aria-checked', 'true');
+
+    // Clean up: toggle tracing back OFF
+    await adminPage.getByTestId('toggle-tracing').click();
+    await adminPage.getByTestId('observability-save').click();
+    await adminPage.waitForTimeout(500);
   });
 
   test('change temperature threshold and save', async ({ adminPage }) => {
+    test.setTimeout(60000); // Extended — this test navigates twice + saves + verifies
+
     await goToObservabilityTab(adminPage);
 
-    // Find the threshold input (last number input — the one with °F)
-    const thresholdInput = adminPage.locator('main input[type="number"]').last();
-    await thresholdInput.fill('40');
+    // Find and fill the threshold input (fill auto-scrolls)
+    await adminPage.getByTestId('temp-threshold').fill('40');
 
-    // Save
-    await adminPage.locator('main button', { hasText: /^Save$/ }).click();
+    // Save (data-testid to avoid ambiguity with ReservationSettings Save)
+    await adminPage.getByTestId('observability-save').click();
     await adminPage.waitForTimeout(1000);
     await expect(adminPage.locator('main', { hasText: /saved/i })).toBeVisible();
 
     // Re-navigate and verify persistence
     await goToObservabilityTab(adminPage);
-    await expect(adminPage.locator('main input[type="number"]').last()).toHaveValue('40');
+    await expect(adminPage.getByTestId('temp-threshold')).toHaveValue('40');
 
     // Clean up: reset to 32
-    await adminPage.locator('main input[type="number"]').last().fill('32');
-    await adminPage.locator('main button', { hasText: /^Save$/ }).click();
+    await adminPage.getByTestId('temp-threshold').fill('32');
+    await adminPage.getByTestId('observability-save').click();
     await adminPage.waitForTimeout(500);
   });
 
