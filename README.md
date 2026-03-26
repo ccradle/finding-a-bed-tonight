@@ -211,7 +211,7 @@ New to OpenSpec? See [https://openspec.dev](https://openspec.dev) and [https://g
 
 - **Java:** 21+ (OpenJDK or Eclipse Temurin)
 - **Maven:** 3.9+
-- **Docker:** Latest version (required for PostgreSQL and Testcontainers — engine 29.x+ on Windows requires `api.version=1.44` config)
+- **Docker Desktop:** Must be **running** before starting the stack (required for PostgreSQL via Docker Compose and for Testcontainers in tests — engine 29.x+ on Windows requires `api.version=1.44` config)
 - **Node.js:** 20+ (for frontend)
 
 ---
@@ -223,6 +223,9 @@ New to OpenSpec? See [https://openspec.dev](https://openspec.dev) and [https://g
 ```bash
 git clone https://github.com/ccradle/finding-a-bed-tonight.git
 cd finding-a-bed-tonight
+
+# macOS/Linux: make script executable (one-time)
+chmod +x dev-start.sh
 
 # Start everything: PostgreSQL, backend, seed data, frontend
 ./dev-start.sh
@@ -258,7 +261,7 @@ cd frontend && npm install && npm run dev
 # Health check
 curl http://localhost:8080/actuator/health/liveness
 
-# Swagger UI
+# Swagger UI (no auth required to browse API docs)
 open http://localhost:8080/api/v1/docs
 
 # Frontend

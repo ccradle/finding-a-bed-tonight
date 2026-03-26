@@ -60,10 +60,17 @@ public class SecurityConfig {
      * with web.ignoring() for static paths. permitAll() DOES NOT WORK for static
      * resources when BearerTokenAuthenticationFilter is in the chain.
      */
+    /**
+     * LESSON 58: Static resources + oauth2ResourceServer requires web.ignoring()
+     * for static paths. permitAll() DOES NOT WORK for static resources when
+     * BearerTokenAuthenticationFilter (or JwtAuthenticationFilter) is in the chain.
+     * Swagger UI paths included per reviewer feedback (401 on /api/v1/swagger-ui/).
+     */
     @Bean
     public WebSecurityCustomizer webSecurityCustomizer() {
         return (web) -> web.ignoring()
-                .requestMatchers("/", "/index.html", "/assets/**", "/favicon.ico", "/favicon.svg");
+                .requestMatchers("/", "/index.html", "/assets/**", "/favicon.ico", "/favicon.svg")
+                .requestMatchers("/api/v1/swagger-ui/**", "/swagger-ui/**");
     }
 
     @Bean
