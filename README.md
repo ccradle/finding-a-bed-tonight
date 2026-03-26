@@ -13,7 +13,7 @@ Open-source emergency shelter bed availability platform. Matches homeless indivi
 
 **[HMIS Bridge Walkthrough](https://ccradle.github.io/findABed/demo/hmisindex.html)** — 4 screenshots showing the HMIS export flow: data preview with DV aggregation, push controls, Grafana operational dashboard.
 
-**[CoC Analytics Walkthrough](https://ccradle.github.io/findABed/demo/analyticsindex.html)** — 5 screenshots showing the analytics dashboard: executive summary, utilization trends, demand signals, batch job management, HIC/PIT export.
+**[CoC Analytics Walkthrough](https://ccradle.github.io/findABed/demo/analyticsindex.html)** — 6 screenshots showing the analytics dashboard: executive summary, utilization trends, demand signals, batch job management, HIC/PIT export, Grafana CoC Analytics.
 
 ---
 
@@ -99,12 +99,12 @@ Three deployment tiers allow the same codebase to serve communities of vastly di
 | Layer | Technology |
 |---|---|
 | Backend | Java 21, Spring Boot 3.4, Spring MVC, Spring Data JDBC |
-| Database | PostgreSQL 16, Flyway (25 migrations), Row Level Security (DV shelters) |
+| Database | PostgreSQL 16, Flyway (26 migrations), Row Level Security (DV shelters) |
 | Cache | Caffeine L1 / + Redis L2 (Standard/Full) |
 | Events | Spring Events (Lite) / Kafka (Full) |
 | Auth | JWT + OAuth2/OIDC + API Keys (hybrid) |
 | Frontend | React 19, Vite, TypeScript, Workbox PWA, react-intl (EN/ES) |
-| Testing | JUnit 5, Testcontainers, ArchUnit (234 tests), Playwright (98 UI tests), Karate (73 API tests), Gatling (5 simulations) |
+| Testing | JUnit 5, Testcontainers, ArchUnit (236 tests), Playwright (114 UI tests), Karate (77 API tests), Gatling (4 simulations) |
 | Infra | Docker, GitHub Actions CI/CD + E2E pipeline, Terraform (3 tiers) |
 
 ---
@@ -153,7 +153,7 @@ Phase 2 will add an MCP server as a thin wrapper around the REST API, enabling n
 
 ## Database Schema
 
-25 Flyway migrations (V1–V24 + V8.1):
+26 Flyway migrations (V1–V25 + V8.1):
 
 | Migration | Description |
 |---|---|
@@ -182,6 +182,7 @@ Phase 2 will add an MCP server as a thin wrapper around the REST API, enabling n
 | V22 | `hmis_outbox` + `hmis_audit_log` — async push outbox and audit trail for HMIS bridge |
 | V23 | `bed_search_log` + `daily_utilization_summary` — analytics demand logging and pre-aggregation. BRIN index on `bed_availability.snapshot_ts` |
 | V24 | Spring Batch schema (6 tables, 3 sequences) — job/step execution history for batch jobs |
+| V25 | Composite index on `bed_availability(tenant_id, shelter_id, population_type, snapshot_ts DESC)` — lateral join skip-scan optimization |
 
 ### Entity Relationship Diagram
 
@@ -196,6 +197,23 @@ Phase 2 will add an MCP server as a thin wrapper around the REST API, enabling n
 | [docs/asyncapi.yaml](docs/asyncapi.yaml) | AsyncAPI 3.0 spec — EventBus contract for all 3 deployment tiers |
 | [docs/architecture.drawio](docs/architecture.drawio) | Architecture diagram — includes observability stack, NOAA API. Open in [draw.io](https://app.diagrams.net) |
 | [docs/runbook.md](docs/runbook.md) | Operational runbook — monitor investigation, Grafana panels, Prometheus queries, management port production security |
+
+### Guides & Policy Documents
+
+| Document | Audience | Description |
+|---|---|---|
+| [docs/government-adoption-guide.md](docs/government-adoption-guide.md) | City/county IT | Procurement checklist, security posture, ADA compliance, deployment options |
+| [docs/hospital-privacy-summary.md](docs/hospital-privacy-summary.md) | Hospital compliance | HIPAA applicability analysis — why FABT stores no PHI and no BAA is required |
+| [docs/partial-participation-guide.md](docs/partial-participation-guide.md) | Shelter operators | How to participate at different levels (view-only, bed counts, reservations) |
+| [docs/what-does-free-mean.md](docs/what-does-free-mean.md) | Decision-makers | What "free and open-source" means in practice — license, hosting costs, support |
+| [docs/support-model.md](docs/support-model.md) | Adopters | Best-effort community support model, SLA options via integrators |
+| [docs/theory-of-change.md](docs/theory-of-change.md) | Funders/grantors | Logic model connecting FABT capabilities to measurable outcomes |
+| [docs/sustainability-narrative.md](docs/sustainability-narrative.md) | Funders/grantors | Path from single-maintainer project to self-sustaining open-source platform |
+| [docs/coc-analytics-spm-mapping.md](docs/coc-analytics-spm-mapping.md) | CoC data analysts | How FABT analytics map to HUD System Performance Measures (SPMs) |
+| [docs/WCAG-ACR.md](docs/WCAG-ACR.md) | Accessibility reviewers | Self-assessed Accessibility Conformance Report (VPAT 2.5 WCAG edition) |
+| [docs/DV-OPAQUE-REFERRAL.md](docs/DV-OPAQUE-REFERRAL.md) | DV advocates/legal | Legal basis, architecture, and address visibility policies for DV shelter privacy |
+
+> *Tier 2 policy documents were generated with AI assistance and include attribution. They are intended as starting points and should be reviewed by subject matter experts before use in formal procurement or grant applications.*
 
 ---
 
@@ -345,13 +363,13 @@ curl -s http://localhost:8080/actuator/health | python3 -m json.tool
 ```bash
 cd backend
 
-# Run all 234 backend tests
+# Run all 236 backend tests
 mvn test
 
 # Run E2E tests (requires dev-start.sh stack running)
-cd ../e2e/playwright && npx playwright test    # 98 UI tests
-cd ../e2e/karate && mvn test                   # 73 API tests (69 + 4 @observability)
-cd ../e2e/gatling && mvn verify -Pperf         # Gatling performance simulations
+cd ../e2e/playwright && npx playwright test    # 114 UI tests
+cd ../e2e/karate && mvn test                   # 77 API tests (71 + 6 @observability)
+cd ../e2e/gatling && mvn gatling:test           # Gatling performance simulations
 
 # Run a specific test class
 mvn test -Dtest=ReservationIntegrationTest
@@ -384,15 +402,16 @@ mvn test -Dtest="AvailabilityIntegrationTest#test_createSnapshot_appendOnly_pres
 | `MetricsIntegrationTest` | 5 | Prometheus endpoint, metric tags, actuator integration |
 | `SubscriptionIntegrationTest` | 5 | Webhook subscription CRUD, error validation |
 | `AvailabilityIntegrationTest` | 10 | Availability snapshots, bed search, ranking, data freshness, events |
-| `BedAvailabilityHardeningTest` | 27 | QA invariants (9 rules), concurrent holds, coordinator hold protection, single source of truth |
+| `BedAvailabilityHardeningTest` | 28 | QA invariants (9 rules), concurrent holds, coordinator hold protection, single source of truth |
 | `ReservationIntegrationTest` | 10 | Reservation lifecycle, concurrency, expiry, creator-only access, events |
 | `SurgeIntegrationTest` | 8 | Surge activation/deactivation, 409, 403, auto-expiry, overflow, search flag |
 | `DvReferralIntegrationTest` | 12 | Token lifecycle, warm handoff, dvAccess enforcement, purge, RLS defense-in-depth, analytics |
 | `DvAddressRedactionTest` | 13 | Policy-based address redaction: ADMIN_AND_ASSIGNED, ADMIN_ONLY, ALL_DV_ACCESS, NONE, safeguards |
-| `HmisBridgeIntegrationTest` | 10 | Transformer, DV aggregation, outbox, push, preview, status, security |
-| **Backend Total** | **234** | |
+| `HmisBridgeIntegrationTest` | 14 | Transformer, DV aggregation, outbox, push, preview, status, security |
+| `AnalyticsIntegrationTest` | 13 | Utilization, demand, HIC/PIT export, batch jobs, security |
+| **Backend Total** | **236** | |
 | | | |
-| **E2E: Playwright** | **98** | **UI tests (Chromium, data-testid locators)** |
+| **E2E: Playwright** | **114** | **UI tests (Chromium, data-testid locators)** |
 | `auth.spec.ts` | 4 | Login per role, failed login |
 | `outreach-search.spec.ts` | 9 | Results, filters, modal, hold/cancel, language, freshness |
 | `coordinator-dashboard.spec.ts` | 5 | Load, expand, update, save, hold indicator |
@@ -402,13 +421,18 @@ mvn test -Dtest="AvailabilityIntegrationTest#test_createSnapshot_appendOnly_pres
 | `oauth2-login.spec.ts` | 3 | SSO buttons, provider-driven login |
 | `oauth2-providers.spec.ts` | 2 | Admin OAuth2 provider management |
 | `observability.spec.ts` | 4 | Admin observability tab, config toggles |
-| `offline-behavior.spec.ts` | 3 | Offline banner, stale cache, queue replay |
+| `offline-behavior.spec.ts` | 4 | Offline banner, stale cache, queue replay |
 | `dv-referral.spec.ts` | 7 | DV referral request, screening, accept, reject, warm handoff |
-| `capture-screenshots.spec.ts` | 17 | Demo walkthrough screenshot capture |
 | `hmis-export.spec.ts` | 5 | HMIS Export admin tab, preview, history, push |
+| `analytics.spec.ts` | 7 | Analytics dashboard, utilization, demand, batch jobs, HIC/PIT |
+| `accessibility.spec.ts` | 8 | axe-core scans on 8 pages (zero violations gate) |
+| `screen-reader.spec.ts` | 6 | Virtual screen reader: navigation, ARIA, skip link, lang |
+| `capture-screenshots.spec.ts` | 18 | Demo walkthrough screenshot capture |
 | `capture-dv-screenshots.spec.ts` | 7 | DV referral flow screenshot capture |
+| `capture-hmis-screenshots.spec.ts` | 4 | HMIS bridge screenshot capture |
+| `capture-analytics-screenshots.spec.ts` | 6 | Analytics dashboard screenshot capture |
 | | | |
-| **E2E: Karate** | **73** | **API contract tests (feature files)** |
+| **E2E: Karate** | **77** | **API contract tests (feature files)** |
 | `auth/login.feature` | 5 | JWT login, refresh, invalid, no-auth 401, API key |
 | `shelters/shelter-crud.feature` | 6 | Create, update, list, filter, HSDS, outreach 403 |
 | `availability/availability.feature` | 6 | PATCH snapshot, bed search, filters, outreach 403, detail |
@@ -416,12 +440,13 @@ mvn test -Dtest="AvailabilityIntegrationTest#test_createSnapshot_appendOnly_pres
 | `reservations/*.feature` | 4 | Lifecycle, cancel, auth, concurrency |
 | `surge/surge-lifecycle.feature` | 4 | Activate, deactivate, list, outreach 403 |
 | `webhooks/subscription-crud.feature` | 2 | Create + list, delete |
-| `dv-referrals/*.feature` | 6 | Token lifecycle, security/RLS, warm handoff, dvAccess enforcement, analytics |
+| `dv-referrals/*.feature` | 7 | Token lifecycle, security/RLS, warm handoff, dvAccess enforcement, analytics |
 | `dv-address/*.feature` | 6 | Policy-based address redaction, policy change safeguards |
 | `hmis/*.feature` | 6 | HMIS push, preview, status, security |
-| `observability/*.feature` | 4 | Grafana health, Prometheus scrape, metrics polling, trace-e2e |
+| `analytics/*.feature` | 19 | Utilization, demand, export, batch jobs, security |
+| `observability/*.feature` | 6 | Grafana health, Prometheus scrape, metrics polling, trace-e2e |
 | | | |
-| **Grand Total** | **405** | |
+| **Grand Total** | **431** | |
 
 ---
 
@@ -686,7 +711,31 @@ All endpoints are under `/api/v1`. Authentication is via JWT Bearer token (from 
 
 **Coordinator** — Shelter staff responsible for updating bed counts and managing shelter profile.
 
-**Opaque Referral** — Privacy-preserving DV shelter referral that does not reveal the shelter's location or existence to unauthorized users.
+**Opaque Referral** — Privacy-preserving DV shelter referral that does not reveal the shelter's location or existence to unauthorized users. Uses time-limited tokens with zero client PII.
+
+**Warm Handoff** — Standard DV referral practice where the referring worker calls the shelter directly (phone number provided after acceptance) to arrange arrival and discuss sensitive details verbally. Required by VAWA/FVPSA.
+
+**VAWA (Violence Against Women Act)** — Federal law (34 U.S.C. 12291(b)(2)) prohibiting disclosure of DV survivor PII. FABT is designed to support VAWA requirements through zero-PII referral tokens and address redaction.
+
+**FVPSA (Family Violence Prevention and Services Act)** — Federal law (45 CFR Part 1370) requiring DV shelter address confidentiality. FABT enforces configurable address visibility policies per tenant.
+
+**DV Address Policy** — Tenant-level configuration controlling who sees DV shelter addresses: `ADMIN_AND_ASSIGNED` (default), `ADMIN_ONLY`, `ALL_DV_ACCESS`, `NONE`.
+
+**Row Level Security (RLS)** — PostgreSQL security feature that filters query results based on user context. FABT uses RLS to prevent any unauthorized access to DV shelter data, regardless of application code.
+
+**Data Freshness** — Indicator of availability data age: `FRESH` (<2 hours), `AGING` (2–8 hours), `STALE` (>8 hours), `UNKNOWN` (no timestamp). Displayed in UI and monitored by operational alerts.
+
+**HIC (Housing Inventory Count)** — Annual HUD report of all beds and units dedicated to homeless populations in a CoC. FABT generates HIC CSV exports from bed availability snapshots.
+
+**HMIS Bridge** — System module that pushes bed inventory (HMIS Element 2.07) to external HMIS vendors (Clarity, WellSky, ClientTrack) via async outbox pattern with hourly scheduling.
+
+**Small-Cell Suppression** — Privacy technique applied to DV analytics: suppress aggregations with fewer than 3 distinct shelters or fewer than 5 beds to prevent identification of individual DV shelters.
+
+**WCAG 2.1 Level AA** — Web Content Accessibility Guidelines version 2.1 at Level AA conformance — the standard mandated by ADA Title II for state and local government web content (effective April 2026).
+
+**ACR (Accessibility Conformance Report)** — Self-assessed document (VPAT 2.5 WCAG edition) detailing how FABT meets each of the 50 WCAG 2.1 Level A and AA success criteria. See [docs/WCAG-ACR.md](docs/WCAG-ACR.md).
+
+**SPM (System Performance Measures)** — Seven HUD-mandated metrics for CoC performance evaluation. FABT provides complementary utilization and demand data but does not replicate client-level SPMs (which require HMIS enrollment data).
 
 **MCP (Model Context Protocol)** — Open standard by Anthropic for AI agent integration. Platform is MCP-ready for Phase 2 natural language interface.
 
@@ -744,7 +793,7 @@ finding-a-bed-tonight/
 │       │   │   ├── domain/BedAvailability.java        # Append-only snapshot entity
 │       │   │   ├── domain/BedSearchRequest.java       # Filter body (populationType, constraints, location)
 │       │   │   ├── domain/BedSearchResult.java        # Ranked result with availability + freshness
-│       │   │   ├── repository/BedAvailabilityRepository.java  # DISTINCT ON, ON CONFLICT DO NOTHING
+│       │   │   ├── repository/BedAvailabilityRepository.java  # Lateral join skip-scan, ON CONFLICT DO NOTHING
 │       │   │   ├── service/AvailabilityService.java   # createSnapshot, invariant validation, cache evict, event publish
 │       │   │   ├── service/AvailabilityInvariantViolation.java  # 422 for invariant violations (INV-1 through INV-5)
 │       │   │   └── service/BedSearchService.java      # Cache-aside, ranking, constraint filtering
@@ -808,10 +857,10 @@ finding-a-bed-tonight/
 │       ├── main/resources/
 │       │   ├── application.yml                        # Base config (port 8080, OTel, Resilience4J)
 │       │   ├── application-observability.yml          # Management port 9091 (for dev Prometheus scrape)
-│       │   ├── db/migration/                          # 25 Flyway migrations (V1–V24 + V8.1)
+│       │   ├── db/migration/                          # 26 Flyway migrations (V1–V25 + V8.1)
 │       │   ├── logback-spring.xml                     # Structured JSON logging (Logstash encoder)
 │       │   └── messages/                              # i18n error messages (EN, ES)
-│       └── test/java/org/fabt/                        # 234 tests (unit + integration)
+│       └── test/java/org/fabt/                        # 236 tests (unit + integration)
 │           ├── BaseIntegrationTest.java               # Singleton Testcontainers PostgreSQL
 │           ├── TestAuthHelper.java                    # Per-role JWT helper for tests
 │           ├── ArchitectureTest.java                  # 21 ArchUnit module boundary rules
@@ -851,7 +900,7 @@ finding-a-bed-tonight/
 │           └── es.json                                # Spanish (100+ keys)
 │
 ├── e2e/                                               # End-to-end test suites
-│   ├── playwright/                                    # UI tests (82 tests, Chromium)
+│   ├── playwright/                                    # UI tests (114 tests, Chromium)
 │   │   ├── package.json                               # @playwright/test + TypeScript
 │   │   ├── playwright.config.ts                       # baseURL, workers, retries, HTML reporter
 │   │   ├── fixtures/auth.fixture.ts                   # Per-role storageState (admin, cocadmin, outreach)
@@ -862,13 +911,20 @@ finding-a-bed-tonight/
 │   │   │   └── AdminPanelPage.ts                      # Tabs, forms, tables
 │   │   └── tests/
 │   │       ├── auth.spec.ts                           # 4 tests — login per role + failed login
-│   │       ├── outreach-search.spec.ts                # 5 tests — filters, modal, results
-│   │       ├── coordinator-dashboard.spec.ts          # 4 tests — expand, update, save
+│   │       ├── outreach-search.spec.ts                # 9 tests — filters, modal, hold/cancel, freshness
+│   │       ├── coordinator-dashboard.spec.ts          # 5 tests — expand, update, save
+│   │       ├── coordinator-beds.spec.ts               # 5 tests — steppers, on-hold, save+reload
+│   │       ├── coordinator-availability-math.spec.ts  # 5 tests — INV-9 math verification
 │   │       ├── admin-panel.spec.ts                    # 5 tests — tabs, create user, API key reveal
 │   │       ├── observability.spec.ts                  # 4 tests — config toggle, threshold, temp display
-│   │       ├── oauth2-login.spec.ts                   # 3 tests — SSO buttons, no-provider, callback error
+│   │       ├── analytics.spec.ts                      # 7 tests — dashboard, utilization, demand, batch
+│   │       ├── accessibility.spec.ts                  # 8 tests — axe-core zero violations gate
+│   │       ├── screen-reader.spec.ts                  # 6 tests — virtual SR, ARIA, skip link
+│   │       ├── dv-referral.spec.ts                    # 7 tests — referral request, screening, handoff
+│   │       ├── hmis-export.spec.ts                    # 5 tests — HMIS export tab, preview, push
+│   │       ├── oauth2-login.spec.ts                   # 3 tests — SSO buttons, no-provider
 │   │       └── oauth2-providers.spec.ts               # 2 tests — provider tab, add provider form
-│   ├── karate/                                        # API tests (36 scenarios, JUnit 5 runner)
+│   ├── karate/                                        # API tests (77 scenarios, JUnit 5 runner)
 │       ├── pom.xml                                    # Standalone Maven project, Karate 1.4.1
 │       └── src/test/java/
 │           ├── KarateRunnerTest.java                  # JUnit 5 entry point

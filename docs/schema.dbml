@@ -322,7 +322,7 @@ Table reservation {
     Terminal states are immutable. Creating a hold increments beds_on_hold via a
     new availability snapshot. Confirming converts to beds_occupied. Cancelling or
     expiring decrements beds_on_hold. Hold duration is configurable per tenant
-    (default 45 minutes) via tenant.config JSONB field hold_duration_minutes.
+    (default 90 minutes) via tenant.config JSONB field hold_duration_minutes.
 
     Auto-expiry: Lite tier uses @Scheduled polling (30s interval). Standard/Full
     tiers use Redis TTL with keyspace notification for near-instant expiry.

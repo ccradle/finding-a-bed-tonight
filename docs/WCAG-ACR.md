@@ -26,7 +26,7 @@
 | **Manual review** | Keyboard-only navigation testing of core workflows. Visual inspection of color contrast, touch targets, and focus indicators. |
 | **Browsers tested** | Chromium (via Playwright). Manual spot checks in Chrome and Firefox. |
 | **Assistive technology** | Virtual screen reader (automated). Real screen reader testing (NVDA/VoiceOver) planned for release-gate CI via @guidepup/playwright. |
-| **CI integration** | 113 Playwright tests including 8 axe-core scans + 6 virtual screen reader tests. Zero violations is a blocking gate. |
+| **CI integration** | 114 Playwright tests including 8 axe-core scans + 6 virtual screen reader tests. Zero violations is a blocking gate. |
 
 ## Conformance Level Definitions
 
