@@ -73,8 +73,8 @@ public class AuthController {
                     .body(new ErrorBody("Invalid credentials"));
         }
 
-        // Generate tokens
-        String accessToken = jwtService.generateAccessToken(user);
+        // Generate tokens (include tenant name for display in header)
+        String accessToken = jwtService.generateAccessToken(user, tenant.getName());
         String refreshToken = jwtService.generateRefreshToken(user);
 
         return ResponseEntity.ok(new TokenResponse(accessToken, refreshToken, jwtService.getAccessTokenExpirySeconds()));

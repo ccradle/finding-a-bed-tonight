@@ -33,7 +33,7 @@ public class ReservationController {
     @Operation(
             summary = "Create a soft-hold bed reservation",
             description = "Temporarily holds one bed for a specific population type at a shelter. " +
-                    "The hold lasts for the tenant's configured duration (default 45 minutes) and " +
+                    "The hold lasts for the tenant's configured duration (default 90 minutes) and " +
                     "auto-expires if not confirmed. Creating a hold increments beds_on_hold in a new " +
                     "availability snapshot, reducing beds_available for other searchers. Returns the " +
                     "reservation with expires_at for countdown display. Returns 409 if no beds are " +

@@ -52,7 +52,7 @@ Table tenant {
   name        varchar     [not null]
   slug        varchar     [unique, not null, note: 'URL-safe identifier for the CoC/tenant']
   config      jsonb       [note: '''Tenant-specific configuration. JSONB schema:
-    hold_duration_minutes: int (default 45)
+    hold_duration_minutes: int (default 90)
     api_key_auth_enabled: bool (default true)
     default_locale: string (default "en")
     observability.prometheus_enabled: bool (default true)

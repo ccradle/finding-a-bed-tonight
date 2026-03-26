@@ -68,12 +68,18 @@ public class JwtService {
     }
 
     public String generateAccessToken(User user) {
+        return generateAccessToken(user, null);
+    }
+
+    public String generateAccessToken(User user, String tenantName) {
         Instant now = Instant.now();
         Instant exp = now.plusSeconds(accessTokenExpiryMinutes * 60);
 
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("sub", user.getId().toString());
         payload.put("tenantId", user.getTenantId().toString());
+        if (tenantName != null) payload.put("tenantName", tenantName);
+        payload.put("displayName", user.getDisplayName());
         payload.put("roles", user.getRoles());
         payload.put("dvAccess", user.isDvAccess());
         payload.put("type", "access");
