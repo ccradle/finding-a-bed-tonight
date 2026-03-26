@@ -1197,7 +1197,7 @@ function ObservabilityTab() {
   return (
     <div>
       {/* Temperature Status Banner */}
-      {tempStatus && tempStatus.temperatureF !== null && (
+      {tempStatus && typeof tempStatus.temperatureF === 'number' && (
         <div style={{
           ...sectionStyle,
           background: tempStatus.gapDetected

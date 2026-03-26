@@ -151,13 +151,12 @@ fi
 # Activate 'dev' profile for dev-only features (e.g., test reset endpoint).
 # This profile does NOT exist in production deployments.
 export SPRING_PROFILES_ACTIVE=lite,dev
+# Create logs directory BEFORE starting backend (fresh clones don't have it)
+mkdir -p ../logs
 mvn spring-boot:run $SPRING_ARGS -q > ../logs/backend.log 2>&1 &
 BACKEND_PID=$!
 echo "$BACKEND_PID" > ../.pid-backend
 cd ..
-
-# Create logs directory
-mkdir -p logs
 
 # Wait for backend to be ready (Flyway migrations run during startup)
 # When --observability is set, health endpoints move to the management port
