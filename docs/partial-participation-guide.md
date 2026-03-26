@@ -30,9 +30,9 @@ FABT has many features — bed search, reservations, DV referrals, surge events,
 
 #### Level 2: Bed Counts + Reservations
 
-**What you add:** Outreach workers can hold a bed at your shelter for 45 minutes while transporting a client.
+**What you add:** Outreach workers can hold a bed at your shelter for 90 minutes (configurable by your CoC admin) while transporting a client.
 
-**What this means for you:** You see a "Holds" count on your dashboard. These auto-expire after 45 minutes if no one arrives. You don't need to do anything — the system manages it.
+**What this means for you:** You see a "Holds" count on your dashboard. These auto-expire after the configured hold duration if no one arrives. You don't need to do anything — the system manages it.
 
 **Who this is for:** Shelters with reliable nightly staffing who want to reduce phone calls from outreach workers.
 

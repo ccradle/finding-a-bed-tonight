@@ -15,17 +15,16 @@ test.describe('Admin Panel', () => {
     await adminPage.goto('/admin');
     // Click Create User button
     await adminPage.locator('main button', { hasText: /create user/i }).click();
-    // Fill form
+    // Fill form (scope to tabpanel to avoid ReservationSettings inputs)
+    const panel = adminPage.locator('[role="tabpanel"]');
     const uniqueEmail = `e2e-test-${Date.now()}@dev.fabt.org`;
-    const inputs = adminPage.locator('main input');
-    // Find email input, display name, password by type/order
-    await adminPage.locator('main input[type="email"]').last().fill(uniqueEmail);
-    await adminPage.locator('main input').nth(1).fill('E2E Test User');
-    await adminPage.locator('main input[type="password"]').last().fill('TestPassword123!');
+    await panel.locator('input[type="email"]').last().fill(uniqueEmail);
+    await panel.locator('input').nth(1).fill('E2E Test User');
+    await panel.locator('input[type="password"]').last().fill('TestPassword123!');
     // Select OUTREACH_WORKER role
-    await adminPage.locator('main button', { hasText: 'OUTREACH_WORKER' }).click();
+    await panel.locator('button', { hasText: 'OUTREACH_WORKER' }).click();
     // Submit — the last "Create User" button in the form
-    await adminPage.locator('main button', { hasText: /create user/i }).last().click();
+    await panel.locator('button', { hasText: /create user/i }).last().click();
     await adminPage.waitForTimeout(2000);
     // Verify user appears in table
     await expect(adminPage.locator('main td', { hasText: uniqueEmail })).toBeVisible();

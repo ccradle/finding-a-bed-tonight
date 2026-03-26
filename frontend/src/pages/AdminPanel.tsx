@@ -83,6 +83,92 @@ const TABS: { key: TabKey; labelId: string }[] = [
 
 const ROLE_OPTIONS = ['PLATFORM_ADMIN', 'COC_ADMIN', 'COORDINATOR', 'OUTREACH_WORKER'];
 
+// --- Reservation Settings (tenant-wide) ---
+
+function ReservationSettings() {
+  const intl = useIntl();
+  const { user } = useContext(AuthContext);
+  const tenantId = user?.tenantId;
+  const [holdDuration, setHoldDuration] = useState(90);
+  const [loaded, setLoaded] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  useEffect(() => {
+    if (!tenantId) return;
+    (async () => {
+      try {
+        const config = await api.get<Record<string, unknown>>(`/api/v1/tenants/${tenantId}/config`);
+        if (config && typeof config === 'object' && 'hold_duration_minutes' in config) {
+          setHoldDuration(Number(config.hold_duration_minutes) || 90);
+        }
+        setLoaded(true);
+      } catch { setLoaded(true); }
+    })();
+  }, [tenantId]);
+
+  const handleSave = async () => {
+    if (!tenantId) return;
+    setSaving(true); setMessage(null);
+    try {
+      // GET current config, merge hold_duration_minutes, PUT back
+      const current = await api.get<Record<string, unknown>>(`/api/v1/tenants/${tenantId}/config`);
+      await api.put(`/api/v1/tenants/${tenantId}/config`, { ...current, hold_duration_minutes: holdDuration });
+      setMessage({ type: 'success', text: intl.formatMessage({ id: 'admin.holdDuration.saved' }) });
+    } catch {
+      setMessage({ type: 'error', text: intl.formatMessage({ id: 'admin.holdDuration.saveError' }) });
+    } finally { setSaving(false); }
+  };
+
+  if (!loaded) return null;
+
+  return (
+    <div style={{ background: '#fff', borderRadius: 12, padding: 16, marginBottom: 16, border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}
+      data-testid="reservation-settings">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <label htmlFor="hold-duration-input" style={{ fontSize: 14, fontWeight: 600, color: '#0f172a' }}>
+          <FormattedMessage id="admin.holdDuration.label" defaultMessage="Bed Hold Duration" />
+        </label>
+        <input
+          id="hold-duration-input"
+          type="number"
+          min={5}
+          max={480}
+          step={5}
+          value={holdDuration}
+          onChange={e => setHoldDuration(Math.max(5, Math.min(480, parseInt(e.target.value) || 90)))}
+          aria-label="Hold duration in minutes"
+          data-testid="hold-duration-input"
+          style={{ width: 80, padding: '8px 12px', borderRadius: 8, border: '2px solid #e2e8f0', fontSize: 14, textAlign: 'center', minHeight: 44 }}
+        />
+        <span style={{ fontSize: 13, color: '#475569' }}>
+          <FormattedMessage id="admin.holdDuration.unit" defaultMessage="minutes" />
+        </span>
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          data-testid="hold-duration-save"
+          style={{
+            padding: '8px 16px', backgroundColor: '#1a56db', color: '#fff',
+            border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700,
+            cursor: saving ? 'default' : 'pointer', minHeight: 44,
+          }}
+        >
+          {saving ? '...' : intl.formatMessage({ id: 'common.save' })}
+        </button>
+        {message && (
+          <span aria-live="polite" style={{ fontSize: 13, color: message.type === 'success' ? '#166534' : '#991b1b', fontWeight: 600 }}>
+            {message.text}
+          </span>
+        )}
+      </div>
+      <p style={{ fontSize: 12, color: '#475569', margin: '8px 0 0' }}>
+        <FormattedMessage id="admin.holdDuration.description" defaultMessage="How long outreach workers can hold a bed before auto-expiry. Hospital deployments may set 120-180 minutes for discharge workflows." />
+      </p>
+    </div>
+  );
+}
+
 // --- Main Component ---
 
 export function AdminPanel() {
@@ -104,7 +190,9 @@ export function AdminPanel() {
         </p>
       </div>
 
-      {/* Tab bar */}
+      {/* Reservation Settings (tenant-wide, always visible) */}
+      <ReservationSettings />
+
       {/* Tab bar — W3C APG Tabs pattern (WCAG 2.1.1, D7) */}
       <div
         role="tablist"
@@ -1160,7 +1248,8 @@ function ObservabilityTab() {
           <button onClick={() => setConfig(c => ({ ...c, prometheusEnabled: !c.prometheusEnabled }))}
             style={toggleBtn(config.prometheusEnabled)}
             role="switch" aria-checked={config.prometheusEnabled}
-            aria-label="Toggle Prometheus metrics">
+            aria-label="Toggle Prometheus metrics"
+            data-testid="toggle-prometheus">
             <span style={toggleDot(config.prometheusEnabled)} />
           </button>
         </div>
@@ -1170,7 +1259,8 @@ function ObservabilityTab() {
           <button onClick={() => setConfig(c => ({ ...c, tracingEnabled: !c.tracingEnabled }))}
             style={toggleBtn(config.tracingEnabled)}
             role="switch" aria-checked={config.tracingEnabled}
-            aria-label="Toggle OpenTelemetry tracing">
+            aria-label="Toggle OpenTelemetry tracing"
+            data-testid="toggle-tracing">
             <span style={toggleDot(config.tracingEnabled)} />
           </button>
         </div>
@@ -1225,7 +1315,7 @@ function ObservabilityTab() {
               <label style={{ display: 'block', fontSize: 13, color: '#475569', marginBottom: 4 }}>
                 <FormattedMessage id="admin.observability.tempThreshold" />
               </label>
-              <input id="temp-threshold" type="number" value={config.temperatureThresholdF}
+              <input id="temp-threshold" data-testid="temp-threshold" type="number" value={config.temperatureThresholdF}
                 onChange={e => setConfig(c => ({ ...c, temperatureThresholdF: parseFloat(e.target.value) || 32 }))}
                 aria-label="Temperature threshold in Fahrenheit"
                 style={inputStyle} />
@@ -1236,10 +1326,11 @@ function ObservabilityTab() {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 16 }}>
           <button onClick={handleSave} disabled={saving}
+            data-testid="observability-save"
             style={{
               padding: '10px 24px', background: '#1a56db', color: '#fff', border: 'none',
               borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer',
-              opacity: saving ? 0.6 : 1,
+              opacity: saving ? 0.6 : 1, minHeight: 44,
             }}>
             {saving ? '...' : intl.formatMessage({ id: 'admin.observability.save' })}
           </button>

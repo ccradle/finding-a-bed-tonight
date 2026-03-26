@@ -248,5 +248,10 @@
   "analytics.duration": "Duration",
   "analytics.restart": "Restart",
   "common.cancel": "Cancel",
-  "common.save": "Save"
+  "common.save": "Save",
+  "admin.holdDuration.label": "Bed Hold Duration",
+  "admin.holdDuration.unit": "minutes",
+  "admin.holdDuration.description": "How long outreach workers can hold a bed before auto-expiry. Hospital deployments may set 120-180 minutes for discharge workflows.",
+  "admin.holdDuration.saved": "Hold duration saved",
+  "admin.holdDuration.saveError": "Failed to save hold duration"
 }

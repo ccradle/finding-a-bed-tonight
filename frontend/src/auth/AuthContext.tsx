@@ -3,6 +3,8 @@ import { createContext, useState, useCallback, useEffect, type ReactNode } from 
 export interface DecodedUser {
   userId: string;
   tenantId: string;
+  tenantName: string;
+  displayName: string;
   roles: string[];
   dvAccess: boolean;
   exp: number;
@@ -41,6 +43,8 @@ function decodeJwtPayload(token: string): DecodedUser | null {
     return {
       userId: payload.sub || payload.userId || '',
       tenantId: payload.tenantId || '',
+      tenantName: payload.tenantName || '',
+      displayName: payload.displayName || '',
       roles: payload.roles || [],
       dvAccess: payload.dvAccess === true,
       exp: payload.exp || 0,

@@ -140,7 +140,7 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           {user && (
             <span style={{ fontSize: '14px', opacity: 0.9 }}>
-              {user.userId}
+              {user.displayName || user.tenantName || ''}
             </span>
           )}
           <LocaleSelector locale={locale} onLocaleChange={onLocaleChange} />

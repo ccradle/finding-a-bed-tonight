@@ -173,7 +173,7 @@ LOOP
 
     FOR i IN 1..v_res_count LOOP
         v_res_status := v_res_statuses[1 + (random() * 9)::INT];
-        v_hold_minutes := 10 + (random() * 30)::INT;
+        v_hold_minutes := 20 + (random() * 70)::INT;  -- 20-90 min (matches 90-min default)
         v_created_at := (v_day + (8 + random() * 14)::INT * INTERVAL '1 hour')::TIMESTAMPTZ;
 
         -- Only the most recent day can have HELD status

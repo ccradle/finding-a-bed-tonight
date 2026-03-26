@@ -1,6 +1,6 @@
 <mxfile host="Electron" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/29.6.1 Chrome/142.0.7444.265 Electron/39.8.0 Safari/537.36" version="29.6.1">
   <diagram id="fabt-architecture" name="FABT Architecture">
-    <mxGraphModel dx="1028" dy="645" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+    <mxGraphModel dx="2628" dy="645" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -67,11 +67,14 @@
         <mxCell id="mod-analytics" parent="backend-group" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82b366;fontSize=11;" value="&lt;b&gt;analytics&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;CoC reporting&lt;br&gt;Dashboards&lt;/font&gt;" vertex="1">
           <mxGeometry height="55" width="120" x="160" y="125" as="geometry" />
         </mxCell>
-        <mxCell id="mod-hmis" parent="backend-group" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82b366;fontSize=11;" value="&lt;b&gt;hmis-bridge&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;HMIS integration&lt;br&gt;Future extraction&lt;/font&gt;" vertex="1">
+        <mxCell id="mod-hmis" parent="backend-group" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82b366;fontSize=11;" value="&lt;b&gt;hmis-bridge&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;Outbox push to vendors&lt;br&gt;DV aggregation, audit log&lt;/font&gt;" vertex="1">
           <mxGeometry height="55" width="130" x="300" y="125" as="geometry" />
         </mxCell>
+        <mxCell id="mod-referral" parent="backend-group" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82b366;fontSize=11;" value="&lt;b&gt;referral&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;DV opaque referral&lt;br&gt;Zero PII, warm handoff&lt;/font&gt;" vertex="1">
+          <mxGeometry height="55" width="120" x="450" y="125" as="geometry" />
+        </mxCell>
         <mxCell id="mod-observability" parent="backend-group" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82b366;fontSize=11;" value="&lt;b&gt;observability&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;Micrometer Metrics, OTel Tracing&lt;br&gt;@Scheduled Monitors, Resilience4J&lt;/font&gt;" vertex="1">
-          <mxGeometry height="55" width="160" x="450" y="125" as="geometry" />
+          <mxGeometry height="55" width="160" x="590" y="125" as="geometry" />
         </mxCell>
         <mxCell id="shared-kernel" parent="backend-group" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;fontStyle=1;" value="shared/ — Config, Cache, EventBus, Security, Web, i18n" vertex="1">
           <mxGeometry height="40" width="960" x="20" y="200" as="geometry" />
@@ -110,7 +113,7 @@
           <mxGeometry height="60" width="150" x="540" y="30" as="geometry" />
         </mxCell>
         <mxCell id="keycloak-idp" parent="1" style="shape=hexagon;perimeter=hexagonPerimeter2;whiteSpace=wrap;html=1;fixedSize=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;strokeDasharray=3 3;" value="&lt;b&gt;Identity Providers&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;Keycloak / Google / Microsoft&lt;br&gt;OAuth2 + PKCE (OIDC)&lt;/font&gt;" vertex="1">
-          <mxGeometry height="70" width="180" x="10" y="370" as="geometry" />
+          <mxGeometry height="70" width="180" x="-80" y="280" as="geometry" />
         </mxCell>
         <mxCell id="arrow-fe-idp" edge="1" parent="1" source="frontend-group" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;fontSize=10;fontColor=#666666;strokeColor=#333333;strokeWidth=1;strokeDasharray=3 3;" target="keycloak-idp" value="OAuth2 redirect">
           <mxGeometry relative="1" as="geometry" />
@@ -122,6 +125,12 @@
           <mxGeometry height="70" width="180" x="10" y="640" as="geometry" />
         </mxCell>
         <mxCell id="arrow-be-noaa" edge="1" parent="1" source="backend-group" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;fontSize=10;fontColor=#666666;strokeColor=#333333;strokeWidth=1;strokeDasharray=3 3;" target="noaa-api" value="HTTPS">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="hmis-vendors" parent="1" style="shape=hexagon;perimeter=hexagonPerimeter2;whiteSpace=wrap;html=1;fixedSize=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;strokeDasharray=3 3;" value="&lt;b&gt;HMIS Vendors&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px;&quot;&gt;Bitfocus Clarity · WellSky&lt;br&gt;Eccovia ClientTrack&lt;/font&gt;" vertex="1">
+          <mxGeometry height="70" width="180" x="250" y="640" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow-be-hmis" edge="1" parent="1" source="mod-hmis" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;fontSize=10;fontColor=#666666;strokeColor=#333333;strokeWidth=1;strokeDasharray=3 3;" target="hmis-vendors" value="REST / CSV push">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="arrow-be-obs" edge="1" parent="1" source="backend-group" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;fontSize=10;fontColor=#666666;strokeColor=#9673a6;strokeWidth=2;strokeDasharray=3 3;" target="obs-group" value="OTLP / Prometheus scrape">
