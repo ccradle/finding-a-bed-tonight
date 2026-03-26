@@ -317,7 +317,7 @@ export function OutreachSearch() {
       FRESH: { bg: '#f0fdf4', color: '#166534' },
       AGING: { bg: '#fefce8', color: '#854d0e' },
       STALE: { bg: '#fef2f2', color: '#991b1b' },
-      UNKNOWN: { bg: '#f1f5f9', color: '#64748b' },
+      UNKNOWN: { bg: '#f1f5f9', color: '#475569' },
     };
     const style = colors[freshness] || colors.UNKNOWN;
     return (
@@ -359,7 +359,7 @@ export function OutreachSearch() {
             </div>
             <div style={{ fontSize: 14, fontWeight: 500 }}>{activeSurge.reason}</div>
           </div>
-          <div style={{ fontSize: 12, opacity: 0.85 }}>
+          <div style={{ fontSize: 12, color: '#475569' }}>
             <FormattedMessage id="surge.since" />: {new Date(activeSurge.activatedAt).toLocaleString()}
           </div>
         </div>
@@ -371,6 +371,7 @@ export function OutreachSearch() {
         value={searchText}
         onChange={(e) => setSearchText(e.target.value)}
         placeholder={intl.formatMessage({ id: 'search.placeholder' })}
+        aria-label={intl.formatMessage({ id: 'search.placeholder' })}
         style={{
           width: '100%', padding: '15px 18px', borderRadius: 14,
           border: '2px solid #e2e8f0', fontSize: 16, minHeight: 50,
@@ -384,6 +385,7 @@ export function OutreachSearch() {
         <select
           value={populationType}
           onChange={(e) => setPopulationType(e.target.value)}
+          aria-label="Filter by population type"
           style={{
             padding: '11px 14px', borderRadius: 10, border: '2px solid #e2e8f0',
             fontSize: 14, minHeight: 44, backgroundColor: populationType ? '#eff6ff' : '#fff',
@@ -399,7 +401,7 @@ export function OutreachSearch() {
       </div>
 
       {/* Count */}
-      <div style={{ fontSize: 13, color: '#64748b', marginBottom: 10, fontWeight: 600, letterSpacing: '0.02em' }}>
+      <div style={{ fontSize: 13, color: '#475569', marginBottom: 10, fontWeight: 600, letterSpacing: '0.02em' }}>
         {loading
           ? <FormattedMessage id="search.loading" />
           : <FormattedMessage id="search.resultCount" values={{ count: filtered.length }} />}
@@ -445,7 +447,7 @@ export function OutreachSearch() {
                       <div style={{ fontWeight: 700, fontSize: 14, color: '#0f172a' }}>
                         {shelterResult?.shelterName || res.shelterId.substring(0, 8)}
                       </div>
-                      <div style={{ fontSize: 12, color: '#64748b' }}>
+                      <div style={{ fontSize: 12, color: '#475569' }}>
                         {res.populationType.replace(/_/g, ' ')}
                       </div>
                       <div style={{
@@ -469,7 +471,7 @@ export function OutreachSearch() {
                         onClick={() => cancelReservation(res.id)}
                         style={{
                           padding: '8px 14px', borderRadius: 8, border: '2px solid #e2e8f0',
-                          backgroundColor: '#fff', color: '#64748b', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                          backgroundColor: '#fff', color: '#475569', fontSize: 13, fontWeight: 600, cursor: 'pointer',
                         }}
                       ><FormattedMessage id="reservations.cancel" /></button>
                     </div>
@@ -495,7 +497,7 @@ export function OutreachSearch() {
               marginBottom: 10, borderRadius: 14, border: `2px solid ${isFull ? '#fecaca' : '#e2e8f0'}`,
               backgroundColor: isFull ? '#fefefe' : '#fff', cursor: 'pointer',
               transition: 'border-color 0.12s, box-shadow 0.12s',
-              opacity: isFull ? 0.75 : 1,
+              // No opacity reduction — WCAG 1.4.3 contrast requirement
             }}
             onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#3b82f6'; e.currentTarget.style.boxShadow = '0 2px 12px rgba(59,130,246,0.1)'; }}
             onMouseLeave={(e) => { e.currentTarget.style.borderColor = isFull ? '#fecaca' : '#e2e8f0'; e.currentTarget.style.boxShadow = 'none'; }}
@@ -515,7 +517,7 @@ export function OutreachSearch() {
                 }}>{avail}</span>
               )}
             </div>
-            <div style={{ fontSize: 14, color: r.dvShelter ? '#7c3aed' : '#64748b', fontStyle: r.dvShelter ? 'italic' : 'normal', marginBottom: 6 }}>
+            <div style={{ fontSize: 14, color: r.dvShelter ? '#7c3aed' : '#475569', fontStyle: r.dvShelter ? 'italic' : 'normal', marginBottom: 6 }}>
               {r.dvShelter ? intl.formatMessage({ id: 'search.dvAddressHidden' }) : r.address}
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -547,9 +549,9 @@ export function OutreachSearch() {
                         onClick={(e) => { e.stopPropagation(); holdBed(r.shelterId, a.populationType); }}
                         disabled={holdingShelterId === r.shelterId && holdPopType === a.populationType}
                         style={{
-                          padding: '2px 8px', borderRadius: 6, border: 'none',
-                          backgroundColor: '#1a56db', color: '#fff', fontSize: 10, fontWeight: 700,
-                          cursor: 'pointer', opacity: holdingShelterId === r.shelterId ? 0.6 : 1,
+                          padding: '6px 12px', borderRadius: 6, border: 'none',
+                          backgroundColor: '#1a56db', color: '#fff', fontSize: 12, fontWeight: 700,
+                          cursor: 'pointer', minHeight: 44, minWidth: 44,
                         }}
                       >
                         {holdingShelterId === r.shelterId && holdPopType === a.populationType
@@ -562,9 +564,9 @@ export function OutreachSearch() {
                         data-testid={`request-referral-${r.shelterId}-${a.populationType}`}
                         onClick={(e) => { e.stopPropagation(); setReferralModal({ shelterId: r.shelterId, popType: a.populationType }); }}
                         style={{
-                          padding: '2px 8px', borderRadius: 6, border: 'none',
-                          backgroundColor: '#7c3aed', color: '#fff', fontSize: 10, fontWeight: 700,
-                          cursor: 'pointer',
+                          padding: '6px 12px', borderRadius: 6, border: 'none',
+                          backgroundColor: '#7c3aed', color: '#fff', fontSize: 12, fontWeight: 700,
+                          cursor: 'pointer', minHeight: 44, minWidth: 44,
                         }}
                       >
                         <FormattedMessage id="search.requestReferral" />
@@ -579,7 +581,7 @@ export function OutreachSearch() {
       })}
 
       {!loading && filtered.length === 0 && (
-        <div style={{ textAlign: 'center', padding: 48, color: '#94a3b8' }}>
+        <div style={{ textAlign: 'center', padding: 48, color: '#6b7280' }}>
           <div style={{ fontSize: 48, marginBottom: 12 }}>🏠</div>
           <div style={{ fontSize: 16, fontWeight: 500 }}><FormattedMessage id="search.noResults" /></div>
           <div style={{ fontSize: 14, marginTop: 6 }}><FormattedMessage id="search.tryDifferent" /></div>
@@ -602,7 +604,7 @@ export function OutreachSearch() {
                 <FormattedMessage id="search.dvAddressHidden" />
               </p>
             ) : (
-              <p style={{ margin: '0 0 16px', fontSize: 14, color: '#64748b' }}>
+              <p style={{ margin: '0 0 16px', fontSize: 14, color: '#475569' }}>
                 {[selectedShelter.shelter.addressStreet, selectedShelter.shelter.addressCity,
                   selectedShelter.shelter.addressState, selectedShelter.shelter.addressZip].filter(Boolean).join(', ')}
               </p>
@@ -661,7 +663,7 @@ export function OutreachSearch() {
                       }}>
                         {a.populationType.replace(/_/g, ' ')}
                       </div>
-                      <div style={{ fontSize: 10, color: '#64748b', marginTop: 4 }}>
+                      <div style={{ fontSize: 10, color: '#475569', marginTop: 4 }}>
                         {a.bedsTotal} total / {a.bedsOccupied} occ
                       </div>
                     </div>
@@ -711,7 +713,7 @@ export function OutreachSearch() {
                 )}
                 {selectedShelter.constraints.populationTypesServed?.length > 0 && (
                   <div style={{ marginTop: 12 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 6, textTransform: 'uppercase' }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6, textTransform: 'uppercase' }}>
                       <FormattedMessage id="search.serves" />
                     </div>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -746,7 +748,7 @@ export function OutreachSearch() {
             <h3 style={{ margin: '0 0 4px', fontSize: 18, fontWeight: 800, color: '#7c3aed' }}>
               <FormattedMessage id="referral.title" />
             </h3>
-            <p style={{ margin: '0 0 16px', fontSize: 13, color: '#64748b' }}>
+            <p style={{ margin: '0 0 16px', fontSize: 13, color: '#475569' }}>
               <FormattedMessage id="referral.subtitle" />
             </p>
 
@@ -766,7 +768,7 @@ export function OutreachSearch() {
                   style={{
                     flex: 1, padding: 8, borderRadius: 8, border: `2px solid ${referralForm.urgency === u ? '#7c3aed' : '#e2e8f0'}`,
                     backgroundColor: referralForm.urgency === u ? '#f5f3ff' : '#fff',
-                    color: referralForm.urgency === u ? '#7c3aed' : '#64748b',
+                    color: referralForm.urgency === u ? '#7c3aed' : '#475569',
                     fontSize: 12, fontWeight: 700, cursor: 'pointer',
                   }}>{u}</button>
               ))}
@@ -790,7 +792,7 @@ export function OutreachSearch() {
 
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={() => setReferralModal(null)}
-                style={{ flex: 1, padding: 12, borderRadius: 10, border: '2px solid #e2e8f0', backgroundColor: '#fff', color: '#64748b', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+                style={{ flex: 1, padding: 12, borderRadius: 10, border: '2px solid #e2e8f0', backgroundColor: '#fff', color: '#475569', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
                 <FormattedMessage id="referral.cancel" />
               </button>
               <button data-testid="referral-submit" onClick={submitReferral} disabled={referralSubmitting || !referralForm.callbackNumber}
@@ -830,7 +832,7 @@ export function OutreachSearch() {
                     <span style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>
                       {ref.populationType.replace(/_/g, ' ')} — {ref.householdSize} person{ref.householdSize > 1 ? 's' : ''}
                     </span>
-                    <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                    <div style={{ fontSize: 11, color: '#475569', marginTop: 2 }}>
                       {ref.status === 'ACCEPTED' && ref.shelterPhone && (
                         <span data-testid={`referral-phone-${ref.id}`} style={{ color: '#166534', fontWeight: 700 }}>
                           <FormattedMessage id="referral.callShelter" /> {ref.shelterPhone}
@@ -876,7 +878,7 @@ function ToggleChip({ active, onClick, label }: { active: boolean; onClick: () =
   return (
     <button onClick={onClick} style={{
       padding: '10px 14px', borderRadius: 10, border: `2px solid ${active ? '#1a56db' : '#e2e8f0'}`,
-      backgroundColor: active ? '#eff6ff' : '#fff', color: active ? '#1a56db' : '#64748b',
+      backgroundColor: active ? '#eff6ff' : '#fff', color: active ? '#1a56db' : '#475569',
       cursor: 'pointer', fontSize: 14, fontWeight: active ? 600 : 500, minHeight: 44,
       display: 'flex', alignItems: 'center', gap: 4, transition: 'all 0.12s',
     }}>{label}</button>
@@ -896,7 +898,7 @@ function Badge({ ok, yes, no }: { ok: boolean; yes: string; no: string }) {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div style={{ marginBottom: 22 }}>
-      <h3 style={{ fontSize: 12, fontWeight: 700, color: '#64748b', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{title}</h3>
+      <h3 style={{ fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{title}</h3>
       {children}
     </div>
   );
@@ -904,7 +906,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 function Spinner() {
   return (
-    <div style={{ textAlign: 'center', padding: 32, color: '#94a3b8' }}>
+    <div style={{ textAlign: 'center', padding: 32, color: '#6b7280' }}>
       <div style={{
         width: 32, height: 32, border: '3px solid #e2e8f0', borderTopColor: '#1a56db',
         borderRadius: '50%', animation: 'fabt-spin 0.7s linear infinite', margin: '0 auto 10px',

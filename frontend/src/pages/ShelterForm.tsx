@@ -367,6 +367,7 @@ export function ShelterForm() {
               <select
                 value={cap.populationType}
                 onChange={(e) => updateCapacity(index, 'populationType', e.target.value)}
+                aria-label={`Population type for capacity ${index + 1}`}
                 style={inputStyle}
               >
                 <option value="">Select...</option>

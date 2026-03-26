@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { IntlProvider } from 'react-intl';
 import { AuthProvider } from './auth/AuthContext';
@@ -84,9 +84,14 @@ export default function App() {
     return stored && messages[stored] ? stored : 'en';
   });
 
+  // WCAG 3.1.1 — set lang attribute on initial load
+  useEffect(() => { document.documentElement.lang = locale; }, [locale]);
+
   const handleLocaleChange = (newLocale: string) => {
     setLocale(newLocale);
     localStorage.setItem('fabt_locale', newLocale);
+    // WCAG 3.1.1 — update lang attribute so screen readers use correct voice
+    document.documentElement.lang = newLocale;
   };
 
   return (

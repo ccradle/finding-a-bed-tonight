@@ -105,20 +105,45 @@ export function AdminPanel() {
       </div>
 
       {/* Tab bar */}
-      <div style={{
-        display: 'flex', overflowX: 'auto', gap: 0,
-        borderBottom: '2px solid #e2e8f0', marginBottom: 20,
-        WebkitOverflowScrolling: 'touch',
-      }}>
+      {/* Tab bar — W3C APG Tabs pattern (WCAG 2.1.1, D7) */}
+      <div
+        role="tablist"
+        aria-label="Administration sections"
+        style={{
+          display: 'flex', overflowX: 'auto', gap: 0,
+          borderBottom: '2px solid #e2e8f0', marginBottom: 20,
+          WebkitOverflowScrolling: 'touch',
+        }}
+        onKeyDown={(e) => {
+          const tabKeys = TABS.map(t => t.key);
+          const currentIndex = tabKeys.indexOf(activeTab);
+          let newIndex = currentIndex;
+          if (e.key === 'ArrowRight') newIndex = (currentIndex + 1) % tabKeys.length;
+          else if (e.key === 'ArrowLeft') newIndex = (currentIndex - 1 + tabKeys.length) % tabKeys.length;
+          else if (e.key === 'Home') newIndex = 0;
+          else if (e.key === 'End') newIndex = tabKeys.length - 1;
+          else return;
+          e.preventDefault();
+          setActiveTab(tabKeys[newIndex]);
+          // Focus the new tab button
+          const btn = e.currentTarget.querySelector(`[data-tab-key="${tabKeys[newIndex]}"]`) as HTMLElement;
+          btn?.focus();
+        }}
+      >
         {TABS.map((tab) => (
           <button
             key={tab.key}
+            role="tab"
+            aria-selected={activeTab === tab.key}
+            aria-controls={`tabpanel-${tab.key}`}
+            tabIndex={activeTab === tab.key ? 0 : -1}
+            data-tab-key={tab.key}
             onClick={() => setActiveTab(tab.key)}
             style={{
               padding: '12px 18px', minHeight: 44, whiteSpace: 'nowrap',
               border: 'none', backgroundColor: 'transparent', cursor: 'pointer',
               fontSize: 14, fontWeight: activeTab === tab.key ? 700 : 500,
-              color: activeTab === tab.key ? '#1a56db' : '#64748b',
+              color: activeTab === tab.key ? '#1a56db' : '#475569',
               borderBottom: activeTab === tab.key ? '3px solid #1a56db' : '3px solid transparent',
               marginBottom: -2, transition: 'color 0.12s, border-color 0.12s',
             }}
@@ -128,21 +153,23 @@ export function AdminPanel() {
         ))}
       </div>
 
-      {/* Tab content */}
-      {activeTab === 'users' && <UsersTab />}
-      {activeTab === 'shelters' && <SheltersTab />}
-      {activeTab === 'apiKeys' && <ApiKeysTab />}
-      {activeTab === 'imports' && <ImportsTab />}
-      {activeTab === 'subscriptions' && <SubscriptionsTab />}
-      {activeTab === 'surge' && <SurgeTab />}
-      {activeTab === 'observability' && <ObservabilityTab />}
-      {activeTab === 'oauth2Providers' && <OAuth2ProvidersTab />}
-      {activeTab === 'hmisExport' && <HmisExportTab />}
-      {activeTab === 'analytics' && (
-        <Suspense fallback={<div style={{ textAlign: 'center', padding: 40, color: '#64748b' }}>Loading analytics...</div>}>
-          <LazyAnalyticsTab />
-        </Suspense>
-      )}
+      {/* Tab content — role="tabpanel" per W3C APG */}
+      <div role="tabpanel" id={`tabpanel-${activeTab}`} aria-labelledby={activeTab}>
+        {activeTab === 'users' && <UsersTab />}
+        {activeTab === 'shelters' && <SheltersTab />}
+        {activeTab === 'apiKeys' && <ApiKeysTab />}
+        {activeTab === 'imports' && <ImportsTab />}
+        {activeTab === 'subscriptions' && <SubscriptionsTab />}
+        {activeTab === 'surge' && <SurgeTab />}
+        {activeTab === 'observability' && <ObservabilityTab />}
+        {activeTab === 'oauth2Providers' && <OAuth2ProvidersTab />}
+        {activeTab === 'hmisExport' && <HmisExportTab />}
+        {activeTab === 'analytics' && (
+          <Suspense fallback={<div style={{ textAlign: 'center', padding: 40, color: '#475569' }}>Loading analytics...</div>}>
+            <LazyAnalyticsTab />
+          </Suspense>
+        )}
+      </div>
     </div>
   );
 }
@@ -211,7 +238,7 @@ function ErrorBox({ message }: { message: string }) {
 
 function NoData() {
   return (
-    <div style={{ textAlign: 'center', padding: 40, color: '#94a3b8', fontSize: 14, fontWeight: 500 }}>
+    <div style={{ textAlign: 'center', padding: 40, color: '#6b7280', fontSize: 14, fontWeight: 500 }}>
       <FormattedMessage id="admin.noData" />
     </div>
   );
@@ -219,7 +246,7 @@ function NoData() {
 
 function Spinner() {
   return (
-    <div style={{ textAlign: 'center', padding: 32, color: '#94a3b8' }}>
+    <div style={{ textAlign: 'center', padding: 32, color: '#6b7280' }}>
       <div style={{
         width: 32, height: 32, border: '3px solid #e2e8f0', borderTopColor: '#1a56db',
         borderRadius: '50%', animation: 'fabt-spin 0.7s linear infinite', margin: '0 auto 10px',
@@ -310,28 +337,28 @@ function UsersTab() {
         }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 4, display: 'block' }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 4, display: 'block' }}>
                 <FormattedMessage id="admin.email" />
               </label>
               <input value={formEmail} onChange={(e) => setFormEmail(e.target.value)}
                 type="email" style={inputStyle} />
             </div>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 4, display: 'block' }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 4, display: 'block' }}>
                 <FormattedMessage id="admin.displayName" />
               </label>
               <input value={formDisplayName} onChange={(e) => setFormDisplayName(e.target.value)}
                 style={inputStyle} />
             </div>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 4, display: 'block' }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 4, display: 'block' }}>
                 Password
               </label>
               <input value={formPassword} onChange={(e) => setFormPassword(e.target.value)}
                 type="password" style={inputStyle} />
             </div>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 4, display: 'block' }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 4, display: 'block' }}>
                 <FormattedMessage id="admin.roles" />
               </label>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -342,7 +369,7 @@ function UsersTab() {
                     style={{
                       padding: '8px 14px', borderRadius: 8, border: `2px solid ${formRoles.includes(role) ? '#1a56db' : '#e2e8f0'}`,
                       backgroundColor: formRoles.includes(role) ? '#eff6ff' : '#fff',
-                      color: formRoles.includes(role) ? '#1a56db' : '#64748b',
+                      color: formRoles.includes(role) ? '#1a56db' : '#475569',
                       fontSize: 13, fontWeight: 600, cursor: 'pointer', minHeight: 40,
                     }}
                   >{role}</button>
@@ -350,7 +377,7 @@ function UsersTab() {
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: '#475569' }}>
                 <FormattedMessage id="admin.dvAccess" />
               </label>
               <button
@@ -467,7 +494,7 @@ function SheltersTab() {
                       ? <span style={{ fontWeight: 700, color: item.availabilitySummary.totalBedsAvailable > 0 ? '#166534' : '#991b1b' }}>
                           {item.availabilitySummary.totalBedsAvailable}
                         </span>
-                      : <span style={{ color: '#94a3b8' }}>—</span>}
+                      : <span style={{ color: '#6b7280' }}>—</span>}
                   </td>
                   <td style={tdStyle(i)}>
                     {item.availabilitySummary
@@ -478,9 +505,9 @@ function SheltersTab() {
                             : item.availabilitySummary.dataFreshness === 'STALE' ? '#fef2f2' : '#f1f5f9',
                           color: item.availabilitySummary.dataFreshness === 'FRESH' ? '#166534'
                             : item.availabilitySummary.dataFreshness === 'AGING' ? '#854d0e'
-                            : item.availabilitySummary.dataFreshness === 'STALE' ? '#991b1b' : '#64748b',
+                            : item.availabilitySummary.dataFreshness === 'STALE' ? '#991b1b' : '#475569',
                         }}>{item.availabilitySummary.dataFreshness}</span>
-                      : <span style={{ color: '#94a3b8' }}>—</span>}
+                      : <span style={{ color: '#6b7280' }}>—</span>}
                   </td>
                   <td style={tdStyle(i)}>
                     <DataAge dataAgeSeconds={item.shelter.updatedAt ? Math.floor((Date.now() - new Date(item.shelter.updatedAt).getTime()) / 1000) : null} />
@@ -596,7 +623,7 @@ function ApiKeysTab() {
         }}>
           <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
             <div style={{ flex: 1 }}>
-              <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 4, display: 'block' }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 4, display: 'block' }}>
                 Label
               </label>
               <input value={formLabel} onChange={(e) => setFormLabel(e.target.value)}
@@ -706,7 +733,7 @@ function ImportsTab() {
                   <td style={{ ...tdStyle(i), color: '#854d0e' }}>{imp.skipped}</td>
                   <td style={{
                     ...tdStyle(i),
-                    color: imp.errors > 0 ? '#991b1b' : '#64748b',
+                    color: imp.errors > 0 ? '#991b1b' : '#475569',
                     fontWeight: imp.errors > 0 ? 700 : 400,
                   }}>{imp.errors}</td>
                   <td style={tdStyle(i)}>{new Date(imp.createdAt).toLocaleDateString()}</td>
@@ -788,21 +815,21 @@ function SubscriptionsTab() {
         }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 4, display: 'block' }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 4, display: 'block' }}>
                 Event Type
               </label>
               <input value={formEventType} onChange={(e) => setFormEventType(e.target.value)}
                 style={inputStyle} placeholder="e.g. shelter.updated" />
             </div>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 4, display: 'block' }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 4, display: 'block' }}>
                 Callback URL
               </label>
               <input value={formCallbackUrl} onChange={(e) => setFormCallbackUrl(e.target.value)}
                 type="url" style={inputStyle} placeholder="https://..." />
             </div>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 4, display: 'block' }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 4, display: 'block' }}>
                 Callback Secret
               </label>
               <input value={formCallbackSecret} onChange={(e) => setFormCallbackSecret(e.target.value)}
@@ -937,14 +964,14 @@ function SurgeTab() {
       {showForm && (
         <div style={{ padding: 20, border: '2px solid #fecaca', borderRadius: 14, marginBottom: 20, backgroundColor: '#fef2f2' }}>
           <div style={{ marginBottom: 12 }}>
-            <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 4 }}>
               <FormattedMessage id="surge.reason" />
             </label>
             <input value={reason} onChange={e => setReason(e.target.value)}
               style={inputStyle} placeholder={intl.formatMessage({ id: 'surge.reasonPlaceholder' })} />
           </div>
           <div style={{ marginBottom: 12 }}>
-            <label style={{ fontSize: 12, fontWeight: 600, color: '#64748b', display: 'block', marginBottom: 4 }}>
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 4 }}>
               <FormattedMessage id="surge.scheduledEnd" />
             </label>
             <input type="datetime-local" value={scheduledEnd} onChange={e => setScheduledEnd(e.target.value)} style={inputStyle} />
@@ -1115,7 +1142,7 @@ function ObservabilityTab() {
             </div>
           )}
           {tempStatus.lastChecked && (
-            <div style={{ fontSize: 12, color: '#64748b', marginTop: 6 }}>
+            <div style={{ fontSize: 12, color: '#475569', marginTop: 6 }}>
               <FormattedMessage id="admin.observability.lastChecked" />: {new Date(tempStatus.lastChecked).toLocaleString()}
             </div>
           )}
@@ -1131,7 +1158,9 @@ function ObservabilityTab() {
         <div style={rowStyle}>
           <span><FormattedMessage id="admin.observability.prometheus" /></span>
           <button onClick={() => setConfig(c => ({ ...c, prometheusEnabled: !c.prometheusEnabled }))}
-            style={toggleBtn(config.prometheusEnabled)}>
+            style={toggleBtn(config.prometheusEnabled)}
+            role="switch" aria-checked={config.prometheusEnabled}
+            aria-label="Toggle Prometheus metrics">
             <span style={toggleDot(config.prometheusEnabled)} />
           </button>
         </div>
@@ -1139,14 +1168,16 @@ function ObservabilityTab() {
         <div style={rowStyle}>
           <span><FormattedMessage id="admin.observability.tracing" /></span>
           <button onClick={() => setConfig(c => ({ ...c, tracingEnabled: !c.tracingEnabled }))}
-            style={toggleBtn(config.tracingEnabled)}>
+            style={toggleBtn(config.tracingEnabled)}
+            role="switch" aria-checked={config.tracingEnabled}
+            aria-label="Toggle OpenTelemetry tracing">
             <span style={toggleDot(config.tracingEnabled)} />
           </button>
         </div>
 
         {config.tracingEnabled && (
           <div style={{ padding: '12px 0', borderBottom: '1px solid #e2e8f0' }}>
-            <label style={{ display: 'block', fontSize: 13, color: '#64748b', marginBottom: 4 }}>
+            <label style={{ display: 'block', fontSize: 13, color: '#475569', marginBottom: 4 }}>
               <FormattedMessage id="admin.observability.tracingEndpoint" />
             </label>
             <input type="text" value={config.tracingEndpoint}
@@ -1161,40 +1192,44 @@ function ObservabilityTab() {
           </h4>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div>
-              <label style={{ display: 'block', fontSize: 13, color: '#64748b', marginBottom: 4 }}>
+              <label style={{ display: 'block', fontSize: 13, color: '#475569', marginBottom: 4 }}>
                 <FormattedMessage id="admin.observability.staleInterval" />
               </label>
-              <input type="number" min={1} value={config.monitorStaleIntervalMinutes}
+              <input id="stale-interval" type="number" min={1} value={config.monitorStaleIntervalMinutes}
                 onChange={e => setConfig(c => ({ ...c, monitorStaleIntervalMinutes: parseInt(e.target.value) || 5 }))}
+                aria-label="Stale shelter check interval in minutes"
                 style={inputStyle} />
-              <span style={{ fontSize: 12, color: '#94a3b8', marginLeft: 4 }}>min</span>
+              <span style={{ fontSize: 12, color: '#6b7280', marginLeft: 4 }}>min</span>
             </div>
             <div>
-              <label style={{ display: 'block', fontSize: 13, color: '#64748b', marginBottom: 4 }}>
+              <label style={{ display: 'block', fontSize: 13, color: '#475569', marginBottom: 4 }}>
                 <FormattedMessage id="admin.observability.dvCanaryInterval" />
               </label>
-              <input type="number" min={1} value={config.monitorDvCanaryIntervalMinutes}
+              <input id="dv-canary-interval" type="number" min={1} value={config.monitorDvCanaryIntervalMinutes}
                 onChange={e => setConfig(c => ({ ...c, monitorDvCanaryIntervalMinutes: parseInt(e.target.value) || 15 }))}
+                aria-label="DV canary check interval in minutes"
                 style={inputStyle} />
-              <span style={{ fontSize: 12, color: '#94a3b8', marginLeft: 4 }}>min</span>
+              <span style={{ fontSize: 12, color: '#6b7280', marginLeft: 4 }}>min</span>
             </div>
             <div>
-              <label style={{ display: 'block', fontSize: 13, color: '#64748b', marginBottom: 4 }}>
+              <label style={{ display: 'block', fontSize: 13, color: '#475569', marginBottom: 4 }}>
                 <FormattedMessage id="admin.observability.tempInterval" />
               </label>
-              <input type="number" min={1} value={config.monitorTemperatureIntervalMinutes}
+              <input id="temp-interval" type="number" min={1} value={config.monitorTemperatureIntervalMinutes}
                 onChange={e => setConfig(c => ({ ...c, monitorTemperatureIntervalMinutes: parseInt(e.target.value) || 60 }))}
+                aria-label="Temperature check interval in minutes"
                 style={inputStyle} />
-              <span style={{ fontSize: 12, color: '#94a3b8', marginLeft: 4 }}>min</span>
+              <span style={{ fontSize: 12, color: '#6b7280', marginLeft: 4 }}>min</span>
             </div>
             <div>
-              <label style={{ display: 'block', fontSize: 13, color: '#64748b', marginBottom: 4 }}>
+              <label style={{ display: 'block', fontSize: 13, color: '#475569', marginBottom: 4 }}>
                 <FormattedMessage id="admin.observability.tempThreshold" />
               </label>
-              <input type="number" value={config.temperatureThresholdF}
+              <input id="temp-threshold" type="number" value={config.temperatureThresholdF}
                 onChange={e => setConfig(c => ({ ...c, temperatureThresholdF: parseFloat(e.target.value) || 32 }))}
+                aria-label="Temperature threshold in Fahrenheit"
                 style={inputStyle} />
-              <span style={{ fontSize: 12, color: '#94a3b8', marginLeft: 4 }}>°F</span>
+              <span style={{ fontSize: 12, color: '#6b7280', marginLeft: 4 }}>°F</span>
             </div>
           </div>
         </div>
@@ -1397,10 +1432,11 @@ function OAuth2ProvidersTab() {
           <div style={{ background: '#f8fafc', borderRadius: 8, padding: 16, marginBottom: 16, border: '1px solid #e2e8f0' }}>
             {!editId && (
               <div style={{ marginBottom: 12 }}>
-                <label style={{ display: 'block', fontSize: 13, color: '#64748b', marginBottom: 4 }}>
+                <label style={{ display: 'block', fontSize: 13, color: '#475569', marginBottom: 4 }}>
                   <FormattedMessage id="admin.oauth2.providerType" />
                 </label>
-                <select value={providerType} onChange={e => handleProviderTypeChange(e.target.value)}
+                <select id="oauth2-provider-type" value={providerType} onChange={e => handleProviderTypeChange(e.target.value)}
+                  aria-label="OAuth2 provider type"
                   style={{ ...inputStyle, marginBottom: 12 }}>
                   <option value="google">Google</option>
                   <option value="microsoft">Microsoft</option>
@@ -1412,30 +1448,30 @@ function OAuth2ProvidersTab() {
 
             {(providerType === 'custom' || providerType === 'microsoft') && !editId && (
               <div>
-                <label style={{ display: 'block', fontSize: 13, color: '#64748b', marginBottom: 4 }}>Provider Name</label>
+                <label style={{ display: 'block', fontSize: 13, color: '#475569', marginBottom: 4 }}>Provider Name</label>
                 <input type="text" value={formName} onChange={e => setFormName(e.target.value)}
                   placeholder={providerType === 'microsoft' ? 'microsoft' : 'my-idp'}
                   style={inputStyle} />
               </div>
             )}
 
-            <label style={{ display: 'block', fontSize: 13, color: '#64748b', marginBottom: 4 }}>
+            <label style={{ display: 'block', fontSize: 13, color: '#475569', marginBottom: 4 }}>
               <FormattedMessage id="admin.oauth2.clientId" />
             </label>
             <input type="text" value={formClientId} onChange={e => setFormClientId(e.target.value)}
               placeholder="your-client-id" style={inputStyle} />
 
-            <label style={{ display: 'block', fontSize: 13, color: '#64748b', marginBottom: 4 }}>
+            <label style={{ display: 'block', fontSize: 13, color: '#475569', marginBottom: 4 }}>
               <FormattedMessage id="admin.oauth2.clientSecret" />
             </label>
             <input type="password" value={formClientSecret} onChange={e => setFormClientSecret(e.target.value)}
               placeholder={editId ? intl.formatMessage({ id: 'admin.oauth2.updateSecret' }) : ''}
               style={inputStyle} />
-            <div style={{ fontSize: 12, color: '#94a3b8', marginTop: -8, marginBottom: 12 }}>
+            <div style={{ fontSize: 12, color: '#6b7280', marginTop: -8, marginBottom: 12 }}>
               <FormattedMessage id="admin.oauth2.secretNote" />
             </div>
 
-            <label style={{ display: 'block', fontSize: 13, color: '#64748b', marginBottom: 4 }}>
+            <label style={{ display: 'block', fontSize: 13, color: '#475569', marginBottom: 4 }}>
               <FormattedMessage id="admin.oauth2.issuerUri" />
             </label>
             <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
@@ -1472,7 +1508,7 @@ function OAuth2ProvidersTab() {
 
         {/* Provider List */}
         {providers.length === 0 && !showForm ? (
-          <div style={{ textAlign: 'center', padding: 32, color: '#94a3b8', fontSize: 14 }}>
+          <div style={{ textAlign: 'center', padding: 32, color: '#6b7280', fontSize: 14 }}>
             <FormattedMessage id="admin.noData" />
           </div>
         ) : (
@@ -1495,11 +1531,11 @@ function OAuth2ProvidersTab() {
                       style={{ padding: '2px 10px', borderRadius: 12, border: 'none', fontSize: 12, fontWeight: 600,
                         cursor: 'pointer',
                         background: p.enabled ? '#d1fae5' : '#f1f5f9',
-                        color: p.enabled ? '#065f46' : '#64748b' }}>
+                        color: p.enabled ? '#065f46' : '#475569' }}>
                       {p.enabled ? 'Active' : 'Inactive'}
                     </button>
                   </td>
-                  <td style={{ ...tdStyle(i), fontSize: 12, color: '#64748b', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.issuerUri}</td>
+                  <td style={{ ...tdStyle(i), fontSize: 12, color: '#475569', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.issuerUri}</td>
                   <td style={tdStyle(i)}>{new Date(p.createdAt).toLocaleDateString()}</td>
                   <td style={tdStyle(i)}>
                     <button onClick={() => startEdit(p)}
@@ -1600,7 +1636,7 @@ function HmisExportTab() {
   const filteredPreview = dvFilter === null ? preview
     : preview.filter(r => r.isDvAggregated === dvFilter);
 
-  if (loading) return <div style={{ padding: 20, color: '#64748b' }}><FormattedMessage id="coord.loading" /></div>;
+  if (loading) return <div style={{ padding: 20, color: '#475569' }}><FormattedMessage id="coord.loading" /></div>;
 
   return (
     <div>
@@ -1620,14 +1656,14 @@ function HmisExportTab() {
                 <span style={{ marginLeft: 8, fontSize: 12, color: v.enabled ? '#166534' : '#991b1b' }}>
                   {v.enabled ? 'Enabled' : 'Disabled'}
                 </span>
-                <span style={{ marginLeft: 8, fontSize: 11, color: '#64748b' }}>
+                <span style={{ marginLeft: 8, fontSize: 11, color: '#475569' }}>
                   every {v.pushIntervalHours}h
                 </span>
               </div>
             ))}
           </div>
         ) : (
-          <p style={{ fontSize: 14, color: '#64748b' }}><FormattedMessage id="hmis.noVendors" /></p>
+          <p style={{ fontSize: 14, color: '#475569' }}><FormattedMessage id="hmis.noVendors" /></p>
         )}
         {status?.deadLetterCount > 0 && (
           <div style={{ marginTop: 8, padding: '6px 12px', backgroundColor: '#fef2f2', borderRadius: 8, display: 'inline-block' }}>
@@ -1643,7 +1679,7 @@ function HmisExportTab() {
         <button data-testid="hmis-push-now" onClick={handlePush} disabled={pushing}
           style={{
             padding: '10px 20px', borderRadius: 10, border: 'none',
-            backgroundColor: pushing ? '#94a3b8' : '#1a56db', color: '#fff',
+            backgroundColor: pushing ? '#6b7280' : '#1a56db', color: '#fff',
             fontSize: 14, fontWeight: 700, cursor: pushing ? 'default' : 'pointer',
           }}>
           {pushing ? '...' : intl.formatMessage({ id: 'hmis.pushNow' })}
@@ -1660,17 +1696,17 @@ function HmisExportTab() {
             <button onClick={() => setDvFilter(null)} style={{
               padding: '4px 10px', borderRadius: 6, border: `1px solid ${dvFilter === null ? '#1a56db' : '#e2e8f0'}`,
               backgroundColor: dvFilter === null ? '#eff6ff' : '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer',
-              color: dvFilter === null ? '#1a56db' : '#64748b',
+              color: dvFilter === null ? '#1a56db' : '#475569',
             }}>All</button>
             <button onClick={() => setDvFilter(false)} style={{
               padding: '4px 10px', borderRadius: 6, border: `1px solid ${dvFilter === false ? '#1a56db' : '#e2e8f0'}`,
               backgroundColor: dvFilter === false ? '#eff6ff' : '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer',
-              color: dvFilter === false ? '#1a56db' : '#64748b',
+              color: dvFilter === false ? '#1a56db' : '#475569',
             }}>Non-DV</button>
             <button onClick={() => setDvFilter(true)} style={{
               padding: '4px 10px', borderRadius: 6, border: `1px solid ${dvFilter === true ? '#7c3aed' : '#e2e8f0'}`,
               backgroundColor: dvFilter === true ? '#f5f3ff' : '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer',
-              color: dvFilter === true ? '#7c3aed' : '#64748b',
+              color: dvFilter === true ? '#7c3aed' : '#475569',
             }}>DV (Aggregated)</button>
           </div>
         </div>
@@ -1713,7 +1749,7 @@ function HmisExportTab() {
           <FormattedMessage id="hmis.exportHistory" />
         </h3>
         {history.length === 0 ? (
-          <p style={{ fontSize: 14, color: '#64748b' }}><FormattedMessage id="hmis.noHistory" /></p>
+          <p style={{ fontSize: 14, color: '#475569' }}><FormattedMessage id="hmis.noHistory" /></p>
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
