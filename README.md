@@ -27,7 +27,7 @@ Commercial software does not serve this space because there is no profit motive.
 
 ### The Goal
 
-An open-source platform that matches homeless individuals and families to available shelter beds in real time. Reduce the time from crisis call to bed placement from 2 hours to 20 minutes. Three deployment tiers (Lite, Standard, Full) ensure any community — from a rural volunteer-run CoC to a metro area with 50 shelters — can adopt the platform at a cost they can sustain.
+An open-source platform that matches homeless individuals and families to available shelter beds in real time. Designed to reduce total crisis-to-placement time from an estimated 55–140 minutes (serial phone calls, stale spreadsheets) to 25–45 minutes by providing real-time bed availability with a 3-tap hold to secure the bed during transport. Three deployment tiers (Lite, Standard, Full) ensure any community — from a rural volunteer-run CoC to a metro area with 50 shelters — can adopt the platform at a cost they can sustain.
 
 ### Business Value
 
