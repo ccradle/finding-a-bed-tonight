@@ -31,7 +31,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class ReservationService {
 
     private static final Logger log = LoggerFactory.getLogger(ReservationService.class);
-    private static final int DEFAULT_HOLD_DURATION_MINUTES = 45;
+    private static final int DEFAULT_HOLD_DURATION_MINUTES = 90;
 
     private final ReservationRepository reservationRepository;
     private final BedAvailabilityRepository availabilityRepository;

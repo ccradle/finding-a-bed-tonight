@@ -248,5 +248,10 @@
   "analytics.duration": "Duración",
   "analytics.restart": "Reiniciar",
   "common.cancel": "Cancelar",
-  "common.save": "Guardar"
+  "common.save": "Guardar",
+  "admin.holdDuration.label": "Duración de reserva de cama",
+  "admin.holdDuration.unit": "minutos",
+  "admin.holdDuration.description": "Tiempo que un trabajador social puede reservar una cama antes de la expiración automática. Los hospitales pueden configurar 120-180 minutos para procesos de alta.",
+  "admin.holdDuration.saved": "Duración de reserva guardada",
+  "admin.holdDuration.saveError": "Error al guardar la duración de reserva"
 }
