@@ -451,6 +451,20 @@ Three `@Scheduled` monitors run inside the application:
 
 See [docs/runbook.md](docs/runbook.md) for investigation and response procedures.
 
+### Accessibility — WCAG 2.1 AA
+
+FABT is designed to meet WCAG 2.1 Level AA (the standard mandated by the ADA Title II final rule for state and local government web content). A self-assessed **[Accessibility Conformance Report](docs/WCAG-ACR.md)** (VPAT 2.5 WCAG edition) documents conformance for all 50 Level A and AA criteria.
+
+Key accessibility features:
+- **axe-core CI gate** — 8-page automated scan blocks builds on any WCAG violation
+- **Color independence** — all status indicators include text labels alongside color (WCAG 1.4.1)
+- **Keyboard navigation** — admin tab bar follows W3C APG tabs pattern, skip-to-content link on every page
+- **Touch targets** — minimum 44x44px on all interactive elements (outdoor one-handed use)
+- **Focus management** — route changes announced via aria-live, focus moved to main content
+- **i18n** — `lang` attribute switches between `en`/`es` for screen reader voice selection
+
+See **[docs/WCAG-ACR.md](docs/WCAG-ACR.md)** for the full conformance report, remediation plan, and testing methodology.
+
 ### DV Privacy — Opaque Referral
 
 FABT implements a **privacy-preserving referral system** for domestic violence shelters, designed to support VAWA (34 U.S.C. 12291(b)(2)), FVPSA, and HUD HMIS requirements. Key guarantees:

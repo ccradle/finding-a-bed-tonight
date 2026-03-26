@@ -12,7 +12,8 @@ export interface AuthContextType {
   token: string | null;
   user: DecodedUser | null;
   isAuthenticated: boolean;
-  login: (accessToken: string, refreshToken: string) => void;
+  expiresIn: number;
+  login: (accessToken: string, refreshToken: string, expiresIn?: number) => void;
   logout: () => void;
 }
 
@@ -20,6 +21,7 @@ export const AuthContext = createContext<AuthContextType>({
   token: null,
   user: null,
   isAuthenticated: false,
+  expiresIn: 900,
   login: () => {},
   logout: () => {},
 });
@@ -60,12 +62,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return stored ? decodeJwtPayload(stored) : null;
   });
 
-  const login = useCallback((accessToken: string, newRefreshToken: string) => {
+  const [expiresIn, setExpiresIn] = useState(900); // default 15 min
+
+  const login = useCallback((accessToken: string, newRefreshToken: string, tokenExpiresIn?: number) => {
     localStorage.setItem('fabt_access_token', accessToken);
     localStorage.setItem('fabt_refresh_token', newRefreshToken);
     setToken(accessToken);
     setRefreshToken(newRefreshToken);
     setUser(decodeJwtPayload(accessToken));
+    if (tokenExpiresIn) setExpiresIn(tokenExpiresIn);
   }, []);
 
   const logout = useCallback(() => {
@@ -91,7 +96,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ token, user, isAuthenticated, login, logout }}>
+    <AuthContext.Provider value={{ token, user, isAuthenticated, expiresIn, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

@@ -4,6 +4,7 @@ import { FormattedMessage } from 'react-intl';
 import { useAuth } from '../auth/useAuth';
 import { LocaleSelector } from './LocaleSelector';
 import { OfflineBanner } from './OfflineBanner';
+import { SessionTimeoutWarning } from './SessionTimeoutWarning';
 
 /**
  * Visually hidden styles — content accessible to screen readers but not visible.
@@ -48,7 +49,7 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
-  const { user, logout } = useAuth();
+  const { user, logout, expiresIn } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -119,6 +120,7 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
       </div>
 
       <OfflineBanner />
+      <SessionTimeoutWarning expiresIn={expiresIn} onLogout={handleLogout} />
 
       {/* Header */}
       <header
