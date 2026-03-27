@@ -127,7 +127,7 @@ Configurable hold duration per tenant, default increased from 45 to 90 minutes.
 
 ## [v0.13.0] — 2026-03-26 — WCAG 2.1 AA Accessibility
 
-Full WCAG 2.1 Level AA conformance with automated enforcement and compliance documentation.
+Self-assessed WCAG 2.1 Level AA support with automated testing enforcement and conformance documentation.
 
 ### Added
 - axe-core CI gate: 8-page scan blocks builds on any WCAG violation
@@ -171,12 +171,12 @@ Full WCAG 2.1 Level AA conformance with automated enforcement and compliance doc
 
 ## [v0.12.0] — 2026-03-25 — CoC Analytics
 
-HUD-aligned analytics pipeline with Spring Batch, aggregate dashboards, and HIC/PIT export.
+Analytics pipeline designed to support HUD reporting, with Spring Batch, aggregate dashboards, and HIC/PIT export.
 
 ### Added
 - Analytics dashboard: utilization trends, demand signals, shelter performance
 - Spring Batch jobs: daily aggregation, HIC export, PIT export, HMIS push scheduling
-- HIC/PIT one-click CSV export in HUD format
+- HIC/PIT one-click CSV export designed to align with HUD format specifications
 - Admin UI: batch job management (schedule, history, manual trigger, restart)
 - Unmet demand tracking: bed search zero-result logging (`bed_search_log` table)
 - Grafana CoC Analytics dashboard (utilization gauge, zero-result rate, batch metrics)
@@ -185,7 +185,7 @@ HUD-aligned analytics pipeline with Spring Batch, aggregate dashboards, and HIC/
 - Gatling mixed-load simulation: bed search p99 136ms under concurrent analytics
 
 ### Security
-- DV small-cell suppression (D18): minimum 3 distinct DV shelters AND 5 beds for aggregation — individual DV shelter counts never displayed
+- DV small-cell suppression (D18): minimum 3 distinct DV shelters AND 5 beds required before aggregated data is displayed — designed to prevent individual DV shelter identification
 
 ### Database
 - V23: Analytics tables (`bed_search_logs`, `daily_utilization_summaries`, + 3)
@@ -237,7 +237,7 @@ Async push of bed inventory data to HMIS vendors with DV shelter aggregation.
 Privacy-preserving referral system for domestic violence shelters.
 
 ### Added
-- Token-based opaque referral: zero client PII, designed to support VAWA/FVPSA
+- Token-based opaque referral: designed to avoid client PII persistence, designed to support VAWA/FVPSA
 - Warm handoff: shelter phone shared on acceptance, address shared verbally only
 - Token purge: hard-delete within 24 hours, no individual audit trail
 - Defense-in-depth RLS: restricted DB role + service-layer `dvAccess` check
