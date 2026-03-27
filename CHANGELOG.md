@@ -7,10 +7,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+*(Nothing yet)*
+
+---
+
+## [v0.14.1] — 2026-03-27 — Shutdown Fixes + Release Notes
+
+Post-migration fixes for Java 25 deployment reliability and project release infrastructure.
+
+### Added
+- `CHANGELOG.md` with full backfill (v0.1.0 through v0.14.0)
+- `scripts/create-github-releases.sh` for populating GitHub Releases tab
+- README: table of contents, Grafana Dashboards section (5 dashboards documented)
+- README: Guides & Policy Documents moved after Business Value for visibility
+
 ### Fixed
-- Stale Java 21 references in `Dockerfile.backend` and `e2e/gatling/pom.xml` updated to Java 25
-- Spring Boot shutdown hang: graceful shutdown config, task termination timeout, kill-by-port in dev-start.sh
-- `BoundedFanOut` await reduced from 5 minutes to 60 seconds with `shutdownNow` escalation
+- `Dockerfile.backend`: stale `eclipse-temurin:21-jre-alpine` updated to Java 25
+- `e2e/gatling/pom.xml`: upgraded Gatling 3.11.5 → 3.14.9 + plugin 4.9.6 → 4.21.5 (ASM Java 25 support)
+- Spring Boot graceful shutdown: `server.shutdown=graceful`, 30s lifecycle timeout
+- `VirtualThreadConfig`: added `taskTerminationTimeout(30s)` — scheduler now interrupts tasks on shutdown
+- `BoundedFanOut`: await reduced from 5 minutes to 60 seconds with `shutdownNow` escalation
+- `dev-start.sh stop`: finds actual JVM PID by port (not Maven PID), platform-aware shutdown (PowerShell on Windows, POSIX kill on Linux/macOS), graceful stop in ~1s under load
+
+### Tests
+- 236 backend, 114 Playwright, 25 Karate, 1 Gatling — all green on JDK 25
+- CI: all 3 E2E jobs passed (DV Canary, Playwright+Karate, Gatling)
+
+**Diff:** [v0.14.0...v0.14.1](https://github.com/ccradle/finding-a-bed-tonight/compare/v0.14.0...v0.14.1)
 
 ---
 
@@ -383,7 +406,8 @@ Privacy-preserving referral system for domestic violence shelters.
 
 ---
 
-[Unreleased]: https://github.com/ccradle/finding-a-bed-tonight/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/ccradle/finding-a-bed-tonight/compare/v0.14.1...HEAD
+[v0.14.1]: https://github.com/ccradle/finding-a-bed-tonight/compare/v0.14.0...v0.14.1
 [v0.14.0]: https://github.com/ccradle/finding-a-bed-tonight/compare/v0.13.5...v0.14.0
 [v0.13.5]: https://github.com/ccradle/finding-a-bed-tonight/compare/v0.13.4...v0.13.5
 [v0.13.4]: https://github.com/ccradle/finding-a-bed-tonight/compare/v0.13.3...v0.13.4
