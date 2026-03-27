@@ -473,7 +473,71 @@ The management port exposes: `/actuator/health`, `/actuator/prometheus`, `/actua
 
 ---
 
+## Rate Limiting (Authentication Endpoints)
+
+Brute force protection is enforced on `/api/v1/auth/login` and `/api/v1/auth/refresh` using bucket4j with a Caffeine-backed JCache cache. Each client IP is limited to **10 requests per 15-minute window**. Exceeding the limit returns HTTP 429 with a `Retry-After` header.
+
+### Profile behavior
+
+| Profile | Rate Limiting | Notes |
+|---|---|---|
+| `prod` (or no `lite`) | **Enabled** — 10 req / 15 min per IP | Default from `application.yml` |
+| `lite` (dev, test) | **Disabled** | Karate e2e tests make 72+ login calls per run |
+
+### Deployment checklist
+
+- **Demo and production deployments MUST NOT use the `lite` profile** unless `bucket4j.enabled=true` is explicitly overridden. The `lite` profile disables rate limiting for development convenience.
+- If a deployment requires `lite` for its deployment tier (PostgreSQL only, no Redis/Kafka), override rate limiting:
+  ```bash
+  java -jar app.jar --spring.profiles.active=lite --bucket4j.enabled=true
+  ```
+- **Verify after deployment:** Make 11 POST requests to `/api/v1/auth/login` from the same IP. The 11th must return 429. If it returns 401 instead, rate limiting is not active.
+
+### Monitoring
+
+The 429 responses are standard HTTP — they will appear in ALB access logs and nginx logs. bucket4j does not emit Micrometer metrics by default. To monitor rate limiting volume, check:
+- Backend logs: rate-limited attempts are logged at WARN level with client IP
+- Access logs: count of 429 responses per time window
+
+### Adjusting thresholds
+
+The rate limit is configured in `application.yml`:
+```yaml
+bucket4j:
+  filters:
+    - rate-limits:
+        - bandwidths:
+            - capacity: 10    # max requests per window
+              time: 15        # window duration
+              unit: minutes   # window unit
+```
+
+For environments with shared IP (corporate NAT, shelter with multiple coordinators), increase capacity to 30-50. Do not set below 10 — legitimate users may hit the limit during password reset flows.
+
+### Cache behavior
+
+Rate limit state is stored in an in-memory JCache cache (`rate-limit-login`). State is lost on application restart — this is acceptable because the security goal is protecting against sustained brute force, not surviving restarts. The cache is configured in `application.conf` (Typesafe HOCON, read by Caffeine's JCache provider).
+
+---
+
 ## OAuth2 / Keycloak Troubleshooting
+
+### IdP outage — graceful degradation behavior
+
+If an OAuth2 identity provider (Keycloak, Google, Microsoft) goes down:
+
+- **Password-authenticated users continue working.** Local JWT validation uses HMAC-SHA256 with `FABT_JWT_SECRET`. No dependency on any external IdP or JWKS endpoint.
+- **SSO users are locked out** until the IdP recovers. The JWKS circuit breaker (`fabt-jwks-endpoint`) opens after repeated failures, and SSO token validation fails.
+- **Existing SSO sessions continue** until their JWT expires (default 15 min in production). The token is self-contained — validation only needs the cached JWKS key, not a live IdP connection.
+
+The two authentication paths are architecturally independent:
+
+| Path | Mechanism | External dependency |
+|------|-----------|-------------------|
+| Password login | `JwtAuthenticationFilter` → `JwtService.validateToken()` (HMAC-SHA256) | None |
+| SSO login | `JwtDecoderConfig` → `NimbusJwtDecoder` (RSA via JWKS) | IdP JWKS endpoint |
+
+**During a White Flag surge event with an IdP outage:** All accounts provisioned with password login continue working. Recommendation: ensure at least one COC_ADMIN account per tenant has password login as a fallback for emergencies.
 
 ### All authenticated endpoints return 401 after restart
 **Symptom:** Every API call returns 401, but Keycloak is running and tokens look valid.

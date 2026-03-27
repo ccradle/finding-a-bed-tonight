@@ -75,10 +75,22 @@ public class SecurityConfig {
         http
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .csrf(csrf -> csrf.disable())
+                .headers(headers -> headers
+                        // X-Content-Type-Options and X-Frame-Options are Spring Security defaults.
+                        // Add Referrer-Policy and Permissions-Policy for full scan coverage.
+                        // Also set in nginx.conf (defense-in-depth).
+                        .referrerPolicy(referrer -> referrer
+                                .policy(org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN))
+                        .permissionsPolicy(permissions -> permissions
+                                .policy("geolocation=(), microphone=(), camera=()")))
                 .sessionManagement(session -> session
                         .sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         // Public endpoints (no auth required)
+                        // Security audit (REQ-AUTH-PERMIT-1): each path reviewed for info disclosure.
+                        // Swagger paths disabled in prod profile (application-prod.yml).
+                        // /actuator/health: show-details=when-authorized, unauthenticated sees only status.
+                        // /error: server.error.include-stacktrace=never, no implementation details.
                         .requestMatchers("/api/v1/auth/**").permitAll()
                         .requestMatchers("/oauth2/**", "/login/oauth2/**").permitAll()
                         .requestMatchers("/actuator/health/**").permitAll()

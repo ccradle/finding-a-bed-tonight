@@ -18,30 +18,38 @@ import tools.jackson.databind.ObjectMapper;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.Expiry;
+import jakarta.annotation.PostConstruct;
 import org.fabt.auth.domain.User;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
 
 @Service
 public class JwtService {
 
     private static final String ALGORITHM = "HmacSHA256";
+    private static final String DEV_DEFAULT_SECRET = "default-dev-secret-change-in-production";
 
+    private final String secret;
     private final byte[] secretKey;
     private final long accessTokenExpiryMinutes;
     private final long refreshTokenExpiryDays;
     private final ObjectMapper objectMapper;
+    private final Environment environment;
     private final Cache<String, JwtClaims> claimsCache;
 
     public JwtService(
             @Value("${fabt.jwt.secret:default-dev-secret-change-in-production}") String secret,
             @Value("${fabt.jwt.access-token-expiry-minutes:15}") long accessTokenExpiryMinutes,
             @Value("${fabt.jwt.refresh-token-expiry-days:7}") long refreshTokenExpiryDays,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            Environment environment) {
+        this.secret = secret;
         this.secretKey = secret.getBytes(StandardCharsets.UTF_8);
         this.accessTokenExpiryMinutes = accessTokenExpiryMinutes;
         this.refreshTokenExpiryDays = refreshTokenExpiryDays;
         this.objectMapper = objectMapper;
+        this.environment = environment;
         this.claimsCache = Caffeine.newBuilder()
                 .maximumSize(10_000)
                 .expireAfter(new Expiry<String, JwtClaims>() {
@@ -61,6 +69,25 @@ public class JwtService {
                     }
                 })
                 .build();
+    }
+
+    @PostConstruct
+    void validateJwtSecret() {
+        if (secret == null || secret.isBlank()) {
+            throw new IllegalStateException(
+                    "FABT_JWT_SECRET must be set. Generate with: openssl rand -base64 64");
+        }
+        if (secret.length() < 32) {
+            throw new IllegalStateException(
+                    "FABT_JWT_SECRET is too short. Minimum 32 characters (256 bits). " +
+                    "Generate with: openssl rand -base64 64");
+        }
+        java.util.Set<String> activeProfiles = java.util.Set.of(environment.getActiveProfiles());
+        if (DEV_DEFAULT_SECRET.equals(secret) && activeProfiles.contains("prod")) {
+            throw new IllegalStateException(
+                    "FABT_JWT_SECRET must not use the default dev secret in production. " +
+                    "Generate with: openssl rand -base64 64");
+        }
     }
 
     public long getAccessTokenExpirySeconds() {

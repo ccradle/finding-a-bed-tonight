@@ -66,9 +66,12 @@ The Apache 2.0 license explicitly permits commercial support services. This is h
 - **OWASP:** CI pipeline includes dependency vulnerability scanning (failBuildOnCVSS=7)
 - **RLS:** PostgreSQL Row Level Security protects DV shelter data at the database layer
 - **Authentication:** JWT + OAuth2/OIDC + API key hybrid authentication
+- **SSO Resilience:** If an identity provider (Google, Microsoft, Keycloak) experiences an outage, password-authenticated users continue working without interruption. The two authentication paths are architecturally independent. See docs/runbook.md for full degradation behavior.
+- **Rate Limiting:** Authentication endpoints are protected against brute force attacks (10 requests per 15-minute window per IP)
 - **DV Protection:** Defense-in-depth — database RLS + service-layer access checks + zero client PII
 - **Audit:** HMIS push audit log with SHA-256 payload hashing
 - **WCAG:** Self-assessed ACR covering all 50 WCAG 2.1 Level A/AA criteria (see docs/WCAG-ACR.md)
+- **Security Scanning:** OWASP ZAP API scan run against a local development environment (HTTP, no TLS) using the OpenAPI spec — zero HIGH/CRITICAL findings across 116 checks. This covers application-level vulnerabilities (injection, XSS, access control). TLS configuration, reverse proxy hardening, and production infrastructure scanning have not yet been performed and should be completed before any public-facing deployment. See docs/security/ for the baseline report.
 
 For a detailed security posture summary, see the code repository's README and the operational runbook (docs/runbook.md).
 

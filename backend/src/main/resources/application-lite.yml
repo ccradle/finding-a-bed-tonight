@@ -3,6 +3,14 @@
 
 spring: {}
 
+# Rate limiting disabled in lite profile — Karate e2e tests login 72+ times per
+# suite run (24 features × 3 roles), and consecutive runs within the 15-minute
+# bucket window exhaust any reasonable capacity. Production/demo deployments
+# MUST NOT use the lite profile, or MUST override with bucket4j.enabled=true.
+# See docs/runbook.md for deployment guidance.
+bucket4j:
+  enabled: false
+
 fabt:
   deployment-tier: lite
   cache:
