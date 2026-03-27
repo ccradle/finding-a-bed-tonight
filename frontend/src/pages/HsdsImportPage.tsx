@@ -1,6 +1,7 @@
 import { useState, useRef, type DragEvent } from 'react';
 import { FormattedMessage } from 'react-intl';
 import { api, ApiError } from '../services/api';
+import { text, weight } from '../theme/typography';
 
 interface ImportResult {
   created: number;
@@ -75,7 +76,7 @@ export function HsdsImportPage() {
 
   return (
     <div style={{ maxWidth: '680px', margin: '0 auto' }}>
-      <h2 style={{ fontSize: '24px', fontWeight: 700, color: '#111827', marginBottom: '24px' }}>
+      <h2 style={{ fontSize: text['2xl'], fontWeight: weight.bold, color: '#111827', marginBottom: '24px' }}>
         <FormattedMessage id="import.hsds" />
       </h2>
 
@@ -87,7 +88,7 @@ export function HsdsImportPage() {
             padding: '12px 16px',
             borderRadius: '8px',
             marginBottom: '20px',
-            fontSize: '14px',
+            fontSize: text.base,
           }}
           role="alert"
         >
@@ -122,19 +123,19 @@ export function HsdsImportPage() {
         />
         {file ? (
           <div>
-            <p style={{ fontSize: '16px', fontWeight: 600, color: '#111827', margin: '0 0 4px' }}>
+            <p style={{ fontSize: text.md, fontWeight: weight.semibold, color: '#111827', margin: '0 0 4px' }}>
               {file.name}
             </p>
-            <p style={{ fontSize: '14px', color: '#6b7280', margin: 0 }}>
+            <p style={{ fontSize: text.base, color: '#6b7280', margin: 0 }}>
               {(file.size / 1024).toFixed(1)} KB
             </p>
           </div>
         ) : (
           <div>
-            <p style={{ fontSize: '16px', fontWeight: 500, color: '#374151', margin: '0 0 8px' }}>
+            <p style={{ fontSize: text.md, fontWeight: weight.medium, color: '#374151', margin: '0 0 8px' }}>
               Drag and drop an HSDS file here, or click to browse
             </p>
-            <p style={{ fontSize: '14px', color: '#6b7280', margin: 0 }}>
+            <p style={{ fontSize: text.base, color: '#6b7280', margin: 0 }}>
               Accepts .json or .zip files
             </p>
           </div>
@@ -151,8 +152,8 @@ export function HsdsImportPage() {
           color: '#ffffff',
           border: 'none',
           borderRadius: '8px',
-          fontSize: '16px',
-          fontWeight: 600,
+          fontSize: text.md,
+          fontWeight: weight.semibold,
           cursor: !file || loading ? 'not-allowed' : 'pointer',
           minHeight: '44px',
           marginBottom: '24px',
@@ -171,35 +172,35 @@ export function HsdsImportPage() {
             padding: '20px',
           }}
         >
-          <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#166534', marginBottom: '12px', marginTop: 0 }}>
+          <h3 style={{ fontSize: text.md, fontWeight: weight.semibold, color: '#166534', marginBottom: '12px', marginTop: 0 }}>
             Import Complete
           </h3>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', marginBottom: '12px' }}>
             <div>
-              <p style={{ fontSize: '24px', fontWeight: 700, color: '#166534', margin: 0 }}>
+              <p style={{ fontSize: text['2xl'], fontWeight: weight.bold, color: '#166534', margin: 0 }}>
                 {result.created}
               </p>
-              <p style={{ fontSize: '13px', color: '#6b7280', margin: 0 }}>Created</p>
+              <p style={{ fontSize: text.sm, color: '#6b7280', margin: 0 }}>Created</p>
             </div>
             <div>
-              <p style={{ fontSize: '24px', fontWeight: 700, color: '#ca8a04', margin: 0 }}>
+              <p style={{ fontSize: text['2xl'], fontWeight: weight.bold, color: '#ca8a04', margin: 0 }}>
                 {result.updated}
               </p>
-              <p style={{ fontSize: '13px', color: '#6b7280', margin: 0 }}>Updated</p>
+              <p style={{ fontSize: text.sm, color: '#6b7280', margin: 0 }}>Updated</p>
             </div>
             <div>
-              <p style={{ fontSize: '24px', fontWeight: 700, color: '#6b7280', margin: 0 }}>
+              <p style={{ fontSize: text['2xl'], fontWeight: weight.bold, color: '#6b7280', margin: 0 }}>
                 {result.skipped}
               </p>
-              <p style={{ fontSize: '13px', color: '#6b7280', margin: 0 }}>Skipped</p>
+              <p style={{ fontSize: text.sm, color: '#6b7280', margin: 0 }}>Skipped</p>
             </div>
           </div>
           {result.errors.length > 0 && (
             <div>
-              <p style={{ fontSize: '14px', fontWeight: 600, color: '#991b1b', marginBottom: '8px' }}>
+              <p style={{ fontSize: text.base, fontWeight: weight.semibold, color: '#991b1b', marginBottom: '8px' }}>
                 Errors ({result.errors.length}):
               </p>
-              <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '13px', color: '#991b1b' }}>
+              <ul style={{ margin: 0, paddingLeft: '20px', fontSize: text.sm, color: '#991b1b' }}>
                 {result.errors.map((err, i) => (
                   <li key={i}>{err}</li>
                 ))}

@@ -83,11 +83,11 @@
 | **1.3.4 Orientation** | Supports | Content is not restricted to a single orientation. Responsive design adapts to portrait and landscape. |
 | **1.3.5 Identify Input Purpose** | Partially Supports | Login form inputs have appropriate type attributes (email, password). Not all form inputs use autocomplete attributes for standard fields. |
 | **1.4.3 Contrast (Minimum)** | Supports | All text meets 4.5:1 minimum contrast ratio. Secondary text colors updated from #64748b to #475569 (7.5:1). Status badge text verified against badge backgrounds. Opacity-based transparency removed where it reduced effective contrast. axe-core confirms zero contrast violations. |
-| **1.4.4 Resize Text** | Supports | Text can be resized to 200% without loss of content or functionality. Layout is responsive. |
+| **1.4.4 Resize Text** | Supports | Text can be resized to 200% without loss of content or functionality. Layout uses flexbox for reflow. Typography system uses CSS custom properties — all font sizes are centrally defined and scale consistently. Verified at 200% browser zoom. |
 | **1.4.5 Images of Text** | Supports | No images of text used. All text is rendered as HTML text. |
 | **1.4.10 Reflow** | Supports | Content reflows at 320px viewport width. Mobile bottom navigation provides access to all sections. No horizontal scrolling required for primary content. |
 | **1.4.11 Non-text Contrast** | Supports | UI components (buttons, inputs, toggle switches) meet 3:1 contrast ratio against adjacent colors. Focus indicators are visible. |
-| **1.4.12 Text Spacing** | Supports | No text clipping when line height, paragraph spacing, letter spacing, or word spacing are increased per criterion requirements. Inline styles use relative units where possible. |
+| **1.4.12 Text Spacing** | Supports | No text clipping when line height, paragraph spacing, letter spacing, or word spacing are increased per criterion requirements. Global CSS sets base line-height to 1.5 (unitless ratio). All line-height values use unitless ratios, not fixed pixels. Automated Playwright test injects WCAG 1.4.12 spacing overrides and verifies no text clipping across all views. |
 | **1.4.13 Content on Hover or Focus** | Partially Supports | Shelter card hover effects are purely visual (border color change). No content appears on hover that is not also available through other means. Tooltip content is not used. |
 | **2.4.5 Multiple Ways** | Supports | Content accessible via navigation menu and direct URL. Bed search provides text search and population type filter. |
 | **2.4.6 Headings and Labels** | Supports | Pages use descriptive headings (h1-h3). Section headings in admin panel clearly label each section. Form labels describe their purpose. |

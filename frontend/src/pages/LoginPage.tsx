@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { FormattedMessage, useIntl } from 'react-intl';
 import { useAuth } from '../auth/useAuth';
 import { getDefaultRouteForRoles } from '../auth/AuthGuard';
+import { text, weight } from '../theme/typography';
 import { api, ApiError } from '../services/api';
 
 interface OAuth2Provider {
@@ -131,8 +132,8 @@ export function LoginPage() {
       >
         <h1
           style={{
-            fontSize: '24px',
-            fontWeight: 700,
+            fontSize: text['2xl'],
+            fontWeight: weight.bold,
             textAlign: 'center',
             marginBottom: '8px',
             color: '#1a56db',
@@ -142,8 +143,8 @@ export function LoginPage() {
         </h1>
         <h2
           style={{
-            fontSize: '18px',
-            fontWeight: 500,
+            fontSize: text.lg,
+            fontWeight: weight.medium,
             textAlign: 'center',
             marginBottom: '32px',
             color: '#6b7280',
@@ -160,7 +161,7 @@ export function LoginPage() {
               padding: '12px 16px',
               borderRadius: '8px',
               marginBottom: '20px',
-              fontSize: '14px',
+              fontSize: text.base,
             }}
             role="alert"
           >
@@ -172,7 +173,7 @@ export function LoginPage() {
           <div style={{ marginBottom: '16px' }}>
             <label
               htmlFor="tenant"
-              style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: 500, color: '#374151' }}
+              style={{ display: 'block', marginBottom: '6px', fontSize: text.base, fontWeight: weight.medium, color: '#374151' }}
             >
               <FormattedMessage id="login.tenant" />
             </label>
@@ -187,7 +188,7 @@ export function LoginPage() {
                 padding: '12px',
                 borderRadius: '8px',
                 border: '1px solid #d1d5db',
-                fontSize: '16px',
+                fontSize: text.md,
                 minHeight: '44px',
                 boxSizing: 'border-box',
               }}
@@ -197,7 +198,7 @@ export function LoginPage() {
           <div style={{ marginBottom: '16px' }}>
             <label
               htmlFor="email"
-              style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: 500, color: '#374151' }}
+              style={{ display: 'block', marginBottom: '6px', fontSize: text.base, fontWeight: weight.medium, color: '#374151' }}
             >
               <FormattedMessage id="login.email" />
             </label>
@@ -212,7 +213,7 @@ export function LoginPage() {
                 padding: '12px',
                 borderRadius: '8px',
                 border: '1px solid #d1d5db',
-                fontSize: '16px',
+                fontSize: text.md,
                 minHeight: '44px',
                 boxSizing: 'border-box',
               }}
@@ -222,7 +223,7 @@ export function LoginPage() {
           <div style={{ marginBottom: '24px' }}>
             <label
               htmlFor="password"
-              style={{ display: 'block', marginBottom: '6px', fontSize: '14px', fontWeight: 500, color: '#374151' }}
+              style={{ display: 'block', marginBottom: '6px', fontSize: text.base, fontWeight: weight.medium, color: '#374151' }}
             >
               <FormattedMessage id="login.password" />
             </label>
@@ -237,7 +238,7 @@ export function LoginPage() {
                 padding: '12px',
                 borderRadius: '8px',
                 border: '1px solid #d1d5db',
-                fontSize: '16px',
+                fontSize: text.md,
                 minHeight: '44px',
                 boxSizing: 'border-box',
               }}
@@ -254,8 +255,8 @@ export function LoginPage() {
               color: '#ffffff',
               border: 'none',
               borderRadius: '8px',
-              fontSize: '16px',
-              fontWeight: 600,
+              fontSize: text.md,
+              fontWeight: weight.semibold,
               cursor: loading ? 'not-allowed' : 'pointer',
               minHeight: '44px',
             }}
@@ -275,7 +276,7 @@ export function LoginPage() {
               }}
             >
               <div style={{ flex: 1, height: '1px', backgroundColor: '#e5e7eb' }} />
-              <span style={{ fontSize: '13px', color: '#9ca3af' }}>
+              <span style={{ fontSize: text.sm, color: '#9ca3af' }}>
                 <FormattedMessage id="login.oauth.divider" />
               </span>
               <div style={{ flex: 1, height: '1px', backgroundColor: '#e5e7eb' }} />
@@ -294,8 +295,8 @@ export function LoginPage() {
                     color: isGoogle ? '#3c4043' : isMicrosoft ? '#ffffff' : '#374151',
                     border: isGoogle ? '1px solid #dadce0' : isMicrosoft ? 'none' : '1px solid #d1d5db',
                     borderRadius: '8px',
-                    fontSize: '15px',
-                    fontWeight: 500,
+                    fontSize: text.base,
+                    fontWeight: weight.medium,
                     cursor: 'pointer',
                     marginBottom: '8px',
                     minHeight: '44px',

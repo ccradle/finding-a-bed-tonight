@@ -1,3 +1,5 @@
+import { text } from '../theme/typography';
+
 interface LocaleSelectorProps {
   locale: string;
   onLocaleChange: (locale: string) => void;
@@ -8,7 +10,7 @@ const selectStyle: React.CSSProperties = {
   borderRadius: '6px',
   border: '1px solid #d1d5db',
   backgroundColor: '#ffffff',
-  fontSize: '14px',
+  fontSize: text.base,
   cursor: 'pointer',
   minHeight: '44px',
   minWidth: '44px',

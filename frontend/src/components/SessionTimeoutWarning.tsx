@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../services/api';
+import { text, weight } from '../theme/typography';
 
 /**
  * Session timeout warning — WCAG 2.2.1 Timing Adjustable.
@@ -25,14 +26,23 @@ interface Props {
 export function SessionTimeoutWarning({ expiresIn, onLogout }: Props) {
   const [showWarning, setShowWarning] = useState(false);
   const [secondsRemaining, setSecondsRemaining] = useState(0);
-  const expiresAtRef = useRef(Date.now() + expiresIn * 1000);
-  const lastActivityRef = useRef(Date.now());
+  const expiresAtRef = useRef(0);
+  const lastActivityRef = useRef(0);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+
+  // Initialize time refs on mount (Date.now() is impure — cannot call during render)
+  useEffect(() => {
+    if (expiresAtRef.current === 0) {
+      expiresAtRef.current = Date.now() + expiresIn * 1000;
+      lastActivityRef.current = Date.now();
+    }
+  }, [expiresIn]);
 
   // Reset expiry when expiresIn changes (login/refresh)
   useEffect(() => {
     expiresAtRef.current = Date.now() + expiresIn * 1000;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Dismiss warning dialog when session is refreshed
     setShowWarning(false);
   }, [expiresIn]);
 
@@ -175,12 +185,12 @@ export function SessionTimeoutWarning({ expiresIn, onLogout }: Props) {
           width: '90%', boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
         }}
       >
-        <h2 id="session-timeout-title" style={{ margin: '0 0 12px', fontSize: 20, fontWeight: 700, color: '#0f172a' }}>
+        <h2 id="session-timeout-title" style={{ margin: '0 0 12px', fontSize: text.xl, fontWeight: weight.bold, color: '#0f172a' }}>
           Session Expiring
         </h2>
-        <p id="session-timeout-desc" style={{ margin: '0 0 8px', fontSize: 14, color: '#475569', lineHeight: 1.5 }}>
+        <p id="session-timeout-desc" style={{ margin: '0 0 8px', fontSize: text.base, color: '#475569', lineHeight: 'var(--leading-normal)' }}>
           Your session will expire in{' '}
-          <span aria-live="assertive" aria-atomic="true" style={{ fontWeight: 700, color: '#991b1b' }}>
+          <span aria-live="assertive" aria-atomic="true" style={{ fontWeight: weight.bold, color: '#991b1b' }}>
             {timeText}
           </span>.
           Press Continue to stay signed in.
@@ -191,7 +201,7 @@ export function SessionTimeoutWarning({ expiresIn, onLogout }: Props) {
             onClick={handleExtend}
             style={{
               flex: 1, padding: '12px 20px', backgroundColor: '#1a56db', color: '#fff',
-              border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 700,
+              border: 'none', borderRadius: 10, fontSize: text.base, fontWeight: weight.bold,
               cursor: 'pointer', minHeight: 44,
             }}
           >
@@ -202,7 +212,7 @@ export function SessionTimeoutWarning({ expiresIn, onLogout }: Props) {
             onClick={onLogout}
             style={{
               flex: 1, padding: '12px 20px', backgroundColor: '#f1f5f9', color: '#475569',
-              border: '1px solid #e2e8f0', borderRadius: 10, fontSize: 14, fontWeight: 700,
+              border: '1px solid #e2e8f0', borderRadius: 10, fontSize: text.base, fontWeight: weight.bold,
               cursor: 'pointer', minHeight: 44,
             }}
           >

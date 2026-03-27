@@ -1,3 +1,5 @@
+import { text, weight } from '../theme/typography';
+
 interface DataAgeProps {
   dataAgeSeconds: number | null;
 }
@@ -33,20 +35,20 @@ function formatAge(seconds: number | null): string {
 
 export function DataAge({ dataAgeSeconds }: DataAgeProps) {
   const color = getColor(dataAgeSeconds);
-  const text = formatAge(dataAgeSeconds);
+  const ageText = formatAge(dataAgeSeconds);
   const statusLabel = getStatusLabel(dataAgeSeconds);
 
   return (
     <span
       style={{
         color,
-        fontSize: '12px',
-        fontWeight: 500,
+        fontSize: text.xs,
+        fontWeight: weight.medium,
         display: 'inline-flex',
         alignItems: 'center',
         gap: '4px',
       }}
-      aria-label={`${statusLabel}: ${text}`}
+      aria-label={`${statusLabel}: ${ageText}`}
     >
       <span
         style={{
@@ -58,9 +60,9 @@ export function DataAge({ dataAgeSeconds }: DataAgeProps) {
         }}
         aria-hidden="true"
       />
-      <span style={{ fontWeight: 600 }}>{statusLabel}</span>
+      <span style={{ fontWeight: weight.semibold }}>{statusLabel}</span>
       {' · '}
-      {text}
+      {ageText}
     </span>
   );
 }

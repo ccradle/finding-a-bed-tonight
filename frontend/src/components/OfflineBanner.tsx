@@ -1,13 +1,14 @@
 import { FormattedMessage } from 'react-intl';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
+import { text, weight } from '../theme/typography';
 
 const bannerStyle: React.CSSProperties = {
   backgroundColor: '#fbbf24',
   color: '#78350f',
   padding: '12px 16px',
   textAlign: 'center',
-  fontWeight: 600,
-  fontSize: '14px',
+  fontWeight: weight.semibold,
+  fontSize: text.base,
   position: 'sticky',
   top: 0,
   zIndex: 1000,

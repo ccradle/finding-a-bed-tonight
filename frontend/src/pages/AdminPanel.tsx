@@ -3,6 +3,7 @@ import { FormattedMessage, useIntl } from 'react-intl';
 import { api } from '../services/api';
 import { DataAge } from '../components/DataAge';
 import { AuthContext } from '../auth/AuthContext';
+import { font, text, weight } from '../theme/typography';
 
 // Lazy-load Analytics tab — ~200KB Recharts bundle only downloads when admin opens it.
 const LazyAnalyticsTab = lazy(() => import('./AnalyticsTab'));
@@ -126,7 +127,7 @@ function ReservationSettings() {
     <div style={{ background: '#fff', borderRadius: 12, padding: 16, marginBottom: 16, border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}
       data-testid="reservation-settings">
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <label htmlFor="hold-duration-input" style={{ fontSize: 14, fontWeight: 600, color: '#0f172a' }}>
+        <label htmlFor="hold-duration-input" style={{ fontSize: text.base, fontWeight: weight.semibold, color: '#0f172a' }}>
           <FormattedMessage id="admin.holdDuration.label" defaultMessage="Bed Hold Duration" />
         </label>
         <input
@@ -139,9 +140,9 @@ function ReservationSettings() {
           onChange={e => setHoldDuration(Math.max(5, Math.min(480, parseInt(e.target.value) || 90)))}
           aria-label="Hold duration in minutes"
           data-testid="hold-duration-input"
-          style={{ width: 80, padding: '8px 12px', borderRadius: 8, border: '2px solid #e2e8f0', fontSize: 14, textAlign: 'center', minHeight: 44 }}
+          style={{ width: 80, padding: '8px 12px', borderRadius: 8, border: '2px solid #e2e8f0', fontSize: text.base, textAlign: 'center', minHeight: 44 }}
         />
-        <span style={{ fontSize: 13, color: '#475569' }}>
+        <span style={{ fontSize: text.sm, color: '#475569' }}>
           <FormattedMessage id="admin.holdDuration.unit" defaultMessage="minutes" />
         </span>
         <button
@@ -150,19 +151,19 @@ function ReservationSettings() {
           data-testid="hold-duration-save"
           style={{
             padding: '8px 16px', backgroundColor: '#1a56db', color: '#fff',
-            border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700,
+            border: 'none', borderRadius: 8, fontSize: text.sm, fontWeight: weight.bold,
             cursor: saving ? 'default' : 'pointer', minHeight: 44,
           }}
         >
           {saving ? '...' : intl.formatMessage({ id: 'common.save' })}
         </button>
         {message && (
-          <span aria-live="polite" style={{ fontSize: 13, color: message.type === 'success' ? '#166534' : '#991b1b', fontWeight: 600 }}>
+          <span aria-live="polite" style={{ fontSize: text.sm, color: message.type === 'success' ? '#166534' : '#991b1b', fontWeight: weight.semibold }}>
             {message.text}
           </span>
         )}
       </div>
-      <p style={{ fontSize: 12, color: '#475569', margin: '8px 0 0' }}>
+      <p style={{ fontSize: text.xs, color: '#475569', margin: '8px 0 0' }}>
         <FormattedMessage id="admin.holdDuration.description" defaultMessage="How long outreach workers can hold a bed before auto-expiry. Hospital deployments may set 120-180 minutes for discharge workflows." />
       </p>
     </div>
@@ -182,10 +183,10 @@ export function AdminPanel() {
         borderRadius: 16, padding: '28px 24px', marginBottom: 20, color: '#fff',
         boxShadow: '0 4px 24px rgba(0,0,0,0.15)',
       }}>
-        <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, letterSpacing: '-0.03em' }}>
+        <h1 style={{ margin: 0, fontSize: text['2xl'], fontWeight: weight.extrabold, letterSpacing: '-0.03em' }}>
           <FormattedMessage id="admin.title" />
         </h1>
-        <p style={{ margin: '6px 0 0', fontSize: 14, color: '#94b8d8' }}>
+        <p style={{ margin: '6px 0 0', fontSize: text.base, color: '#94b8d8' }}>
           <FormattedMessage id="admin.subtitle" />
         </p>
       </div>
@@ -230,7 +231,7 @@ export function AdminPanel() {
             style={{
               padding: '12px 18px', minHeight: 44, whiteSpace: 'nowrap',
               border: 'none', backgroundColor: 'transparent', cursor: 'pointer',
-              fontSize: 14, fontWeight: activeTab === tab.key ? 700 : 500,
+              fontSize: text.base, fontWeight: activeTab === tab.key ? weight.bold : weight.medium,
               color: activeTab === tab.key ? '#1a56db' : '#475569',
               borderBottom: activeTab === tab.key ? '3px solid #1a56db' : '3px solid transparent',
               marginBottom: -2, transition: 'color 0.12s, border-color 0.12s',
@@ -265,12 +266,12 @@ export function AdminPanel() {
 // --- Shared Styles ---
 
 const tableStyle: React.CSSProperties = {
-  width: '100%', borderCollapse: 'collapse', fontSize: 14,
+  width: '100%', borderCollapse: 'collapse', fontSize: text.base,
 };
 
 const thStyle: React.CSSProperties = {
-  textAlign: 'left', padding: '10px 14px', fontWeight: 700, color: '#0f172a',
-  borderBottom: '2px solid #e2e8f0', fontSize: 12, textTransform: 'uppercase',
+  textAlign: 'left', padding: '10px 14px', fontWeight: weight.bold, color: '#0f172a',
+  borderBottom: '2px solid #e2e8f0', fontSize: text.xs, textTransform: 'uppercase',
   letterSpacing: '0.04em',
 };
 
@@ -282,20 +283,20 @@ const tdStyle = (index: number): React.CSSProperties => ({
 
 const primaryBtnStyle: React.CSSProperties = {
   padding: '12px 20px', backgroundColor: '#1a56db', color: '#fff',
-  border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 700,
+  border: 'none', borderRadius: 10, fontSize: text.base, fontWeight: weight.bold,
   cursor: 'pointer', minHeight: 44,
 };
 
 const inputStyle: React.CSSProperties = {
   width: '100%', padding: '12px 14px', borderRadius: 10,
-  border: '2px solid #e2e8f0', fontSize: 14, boxSizing: 'border-box',
-  color: '#0f172a', fontWeight: 500, outline: 'none',
+  border: '2px solid #e2e8f0', fontSize: text.base, boxSizing: 'border-box',
+  color: '#0f172a', fontWeight: weight.medium, outline: 'none',
 };
 
 function StatusBadge({ active, yesId, noId }: { active: boolean; yesId: string; noId: string }) {
   return (
     <span style={{
-      padding: '4px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+      padding: '4px 10px', borderRadius: 6, fontSize: text.xs, fontWeight: weight.semibold,
       backgroundColor: active ? '#f0fdf4' : '#fef2f2',
       color: active ? '#166534' : '#991b1b',
       border: `1px solid ${active ? '#bbf7d0' : '#fecaca'}`,
@@ -308,7 +309,7 @@ function StatusBadge({ active, yesId, noId }: { active: boolean; yesId: string; 
 function RoleBadge({ role }: { role: string }) {
   return (
     <span style={{
-      padding: '3px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+      padding: '3px 8px', borderRadius: 6, fontSize: text['2xs'], fontWeight: weight.semibold,
       backgroundColor: '#eff6ff', color: '#1e40af', marginRight: 4,
       border: '1px solid #bfdbfe',
     }}>{role}</span>
@@ -319,14 +320,14 @@ function ErrorBox({ message }: { message: string }) {
   return (
     <div style={{
       backgroundColor: '#fef2f2', color: '#991b1b', padding: '14px 18px',
-      borderRadius: 12, marginBottom: 16, fontSize: 14, fontWeight: 500,
+      borderRadius: 12, marginBottom: 16, fontSize: text.base, fontWeight: weight.medium,
     }}>{message}</div>
   );
 }
 
 function NoData() {
   return (
-    <div style={{ textAlign: 'center', padding: 40, color: '#6b7280', fontSize: 14, fontWeight: 500 }}>
+    <div style={{ textAlign: 'center', padding: 40, color: '#6b7280', fontSize: text.base, fontWeight: weight.medium }}>
       <FormattedMessage id="admin.noData" />
     </div>
   );
@@ -425,28 +426,28 @@ function UsersTab() {
         }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 4, display: 'block' }}>
+              <label style={{ fontSize: text.xs, fontWeight: weight.semibold, color: '#475569', marginBottom: 4, display: 'block' }}>
                 <FormattedMessage id="admin.email" />
               </label>
               <input value={formEmail} onChange={(e) => setFormEmail(e.target.value)}
                 type="email" style={inputStyle} />
             </div>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 4, display: 'block' }}>
+              <label style={{ fontSize: text.xs, fontWeight: weight.semibold, color: '#475569', marginBottom: 4, display: 'block' }}>
                 <FormattedMessage id="admin.displayName" />
               </label>
               <input value={formDisplayName} onChange={(e) => setFormDisplayName(e.target.value)}
                 style={inputStyle} />
             </div>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 4, display: 'block' }}>
+              <label style={{ fontSize: text.xs, fontWeight: weight.semibold, color: '#475569', marginBottom: 4, display: 'block' }}>
                 Password
               </label>
               <input value={formPassword} onChange={(e) => setFormPassword(e.target.value)}
                 type="password" style={inputStyle} />
             </div>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 4, display: 'block' }}>
+              <label style={{ fontSize: text.xs, fontWeight: weight.semibold, color: '#475569', marginBottom: 4, display: 'block' }}>
                 <FormattedMessage id="admin.roles" />
               </label>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -458,14 +459,14 @@ function UsersTab() {
                       padding: '8px 14px', borderRadius: 8, border: `2px solid ${formRoles.includes(role) ? '#1a56db' : '#e2e8f0'}`,
                       backgroundColor: formRoles.includes(role) ? '#eff6ff' : '#fff',
                       color: formRoles.includes(role) ? '#1a56db' : '#475569',
-                      fontSize: 13, fontWeight: 600, cursor: 'pointer', minHeight: 40,
+                      fontSize: text.sm, fontWeight: weight.semibold, cursor: 'pointer', minHeight: 40,
                     }}
                   >{role}</button>
                 ))}
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <label style={{ fontSize: 12, fontWeight: 600, color: '#475569' }}>
+              <label style={{ fontSize: text.xs, fontWeight: weight.semibold, color: '#475569' }}>
                 <FormattedMessage id="admin.dvAccess" />
               </label>
               <button
@@ -475,7 +476,7 @@ function UsersTab() {
                   borderColor: formDvAccess ? '#22c55e' : '#e2e8f0',
                   backgroundColor: formDvAccess ? '#f0fdf4' : '#fff',
                   color: formDvAccess ? '#166534' : '#991b1b',
-                  fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                  fontSize: text.sm, fontWeight: weight.semibold, cursor: 'pointer',
                 }}
               >
                 {formDvAccess ? 'ON' : 'OFF'}
@@ -575,11 +576,11 @@ function SheltersTab() {
             <tbody>
               {shelters.map((item, i) => (
                 <tr key={item.shelter.id}>
-                  <td style={{ ...tdStyle(i), fontWeight: 600 }}>{item.shelter.name}</td>
+                  <td style={{ ...tdStyle(i), fontWeight: weight.semibold }}>{item.shelter.name}</td>
                   <td style={tdStyle(i)}>{item.shelter.addressCity}</td>
                   <td style={tdStyle(i)}>
                     {item.availabilitySummary?.totalBedsAvailable != null
-                      ? <span style={{ fontWeight: 700, color: item.availabilitySummary.totalBedsAvailable > 0 ? '#166534' : '#991b1b' }}>
+                      ? <span style={{ fontWeight: weight.bold, color: item.availabilitySummary.totalBedsAvailable > 0 ? '#166534' : '#991b1b' }}>
                           {item.availabilitySummary.totalBedsAvailable}
                         </span>
                       : <span style={{ color: '#6b7280' }}>—</span>}
@@ -587,7 +588,7 @@ function SheltersTab() {
                   <td style={tdStyle(i)}>
                     {item.availabilitySummary
                       ? <span style={{
-                          padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700,
+                          padding: '2px 8px', borderRadius: 6, fontSize: text['2xs'], fontWeight: weight.bold,
                           backgroundColor: item.availabilitySummary.dataFreshness === 'FRESH' ? '#f0fdf4'
                             : item.availabilitySummary.dataFreshness === 'AGING' ? '#fefce8'
                             : item.availabilitySummary.dataFreshness === 'STALE' ? '#fef2f2' : '#f1f5f9',
@@ -674,12 +675,12 @@ function ApiKeysTab() {
           padding: 20, backgroundColor: '#fefce8', border: '2px solid #fde047',
           borderRadius: 14, marginBottom: 20,
         }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#854d0e', marginBottom: 8 }}>
+          <div style={{ fontSize: text.sm, fontWeight: weight.bold, color: '#854d0e', marginBottom: 8 }}>
             <FormattedMessage id="admin.keyWarning" />
           </div>
-          <div style={{
+          <div data-testid="api-key-reveal" style={{
             padding: '12px 14px', backgroundColor: '#fff', borderRadius: 8,
-            fontFamily: 'monospace', fontSize: 14, color: '#0f172a', wordBreak: 'break-all',
+            fontFamily: font.mono, fontSize: text.base, color: '#0f172a', wordBreak: 'break-all',
             marginBottom: 10, border: '1px solid #e2e8f0',
           }}>
             {newKeyResult.plaintextKey}
@@ -692,8 +693,8 @@ function ApiKeysTab() {
           </button>
           <button onClick={() => setNewKeyResult(null)} style={{
             marginLeft: 8, padding: '12px 20px', backgroundColor: '#f1f5f9',
-            color: '#475569', border: 'none', borderRadius: 10, fontSize: 14,
-            fontWeight: 600, cursor: 'pointer', minHeight: 44,
+            color: '#475569', border: 'none', borderRadius: 10, fontSize: text.base,
+            fontWeight: weight.semibold, cursor: 'pointer', minHeight: 44,
           }}>Dismiss</button>
         </div>
       )}
@@ -711,7 +712,7 @@ function ApiKeysTab() {
         }}>
           <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
             <div style={{ flex: 1 }}>
-              <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 4, display: 'block' }}>
+              <label style={{ fontSize: text.xs, fontWeight: weight.semibold, color: '#475569', marginBottom: 4, display: 'block' }}>
                 Label
               </label>
               <input value={formLabel} onChange={(e) => setFormLabel(e.target.value)}
@@ -740,7 +741,7 @@ function ApiKeysTab() {
             <tbody>
               {keys.map((k, i) => (
                 <tr key={k.id}>
-                  <td style={{ ...tdStyle(i), fontFamily: 'monospace' }}>****{k.suffix}</td>
+                  <td style={{ ...tdStyle(i), fontFamily: font.mono }}>****{k.suffix}</td>
                   <td style={tdStyle(i)}>{k.label}</td>
                   <td style={tdStyle(i)}><RoleBadge role={k.role} /></td>
                   <td style={tdStyle(i)}>
@@ -814,15 +815,15 @@ function ImportsTab() {
             <tbody>
               {imports.map((imp, i) => (
                 <tr key={imp.id}>
-                  <td style={{ ...tdStyle(i), fontWeight: 600 }}>{imp.importType}</td>
+                  <td style={{ ...tdStyle(i), fontWeight: weight.semibold }}>{imp.importType}</td>
                   <td style={tdStyle(i)}>{imp.filename}</td>
-                  <td style={{ ...tdStyle(i), color: '#166534', fontWeight: 600 }}>{imp.created}</td>
-                  <td style={{ ...tdStyle(i), color: '#1a56db', fontWeight: 600 }}>{imp.updated}</td>
+                  <td style={{ ...tdStyle(i), color: '#166534', fontWeight: weight.semibold }}>{imp.created}</td>
+                  <td style={{ ...tdStyle(i), color: '#1a56db', fontWeight: weight.semibold }}>{imp.updated}</td>
                   <td style={{ ...tdStyle(i), color: '#854d0e' }}>{imp.skipped}</td>
                   <td style={{
                     ...tdStyle(i),
                     color: imp.errors > 0 ? '#991b1b' : '#475569',
-                    fontWeight: imp.errors > 0 ? 700 : 400,
+                    fontWeight: imp.errors > 0 ? weight.bold : weight.normal,
                   }}>{imp.errors}</td>
                   <td style={tdStyle(i)}>{new Date(imp.createdAt).toLocaleDateString()}</td>
                 </tr>
@@ -903,21 +904,21 @@ function SubscriptionsTab() {
         }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 4, display: 'block' }}>
+              <label style={{ fontSize: text.xs, fontWeight: weight.semibold, color: '#475569', marginBottom: 4, display: 'block' }}>
                 Event Type
               </label>
               <input value={formEventType} onChange={(e) => setFormEventType(e.target.value)}
                 style={inputStyle} placeholder="e.g. shelter.updated" />
             </div>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 4, display: 'block' }}>
+              <label style={{ fontSize: text.xs, fontWeight: weight.semibold, color: '#475569', marginBottom: 4, display: 'block' }}>
                 Callback URL
               </label>
               <input value={formCallbackUrl} onChange={(e) => setFormCallbackUrl(e.target.value)}
                 type="url" style={inputStyle} placeholder="https://..." />
             </div>
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 4, display: 'block' }}>
+              <label style={{ fontSize: text.xs, fontWeight: weight.semibold, color: '#475569', marginBottom: 4, display: 'block' }}>
                 Callback Secret
               </label>
               <input value={formCallbackSecret} onChange={(e) => setFormCallbackSecret(e.target.value)}
@@ -945,8 +946,8 @@ function SubscriptionsTab() {
             <tbody>
               {subs.map((s, i) => (
                 <tr key={s.id}>
-                  <td style={{ ...tdStyle(i), fontWeight: 600 }}>{s.eventType}</td>
-                  <td style={{ ...tdStyle(i), fontFamily: 'monospace', fontSize: 13 }}>{s.callbackUrl}</td>
+                  <td style={{ ...tdStyle(i), fontWeight: weight.semibold }}>{s.eventType}</td>
+                  <td style={{ ...tdStyle(i), fontFamily: font.mono, fontSize: text.sm }}>{s.callbackUrl}</td>
                   <td style={tdStyle(i)}>
                     <StatusBadge active={s.status === 'ACTIVE'} yesId="admin.active" noId="admin.inactive" />
                   </td>
@@ -1027,16 +1028,16 @@ function SurgeTab() {
           padding: 20, borderRadius: 14, marginBottom: 20,
           background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)', color: '#fff',
         }}>
-          <div style={{ fontSize: 14, fontWeight: 800, letterSpacing: '0.06em', marginBottom: 6 }}>
+          <div style={{ fontSize: text.base, fontWeight: weight.extrabold, letterSpacing: '0.06em', marginBottom: 6 }}>
             <FormattedMessage id="surge.banner" />
           </div>
-          <div style={{ fontSize: 16, fontWeight: 500, marginBottom: 8 }}>{activeSurge.reason}</div>
-          <div style={{ fontSize: 12, opacity: 0.85, marginBottom: 12 }}>
+          <div style={{ fontSize: text.md, fontWeight: weight.medium, marginBottom: 8 }}>{activeSurge.reason}</div>
+          <div style={{ fontSize: text.xs, opacity: 0.85, marginBottom: 12 }}>
             <FormattedMessage id="surge.since" />: {new Date(activeSurge.activatedAt).toLocaleString()}
           </div>
           <button onClick={() => deactivateSurge(activeSurge.id)} style={{
             padding: '10px 20px', borderRadius: 8, border: '2px solid rgba(255,255,255,0.5)',
-            backgroundColor: 'transparent', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer',
+            backgroundColor: 'transparent', color: '#fff', fontSize: text.base, fontWeight: weight.bold, cursor: 'pointer',
           }}><FormattedMessage id="surge.deactivate" /></button>
         </div>
       )}
@@ -1052,14 +1053,14 @@ function SurgeTab() {
       {showForm && (
         <div style={{ padding: 20, border: '2px solid #fecaca', borderRadius: 14, marginBottom: 20, backgroundColor: '#fef2f2' }}>
           <div style={{ marginBottom: 12 }}>
-            <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 4 }}>
+            <label style={{ fontSize: text.xs, fontWeight: weight.semibold, color: '#475569', display: 'block', marginBottom: 4 }}>
               <FormattedMessage id="surge.reason" />
             </label>
             <input value={reason} onChange={e => setReason(e.target.value)}
               style={inputStyle} placeholder={intl.formatMessage({ id: 'surge.reasonPlaceholder' })} />
           </div>
           <div style={{ marginBottom: 12 }}>
-            <label style={{ fontSize: 12, fontWeight: 600, color: '#475569', display: 'block', marginBottom: 4 }}>
+            <label style={{ fontSize: text.xs, fontWeight: weight.semibold, color: '#475569', display: 'block', marginBottom: 4 }}>
               <FormattedMessage id="surge.scheduledEnd" />
             </label>
             <input type="datetime-local" value={scheduledEnd} onChange={e => setScheduledEnd(e.target.value)} style={inputStyle} />
@@ -1088,7 +1089,7 @@ function SurgeTab() {
                   <td style={tdStyle(i)}>
                     <StatusBadge active={s.status === 'ACTIVE'} yesId="admin.active" noId="admin.inactive" />
                   </td>
-                  <td style={{ ...tdStyle(i), fontWeight: 600 }}>{s.reason}</td>
+                  <td style={{ ...tdStyle(i), fontWeight: weight.semibold }}>{s.reason}</td>
                   <td style={tdStyle(i)}>{new Date(s.activatedAt).toLocaleString()}</td>
                   <td style={tdStyle(i)}>{s.deactivatedAt ? new Date(s.deactivatedAt).toLocaleString() : '—'}</td>
                 </tr>
@@ -1183,7 +1184,7 @@ function ObservabilityTab() {
     transition: 'left 0.2s', boxShadow: '0 1px 2px rgba(0,0,0,0.2)',
   });
   const inputStyle: React.CSSProperties = {
-    padding: '8px 12px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: 14, width: 120,
+    padding: '8px 12px', border: '1px solid #cbd5e1', borderRadius: 8, fontSize: text.base, width: 120,
   };
   const sectionStyle: React.CSSProperties = {
     background: '#fff', borderRadius: 12, padding: 20,
@@ -1206,14 +1207,14 @@ function ObservabilityTab() {
           border: tempStatus.gapDetected ? '2px solid #f59e0b' : '2px solid #10b981',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <span style={{ fontSize: 28, fontWeight: 800 }}>
+            <span style={{ fontSize: text['3xl'], fontWeight: weight.extrabold }}>
               {tempStatus.temperatureF.toFixed(1)}°F
             </span>
             <div>
-              <div style={{ fontWeight: 600, fontSize: 14 }}>
+              <div style={{ fontWeight: weight.semibold, fontSize: text.base }}>
                 <FormattedMessage id="admin.observability.station" /> {tempStatus.stationId || 'Unknown'}
               </div>
-              <div style={{ fontSize: 13, color: '#475569' }}>
+              <div style={{ fontSize: text.sm, color: '#475569' }}>
                 <FormattedMessage id="admin.observability.threshold" />: {tempStatus.thresholdF}°F
                 {tempStatus.surgeActive && <span> · <FormattedMessage id="admin.observability.surgeActive" /></span>}
               </div>
@@ -1222,7 +1223,7 @@ function ObservabilityTab() {
           {tempStatus.gapDetected && (
             <div style={{
               marginTop: 10, padding: '8px 12px', background: 'rgba(245,158,11,0.15)',
-              borderRadius: 8, fontSize: 13, fontWeight: 600, color: '#92400e',
+              borderRadius: 8, fontSize: text.sm, fontWeight: weight.semibold, color: '#92400e',
             }}>
               {tempStatus.temperatureF.toFixed(0)}°F — <FormattedMessage id="admin.observability.belowThreshold"
                 values={{ threshold: tempStatus.thresholdF.toString() }} />.{' '}
@@ -1230,7 +1231,7 @@ function ObservabilityTab() {
             </div>
           )}
           {tempStatus.lastChecked && (
-            <div style={{ fontSize: 12, color: '#475569', marginTop: 6 }}>
+            <div style={{ fontSize: text.xs, color: '#475569', marginTop: 6 }}>
               <FormattedMessage id="admin.observability.lastChecked" />: {new Date(tempStatus.lastChecked).toLocaleString()}
             </div>
           )}
@@ -1239,7 +1240,7 @@ function ObservabilityTab() {
 
       {/* Configuration */}
       <div style={sectionStyle}>
-        <h3 style={{ margin: '0 0 16px', fontSize: 16, fontWeight: 700 }}>
+        <h3 style={{ margin: '0 0 16px', fontSize: text.md, fontWeight: weight.bold }}>
           <FormattedMessage id="admin.observability.config" />
         </h3>
 
@@ -1267,7 +1268,7 @@ function ObservabilityTab() {
 
         {config.tracingEnabled && (
           <div style={{ padding: '12px 0', borderBottom: '1px solid #e2e8f0' }}>
-            <label style={{ display: 'block', fontSize: 13, color: '#475569', marginBottom: 4 }}>
+            <label style={{ display: 'block', fontSize: text.sm, color: '#475569', marginBottom: 4 }}>
               <FormattedMessage id="admin.observability.tracingEndpoint" />
             </label>
             <input type="text" value={config.tracingEndpoint}
@@ -1277,49 +1278,49 @@ function ObservabilityTab() {
         )}
 
         <div style={{ padding: '16px 0 8px' }}>
-          <h4 style={{ margin: '0 0 12px', fontSize: 14, fontWeight: 600, color: '#475569' }}>
+          <h4 style={{ margin: '0 0 12px', fontSize: text.base, fontWeight: weight.semibold, color: '#475569' }}>
             <FormattedMessage id="admin.observability.intervals" />
           </h4>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div>
-              <label style={{ display: 'block', fontSize: 13, color: '#475569', marginBottom: 4 }}>
+              <label style={{ display: 'block', fontSize: text.sm, color: '#475569', marginBottom: 4 }}>
                 <FormattedMessage id="admin.observability.staleInterval" />
               </label>
               <input id="stale-interval" type="number" min={1} value={config.monitorStaleIntervalMinutes}
                 onChange={e => setConfig(c => ({ ...c, monitorStaleIntervalMinutes: parseInt(e.target.value) || 5 }))}
                 aria-label="Stale shelter check interval in minutes"
                 style={inputStyle} />
-              <span style={{ fontSize: 12, color: '#6b7280', marginLeft: 4 }}>min</span>
+              <span style={{ fontSize: text.xs, color: '#6b7280', marginLeft: 4 }}>min</span>
             </div>
             <div>
-              <label style={{ display: 'block', fontSize: 13, color: '#475569', marginBottom: 4 }}>
+              <label style={{ display: 'block', fontSize: text.sm, color: '#475569', marginBottom: 4 }}>
                 <FormattedMessage id="admin.observability.dvCanaryInterval" />
               </label>
               <input id="dv-canary-interval" type="number" min={1} value={config.monitorDvCanaryIntervalMinutes}
                 onChange={e => setConfig(c => ({ ...c, monitorDvCanaryIntervalMinutes: parseInt(e.target.value) || 15 }))}
                 aria-label="DV canary check interval in minutes"
                 style={inputStyle} />
-              <span style={{ fontSize: 12, color: '#6b7280', marginLeft: 4 }}>min</span>
+              <span style={{ fontSize: text.xs, color: '#6b7280', marginLeft: 4 }}>min</span>
             </div>
             <div>
-              <label style={{ display: 'block', fontSize: 13, color: '#475569', marginBottom: 4 }}>
+              <label style={{ display: 'block', fontSize: text.sm, color: '#475569', marginBottom: 4 }}>
                 <FormattedMessage id="admin.observability.tempInterval" />
               </label>
               <input id="temp-interval" type="number" min={1} value={config.monitorTemperatureIntervalMinutes}
                 onChange={e => setConfig(c => ({ ...c, monitorTemperatureIntervalMinutes: parseInt(e.target.value) || 60 }))}
                 aria-label="Temperature check interval in minutes"
                 style={inputStyle} />
-              <span style={{ fontSize: 12, color: '#6b7280', marginLeft: 4 }}>min</span>
+              <span style={{ fontSize: text.xs, color: '#6b7280', marginLeft: 4 }}>min</span>
             </div>
             <div>
-              <label style={{ display: 'block', fontSize: 13, color: '#475569', marginBottom: 4 }}>
+              <label style={{ display: 'block', fontSize: text.sm, color: '#475569', marginBottom: 4 }}>
                 <FormattedMessage id="admin.observability.tempThreshold" />
               </label>
               <input id="temp-threshold" data-testid="temp-threshold" type="number" value={config.temperatureThresholdF}
                 onChange={e => setConfig(c => ({ ...c, temperatureThresholdF: parseFloat(e.target.value) || 32 }))}
                 aria-label="Temperature threshold in Fahrenheit"
                 style={inputStyle} />
-              <span style={{ fontSize: 12, color: '#6b7280', marginLeft: 4 }}>°F</span>
+              <span style={{ fontSize: text.xs, color: '#6b7280', marginLeft: 4 }}>°F</span>
             </div>
           </div>
         </div>
@@ -1329,13 +1330,13 @@ function ObservabilityTab() {
             data-testid="observability-save"
             style={{
               padding: '10px 24px', background: '#1a56db', color: '#fff', border: 'none',
-              borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer',
+              borderRadius: 8, fontSize: text.base, fontWeight: weight.semibold, cursor: 'pointer',
               opacity: saving ? 0.6 : 1, minHeight: 44,
             }}>
             {saving ? '...' : intl.formatMessage({ id: 'admin.observability.save' })}
           </button>
           {message && (
-            <span style={{ fontSize: 13, fontWeight: 600,
+            <span style={{ fontSize: text.sm, fontWeight: weight.semibold,
               color: message.type === 'success' ? '#059669' : '#dc2626' }}>
               {message.text}
             </span>
@@ -1491,20 +1492,20 @@ function OAuth2ProvidersTab() {
   };
   const inputStyle: React.CSSProperties = {
     width: '100%', padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: 8,
-    fontSize: 14, boxSizing: 'border-box' as const, marginBottom: 12,
+    fontSize: text.base, boxSizing: 'border-box' as const, marginBottom: 12,
   };
 
   return (
     <div>
       <div style={sectionStyle}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>
+          <h3 style={{ margin: 0, fontSize: text.md, fontWeight: weight.bold }}>
             <FormattedMessage id="admin.oauth2.title" />
           </h3>
           {!showForm && (
             <button onClick={() => { resetForm(); setShowForm(true); }}
               style={{ padding: '8px 16px', background: '#1a56db', color: '#fff', border: 'none',
-                borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+                borderRadius: 8, fontSize: text.base, fontWeight: weight.semibold, cursor: 'pointer' }}>
               <FormattedMessage id="admin.oauth2.addProvider" />
             </button>
           )}
@@ -1512,7 +1513,7 @@ function OAuth2ProvidersTab() {
 
         {message && (
           <div style={{
-            padding: '10px 14px', borderRadius: 8, marginBottom: 12, fontSize: 13, fontWeight: 600,
+            padding: '10px 14px', borderRadius: 8, marginBottom: 12, fontSize: text.sm, fontWeight: weight.semibold,
             background: message.type === 'success' ? '#d1fae5' : '#fef2f2',
             color: message.type === 'success' ? '#065f46' : '#991b1b',
           }}>{message.text}</div>
@@ -1523,7 +1524,7 @@ function OAuth2ProvidersTab() {
           <div style={{ background: '#f8fafc', borderRadius: 8, padding: 16, marginBottom: 16, border: '1px solid #e2e8f0' }}>
             {!editId && (
               <div style={{ marginBottom: 12 }}>
-                <label style={{ display: 'block', fontSize: 13, color: '#475569', marginBottom: 4 }}>
+                <label style={{ display: 'block', fontSize: text.sm, color: '#475569', marginBottom: 4 }}>
                   <FormattedMessage id="admin.oauth2.providerType" />
                 </label>
                 <select id="oauth2-provider-type" value={providerType} onChange={e => handleProviderTypeChange(e.target.value)}
@@ -1539,30 +1540,30 @@ function OAuth2ProvidersTab() {
 
             {(providerType === 'custom' || providerType === 'microsoft') && !editId && (
               <div>
-                <label style={{ display: 'block', fontSize: 13, color: '#475569', marginBottom: 4 }}>Provider Name</label>
+                <label style={{ display: 'block', fontSize: text.sm, color: '#475569', marginBottom: 4 }}>Provider Name</label>
                 <input type="text" value={formName} onChange={e => setFormName(e.target.value)}
                   placeholder={providerType === 'microsoft' ? 'microsoft' : 'my-idp'}
                   style={inputStyle} />
               </div>
             )}
 
-            <label style={{ display: 'block', fontSize: 13, color: '#475569', marginBottom: 4 }}>
+            <label style={{ display: 'block', fontSize: text.sm, color: '#475569', marginBottom: 4 }}>
               <FormattedMessage id="admin.oauth2.clientId" />
             </label>
             <input type="text" value={formClientId} onChange={e => setFormClientId(e.target.value)}
               placeholder="your-client-id" style={inputStyle} />
 
-            <label style={{ display: 'block', fontSize: 13, color: '#475569', marginBottom: 4 }}>
+            <label style={{ display: 'block', fontSize: text.sm, color: '#475569', marginBottom: 4 }}>
               <FormattedMessage id="admin.oauth2.clientSecret" />
             </label>
             <input type="password" value={formClientSecret} onChange={e => setFormClientSecret(e.target.value)}
               placeholder={editId ? intl.formatMessage({ id: 'admin.oauth2.updateSecret' }) : ''}
               style={inputStyle} />
-            <div style={{ fontSize: 12, color: '#6b7280', marginTop: -8, marginBottom: 12 }}>
+            <div style={{ fontSize: text.xs, color: '#6b7280', marginTop: -8, marginBottom: 12 }}>
               <FormattedMessage id="admin.oauth2.secretNote" />
             </div>
 
-            <label style={{ display: 'block', fontSize: 13, color: '#475569', marginBottom: 4 }}>
+            <label style={{ display: 'block', fontSize: text.sm, color: '#475569', marginBottom: 4 }}>
               <FormattedMessage id="admin.oauth2.issuerUri" />
             </label>
             <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
@@ -1570,12 +1571,12 @@ function OAuth2ProvidersTab() {
                 placeholder="https://accounts.google.com" style={{ ...inputStyle, flex: 1, marginBottom: 0 }} />
               <button onClick={handleTestConnection}
                 style={{ padding: '8px 14px', background: '#f1f5f9', border: '1px solid #cbd5e1',
-                  borderRadius: 8, fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' as const }}>
+                  borderRadius: 8, fontSize: text.sm, cursor: 'pointer', whiteSpace: 'nowrap' as const }}>
                 <FormattedMessage id="admin.oauth2.testConnection" />
               </button>
             </div>
             {testResult && (
-              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12,
+              <div style={{ fontSize: text.sm, fontWeight: weight.semibold, marginBottom: 12,
                 color: testResult.ok ? '#059669' : '#dc2626' }}>
                 {testResult.text}
               </div>
@@ -1584,13 +1585,13 @@ function OAuth2ProvidersTab() {
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={handleSave} disabled={submitting}
                 style={{ padding: '10px 20px', background: '#1a56db', color: '#fff', border: 'none',
-                  borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer',
+                  borderRadius: 8, fontSize: text.base, fontWeight: weight.semibold, cursor: 'pointer',
                   opacity: submitting ? 0.6 : 1 }}>
                 {submitting ? '...' : editId ? 'Update' : 'Save'}
               </button>
               <button onClick={resetForm}
                 style={{ padding: '10px 20px', background: '#f1f5f9', color: '#475569', border: '1px solid #cbd5e1',
-                  borderRadius: 8, fontSize: 14, cursor: 'pointer' }}>
+                  borderRadius: 8, fontSize: text.base, cursor: 'pointer' }}>
                 <FormattedMessage id="admin.cancel" />
               </button>
             </div>
@@ -1599,7 +1600,7 @@ function OAuth2ProvidersTab() {
 
         {/* Provider List */}
         {providers.length === 0 && !showForm ? (
-          <div style={{ textAlign: 'center', padding: 32, color: '#6b7280', fontSize: 14 }}>
+          <div style={{ textAlign: 'center', padding: 32, color: '#6b7280', fontSize: text.base }}>
             <FormattedMessage id="admin.noData" />
           </div>
         ) : (
@@ -1616,24 +1617,24 @@ function OAuth2ProvidersTab() {
             <tbody>
               {providers.map((p, i) => (
                 <tr key={p.id}>
-                  <td style={{ ...tdStyle(i), fontWeight: 600 }}>{p.providerName}</td>
+                  <td style={{ ...tdStyle(i), fontWeight: weight.semibold }}>{p.providerName}</td>
                   <td style={tdStyle(i)}>
                     <button onClick={() => handleToggleEnabled(p)}
-                      style={{ padding: '2px 10px', borderRadius: 12, border: 'none', fontSize: 12, fontWeight: 600,
+                      style={{ padding: '2px 10px', borderRadius: 12, border: 'none', fontSize: text.xs, fontWeight: weight.semibold,
                         cursor: 'pointer',
                         background: p.enabled ? '#d1fae5' : '#f1f5f9',
                         color: p.enabled ? '#065f46' : '#475569' }}>
                       {p.enabled ? 'Active' : 'Inactive'}
                     </button>
                   </td>
-                  <td style={{ ...tdStyle(i), fontSize: 12, color: '#475569', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.issuerUri}</td>
+                  <td style={{ ...tdStyle(i), fontSize: text.xs, color: '#475569', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.issuerUri}</td>
                   <td style={tdStyle(i)}>{new Date(p.createdAt).toLocaleDateString()}</td>
                   <td style={tdStyle(i)}>
                     <button onClick={() => startEdit(p)}
-                      style={{ marginRight: 8, padding: '4px 10px', fontSize: 12, border: '1px solid #cbd5e1',
+                      style={{ marginRight: 8, padding: '4px 10px', fontSize: text.xs, border: '1px solid #cbd5e1',
                         borderRadius: 6, background: '#fff', cursor: 'pointer' }}>Edit</button>
                     <button onClick={() => setDeleteConfirm(p.id)}
-                      style={{ padding: '4px 10px', fontSize: 12, border: '1px solid #fca5a5',
+                      style={{ padding: '4px 10px', fontSize: text.xs, border: '1px solid #fca5a5',
                         borderRadius: 6, background: '#fff', color: '#dc2626', cursor: 'pointer' }}>Delete</button>
                   </td>
                 </tr>
@@ -1647,7 +1648,7 @@ function OAuth2ProvidersTab() {
           <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
             background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
             <div style={{ background: '#fff', borderRadius: 12, padding: 24, maxWidth: 400, boxShadow: '0 8px 32px rgba(0,0,0,0.2)' }}>
-              <p style={{ fontSize: 14, marginBottom: 16 }}>
+              <p style={{ fontSize: text.base, marginBottom: 16 }}>
                 <FormattedMessage id="admin.oauth2.deleteConfirm"
                   values={{ name: providers.find(p => p.id === deleteConfirm)?.providerName || '' }} />
               </p>
@@ -1659,7 +1660,7 @@ function OAuth2ProvidersTab() {
                 </button>
                 <button onClick={() => handleDelete(deleteConfirm)}
                   style={{ padding: '8px 16px', background: '#dc2626', color: '#fff', border: 'none',
-                    borderRadius: 8, cursor: 'pointer', fontWeight: 600 }}>Delete</button>
+                    borderRadius: 8, cursor: 'pointer', fontWeight: weight.semibold }}>Delete</button>
               </div>
             </div>
           </div>
@@ -1689,11 +1690,22 @@ interface HmisAuditEntry {
   errorMessage: string | null;
 }
 
+interface HmisVendorStatus {
+  type: string;
+  enabled: boolean;
+  pushIntervalHours?: number;
+}
+
+interface HmisStatus {
+  vendors: HmisVendorStatus[];
+  deadLetterCount: number;
+}
+
 function HmisExportTab() {
   const intl = useIntl();
   const [preview, setPreview] = useState<HmisInventoryRecord[]>([]);
   const [history, setHistory] = useState<HmisAuditEntry[]>([]);
-  const [status, setStatus] = useState<any>(null);
+  const [status, setStatus] = useState<HmisStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [pushing, setPushing] = useState(false);
   const [dvFilter, setDvFilter] = useState<boolean | null>(null);
@@ -1702,7 +1714,7 @@ function HmisExportTab() {
     setLoading(true);
     try {
       const [statusData, previewData, historyData] = await Promise.all([
-        api.get<any>('/api/v1/hmis/status'),
+        api.get<HmisStatus>('/api/v1/hmis/status'),
         api.get<HmisInventoryRecord[]>('/api/v1/hmis/preview'),
         api.get<HmisAuditEntry[]>('/api/v1/hmis/history?limit=20'),
       ]);
@@ -1713,6 +1725,7 @@ function HmisExportTab() {
     setLoading(false);
   }, []);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- Initial data fetch on mount; setState in async callback is the standard pattern
   useEffect(() => { fetchData(); }, [fetchData]);
 
   const handlePush = async () => {
@@ -1733,32 +1746,32 @@ function HmisExportTab() {
     <div>
       {/* Export Status */}
       <div data-testid="hmis-status" style={{ marginBottom: 20 }}>
-        <h3 style={{ fontSize: 15, fontWeight: 700, color: '#0f172a', marginBottom: 10 }}>
+        <h3 style={{ fontSize: text.base, fontWeight: weight.bold, color: '#0f172a', marginBottom: 10 }}>
           <FormattedMessage id="hmis.exportStatus" />
         </h3>
-        {status?.vendors?.length > 0 ? (
+        {status && status.vendors?.length > 0 ? (
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-            {status.vendors.map((v: any, i: number) => (
+            {status.vendors.map((v: HmisVendorStatus, i: number) => (
               <div key={i} style={{
                 padding: '10px 16px', borderRadius: 10, border: '1px solid #e2e8f0',
                 backgroundColor: v.enabled ? '#f0fdf4' : '#fef2f2',
               }}>
-                <span style={{ fontWeight: 700, fontSize: 13 }}>{v.type}</span>
-                <span style={{ marginLeft: 8, fontSize: 12, color: v.enabled ? '#166534' : '#991b1b' }}>
+                <span style={{ fontWeight: weight.bold, fontSize: text.sm }}>{v.type}</span>
+                <span style={{ marginLeft: 8, fontSize: text.xs, color: v.enabled ? '#166534' : '#991b1b' }}>
                   {v.enabled ? 'Enabled' : 'Disabled'}
                 </span>
-                <span style={{ marginLeft: 8, fontSize: 11, color: '#475569' }}>
+                <span style={{ marginLeft: 8, fontSize: text['2xs'], color: '#475569' }}>
                   every {v.pushIntervalHours}h
                 </span>
               </div>
             ))}
           </div>
         ) : (
-          <p style={{ fontSize: 14, color: '#475569' }}><FormattedMessage id="hmis.noVendors" /></p>
+          <p style={{ fontSize: text.base, color: '#475569' }}><FormattedMessage id="hmis.noVendors" /></p>
         )}
-        {status?.deadLetterCount > 0 && (
+        {status && status.deadLetterCount != null && status.deadLetterCount > 0 && (
           <div style={{ marginTop: 8, padding: '6px 12px', backgroundColor: '#fef2f2', borderRadius: 8, display: 'inline-block' }}>
-            <span style={{ fontSize: 12, fontWeight: 700, color: '#991b1b' }}>
+            <span style={{ fontSize: text.xs, fontWeight: weight.bold, color: '#991b1b' }}>
               {status.deadLetterCount} dead letter{status.deadLetterCount > 1 ? 's' : ''}
             </span>
           </div>
@@ -1771,7 +1784,7 @@ function HmisExportTab() {
           style={{
             padding: '10px 20px', borderRadius: 10, border: 'none',
             backgroundColor: pushing ? '#6b7280' : '#1a56db', color: '#fff',
-            fontSize: 14, fontWeight: 700, cursor: pushing ? 'default' : 'pointer',
+            fontSize: text.base, fontWeight: weight.bold, cursor: pushing ? 'default' : 'pointer',
           }}>
           {pushing ? '...' : intl.formatMessage({ id: 'hmis.pushNow' })}
         </button>
@@ -1780,35 +1793,35 @@ function HmisExportTab() {
       {/* Data Preview */}
       <div data-testid="hmis-preview" style={{ marginBottom: 20 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-          <h3 style={{ fontSize: 15, fontWeight: 700, color: '#0f172a' }}>
+          <h3 style={{ fontSize: text.base, fontWeight: weight.bold, color: '#0f172a' }}>
             <FormattedMessage id="hmis.dataPreview" />
           </h3>
           <div style={{ display: 'flex', gap: 6 }}>
             <button onClick={() => setDvFilter(null)} style={{
               padding: '4px 10px', borderRadius: 6, border: `1px solid ${dvFilter === null ? '#1a56db' : '#e2e8f0'}`,
-              backgroundColor: dvFilter === null ? '#eff6ff' : '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+              backgroundColor: dvFilter === null ? '#eff6ff' : '#fff', fontSize: text['2xs'], fontWeight: weight.semibold, cursor: 'pointer',
               color: dvFilter === null ? '#1a56db' : '#475569',
             }}>All</button>
             <button onClick={() => setDvFilter(false)} style={{
               padding: '4px 10px', borderRadius: 6, border: `1px solid ${dvFilter === false ? '#1a56db' : '#e2e8f0'}`,
-              backgroundColor: dvFilter === false ? '#eff6ff' : '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+              backgroundColor: dvFilter === false ? '#eff6ff' : '#fff', fontSize: text['2xs'], fontWeight: weight.semibold, cursor: 'pointer',
               color: dvFilter === false ? '#1a56db' : '#475569',
             }}>Non-DV</button>
             <button onClick={() => setDvFilter(true)} style={{
               padding: '4px 10px', borderRadius: 6, border: `1px solid ${dvFilter === true ? '#7c3aed' : '#e2e8f0'}`,
-              backgroundColor: dvFilter === true ? '#f5f3ff' : '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+              backgroundColor: dvFilter === true ? '#f5f3ff' : '#fff', fontSize: text['2xs'], fontWeight: weight.semibold, cursor: 'pointer',
               color: dvFilter === true ? '#7c3aed' : '#475569',
             }}>DV (Aggregated)</button>
           </div>
         </div>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: text.sm }}>
           <thead>
             <tr style={{ borderBottom: '2px solid #e2e8f0', textAlign: 'left' }}>
-              <th style={{ padding: '8px 12px', fontWeight: 700, color: '#475569' }}>Shelter</th>
-              <th style={{ padding: '8px 12px', fontWeight: 700, color: '#475569' }}>Population</th>
-              <th style={{ padding: '8px 12px', fontWeight: 700, color: '#475569', textAlign: 'right' }}>Total</th>
-              <th style={{ padding: '8px 12px', fontWeight: 700, color: '#475569', textAlign: 'right' }}>Occupied</th>
-              <th style={{ padding: '8px 12px', fontWeight: 700, color: '#475569', textAlign: 'right' }}>Util %</th>
+              <th style={{ padding: '8px 12px', fontWeight: weight.bold, color: '#475569' }}>Shelter</th>
+              <th style={{ padding: '8px 12px', fontWeight: weight.bold, color: '#475569' }}>Population</th>
+              <th style={{ padding: '8px 12px', fontWeight: weight.bold, color: '#475569', textAlign: 'right' }}>Total</th>
+              <th style={{ padding: '8px 12px', fontWeight: weight.bold, color: '#475569', textAlign: 'right' }}>Occupied</th>
+              <th style={{ padding: '8px 12px', fontWeight: weight.bold, color: '#475569', textAlign: 'right' }}>Util %</th>
             </tr>
           </thead>
           <tbody>
@@ -1817,13 +1830,13 @@ function HmisExportTab() {
                 borderBottom: '1px solid #f1f5f9',
                 backgroundColor: r.isDvAggregated ? '#f5f3ff' : 'transparent',
               }}>
-                <td style={{ padding: '8px 12px', fontWeight: r.isDvAggregated ? 700 : 400, color: r.isDvAggregated ? '#7c3aed' : '#0f172a' }}>
+                <td style={{ padding: '8px 12px', fontWeight: r.isDvAggregated ? weight.bold : weight.normal, color: r.isDvAggregated ? '#7c3aed' : '#0f172a' }}>
                   {r.projectName}
                 </td>
                 <td style={{ padding: '8px 12px', color: '#475569', textTransform: 'capitalize' }}>
                   {r.householdType.replace(/_/g, ' ').toLowerCase()}
                 </td>
-                <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600 }}>{r.bedInventory}</td>
+                <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: weight.semibold }}>{r.bedInventory}</td>
                 <td style={{ padding: '8px 12px', textAlign: 'right' }}>{r.bedsOccupied}</td>
                 <td style={{ padding: '8px 12px', textAlign: 'right', color: r.utilizationPercent > 100 ? '#991b1b' : '#475569' }}>
                   {(r.utilizationPercent ?? 0).toFixed(1)}%
@@ -1836,19 +1849,19 @@ function HmisExportTab() {
 
       {/* Export History */}
       <div data-testid="hmis-history">
-        <h3 style={{ fontSize: 15, fontWeight: 700, color: '#0f172a', marginBottom: 10 }}>
+        <h3 style={{ fontSize: text.base, fontWeight: weight.bold, color: '#0f172a', marginBottom: 10 }}>
           <FormattedMessage id="hmis.exportHistory" />
         </h3>
         {history.length === 0 ? (
-          <p style={{ fontSize: 14, color: '#475569' }}><FormattedMessage id="hmis.noHistory" /></p>
+          <p style={{ fontSize: text.base, color: '#475569' }}><FormattedMessage id="hmis.noHistory" /></p>
         ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: text.sm }}>
             <thead>
               <tr style={{ borderBottom: '2px solid #e2e8f0', textAlign: 'left' }}>
-                <th style={{ padding: '8px 12px', fontWeight: 700, color: '#475569' }}>Time</th>
-                <th style={{ padding: '8px 12px', fontWeight: 700, color: '#475569' }}>Vendor</th>
-                <th style={{ padding: '8px 12px', fontWeight: 700, color: '#475569' }}>Records</th>
-                <th style={{ padding: '8px 12px', fontWeight: 700, color: '#475569' }}>Status</th>
+                <th style={{ padding: '8px 12px', fontWeight: weight.bold, color: '#475569' }}>Time</th>
+                <th style={{ padding: '8px 12px', fontWeight: weight.bold, color: '#475569' }}>Vendor</th>
+                <th style={{ padding: '8px 12px', fontWeight: weight.bold, color: '#475569' }}>Records</th>
+                <th style={{ padding: '8px 12px', fontWeight: weight.bold, color: '#475569' }}>Status</th>
               </tr>
             </thead>
             <tbody>
@@ -1859,7 +1872,7 @@ function HmisExportTab() {
                   <td style={{ padding: '8px 12px' }}>{h.recordCount}</td>
                   <td style={{ padding: '8px 12px' }}>
                     <span style={{
-                      padding: '2px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700,
+                      padding: '2px 8px', borderRadius: 6, fontSize: text['2xs'], fontWeight: weight.bold,
                       backgroundColor: h.status === 'SUCCESS' ? '#f0fdf4' : '#fef2f2',
                       color: h.status === 'SUCCESS' ? '#166534' : '#991b1b',
                     }}>{h.status}</span>

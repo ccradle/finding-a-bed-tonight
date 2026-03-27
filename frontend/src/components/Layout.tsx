@@ -6,6 +6,7 @@ import { getDefaultRouteForRoles } from '../auth/AuthGuard';
 import { LocaleSelector } from './LocaleSelector';
 import { OfflineBanner } from './OfflineBanner';
 import { SessionTimeoutWarning } from './SessionTimeoutWarning';
+import { text, weight } from '../theme/typography';
 
 /**
  * Visually hidden styles — content accessible to screen readers but not visible.
@@ -85,6 +86,7 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
       '/admin': 'Administration',
     };
     const title = titleMap[location.pathname] || 'Finding A Bed Tonight';
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Route change announcement requires setState; this is the recommended a11y pattern
     setRouteAnnouncement(`Navigated to ${title}`);
 
     // Move focus to main content on route change
@@ -105,7 +107,7 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
             position: 'fixed', top: '8px', left: '8px', width: 'auto', height: 'auto',
             clip: 'auto', whiteSpace: 'normal', overflow: 'visible', margin: 0,
             padding: '12px 20px', backgroundColor: '#1a56db', color: '#fff',
-            borderRadius: '8px', zIndex: '9999', fontSize: '14px', fontWeight: '700',
+            borderRadius: '8px', zIndex: '9999', fontSize: text.base, fontWeight: weight.bold,
           });
         }}
         onBlur={(e) => {
@@ -135,7 +137,7 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
           minHeight: '56px',
         }}
       >
-        <h1 style={{ margin: 0, fontSize: '18px', fontWeight: 700 }}>
+        <h1 style={{ margin: 0, fontSize: text.lg, fontWeight: weight.bold }}>
           <a
             href="#"
             onClick={(e) => { e.preventDefault(); navigate(user ? getDefaultRouteForRoles(user.roles) : '/'); }}
@@ -147,7 +149,7 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
         </h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           {user && (
-            <span style={{ fontSize: '14px', opacity: 0.9 }}>
+            <span style={{ fontSize: text.base, opacity: 0.9 }}>
               {user.displayName || user.tenantName || ''}
             </span>
           )}
@@ -161,7 +163,7 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
               border: '1px solid rgba(255,255,255,0.5)',
               borderRadius: '6px',
               cursor: 'pointer',
-              fontSize: '14px',
+              fontSize: text.base,
               minHeight: '44px',
               minWidth: '44px',
             }}
@@ -195,8 +197,8 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
                   color: isActive(item.path) ? '#1a56db' : '#374151',
                   textAlign: 'left',
                   cursor: 'pointer',
-                  fontSize: '15px',
-                  fontWeight: isActive(item.path) ? 600 : 400,
+                  fontSize: text.base,
+                  fontWeight: isActive(item.path) ? weight.semibold : weight.normal,
                   minHeight: '44px',
                 }}
               >
@@ -253,8 +255,8 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
                 backgroundColor: 'transparent',
                 color: isActive(item.path) ? '#1a56db' : '#6b7280',
                 cursor: 'pointer',
-                fontSize: '12px',
-                fontWeight: isActive(item.path) ? 600 : 400,
+                fontSize: text.xs,
+                fontWeight: isActive(item.path) ? weight.semibold : weight.normal,
                 minHeight: '44px',
                 minWidth: '44px',
               }}
