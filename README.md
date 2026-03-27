@@ -227,7 +227,7 @@ New to OpenSpec? See [https://openspec.dev](https://openspec.dev) and [https://g
 
 ## Prerequisites
 
-- **Java:** 21+ (OpenJDK or Eclipse Temurin)
+- **Java:** 25+ (OpenJDK or Eclipse Temurin)
 - **Maven:** 3.9+
 - **Docker Desktop:** Must be **running** before starting the stack (required for PostgreSQL via Docker Compose and for Testcontainers in tests — engine 29.x+ on Windows requires `api.version=1.44` config)
 - **Node.js:** 20+ (for frontend)
