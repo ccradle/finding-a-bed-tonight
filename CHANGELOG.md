@@ -11,6 +11,41 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.15.0] — 2026-03-27 — Security Hardening Pre-Pilot
+
+Security hardening based on Marcus Webb AI persona (AppSec) static review. 12 findings addressed, 20 new security tests, OWASP ZAP baseline established.
+
+### Added
+- JWT startup validation: `@PostConstruct` rejects empty, short, or default-dev secret with actionable error message
+- Universal exception handler: catch-all with Micrometer counter (`fabt.error.unhandled.count`), honors `@ResponseStatus` annotations
+- Access denied handler: 403 with `fabt.http.access_denied.count` metric (role + path_prefix tags)
+- Not-found handler: 404 with `fabt.http.not_found.count` metric (path_prefix tag for endpoint probing detection)
+- Security headers: X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy (Spring Security DSL + nginx defense-in-depth)
+- Auth rate limiting: bucket4j, 10 req / 15 min per IP on login/refresh (disabled in lite profile for Karate compatibility)
+- Rate limit logging: custom `RateLimitLoggingFilter` — WARN with client IP (bucket4j has no built-in logging)
+- Cross-tenant isolation test: 100 concurrent virtual threads with CountDownLatch barrier, database-level SQL verification, connection pool stress test
+- DV shelter concurrent isolation test: 100 simultaneous dvAccess=true/false requests, bed search endpoint coverage, unique tenant per run
+- OWASP ZAP API scan baseline: 116 PASS, 0 HIGH/CRITICAL (local dev — TLS/infra scanning deferred to deployment)
+- SecurityConfig `permitAll()` audit documented with justification per path
+- Runbook: rate limiting profile behavior, JWKS circuit breaker graceful degradation
+- Government adoption guide: SSO resilience, rate limiting, ZAP baseline (with honest scope limitations)
+
+### Changed
+- `server.error.include-stacktrace: never`, `include-message: never`, `include-binding-errors: never`
+
+### Security
+- DV shelter data: verified not leaked via bed search endpoint under concurrent dvAccess toggling (100 iterations)
+- Multi-tenant: verified no cross-contamination under 100 concurrent virtual thread requests (CountDownLatch barrier)
+- Connection pool: verified `applyRlsContext()` correctly resets `app.dv_access` on every connection checkout
+
+### Tests
+- 256 backend (+20), 26 Karate (+1 security-headers), 114 Playwright — all green
+- CI: DV Canary, E2E (Playwright+Karate), Gatling — all passed
+
+**Diff:** [v0.14.1...v0.15.0](https://github.com/ccradle/finding-a-bed-tonight/compare/v0.14.1...v0.15.0)
+
+---
+
 ## [v0.14.1] — 2026-03-27 — Shutdown Fixes + Release Notes
 
 Post-migration fixes for Java 25 deployment reliability and project release infrastructure.
@@ -406,7 +441,8 @@ Privacy-preserving referral system for domestic violence shelters.
 
 ---
 
-[Unreleased]: https://github.com/ccradle/finding-a-bed-tonight/compare/v0.14.1...HEAD
+[Unreleased]: https://github.com/ccradle/finding-a-bed-tonight/compare/v0.15.0...HEAD
+[v0.15.0]: https://github.com/ccradle/finding-a-bed-tonight/compare/v0.14.1...v0.15.0
 [v0.14.1]: https://github.com/ccradle/finding-a-bed-tonight/compare/v0.14.0...v0.14.1
 [v0.14.0]: https://github.com/ccradle/finding-a-bed-tonight/compare/v0.13.5...v0.14.0
 [v0.13.5]: https://github.com/ccradle/finding-a-bed-tonight/compare/v0.13.4...v0.13.5

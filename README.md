@@ -1183,7 +1183,7 @@ finding-a-bed-tonight/
 - [x] Gatling mixed-load performance test: bed search p99 136ms under concurrent analytics load (threshold: 200ms)
 - [x] 13 integration tests, 7 Playwright tests, 19 Karate scenarios, 1 Gatling simulation
 
-### In Progress: Security Hardening (pre-pilot)
+### Completed: Security Hardening (pre-pilot)
 
 - [x] JWT startup validation: `@PostConstruct` assertion rejects empty, short, or default-dev secrets (fails fast with actionable error)
 - [x] Universal exception handler: catch-all `@ExceptionHandler(Exception.class)` with Micrometer counter — no stack traces in responses
@@ -1194,7 +1194,7 @@ finding-a-bed-tonight/
 - [x] OWASP ZAP API scan baseline: 116 PASS, 0 HIGH/CRITICAL, 2 WARN (local dev environment — TLS/infra scanning deferred to deployment)
 - [x] SecurityConfig `permitAll()` audit: all 8 paths reviewed, Swagger disabled in prod, health endpoint details gated
 - [x] JWKS circuit breaker graceful degradation: password users unaffected by IdP outage, documented in runbook
-- [ ] Merge to main, full regression, tag v0.15.0
+- [x] Merge to main, full regression, tag v0.15.0
 
 ---
 
