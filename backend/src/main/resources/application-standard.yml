@@ -2,10 +2,6 @@
 # Target: mid-size CoCs, city IT, $30-75/month
 
 spring:
-  autoconfigure:
-    exclude:
-      - org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration
-
   data:
     redis:
       host: ${REDIS_HOST:localhost}

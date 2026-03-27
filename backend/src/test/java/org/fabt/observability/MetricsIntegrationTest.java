@@ -5,7 +5,7 @@ import org.fabt.TestAuthHelper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability;
+import org.springframework.boot.micrometer.metrics.test.autoconfigure.AutoConfigureMetrics;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -17,7 +17,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Integration tests for custom Micrometer metrics exposed via /actuator/prometheus.
  *
- * CRITICAL: @AutoConfigureObservability is required — without it, Spring Boot test
+ * CRITICAL: @AutoConfigureMetrics is required — without it, Spring Boot test
  * auto-config disables PrometheusMeterRegistry and the endpoint returns 404.
  * (Portfolio Lesson 40)
  *
@@ -25,7 +25,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * (anyRequest().authenticated()) — FABT handles DV shelter data and must not
  * expose business metrics publicly. All requests use auth headers.
  */
-@AutoConfigureObservability
+@AutoConfigureMetrics
 class MetricsIntegrationTest extends BaseIntegrationTest {
 
     @Autowired

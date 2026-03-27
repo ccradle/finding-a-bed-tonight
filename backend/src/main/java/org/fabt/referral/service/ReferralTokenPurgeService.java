@@ -17,8 +17,8 @@ import org.springframework.transaction.annotation.Transactional;
  * No audit trail of individual referrals survives — VAWA compliance.
  * Aggregate Micrometer counters are incremented BEFORE purge (in ReferralTokenService).
  *
- * Runs as a @Scheduled system process — sets TenantContext.dvAccess=true so RLS
- * allows access to DV-shelter-linked referral tokens (D14).
+ * Runs as a @Scheduled system process — binds TenantContext with dvAccess=true
+ * via runWithContext so RLS allows access to DV-shelter-linked referral tokens (D14).
  */
 @Service
 public class ReferralTokenPurgeService {
@@ -38,16 +38,13 @@ public class ReferralTokenPurgeService {
     @Scheduled(fixedRate = 3_600_000)
     @Transactional
     public void purgeTerminalTokens() {
-        try {
-            // System process needs dvAccess to see DV-shelter-linked tokens via RLS
-            TenantContext.setDvAccess(true);
+        // System process needs dvAccess to see DV-shelter-linked tokens via RLS
+        TenantContext.runWithContext(TenantContext.getTenantId(), true, () -> {
             Instant cutoff = Instant.now().minus(PURGE_AGE);
             int purged = repository.purgeTerminalTokens(cutoff);
             if (purged > 0) {
                 log.info("Purged {} DV referral tokens (terminal state older than 24h)", purged);
             }
-        } finally {
-            TenantContext.clear();
-        }
+        });
     }
 }

@@ -57,7 +57,7 @@ public class TestResetController {
     @DeleteMapping("/reset")
     @PreAuthorize("hasRole('PLATFORM_ADMIN')")
     public ResponseEntity<?> resetTestData(
-            @RequestHeader(value = "X-Confirm-Reset", required = false) String confirmHeader) {
+            @RequestHeader(value = "X-Confirm-Reset", required = false) String confirmHeader) throws Exception {
 
         if (!"DESTROY".equals(confirmHeader)) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
@@ -65,9 +65,7 @@ public class TestResetController {
         }
 
         // Set dvAccess so RLS allows cleanup of DV-related data
-        TenantContext.setDvAccess(true);
-
-        try {
+        return TenantContext.callWithContext(TenantContext.getTenantId(), true, () -> {
             Map<String, Integer> deleted = new LinkedHashMap<>();
 
             // Referral tokens — all transient, safe to delete
@@ -89,8 +87,6 @@ public class TestResetController {
             log.warn("TEST RESET executed: {}", deleted);
 
             return ResponseEntity.ok(Map.of("reset", deleted, "warning", "This endpoint only exists in dev/test profiles"));
-        } finally {
-            TenantContext.clear();
-        }
+        });
     }
 }

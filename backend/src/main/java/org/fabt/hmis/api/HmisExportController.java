@@ -83,7 +83,7 @@ public class HmisExportController {
     @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
     public ResponseEntity<List<HmisInventoryRecord>> getPreview(
             @Parameter(description = "Filter by population type") @RequestParam(required = false) String populationType,
-            @Parameter(description = "Filter DV only") @RequestParam(required = false) Boolean dvOnly) {
+            @Parameter(description = "Filter DV only") @RequestParam(required = false) Boolean dvOnly) throws Exception {
         UUID tenantId = TenantContext.getTenantId();
         List<HmisInventoryRecord> records = pushService.getPreview(tenantId);
 
@@ -122,7 +122,7 @@ public class HmisExportController {
             description = "Initiates an immediate push to all enabled vendors. PLATFORM_ADMIN only.")
     @PostMapping("/push")
     @PreAuthorize("hasRole('PLATFORM_ADMIN')")
-    public ResponseEntity<Map<String, Object>> manualPush() {
+    public ResponseEntity<Map<String, Object>> manualPush() throws Exception {
         UUID tenantId = TenantContext.getTenantId();
         int created = pushService.createOutboxEntries(tenantId);
         pushService.processOutbox();

@@ -9,7 +9,7 @@ import com.zaxxer.hikari.HikariDataSource;
 import org.fabt.shared.web.TenantContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties;
+import org.springframework.boot.jdbc.autoconfigure.DataSourceProperties;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -83,24 +83,18 @@ public class RlsDataSourceConfig {
         private void applyRlsContext(Connection conn) throws SQLException {
             boolean dvAccess = TenantContext.getDvAccess();
             try {
-                // Always drop to the restricted application role so RLS policies enforce.
-                // PostgreSQL superusers bypass RLS entirely — SET ROLE to a non-superuser
-                // role (fabt_app, created in V16) ensures RLS applies in ALL environments,
-                // including Testcontainers (which creates a SUPERUSER). (Design D14)
+                // Single round-trip: SET ROLE + set_config in one statement.
+                // Eliminates the 2nd round-trip that compounded under virtual thread
+                // burst concurrency (p99 regression under Gatling mixed load).
                 //
-                // Callers that need DV access must set TenantContext.setDvAccess(true)
-                // BEFORE their first database query. This includes:
-                // - HTTP requests: set by JwtAuthenticationFilter from JWT claims
-                // - @Scheduled jobs: must set TenantContext explicitly
-                // - Test setup: must set TenantContext explicitly
-                try (java.sql.Statement stmt = conn.createStatement()) {
-                    stmt.execute("SET ROLE fabt_app");
-                }
-                // Set the dvAccess session variable for the RLS policy to check.
-                // is_local=false (session-scoped) so the setting persists for all queries
-                // on this connection. Reset on every getConnection() call.
+                // SET ROLE fabt_app: drop to restricted role so RLS enforces.
+                // PostgreSQL superusers bypass RLS — SET ROLE to NOSUPERUSER role
+                // ensures RLS applies in ALL environments including Testcontainers (D14).
+                //
+                // set_config('app.dv_access', ...): session-scoped variable for RLS policy.
+                // Callers bind dvAccess via TenantContext.runWithContext() BEFORE queries.
                 try (java.sql.PreparedStatement pstmt = conn.prepareStatement(
-                        "SELECT set_config('app.dv_access', ?, false)")) {
+                        "SET ROLE fabt_app; SELECT set_config('app.dv_access', ?, false)")) {
                     pstmt.setString(1, String.valueOf(dvAccess));
                     pstmt.execute();
                 }

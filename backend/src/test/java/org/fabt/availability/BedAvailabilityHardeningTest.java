@@ -151,7 +151,7 @@ class BedAvailabilityHardeningTest extends BaseIntegrationTest {
     void tc_1_6_decreaseTotalBelowOccupied_rejected() {
         patchAvailability(10, 8, 0);
         ResponseEntity<String> r = patchAvailability(5, 8, 0);
-        assertEquals(HttpStatus.UNPROCESSABLE_ENTITY, r.getStatusCode(),
+        assertEquals(HttpStatus.UNPROCESSABLE_CONTENT, r.getStatusCode(),
                 "TC-1.6: total < occupied must be rejected with 422");
     }
 
@@ -159,7 +159,7 @@ class BedAvailabilityHardeningTest extends BaseIntegrationTest {
     void tc_1_7_decreaseTotalBelowOccupiedPlusHold_rejected() {
         patchAvailability(10, 5, 0);
         ResponseEntity<String> r = patchAvailability(6, 5, 3);
-        assertEquals(HttpStatus.UNPROCESSABLE_ENTITY, r.getStatusCode(),
+        assertEquals(HttpStatus.UNPROCESSABLE_CONTENT, r.getStatusCode(),
                 "TC-1.7: total < occupied + hold must be rejected with 422");
     }
 
@@ -370,7 +370,7 @@ class BedAvailabilityHardeningTest extends BaseIntegrationTest {
         ResponseEntity<String> coordUpdate = patchAvailability(8, 7, 0);
         // The coordinator sends hold=0, but system overrides to 2.
         // Then 7+2=9 > 8 → invariant violation → 422
-        assertEquals(HttpStatus.UNPROCESSABLE_ENTITY, coordUpdate.getStatusCode(),
+        assertEquals(HttpStatus.UNPROCESSABLE_CONTENT, coordUpdate.getStatusCode(),
                 "TC-2.8: reducing total below occupied+active_holds must be rejected");
 
         // Cleanup

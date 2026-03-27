@@ -7,8 +7,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 
 import org.fabt.dataimport.domain.ImportLog;
 import org.fabt.dataimport.repository.ImportLogRepository;
@@ -90,71 +90,71 @@ public class ShelterImportService {
      */
     @Transactional
     public ImportResult importShelters(UUID tenantId, String importType, String filename,
-                                       List<ShelterImportRow> rows) {
+                                       List<ShelterImportRow> rows) throws Exception {
         // Set tenant context so ShelterService can resolve tenant
-        TenantContext.setTenantId(tenantId);
+        return TenantContext.callWithContext(tenantId, false, () -> {
+            int created = 0;
+            int updated = 0;
+            int skipped = 0;
+            int errorCount = 0;
+            List<ImportError> errorDetails = new ArrayList<>();
 
-        int created = 0;
-        int updated = 0;
-        int skipped = 0;
-        int errorCount = 0;
-        List<ImportError> errorDetails = new ArrayList<>();
+            for (int i = 0; i < rows.size(); i++) {
+                int rowNum = i + 1;
+                ShelterImportRow row = rows.get(i);
 
-        for (int i = 0; i < rows.size(); i++) {
-            int rowNum = i + 1;
-            ShelterImportRow row = rows.get(i);
-
-            // Validate required fields
-            List<ImportError> rowErrors = validateRow(rowNum, row);
-            if (!rowErrors.isEmpty()) {
-                errorDetails.addAll(rowErrors);
-                errorCount++;
-                continue;
-            }
-
-            try {
-                // Deduplicate: check if shelter with same name + city exists in tenant
-                Optional<Shelter> existing = shelterRepository.findByTenantIdAndNameAndAddressCity(
-                        tenantId, row.name().trim(), row.addressCity().trim());
-
-                if (existing.isPresent()) {
-                    // Full replace: update existing shelter with all fields from import row
-                    UpdateShelterRequest updateReq = buildUpdateRequest(row);
-                    shelterService.update(existing.get().getId(), updateReq);
-                    updated++;
-                    log.debug("Import row {}: updated existing shelter '{}' in '{}'",
-                            rowNum, row.name(), row.addressCity());
-                } else {
-                    // Create new shelter
-                    CreateShelterRequest createReq = buildCreateRequest(row);
-                    shelterService.create(createReq);
-                    created++;
-                    log.debug("Import row {}: created new shelter '{}' in '{}'",
-                            rowNum, row.name(), row.addressCity());
+                // Validate required fields
+                List<ImportError> rowErrors = validateRow(rowNum, row);
+                if (!rowErrors.isEmpty()) {
+                    errorDetails.addAll(rowErrors);
+                    errorCount++;
+                    continue;
                 }
-            } catch (Exception e) {
-                errorDetails.add(new ImportError(rowNum, "general", e.getMessage()));
-                errorCount++;
-                log.warn("Import row {}: error processing shelter '{}': {}",
-                        rowNum, row.name(), e.getMessage());
+
+                try {
+                    // Deduplicate: check if shelter with same name + city exists in tenant
+                    Optional<Shelter> existing = shelterRepository.findByTenantIdAndNameAndAddressCity(
+                            tenantId, row.name().trim(), row.addressCity().trim());
+
+                    if (existing.isPresent()) {
+                        // Full replace: update existing shelter with all fields from import row
+                        UpdateShelterRequest updateReq = buildUpdateRequest(row);
+                        shelterService.update(existing.get().getId(), updateReq);
+                        updated++;
+                        log.debug("Import row {}: updated existing shelter '{}' in '{}'",
+                                rowNum, row.name(), row.addressCity());
+                    } else {
+                        // Create new shelter
+                        CreateShelterRequest createReq = buildCreateRequest(row);
+                        shelterService.create(createReq);
+                        created++;
+                        log.debug("Import row {}: created new shelter '{}' in '{}'",
+                                rowNum, row.name(), row.addressCity());
+                    }
+                } catch (Exception e) {
+                    errorDetails.add(new ImportError(rowNum, "general", e.getMessage()));
+                    errorCount++;
+                    log.warn("Import row {}: error processing shelter '{}': {}",
+                            rowNum, row.name(), e.getMessage());
+                }
             }
-        }
 
-        // Save import log
-        ImportLog importLog = new ImportLog();
-        // ID left null for INSERT (Lesson 64)
-        importLog.setTenantId(tenantId);
-        importLog.setImportType(importType);
-        importLog.setFilename(filename);
-        importLog.setCreatedCount(created);
-        importLog.setUpdatedCount(updated);
-        importLog.setSkippedCount(skipped);
-        importLog.setErrorCount(errorCount);
-        importLog.setErrors(serializeErrors(errorDetails));
-        importLog.setCreatedAt(Instant.now());
-        importLogRepository.save(importLog);
+            // Save import log
+            ImportLog importLog = new ImportLog();
+            // ID left null for INSERT (Lesson 64)
+            importLog.setTenantId(tenantId);
+            importLog.setImportType(importType);
+            importLog.setFilename(filename);
+            importLog.setCreatedCount(created);
+            importLog.setUpdatedCount(updated);
+            importLog.setSkippedCount(skipped);
+            importLog.setErrorCount(errorCount);
+            importLog.setErrors(serializeErrors(errorDetails));
+            importLog.setCreatedAt(Instant.now());
+            importLogRepository.save(importLog);
 
-        return new ImportResult(created, updated, skipped, errorCount, errorDetails);
+            return new ImportResult(created, updated, skipped, errorCount, errorDetails);
+        });
     }
 
     private List<ImportError> validateRow(int rowNum, ShelterImportRow row) {
@@ -275,7 +275,7 @@ public class ShelterImportService {
         }
         try {
             return JsonString.of(objectMapper.writeValueAsString(errors));
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             log.error("Failed to serialize import errors", e);
             return JsonString.of("[]");
         }

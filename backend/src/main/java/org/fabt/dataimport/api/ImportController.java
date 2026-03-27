@@ -63,7 +63,7 @@ public class ImportController {
     @PostMapping("/hsds")
     public ResponseEntity<ImportResultResponse> importHsds(
             @Parameter(description = "HSDS 3.0 JSON file containing organizations to import")
-            @RequestParam("file") MultipartFile file) {
+            @RequestParam("file") MultipartFile file) throws Exception {
         UUID tenantId = TenantContext.getTenantId();
         if (tenantId == null) {
             throw new IllegalStateException("Tenant context is not set");
@@ -96,7 +96,7 @@ public class ImportController {
     @PostMapping("/211")
     public ResponseEntity<ImportResultResponse> importTwoOneOne(
             @Parameter(description = "CSV file in 2-1-1 format containing shelter data to import")
-            @RequestParam("file") MultipartFile file) {
+            @RequestParam("file") MultipartFile file) throws Exception {
         UUID tenantId = TenantContext.getTenantId();
         if (tenantId == null) {
             throw new IllegalStateException("Tenant context is not set");

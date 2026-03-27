@@ -44,38 +44,37 @@ class DvAddressRedactionTest extends BaseIntegrationTest {
         authHelper.setupAdminUser();
         authHelper.setupOutreachWorkerUser();
 
-        TenantContext.setTenantId(authHelper.getTestTenantId());
-        TenantContext.setDvAccess(true);
+        TenantContext.runWithContext(authHelper.getTestTenantId(), true, () -> {
+            // Admin with dvAccess
+            var dvAdmin = authHelper.setupUserWithDvAccess(
+                    "dvadmin-redact@test.fabt.org", "DV Admin", new String[]{"PLATFORM_ADMIN"});
+            adminHeaders = authHelper.headersForUser(dvAdmin);
 
-        // Admin with dvAccess
-        var dvAdmin = authHelper.setupUserWithDvAccess(
-                "dvadmin-redact@test.fabt.org", "DV Admin", new String[]{"PLATFORM_ADMIN"});
-        adminHeaders = authHelper.headersForUser(dvAdmin);
+            // Outreach with dvAccess
+            var dvOutreach = authHelper.setupUserWithDvAccess(
+                    "dvoutreach-redact@test.fabt.org", "DV Outreach", new String[]{"OUTREACH_WORKER"});
+            outreachHeaders = authHelper.headersForUser(dvOutreach);
 
-        // Outreach with dvAccess
-        var dvOutreach = authHelper.setupUserWithDvAccess(
-                "dvoutreach-redact@test.fabt.org", "DV Outreach", new String[]{"OUTREACH_WORKER"});
-        outreachHeaders = authHelper.headersForUser(dvOutreach);
+            // Assigned coordinator with dvAccess
+            var assignedCoord = authHelper.setupUserWithDvAccess(
+                    "assigned-coord@test.fabt.org", "Assigned Coord", new String[]{"COORDINATOR"});
+            assignedCoordHeaders = authHelper.headersForUser(assignedCoord);
 
-        // Assigned coordinator with dvAccess
-        var assignedCoord = authHelper.setupUserWithDvAccess(
-                "assigned-coord@test.fabt.org", "Assigned Coord", new String[]{"COORDINATOR"});
-        assignedCoordHeaders = authHelper.headersForUser(assignedCoord);
+            // Unassigned coordinator with dvAccess
+            var unassignedCoord = authHelper.setupUserWithDvAccess(
+                    "unassigned-coord@test.fabt.org", "Unassigned Coord", new String[]{"COORDINATOR"});
+            unassignedCoordHeaders = authHelper.headersForUser(unassignedCoord);
 
-        // Unassigned coordinator with dvAccess
-        var unassignedCoord = authHelper.setupUserWithDvAccess(
-                "unassigned-coord@test.fabt.org", "Unassigned Coord", new String[]{"COORDINATOR"});
-        unassignedCoordHeaders = authHelper.headersForUser(unassignedCoord);
+            // Create shelters
+            dvShelterId = createShelter(true);
+            nonDvShelterId = createShelter(false);
 
-        // Create shelters
-        dvShelterId = createShelter(true);
-        nonDvShelterId = createShelter(false);
+            // Assign coordinator to DV shelter
+            assignCoordinator(assignedCoord.getId(), dvShelterId);
 
-        // Assign coordinator to DV shelter
-        assignCoordinator(assignedCoord.getId(), dvShelterId);
-
-        // Set default policy
-        setPolicy("ADMIN_AND_ASSIGNED");
+            // Set default policy
+            setPolicy("ADMIN_AND_ASSIGNED");
+        });
     }
 
     // =========================================================================

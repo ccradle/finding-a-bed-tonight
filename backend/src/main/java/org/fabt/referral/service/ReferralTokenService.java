@@ -8,8 +8,8 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import org.fabt.referral.domain.ReferralToken;
 import org.fabt.referral.repository.ReferralTokenRepository;
@@ -64,13 +64,12 @@ public class ReferralTokenService {
 
         // Gauge for current pending referral count — queried on each Prometheus scrape
         Gauge.builder("fabt.dv.referral.pending", repository, r -> {
-            try {
-                TenantContext.setDvAccess(true);
+            double[] result = {0.0};
+            TenantContext.runWithContext(TenantContext.getTenantId(), true, () -> {
                 Integer count = r.countAllPending();
-                return count != null ? count.doubleValue() : 0.0;
-            } finally {
-                TenantContext.clear();
-            }
+                result[0] = count != null ? count.doubleValue() : 0.0;
+            });
+            return result[0];
         }).description("Current count of pending DV referral tokens")
           .register(meterRegistry);
     }
@@ -203,13 +202,12 @@ public class ReferralTokenService {
 
     /**
      * Expire pending tokens past their expiry time. Called by @Scheduled every 60 seconds.
-     * System process — sets TenantContext.dvAccess=true for RLS access to DV-linked tokens (D14).
+     * System process — binds TenantContext with dvAccess=true for RLS access to DV-linked tokens (D14).
      */
     @Scheduled(fixedRate = 60_000)
     @Transactional
     public void expireTokens() {
-        try {
-            TenantContext.setDvAccess(true);
+        TenantContext.runWithContext(TenantContext.getTenantId(), true, () -> {
             int expired = repository.expirePendingTokens();
             if (expired > 0) {
                 for (int i = 0; i < expired; i++) {
@@ -217,9 +215,7 @@ public class ReferralTokenService {
                 }
                 log.info("Expired {} DV referral tokens", expired);
             }
-        } finally {
-            TenantContext.clear();
-        }
+        });
     }
 
     @Transactional(readOnly = true)
@@ -276,7 +272,7 @@ public class ReferralTokenService {
                             JsonNode node = objectMapper.readTree(t.getConfig().value());
                             JsonNode expiry = node.get("dv_referral_expiry_minutes");
                             return expiry != null ? expiry.asInt(DEFAULT_EXPIRY_MINUTES) : DEFAULT_EXPIRY_MINUTES;
-                        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                        } catch (tools.jackson.core.JacksonException e) {
                             log.warn("Failed to read DV referral expiry from tenant config, using default: {}", e.getMessage());
                             return DEFAULT_EXPIRY_MINUTES;
                         }

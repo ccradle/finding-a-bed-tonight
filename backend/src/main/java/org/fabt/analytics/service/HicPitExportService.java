@@ -41,11 +41,8 @@ public class HicPitExportService {
      * Generate HIC CSV data for a tenant on a given date.
      * Returns CSV string with HUD HIC submission columns.
      */
-    public String generateHic(UUID tenantId, java.time.LocalDate date) {
-        TenantContext.setTenantId(tenantId);
-        TenantContext.setDvAccess(true);
-
-        try {
+    public String generateHic(UUID tenantId, java.time.LocalDate date) throws Exception {
+        return TenantContext.callWithContext(tenantId, true, () -> {
             List<Shelter> shelters = shelterService.findByTenantId();
             List<AvailabilitySnapshot> snapshots = availabilityService.getLatestByTenantId(tenantId);
 
@@ -96,20 +93,15 @@ public class HicPitExportService {
             }
 
             return csv.toString();
-        } finally {
-            TenantContext.clear();
-        }
+        });
     }
 
     /**
      * Generate sheltered PIT count CSV for a tenant on a given date.
      * Returns CSV string with HUD PIT submission columns.
      */
-    public String generatePit(UUID tenantId, java.time.LocalDate date) {
-        TenantContext.setTenantId(tenantId);
-        TenantContext.setDvAccess(true);
-
-        try {
+    public String generatePit(UUID tenantId, java.time.LocalDate date) throws Exception {
+        return TenantContext.callWithContext(tenantId, true, () -> {
             Tenant tenant = tenantService.findById(tenantId).orElseThrow();
             List<Shelter> shelters = shelterService.findByTenantId();
             List<AvailabilitySnapshot> snapshots = availabilityService.getLatestByTenantId(tenantId);
@@ -156,9 +148,7 @@ public class HicPitExportService {
             }
 
             return csv.toString();
-        } finally {
-            TenantContext.clear();
-        }
+        });
     }
 
     private String mapHouseholdType(String populationType) {

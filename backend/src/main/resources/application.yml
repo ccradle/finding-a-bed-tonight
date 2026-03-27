@@ -4,6 +4,9 @@ server:
 spring:
   application:
     name: finding-a-bed-tonight
+  threads:
+    virtual:
+      enabled: true
 
   datasource:
     url: jdbc:postgresql://localhost:5432/fabt
@@ -32,9 +35,9 @@ spring:
       initialize-schema: never
 
   jackson:
-    serialization:
-      write-dates-as-timestamps: false
     default-property-inclusion: non_null
+    deserialization:
+      fail-on-null-for-primitives: false
 
   security:
     oauth2:
@@ -47,8 +50,11 @@ spring:
   profiles:
     default: lite
 
-management.otlp.tracing:
+management.opentelemetry.tracing.export.otlp:
   endpoint: ${MANAGEMENT_OTLP_TRACING_ENDPOINT:http://localhost:4318/v1/traces}
+
+management.otlp.metrics.export:
+  enabled: false
 
 management.tracing:
   sampling:

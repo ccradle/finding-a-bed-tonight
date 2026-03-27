@@ -36,7 +36,6 @@ public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final ApiKeyAuthenticationFilter apiKeyAuthenticationFilter;
-    private final TenantContextCleanupFilter tenantContextCleanupFilter;
 
     /**
      * Comma-separated list of allowed CORS origins.
@@ -48,11 +47,9 @@ public class SecurityConfig {
     private String allowedOriginsConfig;
 
     public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter,
-                          ApiKeyAuthenticationFilter apiKeyAuthenticationFilter,
-                          TenantContextCleanupFilter tenantContextCleanupFilter) {
+                          ApiKeyAuthenticationFilter apiKeyAuthenticationFilter) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
         this.apiKeyAuthenticationFilter = apiKeyAuthenticationFilter;
-        this.tenantContextCleanupFilter = tenantContextCleanupFilter;
     }
 
     /**
@@ -156,7 +153,6 @@ public class SecurityConfig {
                             response.getWriter().write(
                                     "{\"error\":\"access_denied\",\"message\":\"Insufficient permissions\",\"status\":403}");
                         }))
-                .addFilterBefore(tenantContextCleanupFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterAfter(apiKeyAuthenticationFilter, JwtAuthenticationFilter.class);
 

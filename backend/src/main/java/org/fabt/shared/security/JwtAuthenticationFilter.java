@@ -3,6 +3,7 @@ package org.fabt.shared.security;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
+import java.util.UUID;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -43,6 +44,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         String token = authHeader.substring(BEARER_PREFIX.length());
+        UUID tenantId = null;
+        boolean dvAccess = false;
 
         try {
             JwtService.JwtClaims claims = jwtService.validateToken(token);
@@ -58,16 +61,27 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     new UsernamePasswordAuthenticationToken(claims.userId(), null, authorities);
             SecurityContextHolder.getContext().setAuthentication(authentication);
 
-            if (claims.tenantId() != null) {
-                TenantContext.setTenantId(claims.tenantId());
-            }
-            TenantContext.setDvAccess(claims.dvAccess());
+            tenantId = claims.tenantId();
+            dvAccess = claims.dvAccess();
 
         } catch (Exception e) {
             log.debug("JWT authentication failed: {}", e.getMessage());
             SecurityContextHolder.clearContext();
         }
 
-        filterChain.doFilter(request, response);
+        if (tenantId != null) {
+            try {
+                TenantContext.callWithContext(tenantId, dvAccess, () -> {
+                    filterChain.doFilter(request, response);
+                    return null;
+                });
+            } catch (ServletException | IOException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new ServletException(e);
+            }
+        } else {
+            filterChain.doFilter(request, response);
+        }
     }
 }

@@ -8,8 +8,8 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import org.fabt.availability.domain.BedAvailability;
 import org.fabt.availability.repository.BedAvailabilityRepository;
 import org.fabt.availability.service.AvailabilityService;
@@ -206,14 +206,11 @@ public class ReservationService {
         }
 
         // Set tenant context for downstream calls
-        TenantContext.setTenantId(reservation.getTenantId());
-        try {
+        TenantContext.runWithContext(reservation.getTenantId(), false, () -> {
             adjustAvailability(reservation, -1, 0, "reservation:expire");
             publishEvent("reservation.expired", reservation.getTenantId(), reservation);
             metrics.reservationCounter("EXPIRED").increment();
-        } finally {
-            TenantContext.clear();
-        }
+        });
 
         log.info("Reservation {} expired for shelter {} / {}",
                 reservationId, reservation.getShelterId(), reservation.getPopulationType());
@@ -262,7 +259,7 @@ public class ReservationService {
                             JsonNode node = objectMapper.readTree(t.getConfig().value());
                             JsonNode holdDuration = node.get("hold_duration_minutes");
                             return holdDuration != null ? holdDuration.asInt(DEFAULT_HOLD_DURATION_MINUTES) : DEFAULT_HOLD_DURATION_MINUTES;
-                        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                        } catch (tools.jackson.core.JacksonException e) {
                             log.warn("Failed to read hold duration from tenant config, using default: {}", e.getMessage());
                             return DEFAULT_HOLD_DURATION_MINUTES;
                         }

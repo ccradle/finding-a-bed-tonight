@@ -76,7 +76,7 @@ public class AnalyticsController {
     @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
     @Operation(summary = "DV shelter aggregate statistics",
             description = "Aggregated DV shelter stats with minimum cell size 5 suppression. Requires dvAccess.")
-    public ResponseEntity<Map<String, Object>> getDvSummary() {
+    public ResponseEntity<Map<String, Object>> getDvSummary() throws Exception {
         UUID tenantId = TenantContext.getTenantId();
         if (!TenantContext.getDvAccess()) {
             return ResponseEntity.status(403).build();
@@ -98,7 +98,7 @@ public class AnalyticsController {
     @Operation(summary = "HIC export (CSV)",
             description = "Housing Inventory Count export in HUD format.")
     public ResponseEntity<String> getHicExport(
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) throws Exception {
         UUID tenantId = TenantContext.getTenantId();
         LocalDate exportDate = date != null ? date : LocalDate.now();
         String csv = exportService.generateHic(tenantId, exportDate);
@@ -113,7 +113,7 @@ public class AnalyticsController {
     @Operation(summary = "PIT export (CSV)",
             description = "Sheltered Point-in-Time count export in HUD format.")
     public ResponseEntity<String> getPitExport(
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) throws Exception {
         UUID tenantId = TenantContext.getTenantId();
         LocalDate exportDate = date != null ? date : LocalDate.now();
         String csv = exportService.generatePit(tenantId, exportDate);

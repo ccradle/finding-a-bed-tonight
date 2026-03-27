@@ -2,11 +2,12 @@ package org.fabt;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 /**
  * Base class for integration tests. Uses a singleton Testcontainers PostgreSQL
@@ -17,13 +18,14 @@ import org.testcontainers.containers.PostgreSQLContainer;
  * classes but they all connect to the same PostgreSQL instance.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@AutoConfigureTestRestTemplate
 @ActiveProfiles({"lite", "test"})
 public abstract class BaseIntegrationTest {
 
-    static final PostgreSQLContainer<?> POSTGRES;
+    static final PostgreSQLContainer POSTGRES;
 
     static {
-        POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
+        POSTGRES = new PostgreSQLContainer("postgres:16-alpine")
                 .withDatabaseName("fabt_test")
                 .withUsername("fabt_test")
                 .withPassword("fabt_test");

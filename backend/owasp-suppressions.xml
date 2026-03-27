@@ -16,7 +16,7 @@
          for stateless API, no session cookies, JWT-only auth). Review quarterly. -->
     <suppress>
         <notes>
-            Spring Boot 3.4.4 managed dependency. Spring Security team has assessed
+            Spring Boot 4.0.5 managed dependency. Spring Security team has assessed
             and confirmed these are not exploitable in stateless JWT API configurations.
             Review date: 2026-06-20
         </notes>

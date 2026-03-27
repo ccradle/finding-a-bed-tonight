@@ -87,8 +87,8 @@ if ! command -v java &>/dev/null; then
 fi
 
 JAVA_VERSION=$(java -version 2>&1 | head -1 | cut -d'"' -f2 | cut -d'.' -f1)
-if [[ "$JAVA_VERSION" -lt 21 ]]; then
-    err "Java 21+ required. Found Java $JAVA_VERSION."
+if [[ "$JAVA_VERSION" -lt 25 ]]; then
+    err "Java 25+ required. Found Java $JAVA_VERSION."
     exit 1
 fi
 

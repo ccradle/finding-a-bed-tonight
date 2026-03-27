@@ -10,8 +10,8 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -88,7 +88,7 @@ public class ShelterService {
                             JsonNode node = objectMapper.readTree(t.getConfig().value());
                             JsonNode policy = node.get("dv_address_visibility");
                             return policy != null ? DvAddressPolicy.fromString(policy.asText()) : DvAddressPolicy.ADMIN_AND_ASSIGNED;
-                        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                        } catch (tools.jackson.core.JacksonException e) {
                             log.warn("Failed to read DV address policy from tenant config, using default: {}", e.getMessage());
                             return DvAddressPolicy.ADMIN_AND_ASSIGNED;
                         }

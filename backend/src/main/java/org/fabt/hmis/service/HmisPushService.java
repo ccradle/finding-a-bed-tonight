@@ -9,8 +9,9 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 
+import org.fabt.shared.web.TenantContext;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -83,7 +84,7 @@ public class HmisPushService {
      * Create outbox entries for all enabled vendors for a tenant.
      */
     @Transactional
-    public int createOutboxEntries(UUID tenantId) {
+    public int createOutboxEntries(UUID tenantId) throws Exception {
         List<HmisVendorConfig> vendors = configService.getEnabledVendors(tenantId);
         if (vendors.isEmpty()) {
             return 0;
@@ -116,8 +117,14 @@ public class HmisPushService {
     @Transactional
     public void processOutbox() {
         List<HmisOutboxEntry> pending = outboxRepository.findPending();
-        for (HmisOutboxEntry entry : pending) {
-            processEntry(entry);
+        try (var executor = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()) {
+            for (HmisOutboxEntry entry : pending) {
+                executor.submit(() ->
+                    TenantContext.runWithContext(entry.getTenantId(), false, () ->
+                        processEntry(entry)
+                    )
+                );
+            }
         }
     }
 
@@ -180,7 +187,7 @@ public class HmisPushService {
     /**
      * Get the data preview (what would be pushed) for the Admin UI.
      */
-    public List<HmisInventoryRecord> getPreview(UUID tenantId) {
+    public List<HmisInventoryRecord> getPreview(UUID tenantId) throws Exception {
         return transformer.buildInventory(tenantId);
     }
 

@@ -48,11 +48,10 @@ class AnalyticsIntegrationTest extends BaseIntegrationTest {
         outreachHeaders = authHelper.outreachWorkerHeaders();
 
         tenantId = authHelper.getTestTenantId();
-        TenantContext.setTenantId(tenantId);
-        TenantContext.setDvAccess(true);
-
-        // Create test shelter and availability data
-        createTestShelter("Analytics Test Shelter", false);
+        TenantContext.runWithContext(tenantId, true, () -> {
+            // Create test shelter and availability data
+            createTestShelter("Analytics Test Shelter", false);
+        });
     }
 
     // --- 16.1 Bed search logs events to bed_search_log ---
@@ -123,7 +122,8 @@ class AnalyticsIntegrationTest extends BaseIntegrationTest {
     @Test
     void geographicEndpoint_excludesDvShelters() {
         // Create a DV shelter
-        createTestShelter("DV Analytics Shelter", true);
+        TenantContext.runWithContext(tenantId, true, () ->
+                createTestShelter("DV Analytics Shelter", true));
 
         ResponseEntity<List<Map<String, Object>>> response = restTemplate.exchange(
                 "/api/v1/analytics/geographic",
@@ -235,14 +235,16 @@ class AnalyticsIntegrationTest extends BaseIntegrationTest {
     @Test
     void dvSummary_suppressedWhenOnlyOneDvShelter() {
         // Clean slate: remove all DV shelters for this tenant, then create exactly 1
-        jdbcTemplate.update(
-                "DELETE FROM bed_availability WHERE shelter_id IN (SELECT id FROM shelter WHERE tenant_id = ? AND dv_shelter = true)",
-                tenantId);
-        jdbcTemplate.update(
-                "DELETE FROM shelter_constraints WHERE shelter_id IN (SELECT id FROM shelter WHERE tenant_id = ? AND dv_shelter = true)",
-                tenantId);
-        jdbcTemplate.update("DELETE FROM shelter WHERE tenant_id = ? AND dv_shelter = true", tenantId);
-        createTestShelter("Single DV Shelter", true);
+        TenantContext.runWithContext(tenantId, true, () -> {
+            jdbcTemplate.update(
+                    "DELETE FROM bed_availability WHERE shelter_id IN (SELECT id FROM shelter WHERE tenant_id = ? AND dv_shelter = true)",
+                    tenantId);
+            jdbcTemplate.update(
+                    "DELETE FROM shelter_constraints WHERE shelter_id IN (SELECT id FROM shelter WHERE tenant_id = ? AND dv_shelter = true)",
+                    tenantId);
+            jdbcTemplate.update("DELETE FROM shelter WHERE tenant_id = ? AND dv_shelter = true", tenantId);
+            createTestShelter("Single DV Shelter", true);
+        });
 
         // Evict cached DV summary
         cacheService.evictAll("analytics-dv-summary");
@@ -270,10 +272,12 @@ class AnalyticsIntegrationTest extends BaseIntegrationTest {
     @Test
     void dvSummary_notSuppressedWhenThreeOrMoreDvShelters() {
         // Create enough DV shelters to satisfy the >= 3 threshold (D18)
-        createTestShelter("DV Shelter Alpha", true);
-        createTestShelter("DV Shelter Beta", true);
-        createTestShelter("DV Shelter Gamma", true);
-        createTestShelter("DV Shelter Delta", true);
+        TenantContext.runWithContext(tenantId, true, () -> {
+            createTestShelter("DV Shelter Alpha", true);
+            createTestShelter("DV Shelter Beta", true);
+            createTestShelter("DV Shelter Gamma", true);
+            createTestShelter("DV Shelter Delta", true);
+        });
 
         // Evict cached DV summary from prior test runs
         cacheService.evictAll("analytics-dv-summary");
@@ -299,15 +303,17 @@ class AnalyticsIntegrationTest extends BaseIntegrationTest {
     @Test
     void hmisTransformer_suppressesDvAggregateForSingleShelterCoC() {
         // Clean slate: remove all DV shelters, then create exactly 1
-        jdbcTemplate.update(
-                "DELETE FROM bed_availability WHERE shelter_id IN (SELECT id FROM shelter WHERE tenant_id = ? AND dv_shelter = true)",
-                tenantId);
-        jdbcTemplate.update(
-                "DELETE FROM shelter_constraints WHERE shelter_id IN (SELECT id FROM shelter WHERE tenant_id = ? AND dv_shelter = true)",
-                tenantId);
-        jdbcTemplate.update("DELETE FROM shelter WHERE tenant_id = ? AND dv_shelter = true", tenantId);
-        createTestShelter("HMIS DV Single", true);
-        createTestShelter("HMIS Non-DV", false);
+        TenantContext.runWithContext(tenantId, true, () -> {
+            jdbcTemplate.update(
+                    "DELETE FROM bed_availability WHERE shelter_id IN (SELECT id FROM shelter WHERE tenant_id = ? AND dv_shelter = true)",
+                    tenantId);
+            jdbcTemplate.update(
+                    "DELETE FROM shelter_constraints WHERE shelter_id IN (SELECT id FROM shelter WHERE tenant_id = ? AND dv_shelter = true)",
+                    tenantId);
+            jdbcTemplate.update("DELETE FROM shelter WHERE tenant_id = ? AND dv_shelter = true", tenantId);
+            createTestShelter("HMIS DV Single", true);
+            createTestShelter("HMIS Non-DV", false);
+        });
 
         // Transformer test is covered via the HIC export endpoint which uses same suppression logic
         ResponseEntity<String> response = restTemplate.exchange(

@@ -2,6 +2,7 @@ package org.fabt.shared.security;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.UUID;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -46,8 +47,11 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
             return;
         }
 
+        UUID tenantId = null;
         try {
-            apiKeyService.validate(apiKeyHeader).ifPresent(apiKey -> {
+            var optionalKey = apiKeyService.validate(apiKeyHeader);
+            if (optionalKey.isPresent()) {
+                var apiKey = optionalKey.get();
                 List<SimpleGrantedAuthority> authorities =
                         List.of(new SimpleGrantedAuthority("ROLE_" + apiKey.getRole()));
 
@@ -55,15 +59,27 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
                         new UsernamePasswordAuthenticationToken(apiKey.getId(), null, authorities);
                 SecurityContextHolder.getContext().setAuthentication(authentication);
 
-                TenantContext.setTenantId(apiKey.getTenantId());
-                TenantContext.setDvAccess(false);
-            });
+                tenantId = apiKey.getTenantId();
+            }
         } catch (Exception e) {
             log.debug("API key authentication failed for request {}: {}",
                     request.getRequestURI(), e.getMessage());
             SecurityContextHolder.clearContext();
         }
 
-        filterChain.doFilter(request, response);
+        if (tenantId != null) {
+            try {
+                TenantContext.callWithContext(tenantId, false, () -> {
+                    filterChain.doFilter(request, response);
+                    return null;
+                });
+            } catch (ServletException | IOException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new ServletException(e);
+            }
+        } else {
+            filterChain.doFilter(request, response);
+        }
     }
 }

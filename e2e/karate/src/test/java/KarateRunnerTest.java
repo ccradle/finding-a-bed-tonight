@@ -1,4 +1,4 @@
-import com.intuit.karate.junit5.Karate;
+import io.karatelabs.junit6.Karate;
 
 class KarateRunnerTest {
 

@@ -13,8 +13,8 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 import org.fabt.shared.config.JsonString;
 import org.fabt.subscription.domain.Subscription;
 import org.fabt.subscription.repository.SubscriptionRepository;
@@ -115,7 +115,7 @@ public class SubscriptionService {
         }
         try {
             return JsonString.of(objectMapper.writeValueAsString(filter));
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             throw new IllegalArgumentException("Invalid filter: unable to serialize to JSON", e);
         }
     }

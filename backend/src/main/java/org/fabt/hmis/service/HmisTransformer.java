@@ -33,11 +33,8 @@ public class HmisTransformer {
      * Non-DV shelters: one record per shelter/population.
      * DV shelters: aggregated into a single record per population type.
      */
-    public List<HmisInventoryRecord> buildInventory(UUID tenantId) {
-        TenantContext.setTenantId(tenantId);
-        TenantContext.setDvAccess(true); // need to see DV shelters for aggregation
-
-        try {
+    public List<HmisInventoryRecord> buildInventory(UUID tenantId) throws Exception {
+        return TenantContext.callWithContext(tenantId, true, () -> { // need to see DV shelters for aggregation
             List<Shelter> shelters = shelterService.findByTenantId();
             List<AvailabilitySnapshot> allSnapshots = availabilityService.getLatestByTenantId(tenantId);
 
@@ -102,8 +99,6 @@ public class HmisTransformer {
             }
 
             return records;
-        } finally {
-            TenantContext.clear();
-        }
+        });
     }
 }

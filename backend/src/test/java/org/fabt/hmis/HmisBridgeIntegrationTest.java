@@ -53,16 +53,15 @@ class HmisBridgeIntegrationTest extends BaseIntegrationTest {
         outreachHeaders = authHelper.outreachWorkerHeaders();
 
         tenantId = authHelper.getTestTenantId();
-        TenantContext.setTenantId(tenantId);
-        TenantContext.setDvAccess(true);
-
-        // Create test shelters
-        createShelter("HMIS Test Shelter A", false);
-        createShelter("HMIS DV Shelter", true);
+        TenantContext.runWithContext(tenantId, true, () -> {
+            // Create test shelters
+            createShelter("HMIS Test Shelter A", false);
+            createShelter("HMIS DV Shelter", true);
+        });
     }
 
     @Test
-    void transformer_buildsInventory_withDvAggregation() {
+    void transformer_buildsInventory_withDvAggregation() throws Exception {
         List<HmisInventoryRecord> records = transformer.buildInventory(tenantId);
         assertFalse(records.isEmpty(), "Should have inventory records");
 
@@ -83,7 +82,7 @@ class HmisBridgeIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    void transformer_includesDvAggregate_whenThreeOrMoreDvShelters() {
+    void transformer_includesDvAggregate_whenThreeOrMoreDvShelters() throws Exception {
         // D18: DV aggregate should appear when >= 3 distinct DV shelters exist
         createShelter("HMIS DV Shelter B", true);
         createShelter("HMIS DV Shelter C", true);
@@ -101,7 +100,7 @@ class HmisBridgeIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    void transformer_suppressesDvAggregate_whenFewerThanThreeDvShelters() {
+    void transformer_suppressesDvAggregate_whenFewerThanThreeDvShelters() throws Exception {
         // D18: DV aggregate must be suppressed when < 3 DV shelters
         // setUp creates only 1 DV shelter ("HMIS DV Shelter")
         // Clean any extras from prior tests
@@ -117,7 +116,7 @@ class HmisBridgeIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    void transformer_dvRecords_neverShowIndividualShelter() {
+    void transformer_dvRecords_neverShowIndividualShelter() throws Exception {
         List<HmisInventoryRecord> records = transformer.buildInventory(tenantId);
         for (HmisInventoryRecord r : records) {
             if (r.isDvAggregated()) {
@@ -128,7 +127,7 @@ class HmisBridgeIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    void transformer_nonDvShelter_neverShowsDvSurvivorPopulation() {
+    void transformer_nonDvShelter_neverShowsDvSurvivorPopulation() throws Exception {
         List<HmisInventoryRecord> records = transformer.buildInventory(tenantId);
         List<HmisInventoryRecord> nonDvWithDvPop = records.stream()
                 .filter(r -> !r.isDvAggregated())
@@ -140,7 +139,7 @@ class HmisBridgeIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    void transformer_excludesZeroBedRows() {
+    void transformer_excludesZeroBedRows() throws Exception {
         List<HmisInventoryRecord> records = transformer.buildInventory(tenantId);
         List<HmisInventoryRecord> zeroBedNonDv = records.stream()
                 .filter(r -> !r.isDvAggregated())
@@ -152,7 +151,7 @@ class HmisBridgeIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    void pushService_createOutboxEntries_withNoVendors_returnsZero() {
+    void pushService_createOutboxEntries_withNoVendors_returnsZero() throws Exception {
         int created = pushService.createOutboxEntries(tenantId);
         assertEquals(0, created, "No vendors configured — no entries");
     }

@@ -5,11 +5,12 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.StreamSupport;
 
 import org.fabt.availability.domain.BedSearchRequest;
 import org.fabt.availability.service.BedSearchService;
 import org.fabt.availability.service.BedSearchService.BedSearchResponse;
-import org.fabt.shared.web.TenantContext;
+import org.fabt.shared.concurrent.BoundedFanOut;
 import org.fabt.shelter.domain.Shelter;
 import org.fabt.shelter.repository.ShelterRepository;
 import org.fabt.surge.service.SurgeEventService;
@@ -27,6 +28,7 @@ public class OperationalMonitorService {
 
     private static final Logger log = LoggerFactory.getLogger(OperationalMonitorService.class);
     private static final Duration STALE_THRESHOLD = Duration.ofHours(8);
+    private static final int MAX_CONCURRENT_TENANT_CHECKS = 10;
 
     private final JdbcTemplate jdbcTemplate;
     private final ShelterRepository shelterRepository;
@@ -76,12 +78,12 @@ public class OperationalMonitorService {
 
     /**
      * Monitor 1: Stale shelter detection.
-     * Runs every 5 minutes. Detects shelters with no availability snapshot in 8+ hours.
+     * Runs every 5 minutes. Per-tenant checks fan out on virtual threads.
      */
     @Scheduled(fixedRate = 300_000)
     public void checkStaleShelters() {
-        for (Tenant tenant : tenantRepository.findAll()) {
-            UUID tenantId = tenant.getId();
+        List<UUID> tenantIds = tenantIds();
+        BoundedFanOut.forEachTenant(tenantIds, false, MAX_CONCURRENT_TENANT_CHECKS, tenantId -> {
             List<Shelter> shelters = shelterRepository.findByTenantId(tenantId);
             List<Shelter> staleShelters = new ArrayList<>();
 
@@ -100,53 +102,47 @@ public class OperationalMonitorService {
                 log.warn("Stale shelter summary: {} of {} shelters stale for tenant {}",
                         staleShelters.size(), shelters.size(), tenantId);
             }
-        }
+        });
     }
 
     /**
      * Monitor 2: DV canary check.
-     * Runs every 15 minutes. Queries bed search as a non-DV user and asserts zero DV shelters appear.
+     * Runs every 15 minutes. Per-tenant canary checks fan out on virtual threads
+     * with dvAccess=false to verify DV shelters are hidden.
      */
     @Scheduled(fixedRate = 900_000)
     public void checkDvCanary() {
-        for (Tenant tenant : tenantRepository.findAll()) {
-            UUID tenantId = tenant.getId();
+        List<UUID> tenantIds = tenantIds();
+        BoundedFanOut.forEachTenant(tenantIds, false, MAX_CONCURRENT_TENANT_CHECKS, tenantId -> {
+            BedSearchRequest request = new BedSearchRequest(null, null, null, 100);
+            BedSearchResponse response = bedSearchService.search(request);
 
-            TenantContext.setTenantId(tenantId);
-            TenantContext.setDvAccess(false);
-            try {
-                BedSearchRequest request = new BedSearchRequest(null, null, null, 100);
-                BedSearchResponse response = bedSearchService.search(request);
+            // Check if any DV shelters leaked into results
+            List<Shelter> allShelters = shelterRepository.findByTenantId(tenantId);
+            boolean dvLeaked = false;
 
-                // Check if any DV shelters leaked into results
-                List<Shelter> allShelters = shelterRepository.findByTenantId(tenantId);
-                boolean dvLeaked = false;
-
-                for (var result : response.results()) {
-                    for (Shelter shelter : allShelters) {
-                        if (shelter.getId().equals(result.shelterId()) && shelter.isDvShelter()) {
-                            dvLeaked = true;
-                            log.error("CRITICAL: DV canary FAILED — DV shelter {} ({}) appeared in non-DV search results for tenant {}",
-                                    shelter.getId(), shelter.getName(), tenantId);
-                        }
+            for (var result : response.results()) {
+                for (Shelter shelter : allShelters) {
+                    if (shelter.getId().equals(result.shelterId()) && shelter.isDvShelter()) {
+                        dvLeaked = true;
+                        log.error("CRITICAL: DV canary FAILED — DV shelter {} ({}) appeared in non-DV search results for tenant {}",
+                                shelter.getId(), shelter.getName(), tenantId);
                     }
                 }
-
-                metrics.setDvCanaryPass(!dvLeaked);
-
-                if (!dvLeaked) {
-                    log.debug("DV canary passed for tenant {}", tenantId);
-                }
-            } finally {
-                TenantContext.clear();
             }
-        }
+
+            metrics.setDvCanaryPass(!dvLeaked);
+
+            if (!dvLeaked) {
+                log.debug("DV canary passed for tenant {}", tenantId);
+            }
+        });
     }
 
     /**
      * Monitor 3: Temperature/surge gap detection.
-     * Runs every hour. Checks NOAA API for temperature, compares against configurable
-     * threshold, and publishes fabt.temperature.surge.gap gauge.
+     * Runs every hour. NOAA fetch is a single call; per-tenant surge gap evaluation
+     * fans out on virtual threads.
      */
     @Scheduled(fixedRate = 3_600_000)
     public void checkTemperatureSurgeGap() {
@@ -156,29 +152,29 @@ public class OperationalMonitorService {
             return;
         }
 
-        for (Tenant tenant : tenantRepository.findAll()) {
-            UUID tenantId = tenant.getId();
+        List<UUID> tenantIds = tenantIds();
+        BoundedFanOut.forEachTenant(tenantIds, false, MAX_CONCURRENT_TENANT_CHECKS, tenantId -> {
             double threshold = configService.getConfig(tenantId).temperatureThresholdF();
+            boolean surgeActive = surgeEventService.getActive().isPresent();
+            boolean gapDetected = tempF < threshold && !surgeActive;
 
-            TenantContext.setTenantId(tenantId);
-            try {
-                boolean surgeActive = surgeEventService.getActive().isPresent();
-                boolean gapDetected = tempF < threshold && !surgeActive;
+            metrics.setTemperatureSurgeGap(gapDetected);
 
-                metrics.setTemperatureSurgeGap(gapDetected);
+            // Cache for API display
+            cachedTemperatureStatus = new TemperatureStatus(
+                    tempF, stationId, threshold, surgeActive, gapDetected, Instant.now());
 
-                // Cache for API display
-                cachedTemperatureStatus = new TemperatureStatus(
-                        tempF, stationId, threshold, surgeActive, gapDetected, Instant.now());
-
-                if (gapDetected) {
-                    log.warn("Temperature/surge gap: temperature is {}°F (below threshold {}°F) but no active surge for tenant {}. Consider activating surge mode.",
-                            String.format("%.1f", tempF), String.format("%.0f", threshold), tenantId);
-                }
-            } finally {
-                TenantContext.clear();
+            if (gapDetected) {
+                log.warn("Temperature/surge gap: temperature is {}°F (below threshold {}°F) but no active surge for tenant {}. Consider activating surge mode.",
+                        String.format("%.1f", tempF), String.format("%.0f", threshold), tenantId);
             }
-        }
+        });
+    }
+
+    private List<UUID> tenantIds() {
+        return StreamSupport.stream(tenantRepository.findAll().spliterator(), false)
+                .map(Tenant::getId)
+                .toList();
     }
 
     private Instant getLatestSnapshotTime(UUID shelterId) {

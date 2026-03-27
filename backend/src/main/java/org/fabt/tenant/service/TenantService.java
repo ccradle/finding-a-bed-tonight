@@ -7,9 +7,9 @@ import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.UUID;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 import org.fabt.shared.config.JsonString;
 import org.fabt.tenant.domain.Tenant;
 import org.fabt.tenant.repository.TenantRepository;
@@ -86,7 +86,7 @@ public class TenantService {
             tenant.setConfig(JsonString.of(configJson));
             tenant.setUpdatedAt(Instant.now());
             return tenantRepository.save(tenant);
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             throw new IllegalArgumentException("Invalid config format", e);
         }
     }
@@ -105,7 +105,7 @@ public class TenantService {
                         new TypeReference<>() {}
                 );
                 config.putAll(stored);
-            } catch (JsonProcessingException e) {
+            } catch (JacksonException e) {
                 throw new IllegalStateException("Corrupt config JSON for tenant: " + id, e);
             }
         }

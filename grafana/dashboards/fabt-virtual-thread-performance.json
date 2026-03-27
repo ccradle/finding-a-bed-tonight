@@ -1,0 +1,255 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "title": "Virtual Thread Performance",
+  "tags": ["performance", "virtual-threads", "gatling"],
+  "description": "JVM thread, CPU, memory, GC, and connection pool metrics for load testing with virtual threads. Use during Gatling performance tests to capture before/after comparisons.",
+  "panels": [
+    {
+      "title": "JVM Threads by State",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": { "unit": "short" }
+      },
+      "targets": [
+        {
+          "expr": "jvm_threads_states_threads{state=\"runnable\"}",
+          "legendFormat": "runnable",
+          "refId": "A"
+        },
+        {
+          "expr": "jvm_threads_states_threads{state=\"waiting\"}",
+          "legendFormat": "waiting",
+          "refId": "B"
+        },
+        {
+          "expr": "jvm_threads_states_threads{state=\"timed-waiting\"}",
+          "legendFormat": "timed-waiting",
+          "refId": "C"
+        },
+        {
+          "expr": "jvm_threads_states_threads{state=\"blocked\"}",
+          "legendFormat": "blocked",
+          "refId": "D"
+        }
+      ]
+    },
+    {
+      "title": "JVM Thread Counts",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": {
+        "defaults": { "unit": "short" }
+      },
+      "targets": [
+        {
+          "expr": "jvm_threads_live_threads",
+          "legendFormat": "live (carrier)",
+          "refId": "A"
+        },
+        {
+          "expr": "jvm_threads_peak_threads",
+          "legendFormat": "peak",
+          "refId": "B"
+        },
+        {
+          "expr": "jvm_threads_daemon_threads",
+          "legendFormat": "daemon",
+          "refId": "C"
+        },
+        {
+          "expr": "rate(jvm_threads_started_threads_total[1m])",
+          "legendFormat": "started/sec (includes virtual)",
+          "refId": "D"
+        }
+      ]
+    },
+    {
+      "title": "CPU Usage",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "percentunit", "min": 0, "max": 1 }
+      },
+      "targets": [
+        {
+          "expr": "process_cpu_usage",
+          "legendFormat": "process CPU",
+          "refId": "A"
+        },
+        {
+          "expr": "system_cpu_usage",
+          "legendFormat": "system CPU",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "title": "JVM Memory Used",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "bytes" }
+      },
+      "targets": [
+        {
+          "expr": "sum(jvm_memory_used_bytes{area=\"heap\"})",
+          "legendFormat": "heap used",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(jvm_memory_committed_bytes{area=\"heap\"})",
+          "legendFormat": "heap committed",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(jvm_memory_used_bytes{area=\"nonheap\"})",
+          "legendFormat": "non-heap used",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "title": "GC Pause Duration",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "fieldConfig": {
+        "defaults": { "unit": "s" }
+      },
+      "targets": [
+        {
+          "expr": "rate(jvm_gc_pause_seconds_sum[1m]) / rate(jvm_gc_pause_seconds_count[1m])",
+          "legendFormat": "avg pause {{action}} {{cause}}",
+          "refId": "A"
+        },
+        {
+          "expr": "jvm_gc_pause_seconds_max",
+          "legendFormat": "max pause {{action}} {{cause}}",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "title": "HikariCP Connections (OLTP Pool)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "fieldConfig": {
+        "defaults": { "unit": "short" }
+      },
+      "targets": [
+        {
+          "expr": "hikaricp_connections_active{pool=\"HikariPool-1\"}",
+          "legendFormat": "active",
+          "refId": "A"
+        },
+        {
+          "expr": "hikaricp_connections_idle{pool=\"HikariPool-1\"}",
+          "legendFormat": "idle",
+          "refId": "B"
+        },
+        {
+          "expr": "hikaricp_connections_pending{pool=\"HikariPool-1\"}",
+          "legendFormat": "pending",
+          "refId": "C"
+        },
+        {
+          "expr": "hikaricp_connections_max{pool=\"HikariPool-1\"}",
+          "legendFormat": "max",
+          "refId": "D"
+        }
+      ]
+    },
+    {
+      "title": "HTTP Request Rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps" }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count[1m]))",
+          "legendFormat": "total req/s",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{status=~\"5..\"}[1m]))",
+          "legendFormat": "5xx/s",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "title": "HTTP Response Time Percentiles",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "fieldConfig": {
+        "defaults": { "unit": "s" }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(http_server_requests_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p95",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p99",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "title": "Connection Pool Timeout Rate",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 32 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "thresholds": { "steps": [{ "value": 0, "color": "green" }, { "value": 1, "color": "red" }] } }
+      },
+      "targets": [
+        {
+          "expr": "increase(hikaricp_connections_timeout_total{pool=\"HikariPool-1\"}[$__range])",
+          "legendFormat": "timeouts",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Webhook Delivery Rate",
+      "type": "timeseries",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 32 },
+      "fieldConfig": {
+        "defaults": { "unit": "short" }
+      },
+      "targets": [
+        {
+          "expr": "rate(fabt_webhook_delivery_total{outcome=\"success\"}[1m])",
+          "legendFormat": "success/s",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(fabt_webhook_delivery_total{outcome=\"failure\"}[1m])",
+          "legendFormat": "failure/s",
+          "refId": "B"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "templating": { "list": [] },
+  "time": { "from": "now-30m", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "version": 1,
+  "refresh": "5s"
+}

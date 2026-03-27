@@ -14,15 +14,16 @@ import org.fabt.tenant.domain.Tenant;
 import org.fabt.tenant.service.TenantService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.batch.core.Job;
-import org.springframework.batch.core.Step;
+import org.springframework.batch.core.job.Job;
+import org.springframework.batch.core.step.Step;
 import org.springframework.batch.core.job.builder.JobBuilder;
 import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.batch.core.step.builder.StepBuilder;
-import org.springframework.batch.item.ItemProcessor;
-import org.springframework.batch.item.ItemReader;
-import org.springframework.batch.item.ItemWriter;
-import org.springframework.batch.item.database.JdbcCursorItemReader;
+import org.springframework.batch.infrastructure.item.ItemProcessor;
+import org.springframework.batch.infrastructure.item.ItemReader;
+import org.springframework.batch.infrastructure.item.ItemWriter;
+import org.springframework.batch.infrastructure.item.database.JdbcCursorItemReader;
+import org.springframework.batch.infrastructure.item.database.builder.JdbcCursorItemReaderBuilder;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.annotation.Bean;
@@ -88,24 +89,25 @@ public class DailyAggregationJobConfig {
      */
     @Bean
     public JdbcCursorItemReader<SnapshotAggregate> snapshotAggregateReader() {
-        JdbcCursorItemReader<SnapshotAggregate> reader = new JdbcCursorItemReader<>();
-        reader.setDataSource(analyticsDataSource);
-        reader.setSql("""
-                SELECT tenant_id, shelter_id, population_type,
-                       DATE(snapshot_ts) AS snapshot_date,
-                       AVG(CASE WHEN beds_total > 0
-                           THEN CAST(beds_occupied AS DOUBLE PRECISION) / beds_total
-                           ELSE 0 END) AS avg_utilization,
-                       MAX(beds_occupied) AS max_occupied,
-                       MIN(beds_total - beds_occupied - beds_on_hold) AS min_available,
-                       COUNT(*) AS snapshot_count
-                FROM bed_availability
-                WHERE DATE(snapshot_ts) = CURRENT_DATE - INTERVAL '1 day'
-                GROUP BY tenant_id, shelter_id, population_type, DATE(snapshot_ts)
-                ORDER BY tenant_id, shelter_id, population_type
-                """);
-        reader.setRowMapper(this::mapAggregate);
-        return reader;
+        return new JdbcCursorItemReaderBuilder<SnapshotAggregate>()
+                .name("snapshotAggregateReader")
+                .dataSource(analyticsDataSource)
+                .sql("""
+                        SELECT tenant_id, shelter_id, population_type,
+                               DATE(snapshot_ts) AS snapshot_date,
+                               AVG(CASE WHEN beds_total > 0
+                                   THEN CAST(beds_occupied AS DOUBLE PRECISION) / beds_total
+                                   ELSE 0 END) AS avg_utilization,
+                               MAX(beds_occupied) AS max_occupied,
+                               MIN(beds_total - beds_occupied - beds_on_hold) AS min_available,
+                               COUNT(*) AS snapshot_count
+                        FROM bed_availability
+                        WHERE DATE(snapshot_ts) = CURRENT_DATE - INTERVAL '1 day'
+                        GROUP BY tenant_id, shelter_id, population_type, DATE(snapshot_ts)
+                        ORDER BY tenant_id, shelter_id, population_type
+                        """)
+                .rowMapper(this::mapAggregate)
+                .build();
     }
 
     private ItemProcessor<SnapshotAggregate, SnapshotAggregate> passThroughProcessor() {

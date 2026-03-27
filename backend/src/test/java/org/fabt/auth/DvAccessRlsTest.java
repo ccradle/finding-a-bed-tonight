@@ -37,25 +37,25 @@ class DvAccessRlsTest extends BaseIntegrationTest {
         tenantId = authHelper.getTestTenantId();
 
         // Test setup needs dvAccess=true to INSERT DV shelters (RLS enforces via SET ROLE fabt_app)
-        TenantContext.setDvAccess(true);
+        TenantContext.runWithContext(tenantId, true, () -> {
+            // Clean up previous test shelters
+            jdbcTemplate.update(
+                    "DELETE FROM shelter WHERE tenant_id = ? AND name IN ('Regular Shelter RLS', 'DV Shelter RLS')",
+                    tenantId
+            );
 
-        // Clean up previous test shelters
-        jdbcTemplate.update(
-                "DELETE FROM shelter WHERE tenant_id = ? AND name IN ('Regular Shelter RLS', 'DV Shelter RLS')",
-                tenantId
-        );
-
-        // Insert test shelters
-        jdbcTemplate.update(
-                "INSERT INTO shelter (id, tenant_id, name, dv_shelter, created_at, updated_at) " +
-                        "VALUES (?, ?, 'Regular Shelter RLS', false, NOW(), NOW())",
-                UUID.randomUUID(), tenantId
-        );
-        jdbcTemplate.update(
-                "INSERT INTO shelter (id, tenant_id, name, dv_shelter, created_at, updated_at) " +
-                        "VALUES (?, ?, 'DV Shelter RLS', true, NOW(), NOW())",
-                UUID.randomUUID(), tenantId
-        );
+            // Insert test shelters
+            jdbcTemplate.update(
+                    "INSERT INTO shelter (id, tenant_id, name, dv_shelter, created_at, updated_at) " +
+                            "VALUES (?, ?, 'Regular Shelter RLS', false, NOW(), NOW())",
+                    UUID.randomUUID(), tenantId
+            );
+            jdbcTemplate.update(
+                    "INSERT INTO shelter (id, tenant_id, name, dv_shelter, created_at, updated_at) " +
+                            "VALUES (?, ?, 'DV Shelter RLS', true, NOW(), NOW())",
+                    UUID.randomUUID(), tenantId
+            );
+        });
 
         // fabt_app role (created in V16) is NOSUPERUSER — RLS enforces.
         // No need to create a separate test role; SET ROLE fabt_app is already applied

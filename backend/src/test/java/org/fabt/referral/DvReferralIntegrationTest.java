@@ -66,15 +66,14 @@ class DvReferralIntegrationTest extends BaseIntegrationTest {
         // Outreach worker WITHOUT dvAccess (for negative tests)
         noDvOutreachHeaders = authHelper.outreachWorkerHeaders();
 
-        // Set TenantContext for direct JDBC calls in test thread (RLS requires dvAccess + tenantId)
-        TenantContext.setTenantId(authHelper.getTestTenantId());
-        TenantContext.setDvAccess(true);
+        // Bind TenantContext for direct JDBC calls in test thread (RLS requires dvAccess + tenantId)
+        TenantContext.runWithContext(authHelper.getTestTenantId(), true, () -> {
+            dvShelterId = createShelter(true);
+            nonDvShelterId = createShelter(false);
 
-        dvShelterId = createShelter(true);
-        nonDvShelterId = createShelter(false);
-
-        // Set up availability so DV shelter has beds
-        patchAvailability(dvShelterId, "DV_SURVIVOR", 10, 3, 0);
+            // Set up availability so DV shelter has beds
+            patchAvailability(dvShelterId, "DV_SURVIVOR", 10, 3, 0);
+        });
     }
 
     // =========================================================================
@@ -141,12 +140,12 @@ class DvReferralIntegrationTest extends BaseIntegrationTest {
         String tokenId = extractField(createResp.getBody(), "id");
 
         // Force expiry by updating expires_at to past
-        jdbcTemplate.update(
-                "UPDATE referral_token SET expires_at = NOW() - INTERVAL '1 minute' WHERE id = ?::uuid",
-                tokenId);
-
-        // Run expiry
-        referralTokenService.expireTokens();
+        TenantContext.runWithContext(authHelper.getTestTenantId(), true, () -> {
+            jdbcTemplate.update(
+                    "UPDATE referral_token SET expires_at = NOW() - INTERVAL '1 minute' WHERE id = ?::uuid",
+                    tokenId);
+            referralTokenService.expireTokens();
+        });
 
         // Verify status changed
         ResponseEntity<String> mineResp = restTemplate.exchange(
@@ -223,23 +222,23 @@ class DvReferralIntegrationTest extends BaseIntegrationTest {
         restTemplate.exchange("/api/v1/dv-referrals/" + tokenId + "/accept",
                 HttpMethod.PATCH, new HttpEntity<>(coordHeaders), String.class);
 
-        // Verify token exists
-        Integer countBefore = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM referral_token WHERE id = ?::uuid", Integer.class, tokenId);
-        assertEquals(1, countBefore);
+        TenantContext.runWithContext(authHelper.getTestTenantId(), true, () -> {
+            // Verify token exists
+            Integer countBefore = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM referral_token WHERE id = ?::uuid", Integer.class, tokenId);
+            assertEquals(1, countBefore);
 
-        // Force responded_at to be old enough for purge
-        jdbcTemplate.update(
-                "UPDATE referral_token SET responded_at = NOW() - INTERVAL '25 hours' WHERE id = ?::uuid",
-                tokenId);
+            // Force responded_at to be old enough for purge
+            jdbcTemplate.update(
+                    "UPDATE referral_token SET responded_at = NOW() - INTERVAL '25 hours' WHERE id = ?::uuid",
+                    tokenId);
+            purgeService.purgeTerminalTokens();
 
-        // Run purge
-        purgeService.purgeTerminalTokens();
-
-        // Verify token is GONE (hard-deleted, not soft-deleted)
-        Integer countAfter = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM referral_token WHERE id = ?::uuid", Integer.class, tokenId);
-        assertEquals(0, countAfter, "Purge must hard-delete terminal tokens");
+            // Verify token is GONE (hard-deleted, not soft-deleted)
+            Integer countAfter = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM referral_token WHERE id = ?::uuid", Integer.class, tokenId);
+            assertEquals(0, countAfter, "Purge must hard-delete terminal tokens");
+        });
     }
 
     // =========================================================================
@@ -252,10 +251,12 @@ class DvReferralIntegrationTest extends BaseIntegrationTest {
         String tokenId = extractField(createResp.getBody(), "id");
 
         // Force expiry
-        jdbcTemplate.update(
-                "UPDATE referral_token SET expires_at = NOW() - INTERVAL '1 minute' WHERE id = ?::uuid",
-                tokenId);
-        referralTokenService.expireTokens();
+        TenantContext.runWithContext(authHelper.getTestTenantId(), true, () -> {
+            jdbcTemplate.update(
+                    "UPDATE referral_token SET expires_at = NOW() - INTERVAL '1 minute' WHERE id = ?::uuid",
+                    tokenId);
+            referralTokenService.expireTokens();
+        });
 
         // Try to accept — should fail
         ResponseEntity<String> acceptResp = restTemplate.exchange(

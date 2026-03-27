@@ -3,15 +3,19 @@ package org.fabt.subscription.service;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.Timer;
 import org.fabt.observability.ObservabilityMetrics;
 import org.fabt.shared.event.DomainEvent;
+import org.fabt.shared.web.TenantContext;
 import org.fabt.subscription.domain.Subscription;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,6 +25,13 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
+/**
+ * Delivers domain events to webhook subscribers concurrently on virtual threads.
+ *
+ * The @EventListener returns immediately after submitting deliveries to the executor.
+ * Each subscription delivery runs on its own virtual thread — a slow subscriber
+ * does not block delivery to others or the event publisher.
+ */
 @Service
 public class WebhookDeliveryService {
 
@@ -31,6 +42,7 @@ public class WebhookDeliveryService {
     private final ObjectMapper objectMapper;
     private final RestClient restClient;
     private final ObservabilityMetrics metrics;
+    private final ExecutorService deliveryExecutor;
 
     public WebhookDeliveryService(SubscriptionService subscriptionService,
                                   ObjectMapper objectMapper,
@@ -40,35 +52,42 @@ public class WebhookDeliveryService {
         this.objectMapper = objectMapper;
         this.restClient = restClientBuilder.build();
         this.metrics = metrics;
+        this.deliveryExecutor = Executors.newVirtualThreadPerTaskExecutor();
     }
 
     @EventListener
     public void onDomainEvent(DomainEvent event) {
-        deliverEvent(event);
-    }
+        UUID tenantId = TenantContext.getTenantId();
+        boolean dvAccess = TenantContext.getDvAccess();
 
-    public void deliverEvent(DomainEvent event) {
         List<Subscription> subscriptions = subscriptionService.findActiveByEventType(event.type());
 
         for (Subscription subscription : subscriptions) {
-            try {
-                if (!matchesFilter(event, subscription)) {
-                    continue;
-                }
-                Timer.Sample timerSample = Timer.start();
-                try {
-                    deliver(event, subscription);
-                    metrics.webhookDeliveryCounter(event.type(), "success").increment();
-                } finally {
-                    timerSample.stop(metrics.webhookDeliveryTimer(event.type()));
-                }
-            } catch (Exception e) {
-                metrics.webhookDeliveryCounter(event.type(), "failure").increment();
-                log.warn("Failed to deliver event {} to subscription {}: {}",
-                        event.id(), subscription.getId(), e.getMessage());
-                // TODO: retry with exponential backoff schedule: 1m, 5m, 30m, 2h
-                subscriptionService.markFailing(subscription.getId(), e.getMessage());
+            if (!matchesFilter(event, subscription)) {
+                continue;
             }
+            deliveryExecutor.submit(() ->
+                TenantContext.runWithContext(tenantId, dvAccess, () ->
+                    deliverSingle(event, subscription)
+                )
+            );
+        }
+    }
+
+    private void deliverSingle(DomainEvent event, Subscription subscription) {
+        try {
+            Timer.Sample timerSample = Timer.start();
+            try {
+                deliver(event, subscription);
+                metrics.webhookDeliveryCounter(event.type(), "success").increment();
+            } finally {
+                timerSample.stop(metrics.webhookDeliveryTimer(event.type()));
+            }
+        } catch (Exception e) {
+            metrics.webhookDeliveryCounter(event.type(), "failure").increment();
+            log.warn("Failed to deliver event {} to subscription {}: {}",
+                    event.id(), subscription.getId(), e.getMessage());
+            subscriptionService.markFailing(subscription.getId(), e.getMessage());
         }
     }
 
@@ -82,8 +101,6 @@ public class WebhookDeliveryService {
             @SuppressWarnings("unchecked")
             Map<String, Object> filterMap = objectMapper.readValue(filterJson, Map.class);
 
-            // Basic filter matching: if filter has "population_types", check if event payload
-            // contains a matching type
             if (filterMap.containsKey("population_types")) {
                 Object filterTypes = filterMap.get("population_types");
                 Object payloadType = event.payload() != null ? event.payload().get("population_type") : null;
@@ -93,9 +110,8 @@ public class WebhookDeliveryService {
                 return false;
             }
 
-            // No recognized filter keys — pass through
             return true;
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             log.warn("Failed to parse subscription filter for subscription {}: {}",
                     subscription.getId(), e.getMessage());
             return true;
@@ -113,15 +129,10 @@ public class WebhookDeliveryService {
                     "payload", event.payload(),
                     "timestamp", event.timestamp().toString()
             ));
-        } catch (JsonProcessingException e) {
+        } catch (JacksonException e) {
             throw new RuntimeException("Failed to serialize event to JSON", e);
         }
 
-        // MVP: callbackSecretHash field actually stores the SHA-256 hash of the secret.
-        // For HMAC we need the original secret. Since we hashed it, we cannot recover it.
-        // For MVP, we use the stored hash as the HMAC key. A future migration will store
-        // the secret encrypted instead of hashed, allowing proper HMAC computation.
-        // TODO: switch to encrypted secret storage so HMAC uses the original secret
         String hmacKey = subscription.getCallbackSecretHash();
         String signature = "sha256=" + computeHmacSha256(hmacKey, jsonBody);
 
@@ -143,7 +154,6 @@ public class WebhookDeliveryService {
             log.debug("Successfully delivered event {} to subscription {}",
                     event.id(), subscription.getId());
         } catch (Exception e) {
-            // Check if the error message indicates a 410 Gone response
             if (e.getMessage() != null && e.getMessage().contains("410")) {
                 log.info("Callback returned 410 Gone for subscription {}, deactivating permanently",
                         subscription.getId());
