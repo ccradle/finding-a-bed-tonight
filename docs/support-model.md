@@ -14,6 +14,7 @@ FABT is an open-source project maintained by the project team on a best-effort b
 |---|---|
 | Bug found during business hours | File a GitHub Issue. Response typically within 1-3 business days. |
 | Something breaks at 2am | Consult the operational runbook (docs/runbook.md). The runbook covers common failure scenarios with investigation and resolution steps. File a GitHub Issue if the runbook doesn't cover it. |
+| SSO provider goes down | Password-authenticated users continue working without interruption — the two authentication paths are architecturally independent. SSO users are locked out until the provider recovers. See runbook "IdP outage" section. Recommendation: maintain at least one password-based admin account per tenant as a fallback. |
 | Feature request | File a GitHub Issue with the feature description. Community discussion determines priority. |
 | Security vulnerability | Report privately via GitHub Security Advisories. Treated as highest priority. |
 | Need help with deployment | Documentation covers step-by-step deployment. GitHub Discussions for questions. |

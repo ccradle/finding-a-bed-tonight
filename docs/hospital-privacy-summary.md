@@ -75,6 +75,8 @@ For domestic violence shelter referrals, FABT uses an opaque token system design
 - No integration with EHR, EMR, or hospital information systems
 - The application runs on infrastructure external to the hospital network
 - The social worker accesses FABT via a web browser — no software installation required
+- Authentication endpoints are rate-limited to prevent brute force attacks
+- If the hospital requires SSO via their identity provider: password-authenticated users continue working independently of any SSO outage. The two authentication paths are architecturally separate. See the operational runbook for details.
 
 ## Data Lifecycle
 

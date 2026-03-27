@@ -7,6 +7,9 @@ spring:
       minimum-idle: 2
 
 
+bucket4j:
+  enabled: false
+
 fabt:
   deployment-tier: lite
   cache:

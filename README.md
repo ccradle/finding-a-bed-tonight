@@ -588,7 +588,7 @@ All dashboards read from the Prometheus data source scraping `:9091/actuator/pro
 
 ## OAuth2 Single Sign-On
 
-The platform supports OAuth2 login via Google, Microsoft, and Keycloak (or any OIDC-compliant IdP). Providers are configured per-tenant and loaded dynamically from the database.
+The platform supports OAuth2 login via Google, Microsoft, and Keycloak (or any OIDC-compliant IdP). Providers are configured per-tenant and loaded dynamically from the database. Password login and SSO login are architecturally independent — an IdP outage does not affect password-authenticated users. See [docs/runbook.md](docs/runbook.md) for degradation behavior.
 
 ### Setup
 
@@ -1182,6 +1182,19 @@ finding-a-bed-tonight/
 - [x] Grafana CoC Analytics dashboard: utilization gauge, zero-result rate, capacity trend, batch job metrics
 - [x] Gatling mixed-load performance test: bed search p99 136ms under concurrent analytics load (threshold: 200ms)
 - [x] 13 integration tests, 7 Playwright tests, 19 Karate scenarios, 1 Gatling simulation
+
+### In Progress: Security Hardening (pre-pilot)
+
+- [x] JWT startup validation: `@PostConstruct` assertion rejects empty, short, or default-dev secrets (fails fast with actionable error)
+- [x] Universal exception handler: catch-all `@ExceptionHandler(Exception.class)` with Micrometer counter — no stack traces in responses
+- [x] Security headers: X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy (Spring Security DSL + nginx defense-in-depth)
+- [x] Auth rate limiting: bucket4j brute force protection on login/refresh (10 req / 15 min per IP, disabled in dev/lite profile)
+- [x] Cross-tenant isolation test: 100 concurrent virtual thread requests with CountDownLatch barrier, database-level SQL verification, connection pool recycling stress test
+- [x] DV shelter concurrent isolation test: 100 simultaneous dvAccess=true/false requests with barrier + 100 sequential connection pool iterations — DV shelter name and ID never leak
+- [x] OWASP ZAP API scan baseline: 116 PASS, 0 HIGH/CRITICAL, 2 WARN (local dev environment — TLS/infra scanning deferred to deployment)
+- [x] SecurityConfig `permitAll()` audit: all 8 paths reviewed, Swagger disabled in prod, health endpoint details gated
+- [x] JWKS circuit breaker graceful degradation: password users unaffected by IdP outage, documented in runbook
+- [ ] Merge to main, full regression, tag v0.15.0
 
 ---
 
