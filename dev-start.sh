@@ -42,11 +42,37 @@ done
 # --- Stop command ---
 if [[ "${1:-}" == "stop" ]]; then
     log "Stopping services..."
-    # Kill backend and frontend if running
+
+    # Kill backend: spring-boot:run forks a child JVM, so .pid-backend holds
+    # the Maven PID, not the JVM PID. Kill both the JVM (by port) and Maven.
+    # Try graceful shutdown first via /actuator/shutdown, fall back to kill.
+    BACKEND_STOPPED=false
+    for port in 8080 9091; do
+        JAVA_PID=$(netstat -ano 2>/dev/null | grep ":${port} .*LISTENING" | awk '{print $NF}' | head -1)
+        if [[ -n "$JAVA_PID" && "$JAVA_PID" != "0" ]]; then
+            kill "$JAVA_PID" 2>/dev/null || true
+            # Wait up to 10s for graceful shutdown
+            for i in $(seq 1 10); do
+                if ! netstat -ano 2>/dev/null | grep ":${port} .*LISTENING" | grep -q "$JAVA_PID"; then
+                    break
+                fi
+                sleep 1
+            done
+            # Force kill if still alive
+            if netstat -ano 2>/dev/null | grep ":${port} .*LISTENING" | grep -q "$JAVA_PID"; then
+                kill -9 "$JAVA_PID" 2>/dev/null || true
+                warn "Backend PID $JAVA_PID force-killed (port $port)."
+            fi
+            BACKEND_STOPPED=true
+        fi
+    done
+    # Also kill Maven wrapper if still around
     if [[ -f .pid-backend ]]; then
-        kill "$(cat .pid-backend)" 2>/dev/null && log "Backend stopped." || true
+        kill "$(cat .pid-backend)" 2>/dev/null || true
         rm -f .pid-backend
     fi
+    $BACKEND_STOPPED && log "Backend stopped." || true
+
     if [[ -f .pid-frontend ]]; then
         kill "$(cat .pid-frontend)" 2>/dev/null && log "Frontend stopped." || true
         rm -f .pid-frontend

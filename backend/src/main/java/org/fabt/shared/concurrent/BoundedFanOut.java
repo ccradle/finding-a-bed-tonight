@@ -52,7 +52,10 @@ public final class BoundedFanOut {
                 });
             }
             executor.shutdown();
-            executor.awaitTermination(5, TimeUnit.MINUTES);
+            if (!executor.awaitTermination(60, TimeUnit.SECONDS)) {
+                log.warn("Fan-out did not complete in 60s, forcing shutdown");
+                executor.shutdownNow();
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             log.warn("Fan-out interrupted with {} tenants remaining", tenantIds.size());

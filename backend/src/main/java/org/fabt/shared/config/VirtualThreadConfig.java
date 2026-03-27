@@ -22,6 +22,7 @@ public class VirtualThreadConfig {
         SimpleAsyncTaskScheduler scheduler = new SimpleAsyncTaskScheduler();
         scheduler.setVirtualThreads(true);
         scheduler.setThreadNamePrefix("vt-scheduler-");
+        scheduler.setTaskTerminationTimeout(30_000);
         return scheduler;
     }
 }

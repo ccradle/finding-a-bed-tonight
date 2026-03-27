@@ -17,6 +17,34 @@ Open-source emergency shelter bed availability platform. Matches homeless indivi
 
 ---
 
+## Table of Contents
+
+- [Problem Statement & Business Value](#problem-statement--business-value)
+- [Guides & Policy Documents](#guides--policy-documents)
+- [Architecture](#architecture)
+- [Deployment Tiers](#deployment-tiers)
+- [Tech Stack](#tech-stack)
+- [Module Boundaries](#module-boundaries)
+- [MCP-Ready API Design](#mcp-ready-api-design)
+- [Database Schema](#database-schema)
+- [OpenSpec Workflow](#openspec-workflow)
+- [Prerequisites](#prerequisites)
+- [Starting the Stack](#starting-the-stack)
+- [UI Sanity Check](#ui-sanity-check)
+- [Running Tests](#running-tests)
+- [Observability](#observability)
+- [Grafana Dashboards](#grafana-dashboards)
+- [OAuth2 Single Sign-On](#oauth2-single-sign-on)
+- [REST API Reference](#rest-api-reference)
+- [Domain Glossary](#domain-glossary)
+- [Project Structure](#project-structure)
+- [Project Status](#project-status)
+- [Test Data Reset](#test-data-reset-devtest-only)
+- [Troubleshooting](#troubleshooting)
+- [Contributing](#contributing)
+
+---
+
 ## Problem Statement & Business Value
 
 ### The Problem
@@ -73,6 +101,25 @@ An open-source platform that matches homeless individuals and families to availa
   │  16 +RLS │  │ (Std/Full)│      │  (Full)   │              │ Clarity·WellSky │
   └─────────┘   └───────────┘      └───────────┘              └─────────────────┘
 ```
+
+---
+
+## Guides & Policy Documents
+
+| Document | Audience | Description |
+|---|---|---|
+| [docs/government-adoption-guide.md](docs/government-adoption-guide.md) | City/county IT | Procurement checklist, security posture, ADA compliance, deployment options |
+| [docs/hospital-privacy-summary.md](docs/hospital-privacy-summary.md) | Hospital compliance | HIPAA applicability analysis — why FABT stores no PHI and no BAA is required |
+| [docs/partial-participation-guide.md](docs/partial-participation-guide.md) | Shelter operators | How to participate at different levels (view-only, bed counts, reservations) |
+| [docs/what-does-free-mean.md](docs/what-does-free-mean.md) | Decision-makers | What "free and open-source" means in practice — license, hosting costs, support |
+| [docs/support-model.md](docs/support-model.md) | Adopters | Best-effort community support model, SLA options via integrators |
+| [docs/theory-of-change.md](docs/theory-of-change.md) | Funders/grantors | Logic model connecting FABT capabilities to measurable outcomes |
+| [docs/sustainability-narrative.md](docs/sustainability-narrative.md) | Funders/grantors | Path from single-maintainer project to self-sustaining open-source platform |
+| [docs/coc-analytics-spm-mapping.md](docs/coc-analytics-spm-mapping.md) | CoC data analysts | How FABT analytics map to HUD System Performance Measures (SPMs) |
+| [docs/WCAG-ACR.md](docs/WCAG-ACR.md) | Accessibility reviewers | Self-assessed Accessibility Conformance Report (VPAT 2.5 WCAG edition) |
+| [docs/DV-OPAQUE-REFERRAL.md](docs/DV-OPAQUE-REFERRAL.md) | DV advocates/legal | Legal basis, architecture, and address visibility policies for DV shelter privacy |
+
+> *Tier 2 policy documents were generated with AI assistance and include attribution. They are intended as starting points and should be reviewed by subject matter experts before use in formal procurement or grant applications.*
 
 ---
 
@@ -153,7 +200,7 @@ Phase 2 will add an MCP server as a thin wrapper around the REST API, enabling n
 
 ## Database Schema
 
-26 Flyway migrations (V1–V25 + V8.1):
+27 Flyway migrations (V1–V26 + V8.1):
 
 | Migration | Description |
 |---|---|
@@ -197,23 +244,6 @@ Phase 2 will add an MCP server as a thin wrapper around the REST API, enabling n
 | [docs/asyncapi.yaml](docs/asyncapi.yaml) | AsyncAPI 3.0 spec — EventBus contract for all 3 deployment tiers |
 | [docs/architecture.drawio](docs/architecture.drawio) | Architecture diagram — includes observability stack, NOAA API. Open in [draw.io](https://app.diagrams.net) |
 | [docs/runbook.md](docs/runbook.md) | Operational runbook — monitor investigation, Grafana panels, Prometheus queries, management port production security |
-
-### Guides & Policy Documents
-
-| Document | Audience | Description |
-|---|---|---|
-| [docs/government-adoption-guide.md](docs/government-adoption-guide.md) | City/county IT | Procurement checklist, security posture, ADA compliance, deployment options |
-| [docs/hospital-privacy-summary.md](docs/hospital-privacy-summary.md) | Hospital compliance | HIPAA applicability analysis — why FABT stores no PHI and no BAA is required |
-| [docs/partial-participation-guide.md](docs/partial-participation-guide.md) | Shelter operators | How to participate at different levels (view-only, bed counts, reservations) |
-| [docs/what-does-free-mean.md](docs/what-does-free-mean.md) | Decision-makers | What "free and open-source" means in practice — license, hosting costs, support |
-| [docs/support-model.md](docs/support-model.md) | Adopters | Best-effort community support model, SLA options via integrators |
-| [docs/theory-of-change.md](docs/theory-of-change.md) | Funders/grantors | Logic model connecting FABT capabilities to measurable outcomes |
-| [docs/sustainability-narrative.md](docs/sustainability-narrative.md) | Funders/grantors | Path from single-maintainer project to self-sustaining open-source platform |
-| [docs/coc-analytics-spm-mapping.md](docs/coc-analytics-spm-mapping.md) | CoC data analysts | How FABT analytics map to HUD System Performance Measures (SPMs) |
-| [docs/WCAG-ACR.md](docs/WCAG-ACR.md) | Accessibility reviewers | Self-assessed Accessibility Conformance Report (VPAT 2.5 WCAG edition) |
-| [docs/DV-OPAQUE-REFERRAL.md](docs/DV-OPAQUE-REFERRAL.md) | DV advocates/legal | Legal basis, architecture, and address visibility policies for DV shelter privacy |
-
-> *Tier 2 policy documents were generated with AI assistance and include attribution. They are intended as starting points and should be reviewed by subject matter experts before use in formal procurement or grant applications.*
 
 ---
 
@@ -537,6 +567,22 @@ docker compose --profile observability up -d
 The `/actuator/prometheus` endpoint on the main port (`:8080`) requires authentication. When `--observability` is used, actuator endpoints are also served on a **separate management port** (`:9091`) without auth, allowing Prometheus to scrape.
 
 **Production:** Bind the management port to `127.0.0.1` and firewall it to the monitoring network only. Do not expose publicly. See [docs/runbook.md](docs/runbook.md) for full production security guidance.
+
+---
+
+## Grafana Dashboards
+
+Three pre-built Grafana dashboards are included in `grafana/dashboards/`. They are auto-provisioned when the observability stack is running (`./dev-start.sh --observability`).
+
+| Dashboard | File | What It Shows |
+|---|---|---|
+| **FABT Operations** | `fabt-operations.json` | Search rate, latency (p50/p95/p99), availability updates, reservation lifecycle, stale shelter count, DV canary status, surge events, temperature/surge gap, webhook delivery, circuit breaker state |
+| **DV Referrals** | `fabt-dv-referrals.json` | Referral volume, acceptance/rejection rates, token lifecycle, purge metrics (separate from operations for DV data sensitivity) |
+| **HMIS Bridge** | `fabt-hmis-bridge.json` | Push success/failure rates, outbox queue depth, vendor latency by adapter (Clarity/WellSky/ClientTrack), dead letter count, circuit breaker state |
+| **CoC Analytics** | `fabt-coc-analytics.json` | Utilization gauge, zero-result search rate, capacity trend, batch job execution (success/failure/duration), daily aggregation lag |
+| **Virtual Threads** | `fabt-virtual-thread-performance.json` | Virtual thread pool utilization, connection pool active/idle/pending, BoundedFanOut concurrency, carrier thread pinning |
+
+All dashboards read from the Prometheus data source scraping `:9091/actuator/prometheus`. See [docs/runbook.md](docs/runbook.md) for Prometheus query examples and alerting guidance.
 
 ---
 
