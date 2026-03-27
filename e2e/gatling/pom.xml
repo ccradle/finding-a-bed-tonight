@@ -12,8 +12,8 @@
     <name>FABT Performance Tests (Gatling)</name>
 
     <properties>
-        <maven.compiler.source>21</maven.compiler.source>
-        <maven.compiler.target>21</maven.compiler.target>
+        <maven.compiler.source>25</maven.compiler.source>
+        <maven.compiler.target>25</maven.compiler.target>
         <gatling.version>3.11.5</gatling.version>
         <gatling-maven-plugin.version>4.9.6</gatling-maven-plugin.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
