@@ -4,6 +4,7 @@ import { FormattedMessage, useIntl } from 'react-intl';
 import { api, ApiError } from '../services/api';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { enqueueAction } from '../services/offlineQueue';
+import { text, weight } from '../theme/typography';
 
 const POPULATION_TYPES = [
   'SINGLE_ADULT',
@@ -127,7 +128,7 @@ export function ShelterForm() {
     padding: '12px',
     borderRadius: '8px',
     border: '1px solid #d1d5db',
-    fontSize: '16px',
+    fontSize: text.md,
     minHeight: '44px',
     boxSizing: 'border-box',
   };
@@ -135,8 +136,8 @@ export function ShelterForm() {
   const labelStyle: React.CSSProperties = {
     display: 'block',
     marginBottom: '6px',
-    fontSize: '14px',
-    fontWeight: 500,
+    fontSize: text.base,
+    fontWeight: weight.medium,
     color: '#374151',
   };
 
@@ -148,7 +149,7 @@ export function ShelterForm() {
     display: 'flex',
     alignItems: 'center',
     gap: '8px',
-    fontSize: '14px',
+    fontSize: text.base,
     color: '#374151',
     cursor: 'pointer',
     minHeight: '44px',
@@ -157,7 +158,7 @@ export function ShelterForm() {
 
   return (
     <div style={{ maxWidth: '680px', margin: '0 auto' }}>
-      <h2 style={{ fontSize: '24px', fontWeight: 700, color: '#111827', marginBottom: '24px' }}>
+      <h2 style={{ fontSize: text['2xl'], fontWeight: weight.bold, color: '#111827', marginBottom: '24px' }}>
         <FormattedMessage id="shelter.create" />
       </h2>
 
@@ -169,7 +170,7 @@ export function ShelterForm() {
             padding: '12px 16px',
             borderRadius: '8px',
             marginBottom: '20px',
-            fontSize: '14px',
+            fontSize: text.base,
           }}
           role="alert"
         >
@@ -289,7 +290,7 @@ export function ShelterForm() {
         </div>
 
         {/* Constraints */}
-        <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#111827', marginBottom: '12px', marginTop: '24px' }}>
+        <h3 style={{ fontSize: text.md, fontWeight: weight.semibold, color: '#111827', marginBottom: '12px', marginTop: '24px' }}>
           Requirements &amp; Accessibility
         </h3>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 16px', marginBottom: '16px' }}>
@@ -320,7 +321,7 @@ export function ShelterForm() {
         </div>
 
         {/* Population Types Served */}
-        <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#111827', marginBottom: '12px', marginTop: '24px' }}>
+        <h3 style={{ fontSize: text.md, fontWeight: weight.semibold, color: '#111827', marginBottom: '12px', marginTop: '24px' }}>
           Population Types Served
         </h3>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '24px' }}>
@@ -338,8 +339,8 @@ export function ShelterForm() {
                 backgroundColor: populationTypesServed.includes(type) ? '#dbeafe' : '#ffffff',
                 color: populationTypesServed.includes(type) ? '#1a56db' : '#374151',
                 cursor: 'pointer',
-                fontSize: '13px',
-                fontWeight: 500,
+                fontSize: text.sm,
+                fontWeight: weight.medium,
                 minHeight: '44px',
               }}
             >
@@ -349,7 +350,7 @@ export function ShelterForm() {
         </div>
 
         {/* Capacities */}
-        <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#111827', marginBottom: '12px', marginTop: '24px' }}>
+        <h3 style={{ fontSize: text.md, fontWeight: weight.semibold, color: '#111827', marginBottom: '12px', marginTop: '24px' }}>
           Bed Capacities
         </h3>
         {capacities.map((cap, index) => (
@@ -400,7 +401,7 @@ export function ShelterForm() {
                 cursor: 'pointer',
                 minHeight: '44px',
                 minWidth: '44px',
-                fontSize: '16px',
+                fontSize: text.md,
               }}
             >
               X
@@ -417,7 +418,7 @@ export function ShelterForm() {
             border: '1px dashed #d1d5db',
             borderRadius: '8px',
             cursor: 'pointer',
-            fontSize: '14px',
+            fontSize: text.base,
             marginBottom: '32px',
             minHeight: '44px',
           }}
@@ -436,8 +437,8 @@ export function ShelterForm() {
               color: '#ffffff',
               border: 'none',
               borderRadius: '8px',
-              fontSize: '16px',
-              fontWeight: 600,
+              fontSize: text.md,
+              fontWeight: weight.semibold,
               cursor: loading ? 'not-allowed' : 'pointer',
               minHeight: '44px',
             }}

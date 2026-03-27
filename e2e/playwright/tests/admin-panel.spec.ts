@@ -55,7 +55,7 @@ test.describe('Admin Panel', () => {
     await adminPage.locator('main button', { hasText: /create/i }).last().click();
     await adminPage.waitForTimeout(2000);
     // The reveal panel should show a hex key string (32 hex chars), not blank or "undefined"
-    const revealBox = adminPage.locator('main div[style*="monospace"]');
+    const revealBox = adminPage.locator('[data-testid="api-key-reveal"]');
     await expect(revealBox).toBeVisible();
     const keyText = await revealBox.textContent();
     expect(keyText).toBeTruthy();

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useContext, lazy, Suspense } from 're
 import { FormattedMessage } from 'react-intl';
 import { api } from '../services/api';
 import { AuthContext } from '../auth/AuthContext';
+import { text, weight } from '../theme/typography';
 
 // Lazy-load Recharts (~200KB) — only when admin opens Analytics tab.
 // Outreach workers on phones never download it.
@@ -84,7 +85,7 @@ const sectionStyle: React.CSSProperties = {
 };
 
 const sectionTitleStyle: React.CSSProperties = {
-  fontSize: 16, fontWeight: 700, color: '#0f172a', margin: '0 0 12px',
+  fontSize: text.md, fontWeight: weight.bold, color: '#0f172a', margin: '0 0 12px',
 };
 
 const metricCardStyle: React.CSSProperties = {
@@ -94,20 +95,20 @@ const metricCardStyle: React.CSSProperties = {
 };
 
 const metricValueStyle: React.CSSProperties = {
-  fontSize: 28, fontWeight: 800, color: '#0f172a',
+  fontSize: text['3xl'], fontWeight: weight.extrabold, color: '#0f172a',
 };
 
 const metricLabelStyle: React.CSSProperties = {
-  fontSize: 12, color: '#475569', fontWeight: 600, marginTop: 4,
+  fontSize: text.xs, color: '#475569', fontWeight: weight.semibold, marginTop: 4,
 };
 
 const tableStyle: React.CSSProperties = {
-  width: '100%', borderCollapse: 'collapse', fontSize: 14,
+  width: '100%', borderCollapse: 'collapse', fontSize: text.base,
 };
 
 const thStyle: React.CSSProperties = {
-  textAlign: 'left', padding: '10px 14px', fontWeight: 700, color: '#0f172a',
-  borderBottom: '2px solid #e2e8f0', fontSize: 12, textTransform: 'uppercase',
+  textAlign: 'left', padding: '10px 14px', fontWeight: weight.bold, color: '#0f172a',
+  borderBottom: '2px solid #e2e8f0', fontSize: text.xs, textTransform: 'uppercase',
   letterSpacing: '0.04em',
 };
 
@@ -118,12 +119,12 @@ const tdFn = (index: number): React.CSSProperties => ({
 
 const primaryBtnStyle: React.CSSProperties = {
   padding: '10px 18px', backgroundColor: '#1a56db', color: '#fff',
-  border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 700,
+  border: 'none', borderRadius: 10, fontSize: text.base, fontWeight: weight.bold,
   cursor: 'pointer', minHeight: 44,
 };
 
 const badgeStyle = (color: string, bg: string): React.CSSProperties => ({
-  padding: '4px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+  padding: '4px 10px', borderRadius: 6, fontSize: text.xs, fontWeight: weight.semibold,
   backgroundColor: bg, color, border: `1px solid ${color}22`,
 });
 
@@ -202,7 +203,7 @@ function DashboardSection() {
       setUtilization(utilRes as unknown as UtilizationData);
       setDemand(demandRes as unknown as DemandData);
       setGeographic(geoRes as unknown as GeographicShelter[]);
-    } catch (e: any) {
+    } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to load analytics');
     } finally {
       setLoading(false);
@@ -336,7 +337,7 @@ function DashboardSection() {
             type="date"
             value={exportDate}
             onChange={e => setExportDate(e.target.value)}
-            style={{ padding: '10px 14px', borderRadius: 10, border: '2px solid #e2e8f0', fontSize: 14, minHeight: 44 }}
+            style={{ padding: '10px 14px', borderRadius: 10, border: '2px solid #e2e8f0', fontSize: text.base, minHeight: 44 }}
             data-testid="export-date-picker"
             aria-label="Export date for HIC/PIT report"
           />
@@ -386,13 +387,13 @@ function UtilizationChart({ data }: { data: Array<{ summaryDate: string; avgUtil
     <div>
       <button
         onClick={() => setShowTable(!showTable)}
-        style={{ fontSize: 12, color: '#1a56db', background: 'none', border: 'none', cursor: 'pointer', marginBottom: 8, textDecoration: 'underline' }}
+        style={{ fontSize: text.xs, color: '#1a56db', background: 'none', border: 'none', cursor: 'pointer', marginBottom: 8, textDecoration: 'underline' }}
         aria-label={showTable ? 'Show as chart' : 'Show as table'}
       >
         {showTable ? 'Show as chart' : 'Show as table'}
       </button>
       {showTable ? (
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: text.xs }}>
           <thead>
             <tr>
               <th style={{ textAlign: 'left', padding: '6px 10px', borderBottom: '2px solid #e2e8f0' }}>Date</th>
@@ -411,8 +412,8 @@ function UtilizationChart({ data }: { data: Array<{ summaryDate: string; avgUtil
       ) : (
         <LazyResponsiveContainer width="100%" height={250}>
           <LazyLineChart data={chartData}>
-            <LazyXAxis dataKey="date" tick={{ fontSize: 11 }} />
-            <LazyYAxis tick={{ fontSize: 11 }} domain={[0, 120]} unit="%" />
+            <LazyXAxis dataKey="date" tick={{ fontSize: text['2xs'] }} />
+            <LazyYAxis tick={{ fontSize: text['2xs'] }} domain={[0, 120]} unit="%" />
             <LazyTooltip />
             <LazyLine type="monotone" dataKey="utilization" stroke="#1a56db" strokeWidth={2} dot={false}
               isAnimationActive={!prefersReducedMotion} />
@@ -439,7 +440,7 @@ function BatchJobsSection({ isPlatformAdmin }: { isPlatformAdmin: boolean }) {
     try {
       const res = await api.get<BatchJob[]>('/api/v1/batch/jobs');
       setJobs(res || []);
-    } catch (e: any) {
+    } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to load batch jobs');
     } finally {
       setLoading(false);
@@ -453,7 +454,7 @@ function BatchJobsSection({ isPlatformAdmin }: { isPlatformAdmin: boolean }) {
       const res = await api.get<JobExecution[]>(`/api/v1/batch/jobs/${jobName}/executions`);
       setExecutions(res || []);
       setSelectedJob(jobName);
-    } catch (e: any) {
+    } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to load executions');
     }
   }, []);
@@ -463,7 +464,7 @@ function BatchJobsSection({ isPlatformAdmin }: { isPlatformAdmin: boolean }) {
     try {
       await api.post(`/api/v1/batch/jobs/${jobName}/run`, {});
       loadJobs();
-    } catch (e: any) {
+    } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to trigger job');
     }
   };
@@ -473,7 +474,7 @@ function BatchJobsSection({ isPlatformAdmin }: { isPlatformAdmin: boolean }) {
     try {
       await api.post(`/api/v1/batch/jobs/${jobName}/restart/${executionId}`, {});
       if (selectedJob) loadExecutions(selectedJob);
-    } catch (e: any) {
+    } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to restart job');
     }
   };
@@ -482,7 +483,7 @@ function BatchJobsSection({ isPlatformAdmin }: { isPlatformAdmin: boolean }) {
     try {
       await api.put(`/api/v1/batch/jobs/${jobName}/enable`, { enabled: !enabled });
       loadJobs();
-    } catch (e: any) {
+    } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to toggle job');
     }
   };
@@ -493,7 +494,7 @@ function BatchJobsSection({ isPlatformAdmin }: { isPlatformAdmin: boolean }) {
       await api.put(`/api/v1/batch/jobs/${editCron.jobName}/schedule`, { cron: editCron.cron });
       setEditCron(null);
       loadJobs();
-    } catch (e: any) {
+    } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Invalid cron expression');
     }
   };
@@ -524,20 +525,20 @@ function BatchJobsSection({ isPlatformAdmin }: { isPlatformAdmin: boolean }) {
                 <td style={tdFn(i)}>
                   <button
                     onClick={() => loadExecutions(job.jobName)}
-                    style={{ background: 'none', border: 'none', color: '#1a56db', cursor: 'pointer', fontWeight: 600, fontSize: 14 }}
+                    style={{ background: 'none', border: 'none', color: '#1a56db', cursor: 'pointer', fontWeight: weight.semibold, fontSize: text.base }}
                     data-testid={`batch-job-expand-${job.jobName}`}
                   >
                     {job.jobName}
                   </button>
                 </td>
                 <td style={tdFn(i)}>
-                  <code style={{ fontSize: 12, backgroundColor: '#f1f5f9', padding: '2px 6px', borderRadius: 4 }}>
+                  <code style={{ fontSize: text.xs, backgroundColor: '#f1f5f9', padding: '2px 6px', borderRadius: 4 }}>
                     {job.cron}
                   </code>
                   {isPlatformAdmin && (
                     <button
                       onClick={() => setEditCron({ jobName: job.jobName, cron: job.cron })}
-                      style={{ marginLeft: 8, background: 'none', border: 'none', color: '#475569', cursor: 'pointer', fontSize: 12, minWidth: 44, minHeight: 44 }}
+                      style={{ marginLeft: 8, background: 'none', border: 'none', color: '#475569', cursor: 'pointer', fontSize: text.xs, minWidth: 44, minHeight: 44 }}
                       data-testid={`batch-job-edit-cron-${job.jobName}`}
                       aria-label={`Edit schedule for ${job.jobName}`}
                     >
@@ -583,7 +584,7 @@ function BatchJobsSection({ isPlatformAdmin }: { isPlatformAdmin: boolean }) {
                   {isPlatformAdmin && (
                     <button
                       onClick={() => handleRunNow(job.jobName)}
-                      style={{ ...primaryBtnStyle, padding: '6px 12px', fontSize: 12 }}
+                      style={{ ...primaryBtnStyle, padding: '6px 12px', fontSize: text.xs }}
                       data-testid={`batch-job-run-${job.jobName}`}
                     >
                       <FormattedMessage id="analytics.runNow" defaultMessage="Run Now" />
@@ -611,7 +612,7 @@ function BatchJobsSection({ isPlatformAdmin }: { isPlatformAdmin: boolean }) {
               type="text"
               value={editCron.cron}
               onChange={e => setEditCron({ ...editCron, cron: e.target.value })}
-              style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: '2px solid #e2e8f0', fontSize: 14, boxSizing: 'border-box' }}
+              style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: '2px solid #e2e8f0', fontSize: text.base, boxSizing: 'border-box' }}
               data-testid="edit-cron-input"
             />
             <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
@@ -649,7 +650,7 @@ function BatchJobsSection({ isPlatformAdmin }: { isPlatformAdmin: boolean }) {
                     <td style={tdFn(i)}>
                       <button
                         onClick={() => setExpandedExec(expandedExec === exec.executionId ? null : exec.executionId)}
-                        style={{ background: 'none', border: 'none', color: '#1a56db', cursor: 'pointer', fontWeight: 600 }}
+                        style={{ background: 'none', border: 'none', color: '#1a56db', cursor: 'pointer', fontWeight: weight.semibold }}
                         data-testid={`execution-expand-${exec.executionId}`}
                       >
                         #{exec.executionId}
@@ -669,7 +670,7 @@ function BatchJobsSection({ isPlatformAdmin }: { isPlatformAdmin: boolean }) {
                       {isPlatformAdmin && exec.status === 'FAILED' && (
                         <button
                           onClick={() => handleRestart(selectedJob, exec.executionId)}
-                          style={{ ...primaryBtnStyle, padding: '6px 12px', fontSize: 12, backgroundColor: '#dc2626' }}
+                          style={{ ...primaryBtnStyle, padding: '6px 12px', fontSize: text.xs, backgroundColor: '#dc2626' }}
                           data-testid={`execution-restart-${exec.executionId}`}
                         >
                           <FormattedMessage id="analytics.restart" defaultMessage="Restart" />
@@ -681,15 +682,15 @@ function BatchJobsSection({ isPlatformAdmin }: { isPlatformAdmin: boolean }) {
                   {expandedExec === exec.executionId && exec.steps.length > 0 && (
                     <tr key={`${exec.executionId}-steps`}>
                       <td colSpan={5} style={{ padding: '8px 14px 16px', backgroundColor: '#f8fafc' }}>
-                        <table style={{ ...tableStyle, fontSize: 12 }}>
+                        <table style={{ ...tableStyle, fontSize: text.xs }}>
                           <thead>
                             <tr>
-                              <th style={{ ...thStyle, fontSize: 11 }}>Step</th>
-                              <th style={{ ...thStyle, fontSize: 11 }}>Status</th>
-                              <th style={{ ...thStyle, fontSize: 11 }}>Read</th>
-                              <th style={{ ...thStyle, fontSize: 11 }}>Write</th>
-                              <th style={{ ...thStyle, fontSize: 11 }}>Skip</th>
-                              <th style={{ ...thStyle, fontSize: 11 }}>Commits</th>
+                              <th style={{ ...thStyle, fontSize: text['2xs'] }}>Step</th>
+                              <th style={{ ...thStyle, fontSize: text['2xs'] }}>Status</th>
+                              <th style={{ ...thStyle, fontSize: text['2xs'] }}>Read</th>
+                              <th style={{ ...thStyle, fontSize: text['2xs'] }}>Write</th>
+                              <th style={{ ...thStyle, fontSize: text['2xs'] }}>Skip</th>
+                              <th style={{ ...thStyle, fontSize: text['2xs'] }}>Commits</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -706,7 +707,7 @@ function BatchJobsSection({ isPlatformAdmin }: { isPlatformAdmin: boolean }) {
                           </tbody>
                         </table>
                         {exec.exitMessage && (
-                          <div style={{ marginTop: 8, padding: 8, backgroundColor: '#fef2f2', borderRadius: 6, fontSize: 12, color: '#991b1b' }}>
+                          <div style={{ marginTop: 8, padding: 8, backgroundColor: '#fef2f2', borderRadius: 6, fontSize: text.xs, color: '#991b1b' }}>
                             {exec.exitMessage}
                           </div>
                         )}

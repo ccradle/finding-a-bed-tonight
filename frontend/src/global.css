@@ -1,0 +1,68 @@
+/*
+ * Global typography system for Finding A Bed Tonight.
+ *
+ * Defines CSS custom properties as the single source of truth for all
+ * font families, sizes, weights, and line heights. Components reference
+ * these via var() in inline styles or via the typography.ts constants.
+ *
+ * System font stack: uses the OS native font on every platform.
+ * No web fonts are loaded — system fonts are the accessible, performant choice.
+ *
+ * WCAG compliance:
+ * - 1.4.12 Text Spacing: base line-height 1.5 meets the threshold
+ * - 1.4.4 Resize Text: no fixed px line-heights, all unitless ratios
+ * - 1.4.8 Visual Presentation: fallback chain ensures text always renders
+ */
+
+:root {
+  /* Font families */
+  --font-sans: system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif,
+    'Apple Color Emoji', 'Segoe UI Emoji';
+  --font-mono: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo,
+    Consolas, 'Courier New', monospace;
+
+  /* Font sizes — named scale matching existing component usage */
+  --text-2xs: 11px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-md: 16px;
+  --text-lg: 18px;
+  --text-xl: 20px;
+  --text-2xl: 24px;
+  --text-3xl: 28px;
+  --text-4xl: 48px;
+
+  /* Font weights */
+  --font-normal: 400;
+  --font-medium: 500;
+  --font-semibold: 600;
+  --font-bold: 700;
+  --font-extrabold: 800;
+
+  /* Line heights — unitless ratios (WCAG 1.4.12: minimum 1.5 for body text) */
+  --leading-tight: 1.25;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.75;
+}
+
+/* Universal font-family — ensures input, button, select, textarea inherit
+   correctly. These elements do NOT inherit font-family from body by default. */
+*,
+*::before,
+*::after {
+  font-family: var(--font-sans);
+}
+
+html {
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Prevent text-size-adjust on mobile orientation change */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import { api } from '../services/api';
 import { DataAge } from '../components/DataAge';
+import { text, weight, leading } from '../theme/typography';
 
 const POPULATION_TYPES = [
   'SINGLE_ADULT',
@@ -220,16 +221,16 @@ export function CoordinatorDashboard() {
         borderRadius: 16, padding: '28px 24px', marginBottom: 20, color: '#fff',
         boxShadow: '0 4px 24px rgba(0,0,0,0.15)',
       }}>
-        <h1 data-testid="coordinator-heading" style={{ margin: 0, fontSize: 24, fontWeight: 800, letterSpacing: '-0.03em' }}>
+        <h1 data-testid="coordinator-heading" style={{ margin: 0, fontSize: text['2xl'], fontWeight: weight.extrabold, letterSpacing: '-0.03em' }}>
           <FormattedMessage id="coord.title" />
         </h1>
-        <p style={{ margin: '6px 0 0', fontSize: 14, color: '#94b8d8' }}>
+        <p style={{ margin: '6px 0 0', fontSize: text.base, color: '#94b8d8' }}>
           <FormattedMessage id="coord.subtitle" />
         </p>
       </div>
 
       {/* Status */}
-      <div style={{ fontSize: 13, color: '#475569', marginBottom: 10, fontWeight: 600, letterSpacing: '0.02em' }}>
+      <div style={{ fontSize: text.sm, color: '#475569', marginBottom: 10, fontWeight: weight.semibold, letterSpacing: '0.02em' }}>
         {loading
           ? <FormattedMessage id="coord.loading" />
           : <FormattedMessage id="coord.bedsTotal" values={{ count: shelters.length }} />}
@@ -238,7 +239,7 @@ export function CoordinatorDashboard() {
       {error && (
         <div style={{
           backgroundColor: '#fef2f2', color: '#991b1b', padding: '14px 18px',
-          borderRadius: 12, marginBottom: 16, fontSize: 14, fontWeight: 500,
+          borderRadius: 12, marginBottom: 16, fontSize: text.base, fontWeight: weight.medium,
         }}>{error}</div>
       )}
 
@@ -247,7 +248,7 @@ export function CoordinatorDashboard() {
       {detailLoading && (
         <div style={{
           backgroundColor: '#eff6ff', color: '#1a56db', padding: '14px 18px',
-          borderRadius: 12, marginBottom: 16, fontSize: 14, fontWeight: 500, textAlign: 'center',
+          borderRadius: 12, marginBottom: 16, fontSize: text.base, fontWeight: weight.medium, textAlign: 'center',
         }}>
           <FormattedMessage id="coord.loading" />
         </div>
@@ -281,20 +282,20 @@ export function CoordinatorDashboard() {
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
-                  <div style={{ fontSize: 17, fontWeight: 700, color: '#0f172a', marginBottom: 3 }}>{s.name}</div>
-                  <div style={{ fontSize: 14, color: '#475569', marginBottom: 6 }}>{fmtAddr(s)}</div>
+                  <div style={{ fontSize: text.lg, fontWeight: weight.bold, color: '#0f172a', marginBottom: 3 }}>{s.name}</div>
+                  <div style={{ fontSize: text.base, color: '#475569', marginBottom: 6 }}>{fmtAddr(s)}</div>
                 </div>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                   {summary && summary.totalBedsAvailable != null && (
                     <span data-testid={`avail-badge-${s.id}`} style={{
-                      padding: '4px 10px', borderRadius: 8, fontSize: 14, fontWeight: 800,
+                      padding: '4px 10px', borderRadius: 8, fontSize: text.base, fontWeight: weight.extrabold,
                       backgroundColor: summary.totalBedsAvailable > 0 ? '#f0fdf4' : '#fef2f2',
                       color: summary.totalBedsAvailable > 0 ? '#166534' : '#991b1b',
                     }}>{summary.totalBedsAvailable} avail</span>
                   )}
                   {s.dvShelter && isExpanded && pendingReferrals.length > 0 && (
                     <span data-testid={`referral-badge-${s.id}`} style={{
-                      padding: '4px 10px', borderRadius: 8, fontSize: 12, fontWeight: 800,
+                      padding: '4px 10px', borderRadius: 8, fontSize: text.xs, fontWeight: weight.extrabold,
                       backgroundColor: '#f5f3ff', color: '#7c3aed',
                     }}>{pendingReferrals.length} referral{pendingReferrals.length > 1 ? 's' : ''}</span>
                   )}
@@ -308,14 +309,14 @@ export function CoordinatorDashboard() {
                     <DataAge dataAgeSeconds={s.updatedAt ? Math.floor((Date.now() - new Date(s.updatedAt).getTime()) / 1000) : null} />
                   )}
                   {summary?.lastUpdated && (
-                    <span style={{ fontSize: 11, color: '#6b7280' }}>
+                    <span style={{ fontSize: text['2xs'], color: '#6b7280' }}>
                       <FormattedMessage id="coord.lastAvailUpdate" />: {new Date(summary.lastUpdated).toLocaleString()}
                     </span>
                   )}
                 </div>
                 {isExpanded
-                  ? <span style={{ fontSize: 12, color: '#1a56db', fontWeight: 600 }}>▲</span>
-                  : <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 600 }}>▼</span>}
+                  ? <span style={{ fontSize: text.xs, color: '#1a56db', fontWeight: weight.semibold }}>▲</span>
+                  : <span style={{ fontSize: text.xs, color: '#6b7280', fontWeight: weight.semibold }}>▼</span>}
               </div>
             </button>
 
@@ -325,7 +326,7 @@ export function CoordinatorDashboard() {
                 <div style={{ height: 1, backgroundColor: '#e2e8f0', marginBottom: 16 }} />
 
                 {/* Availability update section */}
-                <h4 style={{ fontSize: 13, fontWeight: 700, color: '#1a56db', margin: '0 0 12px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                <h4 style={{ fontSize: text.sm, fontWeight: weight.bold, color: '#1a56db', margin: '0 0 12px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                   <FormattedMessage id="coord.availability" />
                 </h4>
 
@@ -339,43 +340,43 @@ export function CoordinatorDashboard() {
                       padding: '12px 0', borderBottom: '1px solid #f1f5f9',
                     }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                        <span style={{ fontSize: 14, fontWeight: 600, color: '#0f172a', textTransform: 'capitalize' }}>
+                        <span style={{ fontSize: text.base, fontWeight: weight.semibold, color: '#0f172a', textTransform: 'capitalize' }}>
                           {avail.populationType.replace(/_/g, ' ').toLowerCase()}
                         </span>
                         <span data-testid={`available-value-${avail.populationType}`} style={{
-                          fontSize: 16, fontWeight: 800,
+                          fontSize: text.md, fontWeight: weight.extrabold,
                           color: bedsAvailable > 0 ? '#166534' : '#991b1b',
                         }}>
-                          {bedsAvailable} <span style={{ fontSize: 11, fontWeight: 600 }}><FormattedMessage id="coord.bedsAvail" /></span>
+                          {bedsAvailable} <span style={{ fontSize: text['2xs'], fontWeight: weight.semibold }}><FormattedMessage id="coord.bedsAvail" /></span>
                         </span>
                       </div>
                       <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
                         {/* Total beds stepper */}
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ fontSize: 12, color: '#475569', fontWeight: 600, minWidth: 40 }}>
+                          <span style={{ fontSize: text.xs, color: '#475569', fontWeight: weight.semibold, minWidth: 40 }}>
                             <FormattedMessage id="coord.bedsTotal" />
                           </span>
                           <StepperButton label="−" data-testid={`total-minus-${avail.populationType}`} onClick={() => updateAvailField(avail.populationType, 'bedsTotal', -1)} disabled={avail.bedsTotal <= avail.bedsOccupied + avail.bedsOnHold} />
-                          <span data-testid={`total-value-${avail.populationType}`} style={{ fontSize: 18, fontWeight: 800, minWidth: 32, textAlign: 'center' }}>{avail.bedsTotal}</span>
+                          <span data-testid={`total-value-${avail.populationType}`} style={{ fontSize: text.lg, fontWeight: weight.extrabold, minWidth: 32, textAlign: 'center' }}>{avail.bedsTotal}</span>
                           <StepperButton label="+" data-testid={`total-plus-${avail.populationType}`} onClick={() => updateAvailField(avail.populationType, 'bedsTotal', 1)} />
                         </div>
                         {/* Occupied stepper */}
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ fontSize: 12, color: '#475569', fontWeight: 600, minWidth: 60 }}>
+                          <span style={{ fontSize: text.xs, color: '#475569', fontWeight: weight.semibold, minWidth: 60 }}>
                             <FormattedMessage id="coord.bedsOccupied" />
                           </span>
                           <StepperButton label="−" data-testid={`occupied-minus-${avail.populationType}`} onClick={() => updateAvailField(avail.populationType, 'bedsOccupied', -1)} disabled={avail.bedsOccupied <= 0} />
-                          <span data-testid={`occupied-value-${avail.populationType}`} style={{ fontSize: 18, fontWeight: 800, minWidth: 32, textAlign: 'center' }}>{avail.bedsOccupied}</span>
+                          <span data-testid={`occupied-value-${avail.populationType}`} style={{ fontSize: text.lg, fontWeight: weight.extrabold, minWidth: 32, textAlign: 'center' }}>{avail.bedsOccupied}</span>
                           <StepperButton label="+" data-testid={`occupied-plus-${avail.populationType}`} onClick={() => updateAvailField(avail.populationType, 'bedsOccupied', 1)} disabled={avail.bedsOccupied >= avail.bedsTotal - avail.bedsOnHold} />
                         </div>
                         {/* On-hold display (read-only — holds are managed by the reservation system) */}
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ fontSize: 12, color: '#475569', fontWeight: 600, minWidth: 50 }}>
+                          <span style={{ fontSize: text.xs, color: '#475569', fontWeight: weight.semibold, minWidth: 50 }}>
                             <FormattedMessage id="coord.bedsOnHold" />
                           </span>
-                          <span data-testid={`onhold-value-${avail.populationType}`} style={{ fontSize: 18, fontWeight: 800, minWidth: 32, textAlign: 'center', color: avail.bedsOnHold > 0 ? '#1a56db' : '#6b7280' }}>{avail.bedsOnHold}</span>
+                          <span data-testid={`onhold-value-${avail.populationType}`} style={{ fontSize: text.lg, fontWeight: weight.extrabold, minWidth: 32, textAlign: 'center', color: avail.bedsOnHold > 0 ? '#1a56db' : '#6b7280' }}>{avail.bedsOnHold}</span>
                           {avail.bedsOnHold > 0 && (
-                            <span style={{ fontSize: 10, color: '#6b7280' }}>(system)</span>
+                            <span style={{ fontSize: text['2xs'], color: '#6b7280' }}>(system)</span>
                           )}
                         </div>
                       </div>
@@ -386,7 +387,7 @@ export function CoordinatorDashboard() {
                         aria-live="polite"
                         style={{
                           padding: '8px 16px', backgroundColor: isSavedThis ? '#22c55e' : '#1a56db', color: '#fff',
-                          border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700,
+                          border: 'none', borderRadius: 8, fontSize: text.sm, fontWeight: weight.bold,
                           cursor: isSavingThis ? 'default' : 'pointer',
                           minHeight: 44, transition: 'all 0.15s',
                         }}
@@ -405,7 +406,7 @@ export function CoordinatorDashboard() {
                     padding: '12px 16px', backgroundColor: '#f5f3ff', borderRadius: 10,
                     border: '1px solid #ddd6fe', marginBottom: 16,
                   }}>
-                    <h4 style={{ fontSize: 13, fontWeight: 700, color: '#7c3aed', margin: '0 0 10px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    <h4 style={{ fontSize: text.sm, fontWeight: weight.bold, color: '#7c3aed', margin: '0 0 10px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                       <FormattedMessage id="referral.pendingReferrals" /> ({pendingReferrals.length})
                     </h4>
                     {pendingReferrals.map(ref => (
@@ -414,27 +415,27 @@ export function CoordinatorDashboard() {
                       }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
                           <div>
-                            <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>
+                            <span style={{ fontSize: text.sm, fontWeight: weight.bold, color: '#0f172a' }}>
                               {ref.populationType.replace(/_/g, ' ')} — {ref.householdSize} person{ref.householdSize > 1 ? 's' : ''}
                             </span>
                             <span style={{
-                              marginLeft: 8, padding: '2px 6px', borderRadius: 4, fontSize: 10, fontWeight: 700,
+                              marginLeft: 8, padding: '2px 6px', borderRadius: 4, fontSize: text['2xs'], fontWeight: weight.bold,
                               backgroundColor: ref.urgency === 'EMERGENCY' ? '#fef2f2' : ref.urgency === 'URGENT' ? '#fefce8' : '#f0fdf4',
                               color: ref.urgency === 'EMERGENCY' ? '#991b1b' : ref.urgency === 'URGENT' ? '#854d0e' : '#166534',
                             }}>{ref.urgency}</span>
                           </div>
                           {ref.remainingSeconds != null && (
-                            <span style={{ fontSize: 11, color: '#475569' }}>
+                            <span style={{ fontSize: text['2xs'], color: '#475569' }}>
                               {Math.floor(ref.remainingSeconds / 60)}m remaining
                             </span>
                           )}
                         </div>
                         {ref.specialNeeds && (
-                          <div style={{ fontSize: 12, color: '#475569', marginBottom: 4 }}>
+                          <div style={{ fontSize: text.xs, color: '#475569', marginBottom: 4 }}>
                             <FormattedMessage id="referral.specialNeedsLabel" />: {ref.specialNeeds}
                           </div>
                         )}
-                        <div style={{ fontSize: 12, color: '#475569', marginBottom: 8 }}>
+                        <div style={{ fontSize: text.xs, color: '#475569', marginBottom: 8 }}>
                           <FormattedMessage id="referral.callbackLabel" />: {ref.callbackNumber}
                         </div>
 
@@ -444,14 +445,14 @@ export function CoordinatorDashboard() {
                               type="text" value={rejectReason}
                               onChange={(e) => setRejectReason(e.target.value)}
                               placeholder={intl.formatMessage({ id: 'referral.rejectReason' })}
-                              style={{ flex: 1, padding: 6, borderRadius: 6, border: '1px solid #ddd6fe', fontSize: 12 }} />
+                              style={{ flex: 1, padding: 6, borderRadius: 6, border: '1px solid #ddd6fe', fontSize: text.xs }} />
                             <button data-testid={`reject-confirm-${ref.id}`}
                               onClick={() => rejectReferral(ref.id)} disabled={!rejectReason.trim()}
-                              style={{ padding: '6px 10px', borderRadius: 6, border: 'none', backgroundColor: '#dc2626', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                              style={{ padding: '6px 10px', borderRadius: 6, border: 'none', backgroundColor: '#dc2626', color: '#fff', fontSize: text['2xs'], fontWeight: weight.bold, cursor: 'pointer' }}>
                               <FormattedMessage id="referral.reject" />
                             </button>
                             <button onClick={() => { setRejectingId(null); setRejectReason(''); }}
-                              style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #e2e8f0', backgroundColor: '#fff', color: '#475569', fontSize: 11, cursor: 'pointer' }}>
+                              style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #e2e8f0', backgroundColor: '#fff', color: '#475569', fontSize: text['2xs'], cursor: 'pointer' }}>
                               <FormattedMessage id="referral.cancel" />
                             </button>
                           </div>
@@ -459,12 +460,12 @@ export function CoordinatorDashboard() {
                           <div style={{ display: 'flex', gap: 6 }}>
                             <button data-testid={`accept-referral-${ref.id}`}
                               onClick={() => acceptReferral(ref.id)}
-                              style={{ padding: '6px 12px', borderRadius: 6, border: 'none', backgroundColor: '#166534', color: '#fff', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                              style={{ padding: '6px 12px', borderRadius: 6, border: 'none', backgroundColor: '#166534', color: '#fff', fontSize: text['2xs'], fontWeight: weight.bold, cursor: 'pointer' }}>
                               <FormattedMessage id="referral.accept" />
                             </button>
                             <button data-testid={`reject-referral-${ref.id}`}
                               onClick={() => setRejectingId(ref.id)}
-                              style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #dc2626', backgroundColor: '#fff', color: '#dc2626', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                              style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #dc2626', backgroundColor: '#fff', color: '#dc2626', fontSize: text['2xs'], fontWeight: weight.bold, cursor: 'pointer' }}>
                               <FormattedMessage id="referral.reject" />
                             </button>
                           </div>
@@ -480,13 +481,13 @@ export function CoordinatorDashboard() {
                     padding: '10px 14px', backgroundColor: '#eff6ff', borderRadius: 10,
                     border: '1px solid #bfdbfe', marginBottom: 16,
                   }}>
-                    <h4 style={{ fontSize: 13, fontWeight: 700, color: '#1a56db', margin: '0 0 8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    <h4 style={{ fontSize: text.sm, fontWeight: weight.bold, color: '#1a56db', margin: '0 0 8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                       <FormattedMessage id="coord.activeHolds" />
                     </h4>
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                       {editAvailability.filter(a => a.bedsOnHold > 0).map(a => (
                         <span key={a.populationType} style={{
-                          padding: '4px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+                          padding: '4px 10px', borderRadius: 6, fontSize: text.xs, fontWeight: weight.semibold,
                           backgroundColor: '#dbeafe', color: '#1e40af',
                         }}>
                           {a.populationType.replace(/_/g, ' ').toLowerCase()}: {a.bedsOnHold} held
@@ -506,8 +507,8 @@ export function CoordinatorDashboard() {
 
       {!loading && shelters.length === 0 && (
         <div style={{ textAlign: 'center', padding: 48, color: '#6b7280' }}>
-          <div style={{ fontSize: 48, marginBottom: 12 }}>🏠</div>
-          <div style={{ fontSize: 16, fontWeight: 500 }}><FormattedMessage id="coord.error" /></div>
+          <div style={{ fontSize: text['4xl'], marginBottom: 12 }}>🏠</div>
+          <div style={{ fontSize: text.md, fontWeight: weight.medium }}><FormattedMessage id="coord.error" /></div>
         </div>
       )}
     </div>
@@ -526,10 +527,10 @@ function StepperButton({ label, onClick, disabled, size = 44, fontSize = 18, 'da
       style={{
         width: size, height: size, borderRadius: '50%',
         border: '2px solid #e2e8f0', backgroundColor: '#fff',
-        fontSize, fontWeight: 700, color: disabled ? '#d1d5db' : '#0f172a',
+        fontSize, fontWeight: weight.bold, color: disabled ? '#d1d5db' : '#0f172a',
         cursor: disabled ? 'default' : 'pointer',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        lineHeight: 1,
+        lineHeight: leading.tight,
       }}
     >{label}</button>
   );

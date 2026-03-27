@@ -127,8 +127,8 @@ test.describe('Outreach Search', () => {
 
   test('data freshness badges are visible on search results', async ({ outreachPage }) => {
     await outreachPage.goto('/outreach');
-    // Wait for results to actually load (not just the search input border)
-    await outreachPage.waitForSelector('main div[style*="font-weight"][style*="700"]', { timeout: 15000 });
+    // Wait for results to actually load — look for a hold-bed button which only appears with loaded shelters
+    await outreachPage.waitForSelector('[data-testid^="hold-bed-"]', { timeout: 15000 });
     // Should see at least one freshness badge — check for the DataAge component's dot indicator
     const dataAgeDots = outreachPage.locator('main span[style*="border-radius: 50%"]');
     expect(await dataAgeDots.count()).toBeGreaterThan(0);

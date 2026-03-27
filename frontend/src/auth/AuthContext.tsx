@@ -19,6 +19,7 @@ export interface AuthContextType {
   logout: () => void;
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- Standard pattern: context + provider in same file
 export const AuthContext = createContext<AuthContextType>({
   token: null,
   user: null,
@@ -55,15 +56,28 @@ function decodeJwtPayload(token: string): DecodedUser | null {
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [token, setToken] = useState<string | null>(() =>
-    localStorage.getItem('fabt_access_token')
-  );
+  // Check expiry during initialization — not in an effect (avoids cascading setState)
+  const [token, setToken] = useState<string | null>(() => {
+    const stored = localStorage.getItem('fabt_access_token');
+    if (stored) {
+      const decoded = decodeJwtPayload(stored);
+      if (decoded && decoded.exp * 1000 < Date.now()) {
+        localStorage.removeItem('fabt_access_token');
+        localStorage.removeItem('fabt_refresh_token');
+        return null;
+      }
+    }
+    return stored;
+  });
   const [refreshToken, setRefreshToken] = useState<string | null>(() =>
     localStorage.getItem('fabt_refresh_token')
   );
   const [user, setUser] = useState<DecodedUser | null>(() => {
     const stored = localStorage.getItem('fabt_access_token');
-    return stored ? decodeJwtPayload(stored) : null;
+    if (!stored) return null;
+    const decoded = decodeJwtPayload(stored);
+    if (decoded && decoded.exp * 1000 < Date.now()) return null;
+    return decoded;
   });
 
   const [expiresIn, setExpiresIn] = useState(900); // default 15 min
@@ -85,19 +99,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, []);
 
-  useEffect(() => {
-    if (user && user.exp * 1000 < Date.now()) {
-      logout();
-    }
-  }, [user, logout]);
-
   const isAuthenticated = token !== null && user !== null;
 
-  // Expose refreshToken in context for api.ts token refresh
-  // Store it as a module-level ref so api.ts can access it
-  if (refreshToken) {
-    (window as unknown as Record<string, string>).__fabt_refresh_token = refreshToken;
-  }
+  // Expose refreshToken for api.ts token refresh via window global.
+  // Must be in useEffect — modifying external state during render triggers lint error.
+  useEffect(() => {
+    if (refreshToken) {
+      (window as unknown as Record<string, string>).__fabt_refresh_token = refreshToken;
+    }
+  }, [refreshToken]);
 
   return (
     <AuthContext.Provider value={{ token, user, isAuthenticated, expiresIn, login, logout }}>

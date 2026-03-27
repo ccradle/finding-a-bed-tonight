@@ -7,6 +7,7 @@ interface AuthGuardProps {
   children: ReactNode;
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- Utility co-located with its guard component
 export function getDefaultRouteForRoles(roles: string[]): string {
   if (roles.includes('PLATFORM_ADMIN') || roles.includes('COC_ADMIN')) {
     return '/admin';
