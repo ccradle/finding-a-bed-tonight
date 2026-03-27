@@ -43,29 +43,52 @@ done
 if [[ "${1:-}" == "stop" ]]; then
     log "Stopping services..."
 
-    # Kill backend: spring-boot:run forks a child JVM, so .pid-backend holds
-    # the Maven PID, not the JVM PID. Kill both the JVM (by port) and Maven.
-    # Try graceful shutdown first via /actuator/shutdown, fall back to kill.
+    # Detect platform: Git Bash kill can't signal Windows PIDs, so use PowerShell.
+    # On Linux/macOS, use standard POSIX signals.
+    IS_WINDOWS=false
+    if [[ "$(uname -s)" == MINGW* || "$(uname -s)" == MSYS* || "$(uname -s)" == CYGWIN* ]]; then
+        IS_WINDOWS=true
+    fi
+
+    # Find the actual JVM PID by port. spring-boot:run forks a child JVM, so
+    # .pid-backend holds the Maven PID, not the JVM PID.
+    if $IS_WINDOWS; then
+        JAVA_PID=$(netstat -ano 2>/dev/null | grep ":8080 .*LISTENING" | awk '{print $NF}' | head -1)
+    else
+        JAVA_PID=$(lsof -ti:8080 2>/dev/null | head -1)
+    fi
+
     BACKEND_STOPPED=false
-    for port in 8080 9091; do
-        JAVA_PID=$(netstat -ano 2>/dev/null | grep ":${port} .*LISTENING" | awk '{print $NF}' | head -1)
-        if [[ -n "$JAVA_PID" && "$JAVA_PID" != "0" ]]; then
+    if [[ -n "$JAVA_PID" && "$JAVA_PID" != "0" ]]; then
+        log "Stopping backend (PID $JAVA_PID)..."
+        # Graceful stop
+        if $IS_WINDOWS; then
+            powershell.exe -NoProfile -Command "Stop-Process -Id $JAVA_PID" 2>/dev/null || true
+        else
             kill "$JAVA_PID" 2>/dev/null || true
-            # Wait up to 10s for graceful shutdown
-            for i in $(seq 1 10); do
-                if ! netstat -ano 2>/dev/null | grep ":${port} .*LISTENING" | grep -q "$JAVA_PID"; then
-                    break
-                fi
-                sleep 1
-            done
+        fi
+        # Wait up to 15s for graceful shutdown
+        for i in $(seq 1 15); do
+            if $IS_WINDOWS; then
+                netstat -ano 2>/dev/null | grep ":8080 .*LISTENING" | grep -q "$JAVA_PID" || { BACKEND_STOPPED=true; break; }
+            else
+                kill -0 "$JAVA_PID" 2>/dev/null || { BACKEND_STOPPED=true; break; }
+            fi
+            sleep 1
+        done
+        if $BACKEND_STOPPED; then
+            log "Backend stopped gracefully (${i}s)."
+        else
             # Force kill if still alive
-            if netstat -ano 2>/dev/null | grep ":${port} .*LISTENING" | grep -q "$JAVA_PID"; then
+            warn "Graceful shutdown timed out, force-killing PID $JAVA_PID..."
+            if $IS_WINDOWS; then
+                powershell.exe -NoProfile -Command "Stop-Process -Id $JAVA_PID -Force" 2>/dev/null || true
+            else
                 kill -9 "$JAVA_PID" 2>/dev/null || true
-                warn "Backend PID $JAVA_PID force-killed (port $port)."
             fi
             BACKEND_STOPPED=true
         fi
-    done
+    fi
     # Also kill Maven wrapper if still around
     if [[ -f .pid-backend ]]; then
         kill "$(cat .pid-backend)" 2>/dev/null || true
