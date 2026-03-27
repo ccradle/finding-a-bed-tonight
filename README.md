@@ -150,8 +150,8 @@ Three deployment tiers allow the same codebase to serve communities of vastly di
 | Cache | Caffeine L1 / + Redis L2 (Standard/Full) |
 | Events | Spring Events (Lite) / Kafka (Full) |
 | Auth | JWT + OAuth2/OIDC + API Keys (hybrid) |
-| Frontend | React 19, Vite, TypeScript, Workbox PWA, react-intl (EN/ES) |
-| Testing | JUnit 5, Testcontainers, ArchUnit (236 tests), Playwright (114 UI tests), Karate (77 API tests), Gatling (4 simulations) |
+| Frontend | React 19, Vite, TypeScript, Workbox PWA, react-intl (EN/ES), CSS custom properties design tokens |
+| Testing | JUnit 5, Testcontainers, ArchUnit (256 tests), Playwright (118 UI tests), Karate (26 API scenarios), Gatling (4 simulations) |
 | Infra | Docker, GitHub Actions CI/CD + E2E pipeline, Terraform (3 tiers) |
 
 ---
@@ -1195,6 +1195,17 @@ finding-a-bed-tonight/
 - [x] SecurityConfig `permitAll()` audit: all 8 paths reviewed, Swagger disabled in prod, health endpoint details gated
 - [x] JWKS circuit breaker graceful degradation: password users unaffected by IdP outage, documented in runbook
 - [x] Merge to main, full regression, tag v0.15.0
+
+### Completed: Typography System + Lint Cleanup
+
+- [x] Global CSS with system font stack (`system-ui`), CSS custom properties for all typography tokens
+- [x] Shared TypeScript constants (`typography.ts`) backed by CSS custom properties — single source of truth
+- [x] All 13 component files migrated from hardcoded font values to `var()` tokens
+- [x] Monospace fallback chain: `ui-monospace, Cascadia Code, Source Code Pro, Menlo, Consolas, Courier New`
+- [x] 16 pre-existing ESLint errors resolved (0 remaining): AuthContext, AuthGuard, Layout, SessionTimeoutWarning, AdminPanel, AnalyticsTab, OutreachSearch
+- [x] WCAG audit: 1.4.4 (Resize Text), 1.4.12 (Text Spacing) — no fixed-height text containers, no pixel-based line-heights, 200% zoom verified
+- [x] 4 new Playwright tests: font consistency, no-serif, form inheritance, WCAG 1.4.12 text spacing override
+- [x] 2 fragile Playwright selectors replaced with `data-testid` (admin-panel, outreach-search)
 
 ---
 

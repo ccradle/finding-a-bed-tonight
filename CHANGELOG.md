@@ -11,6 +11,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.15.1] — 2026-03-27 — Typography System + Lint Cleanup
+
+Centralized typography system with CSS custom properties, consistent font rendering across all platforms, and zero ESLint errors.
+
+### Added
+- `global.css`: system font stack (`system-ui`), CSS custom properties for font sizes/weights/line-heights, universal font-family inheritance, base line-height 1.5 (WCAG 1.4.12)
+- `typography.ts`: shared TypeScript constants referencing CSS custom properties — single source of truth for all typography
+- Monospace fallback chain: `ui-monospace, Cascadia Code, Source Code Pro, Menlo, Consolas, Courier New`
+- 4 Playwright typography tests: font consistency, no-serif verification, form element inheritance, WCAG 1.4.12 text spacing override
+
+### Changed
+- All 13 component files migrated from hardcoded font values to `var()` token references
+- All `fontFamily: 'monospace'` replaced with `var(--font-mono)` (proper fallback chain)
+- WCAG-ACR updated: criteria 1.4.4 and 1.4.12 now reference typography system + automated Playwright verification
+- Government adoption guide updated: design token system noted in WCAG posture
+
+### Fixed
+- 16 pre-existing ESLint errors resolved (AuthContext window mutation, AuthGuard export, Layout route announcement, SessionTimeoutWarning Date.now purity, AdminPanel `any` types, AnalyticsTab catch types, OutreachSearch dep array)
+- 2 fragile Playwright selectors replaced with `data-testid` (admin-panel API key reveal, outreach-search freshness badge)
+- `AdminPanel.tsx`: 3 `any` types replaced with proper `HmisStatus`/`HmisVendorStatus` interfaces + null safety fixes
+
+### Tests
+- 256 backend, 118 Playwright (+4 typography), 26 Karate — all green
+- ESLint: 0 errors (was 16)
+- TypeScript: 0 errors
+
+**Diff:** [v0.15.0...v0.15.1](https://github.com/ccradle/finding-a-bed-tonight/compare/v0.15.0...v0.15.1)
+
+---
+
 ## [v0.15.0] — 2026-03-27 — Security Hardening Pre-Pilot
 
 Security hardening based on Marcus Webb AI persona (AppSec) static review. 12 findings addressed, 20 new security tests, OWASP ZAP baseline established.
@@ -441,7 +471,8 @@ Privacy-preserving referral system for domestic violence shelters.
 
 ---
 
-[Unreleased]: https://github.com/ccradle/finding-a-bed-tonight/compare/v0.15.0...HEAD
+[Unreleased]: https://github.com/ccradle/finding-a-bed-tonight/compare/v0.15.1...HEAD
+[v0.15.1]: https://github.com/ccradle/finding-a-bed-tonight/compare/v0.15.0...v0.15.1
 [v0.15.0]: https://github.com/ccradle/finding-a-bed-tonight/compare/v0.14.1...v0.15.0
 [v0.14.1]: https://github.com/ccradle/finding-a-bed-tonight/compare/v0.14.0...v0.14.1
 [v0.14.0]: https://github.com/ccradle/finding-a-bed-tonight/compare/v0.13.5...v0.14.0
