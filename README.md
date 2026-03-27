@@ -2,8 +2,8 @@
 
 [![CI](https://github.com/ccradle/finding-a-bed-tonight/actions/workflows/ci.yml/badge.svg)](https://github.com/ccradle/finding-a-bed-tonight/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
-[![Java](https://img.shields.io/badge/Java-21-orange.svg)](https://openjdk.org/projects/jdk/21/)
-[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.4.13-green.svg)](https://spring.io/projects/spring-boot)
+[![Java](https://img.shields.io/badge/Java-25-orange.svg)](https://openjdk.org/projects/jdk/25/)
+[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.0.5-green.svg)](https://spring.io/projects/spring-boot)
 
 Open-source emergency shelter bed availability platform. Matches homeless individuals and families to available shelter beds in real time.
 
@@ -49,7 +49,7 @@ An open-source platform that matches homeless individuals and families to availa
                           │ REST API (/api/v1)
                           ▼
 ┌──────────────────────────────────────────────────────────────────────────┐
-│                  Spring Boot 3.4 (Modular Monolith)                      │
+│                  Spring Boot 4.0 (Modular Monolith)                      │
 │                                                                          │
 │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────┐               │
 │  │  tenant  │ │   auth   │ │ shelter  │ │  dataimport  │               │
@@ -78,7 +78,7 @@ An open-source platform that matches homeless individuals and families to availa
 
 ## Architecture
 
-The backend is a Spring Boot 3.4 modular monolith. Each bounded context lives in its own top-level package under `org.fabt.*` with enforced boundaries (21 ArchUnit rules). A shared kernel provides cross-cutting infrastructure (security filters, caching, event bus, JDBC configuration).
+The backend is a Spring Boot 4.0 modular monolith with virtual threads. Each bounded context lives in its own top-level package under `org.fabt.*` with enforced boundaries (21 ArchUnit rules). A shared kernel provides cross-cutting infrastructure (security filters, caching, event bus, JDBC configuration).
 
 Three deployment tiers allow the same codebase to serve communities of vastly different size and budget:
 
@@ -98,7 +98,7 @@ Three deployment tiers allow the same codebase to serve communities of vastly di
 
 | Layer | Technology |
 |---|---|
-| Backend | Java 21, Spring Boot 3.4, Spring MVC, Spring Data JDBC |
+| Backend | Java 25, Spring Boot 4.0, Spring MVC, Spring Data JDBC, Virtual Threads |
 | Database | PostgreSQL 16, Flyway (26 migrations), Row Level Security (DV shelters) |
 | Cache | Caffeine L1 / + Redis L2 (Standard/Full) |
 | Events | Spring Events (Lite) / Kafka (Full) |
@@ -753,7 +753,7 @@ finding-a-bed-tonight/
 ├── prometheus.yml                                     # Prometheus scrape config (targets management port :9091)
 ├── otel-collector-config.yaml                         # OTel Collector pipeline: OTLP → Jaeger
 │
-├── backend/                                           # Spring Boot 3.4 modular monolith
+├── backend/                                           # Spring Boot 4.0 modular monolith
 │   ├── pom.xml                                        # Maven build + OWASP dependency-check plugin
 │   ├── owasp-suppressions.xml                         # CVE suppression file with review dates
 │   └── src/
@@ -925,7 +925,7 @@ finding-a-bed-tonight/
 │   │       ├── oauth2-login.spec.ts                   # 3 tests — SSO buttons, no-provider
 │   │       └── oauth2-providers.spec.ts               # 2 tests — provider tab, add provider form
 │   ├── karate/                                        # API tests (77 scenarios, JUnit 5 runner)
-│       ├── pom.xml                                    # Standalone Maven project, Karate 1.4.1
+│       ├── pom.xml                                    # Standalone Maven project, Karate 2.0.0
 │       └── src/test/java/
 │           ├── KarateRunnerTest.java                  # JUnit 5 entry point
 │           ├── ObservabilityRunnerTest.java            # @observability tag runner (sequential)
@@ -991,7 +991,7 @@ finding-a-bed-tonight/
 
 ### Completed: Platform Foundation (archived)
 
-- [x] Modular monolith backend (Java 21, Spring Boot 3.4, 6 modules, ArchUnit boundaries)
+- [x] Modular monolith backend (Java 25, Spring Boot 4.0, 6 modules, ArchUnit boundaries, virtual threads)
 - [x] 25 Flyway migrations (V1–V24 + V8.1), PostgreSQL 16, Row Level Security for DV shelters
 - [x] 3 deployment profiles (Lite / Standard / Full) with CacheService + EventBus abstractions
 - [x] Multi-tenant auth: JWT + API keys + OAuth2 provider management, 4 roles, dual-layer security
@@ -1077,6 +1077,7 @@ finding-a-bed-tonight/
 ### Completed: Security Dependency Upgrade
 
 - [x] Spring Boot 3.4.4 → 3.4.13, springdoc 2.8.6 → 2.8.16
+- [x] Java 21 → 25 LTS, Spring Boot 3.4.13 → 4.0.5, virtual threads, ScopedValue tenant context, Karate 2.0
 - [x] 16 CVEs resolved (CVE-2024-38819, CVE-2024-38820, CVE-2025-22228, and 13 others)
 - [x] Full regression: 179 backend tests, 62 Playwright, 36 Karate, 3 Gatling simulations
 

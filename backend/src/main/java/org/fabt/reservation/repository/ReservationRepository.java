@@ -93,6 +93,13 @@ public class ReservationRepository {
         );
     }
 
+    public List<Reservation> findAllHeld() {
+        return jdbcTemplate.query(
+                "SELECT * FROM reservation WHERE status = 'HELD'",
+                ROW_MAPPER
+        );
+    }
+
     public List<Reservation> findExpired() {
         return jdbcTemplate.query(
                 "SELECT * FROM reservation WHERE status = 'HELD' AND expires_at < NOW()",

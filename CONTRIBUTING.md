@@ -6,7 +6,7 @@ Thank you for your interest in contributing to Finding A Bed Tonight. This proje
 
 ### Prerequisites
 
-- Java 21+ (OpenJDK or Eclipse Temurin)
+- Java 25+ (OpenJDK or Eclipse Temurin)
 - Maven 3.9+
 - Node.js 20+
 - Docker (for PostgreSQL via Testcontainers and local dev)
@@ -52,7 +52,7 @@ npm run build
 
 ## Architecture
 
-The backend is a **modular monolith** built with Spring Boot 3.4 and Java 21. Each module owns its domain:
+The backend is a **modular monolith** built with Spring Boot 4.0 and Java 25 (virtual threads enabled). Each module owns its domain:
 
 | Module | Package | Responsibility |
 |--------|---------|---------------|

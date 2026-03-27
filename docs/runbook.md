@@ -7,7 +7,7 @@
 | **Service** | finding-a-bed-tonight |
 | **Owner** | Platform team |
 | **Repo** | github.com/ccradle/finding-a-bed-tonight |
-| **Tech stack** | Java 21, Spring Boot 3.4, PostgreSQL 16, React PWA |
+| **Tech stack** | Java 25, Spring Boot 4.0, PostgreSQL 16, React PWA, Virtual Threads |
 | **Deployment tiers** | Lite (JAR + PG), Standard (+Redis), Full (+Kafka) |
 | **Default port** | 8080 (application), 9091 (management, when observability profile active) |
 | **Dashboard** | Grafana → FABT Operations (`:3000` dev, production varies) |

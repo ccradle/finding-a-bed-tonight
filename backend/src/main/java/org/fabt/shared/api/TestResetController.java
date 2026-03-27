@@ -40,9 +40,11 @@ public class TestResetController {
     private static final Logger log = LoggerFactory.getLogger(TestResetController.class);
 
     private final JdbcTemplate jdbcTemplate;
+    private final HeldReservationCleaner reservationCleaner;
 
-    public TestResetController(JdbcTemplate jdbcTemplate) {
+    public TestResetController(JdbcTemplate jdbcTemplate, HeldReservationCleaner reservationCleaner) {
         this.jdbcTemplate = jdbcTemplate;
+        this.reservationCleaner = reservationCleaner;
     }
 
     @Operation(
@@ -72,9 +74,8 @@ public class TestResetController {
             int tokens = jdbcTemplate.update("DELETE FROM referral_token");
             deleted.put("referral_tokens", tokens);
 
-            // Reservations in terminal or held state
-            int reservations = jdbcTemplate.update(
-                    "UPDATE reservation SET status = 'CANCELLED' WHERE status = 'HELD'");
+            // Cancel held reservations through domain logic — properly adjusts availability snapshots
+            int reservations = reservationCleaner.cancelAllHeldReservations();
             deleted.put("held_reservations_cancelled", reservations);
 
             // Test-created shelters (cascade deletes their availability, constraints, assignments)

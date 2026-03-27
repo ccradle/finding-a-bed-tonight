@@ -129,7 +129,8 @@ public class AvailabilityService {
         BedAvailability saved = repository.insert(ba);
 
         // Synchronous cache invalidation BEFORE returning 200 (Design rule D6)
-        cacheService.evict(CacheNames.SHELTER_AVAILABILITY, shelterId.toString());
+        // SHELTER_AVAILABILITY is cached by tenantId in BedSearchService — evict by tenantId
+        cacheService.evict(CacheNames.SHELTER_AVAILABILITY, tenantId.toString());
         cacheService.evict(CacheNames.SHELTER_PROFILE, shelterId.toString());
         cacheService.evict(CacheNames.SHELTER_LIST, tenantId.toString());
 

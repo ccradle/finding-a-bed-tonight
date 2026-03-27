@@ -304,45 +304,33 @@ class ReservationIntegrationTest extends BaseIntegrationTest {
     }
 
     // -------------------------------------------------------------------------
-    // 9.10: Bed search results include bedsHeld (beds_on_hold) count
+    // 9.10: Bed search cache invalidated immediately after hold/cancel
     // -------------------------------------------------------------------------
 
     @Test
-    void test_bedSearch_includesBedsOnHold() {
+    void test_bedSearch_cacheInvalidatedAfterHold() {
         HttpHeaders outreachHeaders = authHelper.outreachWorkerHeaders();
 
-        // Create a reservation to increment beds_on_hold
-        createReservation(shelterId, outreachHeaders, "SINGLE_ADULT");
+        // Prime the bed search cache by searching BEFORE the hold
+        restTemplate.exchange("/api/v1/queries/beds", HttpMethod.POST,
+                new HttpEntity<>("{}", outreachHeaders), new ParameterizedTypeReference<Map<String, Object>>() {});
 
-        // Search
-        ResponseEntity<Map<String, Object>> searchResponse = restTemplate.exchange(
-                "/api/v1/queries/beds",
-                HttpMethod.POST,
-                new HttpEntity<>("{}", outreachHeaders),
-                new ParameterizedTypeReference<>() {}
-        );
+        // Create a hold — this must invalidate the bed search cache
+        ResponseEntity<Map<String, Object>> holdResponse = createReservation(shelterId, outreachHeaders, "SINGLE_ADULT");
+        assertThat(holdResponse.getStatusCode()).isEqualTo(HttpStatus.CREATED);
 
-        assertThat(searchResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
-        @SuppressWarnings("unchecked")
-        List<Map<String, Object>> results = (List<Map<String, Object>>) searchResponse.getBody().get("results");
+        // Immediately search again — must reflect the hold (no stale cache)
+        int bedsOnHold = searchBedsOnHold(outreachHeaders, shelterId, "SINGLE_ADULT");
+        assertThat(bedsOnHold).as("Bed search must reflect hold immediately (cache invalidation)").isGreaterThanOrEqualTo(1);
 
-        // Find our shelter
-        Map<String, Object> ourShelter = results.stream()
-                .filter(r -> shelterId.toString().equals(r.get("shelterId")))
-                .findFirst()
-                .orElse(null);
+        // Cancel the hold
+        String reservationId = (String) holdResponse.getBody().get("id");
+        restTemplate.exchange("/api/v1/reservations/" + reservationId + "/cancel",
+                HttpMethod.PATCH, new HttpEntity<>(outreachHeaders), new ParameterizedTypeReference<Map<String, Object>>() {});
 
-        if (ourShelter != null) {
-            @SuppressWarnings("unchecked")
-            List<Map<String, Object>> availability = (List<Map<String, Object>>) ourShelter.get("availability");
-            Map<String, Object> singleAdult = availability.stream()
-                    .filter(a -> "SINGLE_ADULT".equals(a.get("populationType")))
-                    .findFirst()
-                    .orElse(null);
-            if (singleAdult != null) {
-                assertThat(((Number) singleAdult.get("bedsOnHold")).intValue()).isGreaterThanOrEqualTo(1);
-            }
-        }
+        // Immediately search again — must reflect the cancel (no stale cache)
+        int bedsOnHoldAfterCancel = searchBedsOnHold(outreachHeaders, shelterId, "SINGLE_ADULT");
+        assertThat(bedsOnHoldAfterCancel).as("Bed search must reflect cancel immediately (cache invalidation)").isEqualTo(0);
     }
 
     // -------------------------------------------------------------------------
@@ -436,5 +424,21 @@ class ReservationIntegrationTest extends BaseIntegrationTest {
                 new HttpEntity<>(body, headers),
                 new ParameterizedTypeReference<>() {}
         );
+    }
+
+    @SuppressWarnings("unchecked")
+    private int searchBedsOnHold(HttpHeaders headers, UUID shelterId, String populationType) {
+        ResponseEntity<Map<String, Object>> searchResponse = restTemplate.exchange(
+                "/api/v1/queries/beds", HttpMethod.POST,
+                new HttpEntity<>("{}", headers),
+                new ParameterizedTypeReference<>() {});
+        List<Map<String, Object>> results = (List<Map<String, Object>>) searchResponse.getBody().get("results");
+        return results.stream()
+                .filter(r -> shelterId.toString().equals(r.get("shelterId")))
+                .flatMap(r -> ((List<Map<String, Object>>) r.get("availability")).stream())
+                .filter(a -> populationType.equals(a.get("populationType")))
+                .map(a -> ((Number) a.get("bedsOnHold")).intValue())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Shelter " + shelterId + " not found in bed search results"));
     }
 }

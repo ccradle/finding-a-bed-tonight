@@ -17,6 +17,7 @@ import org.fabt.observability.ObservabilityMetrics;
 import org.fabt.reservation.domain.Reservation;
 import org.fabt.reservation.domain.ReservationStatus;
 import org.fabt.reservation.repository.ReservationRepository;
+import org.fabt.shared.api.HeldReservationCleaner;
 import org.fabt.shared.event.DomainEvent;
 import org.fabt.shared.event.EventBus;
 import org.fabt.shared.web.TenantContext;
@@ -28,7 +29,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
-public class ReservationService {
+public class ReservationService implements HeldReservationCleaner {
 
     private static final Logger log = LoggerFactory.getLogger(ReservationService.class);
     private static final int DEFAULT_HOLD_DURATION_MINUTES = 90;
@@ -214,6 +215,23 @@ public class ReservationService {
 
         log.info("Reservation {} expired for shelter {} / {}",
                 reservationId, reservation.getShelterId(), reservation.getPopulationType());
+    }
+
+    @Override
+    @Transactional
+    public int cancelAllHeldReservations() {
+        List<Reservation> held = reservationRepository.findAllHeld();
+        int cancelled = 0;
+        for (Reservation reservation : held) {
+            try {
+                expireReservation(reservation.getId());
+                cancelled++;
+            } catch (Exception e) {
+                log.debug("Could not expire reservation {} during cleanup: {}",
+                        reservation.getId(), e.getMessage());
+            }
+        }
+        return cancelled;
     }
 
     @Transactional(readOnly = true)

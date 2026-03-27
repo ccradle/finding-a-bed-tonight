@@ -82,7 +82,7 @@ if ! command -v mvn &>/dev/null; then
 fi
 
 if ! command -v java &>/dev/null; then
-    err "Java not found. Install Java 21+ and try again."
+    err "Java not found. Install Java 25+ and try again."
     exit 1
 fi
 
