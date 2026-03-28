@@ -35,6 +35,13 @@ public class ObservabilityMetrics {
     public Timer bedSearchTimer(String populationType) {
         return Timer.builder("fabt.bed.search.duration")
                 .tag("populationType", populationType != null ? populationType : "all")
+                .publishPercentileHistogram()
+                .register(registry);
+    }
+
+    public Timer availabilityUpdateTimer() {
+        return Timer.builder("fabt.availability.update.duration")
+                .publishPercentileHistogram()
                 .register(registry);
     }
 
@@ -61,6 +68,7 @@ public class ObservabilityMetrics {
     public Timer webhookDeliveryTimer(String eventType) {
         return Timer.builder("fabt.webhook.delivery.duration")
                 .tag("event_type", eventType)
+                .publishPercentileHistogram()
                 .register(registry);
     }
 
