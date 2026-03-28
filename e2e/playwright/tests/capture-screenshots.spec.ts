@@ -178,6 +178,18 @@ test.describe('Demo Screenshot Capture', () => {
     await adminPage.screenshot({ path: path.join(DEMO_DIR, '16-admin-oauth2-providers.png'), fullPage: true });
   });
 
+  // === PASSWORD MANAGEMENT ===
+
+  test('19 - Change Password modal', async ({ outreachPage }) => {
+    await outreachPage.goto('/outreach');
+    await outreachPage.waitForTimeout(1000);
+    await outreachPage.locator('[data-testid="change-password-button"]').click();
+    await outreachPage.waitForTimeout(500);
+    await outreachPage.screenshot({ path: path.join(DEMO_DIR, '19-change-password.png'), fullPage: true });
+    // Close modal without submitting
+    await outreachPage.locator('button', { hasText: /cancel/i }).click();
+  });
+
   // === OBSERVABILITY STACK ===
 
   test('17 - Grafana dashboard', async ({ browser }) => {
