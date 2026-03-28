@@ -5,7 +5,7 @@ Feature: DV Shelter Access Control — Blocking Canary Gate
 
   Background:
     * url baseUrl
-    * def dvShelterId = 'd0000000-0000-0000-0000-000000000009'
+    * def dvShelterId = 'd0000000-0000-0000-0000-000000000011'
 
   Scenario: DV shelter absent from public bed search
     * configure headers = { Authorization: '#(outreachAuthHeader)' }

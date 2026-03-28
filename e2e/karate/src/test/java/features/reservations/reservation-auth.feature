@@ -2,7 +2,7 @@ Feature: Reservation Authorization — Cross-User 403
 
   Background:
     * url baseUrl
-    * def shelterId = 'd0000000-0000-0000-0000-000000000003'
+    * def shelterId = 'd0000000-0000-0000-0000-000000000004'
 
   Scenario: Outreach worker cannot confirm another worker's reservation
     # Set availability

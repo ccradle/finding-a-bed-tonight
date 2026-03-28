@@ -11,7 +11,7 @@ Feature: DV Opaque Referral — Token Lifecycle
     * configure headers = { Authorization: '#(adminAuthHeader)' }
 
     # Use the seed DV shelter
-    * def dvShelterId = 'd0000000-0000-0000-0000-000000000009'
+    * def dvShelterId = 'd0000000-0000-0000-0000-000000000011'
 
     Given path '/api/v1/dv-referrals'
     And request { "shelterId": "#(dvShelterId)", "householdSize": 2, "populationType": "DV_SURVIVOR", "urgency": "URGENT", "specialNeeds": "Wheelchair", "callbackNumber": "919-555-0042" }

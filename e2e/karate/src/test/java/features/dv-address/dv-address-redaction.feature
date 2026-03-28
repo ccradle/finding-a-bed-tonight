@@ -3,7 +3,7 @@ Feature: DV Address Redaction — Policy-Based Address Visibility
   Background:
     * url baseUrl
     # Use seed DV shelter and admin (dvAccess=true)
-    * def dvShelterId = 'd0000000-0000-0000-0000-000000000009'
+    * def dvShelterId = 'd0000000-0000-0000-0000-000000000011'
 
   Scenario: Default policy — outreach worker does NOT see DV address
     * configure headers = { Authorization: '#(adminAuthHeader)' }

@@ -17,7 +17,7 @@ Feature: DV Opaque Referral — Security & Access Control
 
   Scenario: Duplicate PENDING token returns 409
     * configure headers = { Authorization: '#(adminAuthHeader)' }
-    * def dvShelterId = 'd0000000-0000-0000-0000-000000000009'
+    * def dvShelterId = 'd0000000-0000-0000-0000-000000000011'
 
     # First request — should succeed
     Given path '/api/v1/dv-referrals'
@@ -33,7 +33,7 @@ Feature: DV Opaque Referral — Security & Access Control
 
   Scenario: Outreach worker without dvAccess cannot create referral (RLS + service-layer defense)
     * configure headers = { Authorization: '#(outreachAuthHeader)' }
-    * def dvShelterId = 'd0000000-0000-0000-0000-000000000009'
+    * def dvShelterId = 'd0000000-0000-0000-0000-000000000011'
     Given path '/api/v1/dv-referrals'
     And request { "shelterId": "#(dvShelterId)", "householdSize": 1, "populationType": "DV_SURVIVOR", "urgency": "STANDARD", "callbackNumber": "919-555-0004" }
     When method POST

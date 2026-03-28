@@ -5,7 +5,7 @@ Feature: Availability API
 
   Scenario: PATCH /api/v1/shelters/{id}/availability creates snapshot with derived beds_available
     * configure headers = { Authorization: '#(cocadminAuthHeader)' }
-    Given path '/api/v1/shelters/d0000000-0000-0000-0000-000000000001/availability'
+    Given path '/api/v1/shelters/d0000000-0000-0000-0000-000000000004/availability'
     And request { "populationType": "SINGLE_ADULT", "bedsTotal": 50, "bedsOccupied": 40, "bedsOnHold": 2, "acceptingNewGuests": true }
     When method PATCH
     Then status 200
@@ -37,7 +37,7 @@ Feature: Availability API
 
   Scenario: Outreach worker cannot PATCH availability (403)
     * configure headers = { Authorization: '#(outreachAuthHeader)' }
-    Given path '/api/v1/shelters/d0000000-0000-0000-0000-000000000001/availability'
+    Given path '/api/v1/shelters/d0000000-0000-0000-0000-000000000004/availability'
     And request { "populationType": "SINGLE_ADULT", "bedsTotal": 50, "bedsOccupied": 40, "bedsOnHold": 0, "acceptingNewGuests": true }
     When method PATCH
     Then status 403
@@ -45,12 +45,12 @@ Feature: Availability API
   Scenario: Shelter detail includes availability array after PATCH
     * configure headers = { Authorization: '#(cocadminAuthHeader)' }
     # Update availability first
-    Given path '/api/v1/shelters/d0000000-0000-0000-0000-000000000001/availability'
+    Given path '/api/v1/shelters/d0000000-0000-0000-0000-000000000004/availability'
     And request { "populationType": "SINGLE_ADULT", "bedsTotal": 50, "bedsOccupied": 42, "bedsOnHold": 0, "acceptingNewGuests": true }
     When method PATCH
     Then status 200
     # Fetch detail — configure headers persists across requests
-    Given path '/api/v1/shelters/d0000000-0000-0000-0000-000000000001'
+    Given path '/api/v1/shelters/d0000000-0000-0000-0000-000000000004'
     When method GET
     Then status 200
     And match response.availability == '#array'
