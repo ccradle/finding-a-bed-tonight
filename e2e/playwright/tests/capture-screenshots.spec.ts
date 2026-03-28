@@ -39,37 +39,41 @@ test.describe('Demo Screenshot Capture', () => {
     await outreachPage.goto('/outreach');
     await expect(outreachPage.locator('main')).toBeVisible();
     await outreachPage.waitForTimeout(1000);
+    // Select FAMILY_WITH_CHILDREN filter — Darius is searching for a family of five
+    await outreachPage.locator('[data-testid="population-type-filter"]').selectOption('FAMILY_WITH_CHILDREN');
+    await outreachPage.waitForTimeout(2000);
     await outreachPage.screenshot({ path: path.join(DEMO_DIR, '02-bed-search.png'), fullPage: true });
   });
 
   test('03 - Search results', async ({ outreachPage }) => {
     await outreachPage.goto('/outreach');
     await outreachPage.waitForTimeout(1000);
-    const searchButton = outreachPage.locator('button', { hasText: /search|find/i });
-    if (await searchButton.count() > 0) {
-      await searchButton.first().click();
-      await outreachPage.waitForTimeout(2000);
-    }
+    // Select FAMILY_WITH_CHILDREN filter — results should show 3 family shelters
+    await outreachPage.locator('[data-testid="population-type-filter"]').selectOption('FAMILY_WITH_CHILDREN');
+    await outreachPage.waitForTimeout(2000);
     await outreachPage.screenshot({ path: path.join(DEMO_DIR, '03-search-results.png'), fullPage: true });
   });
 
   test('04 - Shelter detail from search', async ({ outreachPage }) => {
     await outreachPage.goto('/outreach');
+    await outreachPage.waitForTimeout(1000);
+    await outreachPage.locator('[data-testid="population-type-filter"]').selectOption('FAMILY_WITH_CHILDREN');
+    await outreachPage.waitForTimeout(2000);
+    // Click Crabtree Valley by data-testid — caption: "pets allowed, wheelchair accessible, updated 12 minutes ago"
+    await outreachPage.locator('[data-testid="shelter-card-crabtree-valley-family-haven"]').click();
     await outreachPage.waitForTimeout(1500);
-    const shelterCard = outreachPage.locator('main [style*="cursor: pointer"], main button', { hasText: /shelter|haven|hope/i });
-    if (await shelterCard.count() > 0) {
-      await shelterCard.first().click();
-      await outreachPage.waitForTimeout(1500);
-    }
     await outreachPage.screenshot({ path: path.join(DEMO_DIR, '04-shelter-detail-search.png'), fullPage: true });
   });
 
   test('05 - Reservation hold', async ({ outreachPage }) => {
     await outreachPage.goto('/outreach');
-    await outreachPage.waitForTimeout(1500);
-    const holdButton = outreachPage.locator('button', { hasText: /hold/i });
+    await outreachPage.waitForTimeout(1000);
+    await outreachPage.locator('[data-testid="population-type-filter"]').selectOption('FAMILY_WITH_CHILDREN');
+    await outreachPage.waitForTimeout(2000);
+    // Hold a bed at Crabtree Valley — caption: "One tap holds the bed for 90 minutes"
+    const holdButton = outreachPage.locator('[data-testid^="hold-bed-"]').first();
     if (await holdButton.count() > 0) {
-      await holdButton.first().click();
+      await holdButton.click();
       await outreachPage.waitForTimeout(2000);
     }
     await outreachPage.screenshot({ path: path.join(DEMO_DIR, '05-reservation-hold.png'), fullPage: true });

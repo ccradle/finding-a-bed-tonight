@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { LoginPage } from '../pages/LoginPage';
+import { cleanupTestData } from '../helpers/test-cleanup';
 
 // Dedicated test user — never touches seed users
 const TEST_EMAIL = 'pwdtest-change@dev.fabt.org';
@@ -40,6 +41,8 @@ test.describe('Password Change', () => {
     const token = await getAdminToken();
     await createTestUser(token);
   });
+
+  test.afterAll(async () => { await cleanupTestData(); });
 
   test('user can change password via modal', async ({ page }) => {
     const loginPage = new LoginPage(page);

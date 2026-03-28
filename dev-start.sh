@@ -7,6 +7,7 @@
 #   ./dev-start.sh backend                Start PostgreSQL + backend only (no frontend)
 #   ./dev-start.sh --observability        Full stack + Prometheus + Grafana + Jaeger + OTel Collector
 #   ./dev-start.sh backend --observability  Backend + observability (no frontend)
+#   ./dev-start.sh --fresh                 Reset seed data before loading (use when shelter structure changes)
 #   ./dev-start.sh stop                   Stop all services including observability containers
 #
 set -euo pipefail
@@ -29,6 +30,7 @@ info() { echo -e "${BLUE}[FABT]${NC} $1"; }
 BACKEND_ONLY=false
 OBSERVABILITY=false
 OAUTH2=false
+FRESH_SEED=false
 
 for arg in "$@"; do
     case "$arg" in
@@ -36,6 +38,7 @@ for arg in "$@"; do
         backend)     BACKEND_ONLY=true ;;
         --observability) OBSERVABILITY=true ;;
         --oauth2)    OAUTH2=true ;;
+        --fresh)     FRESH_SEED=true ;;
     esac
 done
 
@@ -239,9 +242,14 @@ docker compose exec -T postgres psql -U fabt -d fabt -c "
     GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO fabt_app;
     GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO fabt_app;
 " >/dev/null 2>&1
+if [[ "$FRESH_SEED" == true ]]; then
+    warn "Resetting seed data (--fresh flag)..."
+    docker compose exec -T postgres psql -U fabt -d fabt < infra/scripts/seed-reset.sql >/dev/null 2>&1
+    log "Seed data reset complete."
+fi
 log "Loading seed data..."
 docker compose exec -T postgres psql -U fabt -d fabt < infra/scripts/seed-data.sql >/dev/null 2>&1
-log "Seed data loaded (10 shelters, 3 users, 1 tenant)."
+log "Seed data loaded (13 shelters, 3 users, 1 tenant)."
 
 log "Loading demo activity data (28 days of snapshots, searches, reservations)..."
 docker compose exec -T postgres psql -U fabt -d fabt < infra/scripts/demo-activity-seed.sql >/dev/null 2>&1

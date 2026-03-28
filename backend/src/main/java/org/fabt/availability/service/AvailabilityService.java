@@ -86,6 +86,7 @@ public class AvailabilityService {
                                                 int bedsTotal, int bedsOccupied, int bedsOnHold,
                                                 boolean acceptingNewGuests, String notes,
                                                 String updatedBy, int overflowBeds) {
+        io.micrometer.core.instrument.Timer.Sample timerSample = io.micrometer.core.instrument.Timer.start();
         UUID tenantId = TenantContext.getTenantId();
 
         // Verify shelter exists in tenant
@@ -154,6 +155,7 @@ public class AvailabilityService {
         eventBus.publish(new DomainEvent("availability.updated", tenantId, payload));
 
         metrics.availabilityUpdateCounter(shelterId.toString(), updatedBy).increment();
+        timerSample.stop(metrics.availabilityUpdateTimer());
 
         return AvailabilitySnapshot.from(saved);
     }

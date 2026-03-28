@@ -27,7 +27,7 @@ An open-source platform that shows real-time shelter bed availability across an 
 
 ## See It in Action
 
-- **[Platform Walkthrough](https://ccradle.github.io/findABed/demo/index.html)** — 19 annotated screenshots of every key view
+- **[Platform Walkthrough](https://ccradle.github.io/findABed/demo/index.html)** — 15 annotated screenshots with story-driven narrative
 - **[DV Referral Flow](https://ccradle.github.io/findABed/demo/dvindex.html)** — privacy-preserving referral for DV shelters
 - **[HMIS Bridge](https://ccradle.github.io/findABed/demo/hmisindex.html)** — automated data push to HMIS vendors
 - **[CoC Analytics](https://ccradle.github.io/findABed/demo/analyticsindex.html)** — utilization trends, demand signals, HIC/PIT export
@@ -110,6 +110,10 @@ Full feature details: [For Developers — Project Status](docs/FOR-DEVELOPERS.md
 > *Policy documents were generated with AI assistance and include attribution. They are intended as starting points and should be reviewed by subject matter experts before use in formal procurement or grant applications.*
 
 ---
+
+## Language and Values
+
+This project uses person-first language: "individuals experiencing homelessness," not "the homeless" or "homeless individuals." Population type labels in the application use dignity-centered terminology ("Safety Shelter" instead of "DV Survivors"). These choices reflect the project's commitment to centering the people the platform serves. See [PERSONAS.md](../PERSONAS.md) for the full values framework.
 
 ## Contributing
 

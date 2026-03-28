@@ -167,9 +167,12 @@ chmod +x dev-start.sh
 
 # Backend only (no frontend)
 ./dev-start.sh backend
+
+# Reset seed data before loading (use when shelter structure changes)
+./dev-start.sh --fresh
 ```
 
-The script starts PostgreSQL via Docker Compose, builds and launches the backend (with Flyway migrations), loads seed data (10 shelters, 3 users, 1 tenant), and starts the frontend dev server.
+The script starts PostgreSQL via Docker Compose, builds and launches the backend (with Flyway migrations), loads seed data (13 shelters, 3 users, 1 tenant), and starts the frontend dev server. Use `--fresh` when shelter structure has changed — it runs `infra/scripts/seed-reset.sql` before loading seed data, clearing old shelters that would otherwise persist via `ON CONFLICT DO NOTHING`.
 
 ### Manual start
 
@@ -631,7 +634,7 @@ All endpoints are under `/api/v1`. Authentication is via JWT Bearer token (from 
 
 **Surge Event / White Flag** — Emergency activation when weather or crisis requires expanded shelter capacity. CoC-admin triggered, broadcast to all outreach workers.
 
-**PIT Count (Point-in-Time)** — Annual HUD-mandated count of sheltered and unsheltered homeless individuals.
+**PIT Count (Point-in-Time)** — Annual HUD-mandated count of sheltered and unsheltered individuals experiencing homelessness.
 
 **Bed Availability** — Real-time count of open beds by population type at a shelter. Append-only snapshots, never updated in place. `beds_available` is derived: `beds_total - beds_occupied - beds_on_hold`.
 
@@ -639,7 +642,7 @@ All endpoints are under `/api/v1`. Authentication is via JWT Bearer token (from 
 
 **Population Type** — Category of individuals a shelter serves: `SINGLE_ADULT`, `FAMILY_WITH_CHILDREN`, `WOMEN_ONLY`, `VETERAN`, `YOUTH_18_24`, `YOUTH_UNDER_18`, `DV_SURVIVOR`.
 
-**Outreach Worker** — Frontline staff who connects homeless individuals to services. Primary user of the bed search and reservation interfaces.
+**Outreach Worker** — Frontline staff who connects individuals experiencing homelessness to services. Primary user of the bed search and reservation interfaces.
 
 **Coordinator** — Shelter staff responsible for updating bed counts and managing shelter profile.
 
@@ -836,6 +839,7 @@ finding-a-bed-tonight/
 │   │   ├── package.json                               # @playwright/test + TypeScript
 │   │   ├── playwright.config.ts                       # baseURL, workers, retries, HTML reporter
 │   │   ├── fixtures/auth.fixture.ts                   # Per-role storageState (admin, cocadmin, outreach)
+│   │   ├── helpers/test-cleanup.ts                    # Shared afterAll cleanup — calls test reset endpoint
 │   │   ├── pages/                                     # Page Object Model
 │   │   │   ├── LoginPage.ts                           # Tenant slug, email, password, submit
 │   │   │   ├── OutreachSearchPage.ts                  # Filters, results, detail modal
@@ -894,7 +898,7 @@ finding-a-bed-tonight/
 │   └── runbook.md                                     # Operational runbook (monitors, thresholds, Grafana, security)
 │
 ├── grafana/                                           # Optional Grafana provisioning (observability profile)
-│   ├── dashboards/fabt-operations.json                # FABT Operations dashboard (9 panels)
+│   ├── dashboards/fabt-operations.json                # FABT Operations dashboard (13 panels)
 │   └── provisioning/
 │       ├── dashboards/dashboard-provider.yaml          # Auto-load dashboards from /var/lib/grafana/dashboards
 │       └── datasources/fabt-datasources.yaml          # Prometheus datasource (http://prometheus:9090)
@@ -902,7 +906,9 @@ finding-a-bed-tonight/
 ├── infra/
 │   ├── docker/                                        # Dockerfiles (backend, frontend, nginx)
 │   ├── scripts/
-│   │   └── seed-data.sql                              # 10 shelters, 3 users, 13 availability snapshots
+│   │   ├── seed-data.sql                              # 13 shelters, 3 users, 17 availability snapshots
+│   │   ├── seed-reset.sql                             # Clears seed data for fresh reload (--fresh flag)
+│   │   └── demo-activity-seed.sql                     # 28 days of deterministic demo activity
 │   └── keycloak/
 │       └── fabt-dev-realm.json                        # Keycloak realm import (PKCE client + service client + test users)
 │   └── terraform/
@@ -983,7 +989,7 @@ finding-a-bed-tonight/
 - [x] Admin UI: Observability tab — Prometheus/tracing toggles, monitor intervals, temperature threshold, live temp display + warning banner
 - [x] Temperature status API: GET /api/v1/monitoring/temperature (cached NOAA reading, configurable threshold)
 - [x] Management port security: /actuator/prometheus behind auth on :8080, permitAll on :9091 only when management port active
-- [x] Grafana dashboard: 10 panels (search rate, latency, availability, reservations, stale count, DV canary, surge, temp gap, webhooks, circuit breakers)
+- [x] Grafana dashboard: 13 panels (search rate, latency p50/p95/p99, availability updates + latency, reservations, stale count, DV canary, surge, temp gap, webhooks, circuit breakers, HikariCP acquire time)
 - [x] Docker Compose observability profile: Prometheus, Grafana, Jaeger, OTel Collector (optional, `--profile observability`)
 - [x] dev-start.sh --observability: management port 9091, Grafana health wait, observability URLs in output
 - [x] 24 new backend tests: ObservabilityMetricsTest (10), OperationalMonitorServiceTest (9), MetricsIntegrationTest (5)
@@ -1081,6 +1087,21 @@ finding-a-bed-tonight/
 - [x] SecurityConfig `permitAll()` audit: all 8 paths reviewed, Swagger disabled in prod, health endpoint details gated
 - [x] JWKS circuit breaker graceful degradation: password users unaffected by IdP outage, documented in runbook
 - [x] Merge to main, full regression, tag v0.15.0
+
+### Completed: Story-Aligned Seed Data + Observability
+
+- [x] 13-shelter Wake County CoC network with day-in-the-life timestamps (3 family, 3 DV, 7 general)
+- [x] 3 DV shelters meeting dual-threshold suppression (DV_MIN_SHELTER_COUNT=3, DV_MIN_CELL_SIZE=5)
+- [x] 28-day demo activity: deterministic 47 zero-result searches on target Tuesday, upward utilization trend, conversion rate trending upward
+- [x] `seed-reset.sql` + `--fresh` flag for clean seed data reload
+- [x] Test cleanup infrastructure: shared `cleanupTestData()` helper, `afterAll` in 6 test files, TestResetController deletes test-created users
+- [x] Walkthrough restructured: bed search at position 1, 4-part story structure, trust section, audience CTAs (19→15 screenshots)
+- [x] Person-first language: 7 instances fixed, "Language and Values" section in README
+- [x] Cost savings: NAEH Housing First $31,545/person source linked in FOR-FUNDERS.md
+- [x] `publishPercentileHistogram()` on bed search + availability update timers
+- [x] 3 new Grafana operations panels (10→13): p50/p95/p99 breakdown, availability latency, HikariCP acquire time
+- [x] WCAG color-contrast fix: Call button #059669→#047857 (3.76:1→5.48:1)
+- [x] DV referral caption: "notified instantly" corrected (no notification mechanism exists)
 
 ### Completed: Self-Service Password Management
 

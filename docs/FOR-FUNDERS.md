@@ -10,7 +10,7 @@
 
 A family of five is sitting in a parking lot at midnight. A social worker has 30 minutes before the family's willingness to engage disappears. Right now, that social worker is making phone calls -- to shelters that may be closed, full, or unable to serve that family's specific needs. There is no shared system for real-time shelter bed availability in most US communities.
 
-Commercial software does not serve this space because there is no profit motive. Homeless services operate on tight grants with no margin for per-seat licensing. The result: social workers keep personal spreadsheets, shelter coordinators answer midnight phone calls, and families wait in parking lots while the system fails them.
+Commercial software does not serve this space because there is no profit motive. Homelessness services operate on tight grants with no margin for per-seat licensing. The result: social workers keep personal spreadsheets, shelter coordinators answer midnight phone calls, and families wait in parking lots while the system fails them.
 
 Finding A Bed Tonight exists to close that gap.
 
@@ -25,6 +25,10 @@ The platform is designed to reduce total crisis-to-placement time from an estima
 **Important:** The time reduction is a target outcome based on workflow analysis. It has not yet been measured in a real-world pilot. The platform captures the data needed for measurement automatically. A 90-day pilot with 5+ shelters would produce the evidence to validate or revise this claim.
 
 For the full logic model, evidence basis, and recommended grant language, see the [Theory of Change](theory-of-change.md).
+
+### Why Faster Placement Matters
+
+The [National Alliance to End Homelessness](https://endhomelessness.org/resource/housing-first/) reports that Housing First programs produce average emergency services cost savings of $31,545 per person housed over two years — driven by reduced ER visits, law enforcement contacts, and crisis interventions. While Finding A Bed Tonight does not directly house people, it is designed to reduce the time from crisis to shelter placement — the critical first step in the housing pathway. Faster placement means fewer nights unsheltered, less trauma, and a stronger foundation for longer-term housing interventions.
 
 ---
 

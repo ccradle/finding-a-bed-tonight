@@ -1,6 +1,8 @@
 import { test, expect } from '../fixtures/auth.fixture';
+import { cleanupTestData } from '../helpers/test-cleanup';
 
 test.describe('Admin Panel', () => {
+  test.afterAll(async () => { await cleanupTestData(); });
   test('admin panel loads with tabs (Users, Shelters, API Keys, Subscriptions)', async ({ adminPage }) => {
     await adminPage.goto('/admin');
     await expect(adminPage.locator('main h1')).toContainText(/administration/i);

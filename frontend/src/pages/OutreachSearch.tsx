@@ -468,7 +468,7 @@ export function OutreachSearch() {
                         onClick={() => confirmReservation(res.id)}
                         style={{
                           padding: '8px 14px', borderRadius: 8, border: 'none',
-                          backgroundColor: '#059669', color: '#fff', fontSize: text.sm, fontWeight: weight.bold, cursor: 'pointer',
+                          backgroundColor: '#047857', color: '#fff', fontSize: text.sm, fontWeight: weight.bold, cursor: 'pointer',
                         }}
                       ><FormattedMessage id="reservations.confirm" /></button>
                       <button
@@ -495,6 +495,7 @@ export function OutreachSearch() {
         return (
           <div
             key={r.shelterId}
+            data-testid={`shelter-card-${r.shelterName.toLowerCase().replace(/\s+/g, '-')}`}
             onClick={() => openDetail(r.shelterId)}
             style={{
               display: 'block', width: '100%', textAlign: 'left', padding: '18px 20px',
@@ -622,7 +623,7 @@ export function OutreachSearch() {
             <div style={{ display: 'flex', gap: 10, marginBottom: 24 }}>
               {selectedShelter.shelter.phone && (
                 <a href={`tel:${selectedShelter.shelter.phone}`} style={{
-                  flex: 1, padding: 14, backgroundColor: '#059669', color: '#fff', borderRadius: 12,
+                  flex: 1, padding: 14, backgroundColor: '#047857', color: '#fff', borderRadius: 12,
                   textAlign: 'center', textDecoration: 'none', fontSize: text.md, fontWeight: weight.bold, minHeight: 50,
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
                 }}>📞 <FormattedMessage id="search.call" /></a>

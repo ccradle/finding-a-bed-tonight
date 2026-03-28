@@ -1,4 +1,5 @@
 import { test, expect } from '../fixtures/auth.fixture';
+import { cleanupTestData } from '../helpers/test-cleanup';
 
 const API_URL = process.env.API_URL || 'http://localhost:8080';
 
@@ -11,6 +12,7 @@ const API_URL = process.env.API_URL || 'http://localhost:8080';
  */
 
 test.describe('DV Opaque Referral', () => {
+  test.afterAll(async () => { await cleanupTestData(); });
 
   // Clean up stale test data before running DV referral tests
   test.beforeAll(async () => {

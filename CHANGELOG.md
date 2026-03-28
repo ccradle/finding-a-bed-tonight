@@ -11,6 +11,42 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.17.0] — 2026-03-28 — Story-Aligned Seed Data + Observability
+
+### Added
+- 13-shelter Wake County CoC network (was 10): 3 family, 3 DV, 7 general/specialized
+- Day-in-the-life seed data timestamps: Crabtree Valley ~12min, Capital Blvd ~10min, New Beginnings ~7min
+- 28-day demo activity with deterministic metrics: 47 zero-result searches on target Tuesday, upward utilization trend (72%→85%, avg ~78%), reservation conversion trending 65%→80%
+- `infra/scripts/seed-reset.sql`: clears all seed data for fresh reload
+- `dev-start.sh --fresh`: runs seed-reset.sql before loading seed data
+- `e2e/playwright/helpers/test-cleanup.ts`: shared `cleanupTestData()` utility
+- `afterAll` cleanup in 6 Playwright test files (admin-panel, password-change, admin-password-reset, dv-referral, outreach-search, coordinator-dashboard)
+- TestResetController: now also deletes test-created users (email patterns: pwdtest-*, e2e-*, test-*)
+- `publishPercentileHistogram()` on bed search, availability update, and webhook delivery timers
+- Availability update timer: `fabt.availability.update.duration` with histogram buckets
+- 3 new Grafana operations panels (10→13): Bed Search Latency p50/p95/p99, Availability Update Latency, HikariCP Connection Acquire Time
+- `data-testid` on shelter cards in OutreachSearch for reliable Playwright locators
+- "Language and Values" section in README
+- Cost savings quantification in FOR-FUNDERS.md ($31,545/person, NAEH Housing First source linked)
+
+### Changed
+- Walkthrough restructured: bed search at position 1 (was login), split into 4 parts (Darius's Night / Behind the Scenes / Operations / Trust), 19→15 screenshots
+- Trust/proof closing section: WCAG ACR, DV privacy, Apache 2.0, deployment tiers
+- Audience-specific CTAs: For Funders, For City Officials, For Developers
+- Capture scripts: select FAMILY_WITH_CHILDREN filter, click Crabtree Valley by data-testid
+- Analytics captions: removed specific numbers that didn't match 30-day dashboard view
+- DV referral caption: "notified instantly" corrected to "refreshes referral list" (no notification mechanism)
+- Person-first language: 7 instances fixed across both repos
+- Karate test shelter IDs updated for new structure (DV 009→011, availability 001→004)
+
+### Fixed
+- WCAG color-contrast: Call button #059669→#047857 (3.76:1→5.48:1)
+- Spring Batch 6 sequence names in demo-activity-seed.sql (BATCH_JOB_SEQ→batch_job_instance_seq)
+- Target Tuesday calculation in demo-activity-seed.sql (was producing Sunday)
+- Grafana datasource UID mismatch on new panels
+
+---
+
 ## [v0.16.0] — 2026-03-28 — Self-Service Password Management
 
 ### Added

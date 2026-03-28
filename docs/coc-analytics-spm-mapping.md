@@ -23,7 +23,7 @@ FABT's HMIS Bridge targets **FY 2026 HMIS Data Standards** (effective October 1,
 
 | FABT Metric | HUD SPM | Relationship | Notes |
 |---|---|---|---|
-| **Bed utilization rate** (avg_utilization in daily_utilization_summary) | SPM 3: Number of Homeless Persons | **Complements** | FABT shows system capacity; SPM 3 counts individuals. High utilization + high SPM 3 count = capacity gap. |
+| **Bed utilization rate** (avg_utilization in daily_utilization_summary) | SPM 3: Number of Persons Experiencing Homelessness | **Complements** | FABT shows system capacity; SPM 3 counts individuals. High utilization + high SPM 3 count = capacity gap. |
 | **Zero-result search count** (bed_search_log where results_count=0) | None | **Novel** | No SPM captures unmet demand from the operational perspective. Zero-result searches are the strongest signal of system capacity shortfall. This is genuinely new data for HUD grant applications. |
 | **Reservation conversion rate** (CONFIRMED / total reservations) | None | **Novel** | Measures system friction. Low conversion may indicate hold duration mismatch, transportation barriers, or coordination gaps. No SPM equivalent. |
 | **Reservation expiry rate** (EXPIRED / total reservations) | None | **Novel** | Proxy for unmet demand — reservations that expired without placement. Combined with zero-result searches, provides a demand picture no SPM captures. |

@@ -40,8 +40,22 @@
 ```bash
 ./dev-start.sh                     # PostgreSQL + backend + frontend
 ./dev-start.sh --observability     # + Prometheus, Grafana, Jaeger, OTel Collector
+./dev-start.sh --fresh             # Reset seed data before loading (use when shelter structure changes)
 ./dev-start.sh backend             # No frontend
 ./dev-start.sh stop                # Stops everything including observability containers
+```
+
+### Resetting seed data
+
+When shelter structure changes (new shelters, renamed shelters, changed IDs), run with `--fresh` to clear old seed data before reloading. This runs `infra/scripts/seed-reset.sql` which deletes all seed-loaded data (shelters, availability, activity, batch history) while preserving users, tenant config, and OAuth2 providers. Without `--fresh`, seed-data.sql uses `ON CONFLICT DO NOTHING` and old shelters persist alongside new ones.
+
+```bash
+./dev-start.sh --fresh --frontend            # Full fresh reload
+./dev-start.sh --fresh --observability       # Fresh reload + observability stack
+# Or manually:
+docker compose exec -T postgres psql -U fabt -d fabt < infra/scripts/seed-reset.sql
+docker compose exec -T postgres psql -U fabt -d fabt < infra/scripts/seed-data.sql
+docker compose exec -T postgres psql -U fabt -d fabt < infra/scripts/demo-activity-seed.sql
 ```
 
 When `--observability` is used, the backend starts with `management.server.port=9091` so Prometheus can scrape without JWT auth.

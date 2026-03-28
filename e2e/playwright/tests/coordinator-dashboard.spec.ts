@@ -1,7 +1,9 @@
 import { test, expect } from '../fixtures/auth.fixture';
 import { CoordinatorDashboardPage } from '../pages/CoordinatorDashboardPage';
+import { cleanupTestData } from '../helpers/test-cleanup';
 
 test.describe('Coordinator Dashboard', () => {
+  test.afterAll(async () => { await cleanupTestData(); });
   test('dashboard loads with shelter cards showing name, address, data age', async ({ coordinatorPage }) => {
     const dashboard = new CoordinatorDashboardPage(coordinatorPage);
     await dashboard.goto();
