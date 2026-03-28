@@ -203,11 +203,15 @@ public class JwtService {
         boolean dvAccess = payload.containsKey("dvAccess")
                 && Boolean.TRUE.equals(payload.get("dvAccess"));
 
+        Instant issuedAt = payload.containsKey("iat")
+                ? Instant.ofEpochSecond(((Number) payload.get("iat")).longValue())
+                : null;
+
         // Calculate TTL for cache: exp - now - 30s
         long ttlSeconds = Duration.between(Instant.now(), expInstant).getSeconds() - 30;
         long remainingNanos = ttlSeconds > 0 ? Duration.ofSeconds(ttlSeconds).toNanos() : 0;
 
-        JwtClaims claims = new JwtClaims(userId, tenantId, roles, dvAccess, type, remainingNanos);
+        JwtClaims claims = new JwtClaims(userId, tenantId, roles, dvAccess, type, issuedAt, remainingNanos);
 
         if (ttlSeconds > 0) {
             claimsCache.put(cacheKey, claims);
@@ -269,6 +273,6 @@ public class JwtService {
     }
 
     public record JwtClaims(UUID userId, UUID tenantId, String[] roles, boolean dvAccess, String type,
-                            long remainingNanos) {
+                            Instant issuedAt, long remainingNanos) {
     }
 }

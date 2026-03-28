@@ -9,6 +9,8 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.fabt.auth.domain.User;
+import org.fabt.auth.repository.UserRepository;
 import org.fabt.auth.service.JwtService;
 import org.fabt.shared.web.TenantContext;
 import org.slf4j.Logger;
@@ -28,9 +30,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private static final String BEARER_PREFIX = "Bearer ";
 
     private final JwtService jwtService;
+    private final UserRepository userRepository;
 
-    public JwtAuthenticationFilter(JwtService jwtService) {
+    public JwtAuthenticationFilter(JwtService jwtService, UserRepository userRepository) {
         this.jwtService = jwtService;
+        this.userRepository = userRepository;
     }
 
     @Override
@@ -55,6 +59,18 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 authorities = Arrays.stream(claims.roles())
                         .map(role -> new SimpleGrantedAuthority("ROLE_" + role))
                         .toList();
+            }
+
+            // Check if token was issued before the user's last password change
+            if (claims.issuedAt() != null) {
+                User user = userRepository.findById(claims.userId()).orElse(null);
+                if (user != null && user.getPasswordChangedAt() != null
+                        && claims.issuedAt().isBefore(user.getPasswordChangedAt())) {
+                    log.debug("JWT rejected: issued before password change for user {}", claims.userId());
+                    SecurityContextHolder.clearContext();
+                    filterChain.doFilter(request, response);
+                    return;
+                }
             }
 
             UsernamePasswordAuthenticationToken authentication =

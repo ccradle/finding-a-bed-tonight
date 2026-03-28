@@ -17,6 +17,7 @@ public class User {
     private String displayName;
     private String[] roles;
     private boolean dvAccess;
+    private Instant passwordChangedAt;
     private Instant createdAt;
     private Instant updatedAt;
 
@@ -24,7 +25,7 @@ public class User {
     }
 
     public User(UUID id, UUID tenantId, String email, String passwordHash, String displayName,
-                String[] roles, boolean dvAccess, Instant createdAt, Instant updatedAt) {
+                String[] roles, boolean dvAccess, Instant passwordChangedAt, Instant createdAt, Instant updatedAt) {
         this.id = id;
         this.tenantId = tenantId;
         this.email = email;
@@ -32,6 +33,7 @@ public class User {
         this.displayName = displayName;
         this.roles = roles;
         this.dvAccess = dvAccess;
+        this.passwordChangedAt = passwordChangedAt;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
     }
@@ -90,6 +92,14 @@ public class User {
 
     public void setDvAccess(boolean dvAccess) {
         this.dvAccess = dvAccess;
+    }
+
+    public Instant getPasswordChangedAt() {
+        return passwordChangedAt;
+    }
+
+    public void setPasswordChangedAt(Instant passwordChangedAt) {
+        this.passwordChangedAt = passwordChangedAt;
     }
 
     public Instant getCreatedAt() {

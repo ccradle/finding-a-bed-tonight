@@ -359,6 +359,42 @@ function UsersTab() {
   const [formRoles, setFormRoles] = useState<string[]>([]);
   const [formDvAccess, setFormDvAccess] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [resetUser, setResetUser] = useState<User | null>(null);
+  const [resetPassword, setResetPassword] = useState('');
+  const [resetConfirm, setResetConfirm] = useState('');
+  const [resetError, setResetError] = useState<string | null>(null);
+  const [resetSubmitting, setResetSubmitting] = useState(false);
+  const [resetSuccess, setResetSuccess] = useState<string | null>(null);
+
+  const handleResetPassword = async () => {
+    if (!resetUser) return;
+    setResetError(null);
+    if (resetPassword !== resetConfirm) {
+      setResetError(intl.formatMessage({ id: 'password.change.mismatch' }));
+      return;
+    }
+    if (resetPassword.length < 12) {
+      setResetError(intl.formatMessage({ id: 'password.change.tooShort' }));
+      return;
+    }
+    setResetSubmitting(true);
+    try {
+      await api.post(`/api/v1/users/${resetUser.id}/reset-password`, { newPassword: resetPassword });
+      setResetSuccess(intl.formatMessage({ id: 'password.reset.success' }, { username: resetUser.displayName }));
+      setResetUser(null);
+      setResetPassword('');
+      setResetConfirm('');
+    } catch (err: unknown) {
+      const apiErr = err as { status?: number; message?: string };
+      if (apiErr.status === 409) {
+        setResetError(intl.formatMessage({ id: 'password.reset.ssoOnly' }));
+      } else {
+        setResetError(apiErr.message || intl.formatMessage({ id: 'password.reset.error' }));
+      }
+    } finally {
+      setResetSubmitting(false);
+    }
+  };
 
   const fetchUsers = useCallback(async () => {
     setLoading(true);
@@ -500,6 +536,7 @@ function UsersTab() {
                 <th style={thStyle}><FormattedMessage id="admin.displayName" /></th>
                 <th style={thStyle}><FormattedMessage id="admin.roles" /></th>
                 <th style={thStyle}><FormattedMessage id="admin.dvAccess" /></th>
+                <th style={thStyle}></th>
               </tr>
             </thead>
             <tbody>
@@ -513,10 +550,91 @@ function UsersTab() {
                   <td style={tdStyle(i)}>
                     <StatusBadge active={u.dvAccess} yesId="admin.active" noId="admin.inactive" />
                   </td>
+                  <td style={tdStyle(i)}>
+                    <button
+                      onClick={() => { setResetUser(u); setResetError(null); setResetSuccess(null); setResetPassword(''); setResetConfirm(''); }}
+                      data-testid={`reset-password-${u.email}`}
+                      style={{
+                        padding: '6px 12px',
+                        backgroundColor: 'transparent',
+                        color: '#1a56db',
+                        border: '1px solid #1a56db',
+                        borderRadius: 6,
+                        fontSize: text.xs,
+                        fontWeight: weight.semibold,
+                        cursor: 'pointer',
+                        minHeight: 32,
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      <FormattedMessage id="password.reset.button" />
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Reset success message */}
+      {resetSuccess && (
+        <div style={{ backgroundColor: '#f0fdf4', color: '#166534', padding: '12px 16px', borderRadius: 10, marginTop: 12, fontSize: text.base, fontWeight: weight.medium }}>
+          {resetSuccess}
+        </div>
+      )}
+
+      {/* Reset Password Modal */}
+      {resetUser && (
+        <div
+          style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9000 }}
+          onClick={(e) => { if (e.target === e.currentTarget) setResetUser(null); }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="reset-password-title"
+            style={{ background: '#fff', borderRadius: 16, padding: 32, maxWidth: 420, width: '90%', boxShadow: '0 8px 32px rgba(0,0,0,0.2)' }}
+          >
+            <h3 id="reset-password-title" style={{ margin: '0 0 20px', fontSize: text.xl, fontWeight: weight.bold, color: '#0f172a' }}>
+              <FormattedMessage id="password.reset.title" values={{ username: resetUser.displayName }} />
+            </h3>
+            {resetError && (
+              <div role="alert" style={{ backgroundColor: '#fef2f2', color: '#991b1b', padding: '12px 16px', borderRadius: 10, marginBottom: 16, fontSize: text.base, fontWeight: weight.medium }}>
+                {resetError}
+              </div>
+            )}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div>
+                <label htmlFor="reset-new-password" style={{ fontSize: text.xs, fontWeight: weight.semibold, color: '#475569', marginBottom: 4, display: 'block' }}>
+                  <FormattedMessage id="password.reset.new" />
+                </label>
+                <input id="reset-new-password" type="password" autoComplete="new-password" value={resetPassword} onChange={(e) => setResetPassword(e.target.value)}
+                  style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: '2px solid #e2e8f0', fontSize: text.base, boxSizing: 'border-box', color: '#0f172a', fontWeight: weight.medium, outline: 'none' }}
+                  data-testid="reset-new-password-input" />
+                <span style={{ fontSize: text.xs, color: '#6b7280', marginTop: 2, display: 'block' }}><FormattedMessage id="password.change.minLength" /></span>
+              </div>
+              <div>
+                <label htmlFor="reset-confirm-password" style={{ fontSize: text.xs, fontWeight: weight.semibold, color: '#475569', marginBottom: 4, display: 'block' }}>
+                  <FormattedMessage id="password.reset.confirm" />
+                </label>
+                <input id="reset-confirm-password" type="password" autoComplete="new-password" value={resetConfirm} onChange={(e) => setResetConfirm(e.target.value)}
+                  style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: '2px solid #e2e8f0', fontSize: text.base, boxSizing: 'border-box', color: '#0f172a', fontWeight: weight.medium, outline: 'none' }}
+                  data-testid="reset-confirm-password-input" />
+              </div>
+              <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+                <button type="button" onClick={() => setResetUser(null)}
+                  style={{ flex: 1, padding: '12px 16px', backgroundColor: '#f3f4f6', color: '#374151', border: '1px solid #e2e8f0', borderRadius: 10, fontSize: text.base, fontWeight: weight.semibold, cursor: 'pointer', minHeight: 44 }}>
+                  <FormattedMessage id="password.cancel" />
+                </button>
+                <button type="button" onClick={handleResetPassword} disabled={resetSubmitting}
+                  data-testid="reset-password-submit"
+                  style={{ flex: 1, padding: '12px 16px', backgroundColor: '#1a56db', color: '#fff', border: 'none', borderRadius: 10, fontSize: text.base, fontWeight: weight.bold, cursor: resetSubmitting ? 'not-allowed' : 'pointer', minHeight: 44, opacity: resetSubmitting ? 0.7 : 1 }}>
+                  {resetSubmitting ? <FormattedMessage id="password.submitting" /> : <FormattedMessage id="password.reset.submit" />}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>

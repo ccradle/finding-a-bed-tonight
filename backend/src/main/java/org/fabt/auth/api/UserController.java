@@ -116,8 +116,10 @@ public class UserController {
             description = "Partially updates a user within the caller's tenant. Only non-null fields " +
                     "in the request body are applied — omit a field to leave it unchanged. Updatable " +
                     "fields: displayName (string), roles (string array — replaces the entire role " +
-                    "list, not a merge), and dvAccess (boolean). Email and password cannot be changed " +
-                    "through this endpoint. Returns the full updated user object. Returns 404 if the " +
+                    "list, not a merge), and dvAccess (boolean). Email cannot be changed through this " +
+                    "endpoint. Use PUT /api/v1/auth/password for self-service password change or " +
+                    "POST /api/v1/users/{id}/reset-password for admin-initiated reset. " +
+                    "Returns the full updated user object. Returns 404 if the " +
                     "user does not exist or belongs to a different tenant. " +
                     "Requires COC_ADMIN or PLATFORM_ADMIN role."
     )

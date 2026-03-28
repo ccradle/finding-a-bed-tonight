@@ -67,7 +67,8 @@ The Apache 2.0 license explicitly permits commercial support services. This is h
 - **RLS:** PostgreSQL Row Level Security protects DV shelter data at the database layer
 - **Authentication:** JWT + OAuth2/OIDC + API key hybrid authentication
 - **SSO Resilience:** If an identity provider (Google, Microsoft, Keycloak) experiences an outage, password-authenticated users continue working without interruption. The two authentication paths are architecturally independent. See docs/runbook.md for full degradation behavior.
-- **Rate Limiting:** Authentication endpoints are protected against brute force attacks (10 requests per 15-minute window per IP)
+- **Credential Management:** Self-service password change and admin-initiated password reset. Minimum 12-character passwords per NIST 800-63B (length over complexity). All existing sessions are invalidated on password change. SSO-only users are handled gracefully.
+- **Rate Limiting:** Authentication and password management endpoints are protected against brute force attacks (login: 10/15min, password change: 5/15min, admin reset: 10/15min per IP)
 - **DV Protection:** Defense-in-depth — database RLS + service-layer access checks + zero client PII
 - **Audit:** HMIS push audit log with SHA-256 payload hashing
 - **WCAG:** Self-assessed ACR covering all 50 WCAG 2.1 Level A/AA criteria (see docs/WCAG-ACR.md). Typography system uses CSS custom properties as centralized design tokens — consistent font rendering across all platforms, automated Playwright tests verify WCAG 1.4.12 text spacing compliance.

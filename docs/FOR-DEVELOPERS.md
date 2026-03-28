@@ -506,6 +506,8 @@ All endpoints are under `/api/v1`. Authentication is via JWT Bearer token (from 
 |---|---|---|---|
 | `POST` | `/api/v1/auth/login` | None | Authenticate with email/password/tenantSlug, returns JWT |
 | `POST` | `/api/v1/auth/refresh` | None | Refresh an access token using a refresh token |
+| `PUT` | `/api/v1/auth/password` | Bearer | Change own password (current + new, min 12 chars). Invalidates all tokens. 409 for SSO-only users |
+| `POST` | `/api/v1/users/{id}/reset-password` | Admin | Admin resets user password. Same-tenant only. Invalidates user's tokens |
 
 ### Tenants
 
@@ -922,7 +924,7 @@ finding-a-bed-tonight/
 ### Completed: Platform Foundation (archived)
 
 - [x] Modular monolith backend (Java 25, Spring Boot 4.0, 6 modules, ArchUnit boundaries, virtual threads)
-- [x] 25 Flyway migrations (V1–V24 + V8.1), PostgreSQL 16, Row Level Security for DV shelters
+- [x] 26 Flyway migrations (V1–V27 + V8.1), PostgreSQL 16, Row Level Security for DV shelters
 - [x] 3 deployment profiles (Lite / Standard / Full) with CacheService + EventBus abstractions
 - [x] Multi-tenant auth: JWT + API keys + OAuth2 provider management, 4 roles, dual-layer security
 - [x] Shelter module: CRUD, constraints, capacities, HSDS 3.0 export, coordinator assignments
@@ -1079,6 +1081,20 @@ finding-a-bed-tonight/
 - [x] SecurityConfig `permitAll()` audit: all 8 paths reviewed, Swagger disabled in prod, health endpoint details gated
 - [x] JWKS circuit breaker graceful degradation: password users unaffected by IdP outage, documented in runbook
 - [x] Merge to main, full regression, tag v0.15.0
+
+### Completed: Self-Service Password Management
+
+- [x] Self-service password change: `PUT /api/v1/auth/password` (current + new password, min 12 chars per NIST 800-63B)
+- [x] Admin-initiated password reset: `POST /api/v1/users/{id}/reset-password` (COC_ADMIN/PLATFORM_ADMIN, same-tenant)
+- [x] JWT invalidation via `password_changed_at` timestamp — tokens issued before password change are rejected
+- [x] SSO-only users: 409 Conflict with clear message (no local password to change)
+- [x] Rate limiting: 5/15min on password change, 10/15min on admin reset (bucket4j + Caffeine JCache)
+- [x] Micrometer metrics: `fabt.auth.password_change.count`, `fabt.auth.password_reset.count`, `fabt.auth.token_invalidated.count`
+- [x] Frontend: Change Password modal (header button, all roles), Admin Reset Password button per user row
+- [x] Full i18n (EN/ES): 24 translation keys for both password flows
+- [x] Flyway V27: `password_changed_at` column on `app_user`
+- [x] `@Operation` annotations for MCP agent discoverability
+- [x] 11 backend integration tests, 4 Playwright e2e tests
 
 ### Completed: Typography System + Lint Cleanup
 
