@@ -141,6 +141,18 @@ export function LoginPage() {
         >
           <FormattedMessage id="app.name" />
         </h1>
+        <p
+          style={{
+            fontSize: text.base,
+            fontWeight: weight.medium,
+            textAlign: 'center',
+            marginBottom: '24px',
+            color: '#475569',
+            fontStyle: 'italic',
+          }}
+        >
+          <FormattedMessage id="app.tagline" />
+        </p>
         <h2
           style={{
             fontSize: text.lg,

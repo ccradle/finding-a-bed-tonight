@@ -1,5 +1,6 @@
 {
   "app.name": "Finding A Bed Tonight",
+  "app.tagline": "No more midnight phone calls.",
   "login.title": "Sign In",
   "login.email": "Email",
   "login.password": "Password",

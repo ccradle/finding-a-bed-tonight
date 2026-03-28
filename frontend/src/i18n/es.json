@@ -1,5 +1,6 @@
 {
   "app.name": "Encontrar Una Cama Esta Noche",
+  "app.tagline": "No más llamadas a medianoche.",
   "login.title": "Iniciar Sesión",
   "login.email": "Correo Electrónico",
   "login.password": "Contraseña",
