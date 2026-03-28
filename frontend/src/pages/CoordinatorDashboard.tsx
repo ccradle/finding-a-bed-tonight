@@ -3,6 +3,7 @@ import { FormattedMessage, useIntl } from 'react-intl';
 import { api } from '../services/api';
 import { DataAge } from '../components/DataAge';
 import { text, weight, leading } from '../theme/typography';
+import { getPopulationTypeLabel } from '../utils/populationTypeLabels';
 
 const POPULATION_TYPES = [
   'SINGLE_ADULT',
@@ -341,7 +342,7 @@ export function CoordinatorDashboard() {
                     }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                         <span style={{ fontSize: text.base, fontWeight: weight.semibold, color: '#0f172a', textTransform: 'capitalize' }}>
-                          {avail.populationType.replace(/_/g, ' ').toLowerCase()}
+                          {getPopulationTypeLabel(avail.populationType, intl)}
                         </span>
                         <span data-testid={`available-value-${avail.populationType}`} style={{
                           fontSize: text.md, fontWeight: weight.extrabold,
@@ -416,7 +417,7 @@ export function CoordinatorDashboard() {
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
                           <div>
                             <span style={{ fontSize: text.sm, fontWeight: weight.bold, color: '#0f172a' }}>
-                              {ref.populationType.replace(/_/g, ' ')} — {ref.householdSize} person{ref.householdSize > 1 ? 's' : ''}
+                              {getPopulationTypeLabel(ref.populationType, intl)} — {ref.householdSize} person{ref.householdSize > 1 ? 's' : ''}
                             </span>
                             <span style={{
                               marginLeft: 8, padding: '2px 6px', borderRadius: 4, fontSize: text['2xs'], fontWeight: weight.bold,
@@ -490,7 +491,7 @@ export function CoordinatorDashboard() {
                           padding: '4px 10px', borderRadius: 6, fontSize: text.xs, fontWeight: weight.semibold,
                           backgroundColor: '#dbeafe', color: '#1e40af',
                         }}>
-                          {a.populationType.replace(/_/g, ' ').toLowerCase()}: {a.bedsOnHold} held
+                          {getPopulationTypeLabel(a.populationType, intl)}: {a.bedsOnHold} held
                         </span>
                       ))}
                     </div>

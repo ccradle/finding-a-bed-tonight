@@ -3,6 +3,7 @@ import { FormattedMessage, useIntl } from 'react-intl';
 import { api } from '../services/api';
 import { DataAge } from '../components/DataAge';
 import { text, weight, leading } from '../theme/typography';
+import { getPopulationTypeLabel } from '../utils/populationTypeLabels';
 
 const POPULATION_TYPES = [
   { value: '', labelId: 'search.allTypes' },
@@ -451,7 +452,7 @@ export function OutreachSearch() {
                         {shelterResult?.shelterName || res.shelterId.substring(0, 8)}
                       </div>
                       <div style={{ fontSize: text.xs, color: '#475569' }}>
-                        {res.populationType.replace(/_/g, ' ')}
+                        {getPopulationTypeLabel(res.populationType, intl)}
                       </div>
                       <div style={{
                         fontSize: text.sm, fontWeight: weight.bold, marginTop: 4,
@@ -542,7 +543,7 @@ export function OutreachSearch() {
                       backgroundColor: a.bedsAvailable > 0 ? '#f0fdf4' : '#fef2f2',
                       color: a.bedsAvailable > 0 ? '#166534' : '#991b1b',
                     }}>
-                      {a.populationType.replace(/_/g, ' ')}: {a.bedsAvailable}
+                      {getPopulationTypeLabel(a.populationType, intl)}: {a.bedsAvailable}
                       {a.bedsOnHold > 0 && <span style={{ color: '#854d0e' }}> ({a.bedsOnHold} held)</span>}
                       {a.overflowBeds > 0 && <span style={{ color: '#dc2626' }}> +{a.overflowBeds} overflow</span>}
                     </span>
@@ -664,7 +665,7 @@ export function OutreachSearch() {
                         fontSize: text['2xs'], fontWeight: weight.semibold, marginTop: 4,
                         textTransform: 'uppercase', letterSpacing: '0.04em',
                       }}>
-                        {a.populationType.replace(/_/g, ' ')}
+                        {getPopulationTypeLabel(a.populationType, intl)}
                       </div>
                       <div style={{ fontSize: text['2xs'], color: '#475569', marginTop: 4 }}>
                         {a.bedsTotal} total / {a.bedsOccupied} occ
@@ -686,7 +687,7 @@ export function OutreachSearch() {
                     }}>
                       <div style={{ fontWeight: weight.extrabold, color: '#166534', fontSize: text['2xl'], lineHeight: leading.tight }}>{cap.bedsTotal}</div>
                       <div style={{ color: '#15803d', fontSize: text['2xs'], fontWeight: weight.semibold, marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                        {cap.populationType.replace(/_/g, ' ')}
+                        {getPopulationTypeLabel(cap.populationType, intl)}
                       </div>
                     </div>
                   ))}
@@ -833,7 +834,7 @@ export function OutreachSearch() {
                 }}>
                   <div>
                     <span style={{ fontSize: text.sm, fontWeight: weight.semibold, color: '#0f172a' }}>
-                      {ref.populationType.replace(/_/g, ' ')} — {ref.householdSize} person{ref.householdSize > 1 ? 's' : ''}
+                      {getPopulationTypeLabel(ref.populationType, intl)} — {ref.householdSize} person{ref.householdSize > 1 ? 's' : ''}
                     </span>
                     <div style={{ fontSize: text['2xs'], color: '#475569', marginTop: 2 }}>
                       {ref.status === 'ACCEPTED' && ref.shelterPhone && (

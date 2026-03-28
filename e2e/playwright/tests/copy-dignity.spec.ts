@@ -63,6 +63,37 @@ test.describe('Dignity-Centered Copy', () => {
   });
 });
 
+test.describe('Raw Enum Prevention', () => {
+
+  // Riley Cho: "The dropdown test proved the dropdown was fixed. It didn't prove
+  // the rest of the UI was fixed." This test scans ALL visible text on key pages
+  // for raw API enum values that should never be displayed to users.
+  const RAW_ENUMS = ['DV_SURVIVOR', 'SINGLE_ADULT', 'FAMILY_WITH_CHILDREN', 'WOMEN_ONLY', 'YOUTH_18_24', 'YOUTH_UNDER_18'];
+
+  test('no raw enum values visible on search page (admin with DV shelters)', async ({ adminPage }) => {
+    await adminPage.goto('/outreach');
+    await adminPage.waitForSelector('[data-testid^="hold-bed-"]', { timeout: 15000 }).catch(() => {});
+    await adminPage.waitForTimeout(2000);
+
+    const pageText = await adminPage.evaluate(() => document.body.innerText);
+    for (const raw of RAW_ENUMS) {
+      expect(pageText, `Raw enum "${raw}" should not appear as visible text`)
+        .not.toContain(raw);
+    }
+  });
+
+  test('no raw enum values visible on coordinator dashboard', async ({ adminPage }) => {
+    await adminPage.goto('/coordinator');
+    await adminPage.waitForTimeout(2000);
+
+    const pageText = await adminPage.evaluate(() => document.body.innerText);
+    for (const raw of RAW_ENUMS) {
+      expect(pageText, `Raw enum "${raw}" should not appear as visible text`)
+        .not.toContain(raw);
+    }
+  });
+});
+
 test.describe('Spanish Locale Dignity Copy', () => {
 
   test('Spanish locale shows "Refugio Seguro" not "Sobrevivientes de VD"', async ({ outreachPage }) => {
