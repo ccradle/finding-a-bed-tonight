@@ -495,6 +495,7 @@ export function OutreachSearch() {
         return (
           <div
             key={r.shelterId}
+            data-testid={`shelter-card-${r.shelterName.toLowerCase().replace(/\s+/g, '-')}`}
             onClick={() => openDetail(r.shelterId)}
             style={{
               display: 'block', width: '100%', textAlign: 'left', padding: '18px 20px',
