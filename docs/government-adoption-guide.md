@@ -8,7 +8,7 @@ City attorneys, CoC board members, and government procurement officers evaluatin
 
 ## What Is This Software?
 
-Finding A Bed Tonight (FABT) is an open-source emergency shelter bed availability platform licensed under **Apache License 2.0**. It matches homeless individuals and families to available shelter beds in real time. It is designed to be self-hosted by the adopting organization.
+Finding A Bed Tonight (FABT) is an open-source emergency shelter bed availability platform licensed under **Apache License 2.0**. It matches individuals and families experiencing homelessness to available shelter beds in real time. It is designed to be self-hosted by the adopting organization.
 
 ## Data Ownership
 

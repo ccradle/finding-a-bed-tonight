@@ -631,7 +631,7 @@ All endpoints are under `/api/v1`. Authentication is via JWT Bearer token (from 
 
 **Surge Event / White Flag** — Emergency activation when weather or crisis requires expanded shelter capacity. CoC-admin triggered, broadcast to all outreach workers.
 
-**PIT Count (Point-in-Time)** — Annual HUD-mandated count of sheltered and unsheltered homeless individuals.
+**PIT Count (Point-in-Time)** — Annual HUD-mandated count of sheltered and unsheltered individuals experiencing homelessness.
 
 **Bed Availability** — Real-time count of open beds by population type at a shelter. Append-only snapshots, never updated in place. `beds_available` is derived: `beds_total - beds_occupied - beds_on_hold`.
 
@@ -639,7 +639,7 @@ All endpoints are under `/api/v1`. Authentication is via JWT Bearer token (from 
 
 **Population Type** — Category of individuals a shelter serves: `SINGLE_ADULT`, `FAMILY_WITH_CHILDREN`, `WOMEN_ONLY`, `VETERAN`, `YOUTH_18_24`, `YOUTH_UNDER_18`, `DV_SURVIVOR`.
 
-**Outreach Worker** — Frontline staff who connects homeless individuals to services. Primary user of the bed search and reservation interfaces.
+**Outreach Worker** — Frontline staff who connects individuals experiencing homelessness to services. Primary user of the bed search and reservation interfaces.
 
 **Coordinator** — Shelter staff responsible for updating bed counts and managing shelter profile.
 

@@ -111,6 +111,10 @@ Full feature details: [For Developers — Project Status](docs/FOR-DEVELOPERS.md
 
 ---
 
+## Language and Values
+
+This project uses person-first language: "individuals experiencing homelessness," not "the homeless" or "homeless individuals." Population type labels in the application use dignity-centered terminology ("Safety Shelter" instead of "DV Survivors"). These choices reflect the project's commitment to centering the people the platform serves. See [PERSONAS.md](../PERSONAS.md) for the full values framework.
+
 ## Contributing
 
 Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
