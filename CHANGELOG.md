@@ -11,6 +11,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.15.2] — 2026-03-28 — Dignity-Centered Copy
+
+User-facing labels reviewed through Keisha Thompson (AI persona, Lived Experience) and Simone Okafor (AI persona, Brand Strategist) lenses.
+
+### Changed
+- Population type filter: "DV Survivors" → "Safety Shelter" (EN) / "Refugio Seguro" (ES) — protects client dignity when outreach worker's screen is visible. Internal enum `DV_SURVIVOR` unchanged.
+- `DataAge` component refactored from hardcoded strings to i18n — freshness badges now translate to Spanish
+- Offline banner: added "your last search is still available" reassurance
+- Error messages humanized: "Failed to load shelters" → "Couldn't reach shelter data. Check your connection and try again." (EN + ES)
+
+### Tests
+- 4 new Playwright copy-dignity tests (Safety Shelter dropdown, no-DV-terminology, freshness age, Spanish locale)
+- 122 total Playwright, 256 backend, 26 Karate — all green
+
+**Diff:** [v0.15.1...v0.15.2](https://github.com/ccradle/finding-a-bed-tonight/compare/v0.15.1...v0.15.2)
+
+---
+
 ## [v0.15.1] — 2026-03-27 — Typography System + Lint Cleanup
 
 Centralized typography system with CSS custom properties, consistent font rendering across all platforms, and zero ESLint errors.
@@ -471,7 +489,8 @@ Privacy-preserving referral system for domestic violence shelters.
 
 ---
 
-[Unreleased]: https://github.com/ccradle/finding-a-bed-tonight/compare/v0.15.1...HEAD
+[Unreleased]: https://github.com/ccradle/finding-a-bed-tonight/compare/v0.15.2...HEAD
+[v0.15.2]: https://github.com/ccradle/finding-a-bed-tonight/compare/v0.15.1...v0.15.2
 [v0.15.1]: https://github.com/ccradle/finding-a-bed-tonight/compare/v0.15.0...v0.15.1
 [v0.15.0]: https://github.com/ccradle/finding-a-bed-tonight/compare/v0.14.1...v0.15.0
 [v0.14.1]: https://github.com/ccradle/finding-a-bed-tonight/compare/v0.14.0...v0.14.1
