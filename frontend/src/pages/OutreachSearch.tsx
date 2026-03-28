@@ -385,6 +385,7 @@ export function OutreachSearch() {
       {/* Filters */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 20 }}>
         <select
+          data-testid="population-type-filter"
           value={populationType}
           onChange={(e) => setPopulationType(e.target.value)}
           aria-label="Filter by population type"

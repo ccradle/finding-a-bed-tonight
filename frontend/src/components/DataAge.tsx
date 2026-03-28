@@ -1,3 +1,4 @@
+import { useIntl } from 'react-intl';
 import { text, weight } from '../theme/typography';
 
 interface DataAgeProps {
@@ -14,29 +15,29 @@ function getColor(seconds: number | null): string {
   return '#991b1b'; // dark red - STALE (4.5:1 on white)
 }
 
-// WCAG 1.4.1 — status label text so color is not the sole indicator
-function getStatusLabel(seconds: number | null): string {
-  if (seconds === null) return 'Unknown';
-  if (seconds < FRESH_THRESHOLD) return 'Fresh';
-  if (seconds < AGING_THRESHOLD) return 'Aging';
-  return 'Stale';
+function getStatusLabelId(seconds: number | null): string {
+  if (seconds === null) return 'data.age.unknown';
+  if (seconds < FRESH_THRESHOLD) return 'data.age.fresh';
+  if (seconds < AGING_THRESHOLD) return 'data.age.aging';
+  return 'data.age.stale';
 }
 
-function formatAge(seconds: number | null): string {
-  if (seconds === null) return 'Unknown';
-  if (seconds < 60) return 'Updated just now';
+function getAgeLabelId(seconds: number | null): { id: string; values?: Record<string, number> } {
+  if (seconds === null) return { id: 'data.age.unknown' };
+  if (seconds < 60) return { id: 'data.age.justNow' };
   if (seconds < 3600) {
-    const minutes = Math.floor(seconds / 60);
-    return `Updated ${minutes} minute${minutes !== 1 ? 's' : ''} ago`;
+    return { id: 'data.age.minutesAgo', values: { minutes: Math.floor(seconds / 60) } };
   }
-  const hours = Math.floor(seconds / 3600);
-  return `Updated ${hours} hour${hours !== 1 ? 's' : ''} ago`;
+  return { id: 'data.age.hoursAgo', values: { hours: Math.floor(seconds / 3600) } };
 }
 
 export function DataAge({ dataAgeSeconds }: DataAgeProps) {
+  const intl = useIntl();
   const color = getColor(dataAgeSeconds);
-  const ageText = formatAge(dataAgeSeconds);
-  const statusLabel = getStatusLabel(dataAgeSeconds);
+  const statusLabelId = getStatusLabelId(dataAgeSeconds);
+  const statusLabel = intl.formatMessage({ id: statusLabelId });
+  const ageInfo = getAgeLabelId(dataAgeSeconds);
+  const ageText = intl.formatMessage({ id: ageInfo.id }, ageInfo.values);
 
   return (
     <span
