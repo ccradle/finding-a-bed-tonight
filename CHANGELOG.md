@@ -11,6 +11,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.15.3] — 2026-03-28 — README Restructure + Raw Enum Fix
+
+README slimmed from 1,300 to 123 lines with 5 audience-specific pages. Raw API enum values removed from all user-facing display text.
+
+### Added
+- 5 audience-specific documentation pages: FOR-COORDINATORS, FOR-COC-ADMINS, FOR-CITIES, FOR-DEVELOPERS (full technical reference), FOR-FUNDERS
+- `populationTypeLabels.ts` shared utility — maps API enum values to i18n display labels with multi-language support
+- 2 Playwright "raw enum prevention" tests — scan visible text as admin for any raw API enum values across all views
+
+### Fixed
+- 8 locations displaying raw `DV_SURVIVOR`, `SINGLE_ADULT` etc. as visible text — now use i18n labels with full Spanish translation
+- CVE-2026-34043: serialize-javascript 7.0.4 → 7.0.5 (medium severity, CPU exhaustion DoS)
+
+### Changed
+- README restructured: parking lot story first, "No more midnight phone calls," audience routing within 25 lines
+- All technical content preserved in `docs/FOR-DEVELOPERS.md` (1,175 lines)
+
+### Tests
+- 124 Playwright (+2 raw enum prevention), 256 backend, 26 Karate — all green
+
+**Diff:** [v0.15.2...v0.15.3](https://github.com/ccradle/finding-a-bed-tonight/compare/v0.15.2...v0.15.3)
+
+---
+
 ## [v0.15.2] — 2026-03-28 — Dignity-Centered Copy
 
 User-facing labels reviewed through Keisha Thompson (AI persona, Lived Experience) and Simone Okafor (AI persona, Brand Strategist) lenses.
@@ -489,7 +513,8 @@ Privacy-preserving referral system for domestic violence shelters.
 
 ---
 
-[Unreleased]: https://github.com/ccradle/finding-a-bed-tonight/compare/v0.15.2...HEAD
+[Unreleased]: https://github.com/ccradle/finding-a-bed-tonight/compare/v0.15.3...HEAD
+[v0.15.3]: https://github.com/ccradle/finding-a-bed-tonight/compare/v0.15.2...v0.15.3
 [v0.15.2]: https://github.com/ccradle/finding-a-bed-tonight/compare/v0.15.1...v0.15.2
 [v0.15.1]: https://github.com/ccradle/finding-a-bed-tonight/compare/v0.15.0...v0.15.1
 [v0.15.0]: https://github.com/ccradle/finding-a-bed-tonight/compare/v0.14.1...v0.15.0
