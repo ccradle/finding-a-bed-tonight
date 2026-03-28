@@ -50,11 +50,11 @@ public class TestResetController {
     @Operation(
             summary = "Reset transient test data (dev/test only)",
             description = "Deletes transient data created by E2E tests: referral tokens, held/expired " +
-                    "reservations, and test-created shelters (name starting with 'E2E Test' or 'DV Shelter' " +
-                    "or 'Invariant Test'). Preserves seed shelters, users, tenants, and availability " +
-                    "snapshots. THIS ENDPOINT DOES NOT EXIST IN PRODUCTION — it is profile-gated " +
-                    "with @Profile(\"dev | test\"). Requires PLATFORM_ADMIN role and X-Confirm-Reset: " +
-                    "DESTROY header."
+                    "reservations, test-created shelters (name starting with 'E2E Test', 'Invariant Test', etc.), " +
+                    "and test-created users (email starting with 'pwdtest-', 'e2e-', 'test-'). Preserves seed " +
+                    "shelters, seed users, tenants, and availability snapshots. THIS ENDPOINT DOES NOT EXIST " +
+                    "IN PRODUCTION — it is profile-gated with @Profile(\"dev | test\"). Requires PLATFORM_ADMIN " +
+                    "role and X-Confirm-Reset: DESTROY header."
     )
     @DeleteMapping("/reset")
     @PreAuthorize("hasRole('PLATFORM_ADMIN')")
@@ -84,6 +84,13 @@ public class TestResetController {
                     "OR name LIKE 'DV %' AND name LIKE '%Test%' OR name LIKE 'D10 SSoT%' " +
                     "OR name LIKE 'Regular Shelter%' OR name LIKE 'Updated E2E%'");
             deleted.put("test_shelters", testShelters);
+
+            // Test-created users (pattern: pwdtest-*, e2e-*, test-*)
+            // Preserves seed users (admin@dev, outreach@dev, cocadmin@dev)
+            int testUsers = jdbcTemplate.update(
+                    "DELETE FROM app_user WHERE email LIKE 'pwdtest-%' OR email LIKE 'e2e-%' " +
+                    "OR email LIKE 'test-%' OR email LIKE 'E2E %'");
+            deleted.put("test_users", testUsers);
 
             log.warn("TEST RESET executed: {}", deleted);
 

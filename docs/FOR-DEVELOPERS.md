@@ -167,9 +167,12 @@ chmod +x dev-start.sh
 
 # Backend only (no frontend)
 ./dev-start.sh backend
+
+# Reset seed data before loading (use when shelter structure changes)
+./dev-start.sh --fresh
 ```
 
-The script starts PostgreSQL via Docker Compose, builds and launches the backend (with Flyway migrations), loads seed data (10 shelters, 3 users, 1 tenant), and starts the frontend dev server.
+The script starts PostgreSQL via Docker Compose, builds and launches the backend (with Flyway migrations), loads seed data (13 shelters, 3 users, 1 tenant), and starts the frontend dev server. Use `--fresh` when shelter structure has changed — it runs `infra/scripts/seed-reset.sql` before loading seed data, clearing old shelters that would otherwise persist via `ON CONFLICT DO NOTHING`.
 
 ### Manual start
 

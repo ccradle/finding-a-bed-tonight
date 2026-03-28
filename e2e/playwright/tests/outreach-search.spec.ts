@@ -1,7 +1,9 @@
 import { test, expect } from '../fixtures/auth.fixture';
 import { OutreachSearchPage } from '../pages/OutreachSearchPage';
+import { cleanupTestData } from '../helpers/test-cleanup';
 
 test.describe('Outreach Search', () => {
+  test.afterAll(async () => { await cleanupTestData(); });
   test('search page loads with shelter results showing name, address, availability', async ({ outreachPage }) => {
     const searchPage = new OutreachSearchPage(outreachPage);
     await searchPage.goto();

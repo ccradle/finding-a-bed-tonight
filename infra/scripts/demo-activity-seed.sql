@@ -294,15 +294,15 @@ END LOOP;
 -- ============================================================================
 
 -- Reset sequences
-ALTER SEQUENCE BATCH_JOB_SEQ RESTART WITH 1;
-ALTER SEQUENCE BATCH_JOB_EXECUTION_SEQ RESTART WITH 1;
-ALTER SEQUENCE BATCH_STEP_EXECUTION_SEQ RESTART WITH 1;
+ALTER SEQUENCE batch_job_instance_seq RESTART WITH 1;
+ALTER SEQUENCE batch_job_execution_seq RESTART WITH 1;
+ALTER SEQUENCE batch_step_execution_seq RESTART WITH 1;
 
 -- dailyAggregation: 28 completed executions
 INSERT INTO BATCH_JOB_INSTANCE (JOB_INSTANCE_ID, VERSION, JOB_NAME, JOB_KEY)
-VALUES (nextval('BATCH_JOB_SEQ'), 0, 'dailyAggregation', 'default');
+VALUES (nextval('batch_job_instance_seq'), 0, 'dailyAggregation', 'default');
 
-v_job_instance_id := currval('BATCH_JOB_SEQ');
+v_job_instance_id := currval('batch_job_instance_seq');
 
 FOR v_day IN SELECT generate_series(
     CURRENT_DATE - INTERVAL '28 days',
@@ -310,8 +310,8 @@ FOR v_day IN SELECT generate_series(
     INTERVAL '1 day'
 )::DATE
 LOOP
-    v_job_exec_id := nextval('BATCH_JOB_EXECUTION_SEQ');
-    v_step_exec_id := nextval('BATCH_STEP_EXECUTION_SEQ');
+    v_job_exec_id := nextval('batch_job_execution_seq');
+    v_step_exec_id := nextval('batch_step_execution_seq');
     v_snapshot_ts := (v_day + INTERVAL '3 hours')::TIMESTAMPTZ;  -- Runs at 3 AM
 
     INSERT INTO BATCH_JOB_EXECUTION (
@@ -350,13 +350,13 @@ END LOOP;
 
 -- hmisPush: 4 executions (3 completed, 1 failed)
 INSERT INTO BATCH_JOB_INSTANCE (JOB_INSTANCE_ID, VERSION, JOB_NAME, JOB_KEY)
-VALUES (nextval('BATCH_JOB_SEQ'), 0, 'hmisPush', 'default');
+VALUES (nextval('batch_job_instance_seq'), 0, 'hmisPush', 'default');
 
-v_job_instance_id := currval('BATCH_JOB_SEQ');
+v_job_instance_id := currval('batch_job_instance_seq');
 
 FOR i IN 1..4 LOOP
-    v_job_exec_id := nextval('BATCH_JOB_EXECUTION_SEQ');
-    v_step_exec_id := nextval('BATCH_STEP_EXECUTION_SEQ');
+    v_job_exec_id := nextval('batch_job_execution_seq');
+    v_step_exec_id := nextval('batch_step_execution_seq');
     v_snapshot_ts := (CURRENT_DATE - ((4 - i) * 7) * INTERVAL '1 day' + INTERVAL '6 hours')::TIMESTAMPTZ;
 
     INSERT INTO BATCH_JOB_EXECUTION (
@@ -392,7 +392,7 @@ FOR i IN 1..4 LOOP
     VALUES (v_step_exec_id, 'rO0ABXNyABFqYXZhLnV0aWwuSGFzaE1hcAUH2sHDFmDRAwACRgAKbG9hZEZhY3RvckkACXRocmVzaG9sZHhwP0AAAAAAAAB3CAAAABAAAAAAeA==', NULL);
 
     -- processOutboxEntries step
-    v_step_exec_id := nextval('BATCH_STEP_EXECUTION_SEQ');
+    v_step_exec_id := nextval('batch_step_execution_seq');
     INSERT INTO BATCH_STEP_EXECUTION (
         STEP_EXECUTION_ID, VERSION, STEP_NAME, JOB_EXECUTION_ID,
         CREATE_TIME, START_TIME, END_TIME, STATUS,
@@ -423,11 +423,11 @@ END LOOP;
 
 -- hicExport: 1 completed execution
 INSERT INTO BATCH_JOB_INSTANCE (JOB_INSTANCE_ID, VERSION, JOB_NAME, JOB_KEY)
-VALUES (nextval('BATCH_JOB_SEQ'), 0, 'hicExport', 'default');
+VALUES (nextval('batch_job_instance_seq'), 0, 'hicExport', 'default');
 
-v_job_instance_id := currval('BATCH_JOB_SEQ');
-v_job_exec_id := nextval('BATCH_JOB_EXECUTION_SEQ');
-v_step_exec_id := nextval('BATCH_STEP_EXECUTION_SEQ');
+v_job_instance_id := currval('batch_job_instance_seq');
+v_job_exec_id := nextval('batch_job_execution_seq');
+v_step_exec_id := nextval('batch_step_execution_seq');
 v_snapshot_ts := (CURRENT_DATE - INTERVAL '7 days' + INTERVAL '4 hours')::TIMESTAMPTZ;
 
 INSERT INTO BATCH_JOB_EXECUTION (

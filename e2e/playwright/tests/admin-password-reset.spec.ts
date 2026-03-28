@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { LoginPage } from '../pages/LoginPage';
+import { cleanupTestData } from '../helpers/test-cleanup';
 
 // Dedicated test user — never touches seed users
 const RESET_TARGET_EMAIL = 'pwdtest-reset@dev.fabt.org';
@@ -41,6 +42,8 @@ test.describe('Admin Password Reset', () => {
     const token = await getAdminToken();
     await createTestUser(token);
   });
+
+  test.afterAll(async () => { await cleanupTestData(); });
 
   test('admin can reset a user password from Users tab', async ({ page }) => {
     // Login as admin
