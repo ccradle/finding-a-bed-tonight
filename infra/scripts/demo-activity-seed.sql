@@ -62,10 +62,11 @@ DECLARE
     v_target_tuesday DATE;
 BEGIN
 
--- Find the most recent Tuesday that is at least 2 days ago (so it's a "last week" reference)
-v_target_tuesday := CURRENT_DATE - ((EXTRACT(DOW FROM CURRENT_DATE)::INT + 5) % 7 + 2);
--- If that's too recent (within 1 day), go back another week
-IF v_target_tuesday > CURRENT_DATE - INTERVAL '2 days' THEN
+-- Find the most recent Tuesday (DOW=2) that is at least 3 days ago.
+-- PostgreSQL DOW: 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
+-- Days since last Tuesday: (current_dow - 2 + 7) % 7, but at least 3 days back
+v_target_tuesday := CURRENT_DATE - ((EXTRACT(DOW FROM CURRENT_DATE)::INT - 2 + 7) % 7)::INT;
+IF v_target_tuesday > CURRENT_DATE - INTERVAL '3 days' THEN
     v_target_tuesday := v_target_tuesday - INTERVAL '7 days';
 END IF;
 
@@ -94,7 +95,7 @@ WHERE tenant_id = v_tenant_id
 
 -- ============================================================================
 -- Generate 28 days of bed_availability snapshots
--- Upward trend: day 1 → 65% baseline, day 28 → 85% baseline
+-- Upward trend: day 1 → 72% baseline, day 28 → 85% baseline (avg ~78%)
 -- ============================================================================
 v_day_num := 0;
 FOR v_day IN SELECT generate_series(
@@ -105,8 +106,8 @@ FOR v_day IN SELECT generate_series(
 LOOP
     v_day_num := v_day_num + 1;
 
-    -- Upward trend: 0.65 on day 1 → 0.85 on day 28
-    v_trend_factor := 0.65 + (v_day_num - 1) * (0.20 / 27.0);
+    -- Upward trend: 0.72 on day 1 → 0.85 on day 28 (28-day avg ≈ 0.785)
+    v_trend_factor := 0.72 + (v_day_num - 1) * (0.13 / 27.0);
 
     -- Day-of-week factor: weekdays busier, weekends quieter
     v_day_factor := CASE EXTRACT(DOW FROM v_day)
