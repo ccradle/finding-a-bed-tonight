@@ -27,7 +27,7 @@ An open-source platform that shows real-time shelter bed availability across an 
 
 ## See It in Action
 
-- **[Platform Walkthrough](https://ccradle.github.io/findABed/demo/index.html)** — 18 annotated screenshots of every key view
+- **[Platform Walkthrough](https://ccradle.github.io/findABed/demo/index.html)** — 19 annotated screenshots of every key view
 - **[DV Referral Flow](https://ccradle.github.io/findABed/demo/dvindex.html)** — privacy-preserving referral for DV shelters
 - **[HMIS Bridge](https://ccradle.github.io/findABed/demo/hmisindex.html)** — automated data push to HMIS vendors
 - **[CoC Analytics](https://ccradle.github.io/findABed/demo/analyticsindex.html)** — utilization trends, demand signals, HIC/PIT export
@@ -59,17 +59,18 @@ Full setup guide: [For Developers](docs/FOR-DEVELOPERS.md#prerequisites)
 | Backend | Java 25, Spring Boot 4.0, Spring MVC, Spring Data JDBC, Virtual Threads |
 | Database | PostgreSQL 16, Flyway (27 migrations), Row Level Security (DV shelters) |
 | Frontend | React 19, Vite, TypeScript, Workbox PWA, react-intl (EN/ES), CSS custom properties design tokens |
-| Testing | JUnit 5, Testcontainers, ArchUnit (256 tests), Playwright (122 UI tests), Karate (26 API scenarios), Gatling (4 simulations) |
+| Testing | JUnit 5, Testcontainers, ArchUnit (267 tests), Playwright (128 UI tests), Karate (26 API scenarios), Gatling (4 simulations) |
 | Infra | Docker, GitHub Actions CI/CD + E2E pipeline, Terraform (3 tiers) |
 
 ---
 
 ## What's Complete
 
-**Current version: v0.15.2** — 25 archived OpenSpec changes, 58 specs, 12 modules.
+**Current version: v0.16.0** — 28 archived OpenSpec changes, 62 specs, 12 modules.
 
 - Real-time bed search with freshness indicators and constraint filters
 - Soft-hold reservations with configurable hold duration (default 90 min)
+- Self-service password change and admin-initiated password reset (NIST 800-63B, JWT invalidation)
 - DV shelter protection: zero-PII opaque referral, database-level Row Level Security, address redaction
 - HMIS bridge: automated push to Clarity, WellSky, ClientTrack with DV aggregation
 - CoC analytics: utilization trends, demand signals, HIC/PIT export (designed to align with HUD format)

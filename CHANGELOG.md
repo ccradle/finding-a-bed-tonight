@@ -11,6 +11,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.16.0] — 2026-03-28 — Self-Service Password Management
+
+### Added
+- `PUT /api/v1/auth/password` — self-service password change (current + new, min 12 chars per NIST 800-63B)
+- `POST /api/v1/users/{id}/reset-password` — admin-initiated password reset (COC_ADMIN/PLATFORM_ADMIN, same-tenant)
+- JWT invalidation via `password_changed_at` timestamp — tokens issued before password change are rejected
+- SSO-only users return 409 Conflict (no local password to change)
+- Rate limiting: 5/15min password change, 10/15min admin reset (bucket4j + Caffeine JCache)
+- Micrometer metrics: `fabt.auth.password_change.count`, `fabt.auth.password_reset.count`, `fabt.auth.token_invalidated.count`
+- Change Password modal (header button, all roles), Admin Reset Password button per user row
+- 24 i18n keys (EN + ES), Flyway V27, `@Operation` annotations for MCP
+- 11 backend integration tests, 4 Playwright e2e tests, OWASP ZAP scan (0 new findings)
+- Login form `data-testid` attributes for reliable Playwright locators
+
+### Fixed
+- JWT `iat` vs `password_changed_at` sub-second precision mismatch (truncate to seconds)
+- False pilot/deployment claims removed from FOR-FUNDERS.md, sustainability-narrative.md
+
+---
+
 ## [v0.15.3] — 2026-03-28 — README Restructure + Raw Enum Fix
 
 README slimmed from 1,300 to 123 lines with 5 audience-specific pages. Raw API enum values removed from all user-facing display text.
