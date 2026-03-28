@@ -195,6 +195,7 @@ export function LoginPage() {
               value={tenantSlug}
               onChange={(e) => setTenantSlug(e.target.value)}
               placeholder="my-organization"
+              data-testid="login-tenant-slug"
               style={{
                 width: '100%',
                 padding: '12px',
@@ -220,6 +221,7 @@ export function LoginPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
+              data-testid="login-email"
               style={{
                 width: '100%',
                 padding: '12px',
@@ -245,6 +247,7 @@ export function LoginPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
+              data-testid="login-password"
               style={{
                 width: '100%',
                 padding: '12px',
@@ -260,6 +263,7 @@ export function LoginPage() {
           <button
             type="submit"
             disabled={loading}
+            data-testid="login-submit"
             style={{
               width: '100%',
               padding: '14px',

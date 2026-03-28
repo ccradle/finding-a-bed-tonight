@@ -61,11 +61,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                         .toList();
             }
 
-            // Check if token was issued before the user's last password change
+            // Check if token was issued before the user's last password change.
+            // JWT iat is epoch-seconds (no fractional seconds), but password_changed_at
+            // has microsecond precision. Truncate both to seconds for a fair comparison —
+            // otherwise a token issued in the same second as the password change would be
+            // incorrectly rejected because iat=12:00:00.000 < password_changed_at=12:00:00.456.
             if (claims.issuedAt() != null) {
                 User user = userRepository.findById(claims.userId()).orElse(null);
                 if (user != null && user.getPasswordChangedAt() != null
-                        && claims.issuedAt().isBefore(user.getPasswordChangedAt())) {
+                        && claims.issuedAt().truncatedTo(java.time.temporal.ChronoUnit.SECONDS)
+                                .isBefore(user.getPasswordChangedAt().truncatedTo(java.time.temporal.ChronoUnit.SECONDS))) {
                     log.debug("JWT rejected: issued before password change for user {}", claims.userId());
                     SecurityContextHolder.clearContext();
                     filterChain.doFilter(request, response);

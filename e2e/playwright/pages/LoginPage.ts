@@ -10,21 +10,20 @@ export class LoginPage {
 
   constructor(page: Page) {
     this.page = page;
-    this.tenantSlugInput = page.locator('input[placeholder*="tenant"], input[placeholder*="organization"], input[name*="tenant"], input[name*="slug"]');
-    this.emailInput = page.locator('input[type="email"]');
-    this.passwordInput = page.locator('input[type="password"]');
-    this.submitButton = page.locator('button[type="submit"]');
-    this.errorMessage = page.locator('[role="alert"], [style*="fef2f2"]');
+    this.tenantSlugInput = page.locator('[data-testid="login-tenant-slug"]');
+    this.emailInput = page.locator('[data-testid="login-email"]');
+    this.passwordInput = page.locator('[data-testid="login-password"]');
+    this.submitButton = page.locator('[data-testid="login-submit"]');
+    this.errorMessage = page.locator('[role="alert"]');
   }
 
   async goto() {
     await this.page.goto('/login');
+    await this.tenantSlugInput.waitFor({ state: 'visible', timeout: 10000 });
   }
 
   async login(email: string, password: string, tenantSlug = 'dev-coc') {
-    if (await this.tenantSlugInput.count() > 0) {
-      await this.tenantSlugInput.first().fill(tenantSlug);
-    }
+    await this.tenantSlugInput.fill(tenantSlug);
     await this.emailInput.fill(email);
     await this.passwordInput.fill(password);
     await this.submitButton.click();

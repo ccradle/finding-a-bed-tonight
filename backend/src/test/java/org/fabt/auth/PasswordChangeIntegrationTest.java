@@ -93,9 +93,14 @@ class PasswordChangeIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    void changePassword_invalidates_old_tokens() {
+    void changePassword_invalidates_old_tokens() throws InterruptedException {
         User user = authHelper.setupOutreachWorkerUser();
         HttpHeaders oldHeaders = authHelper.headersForUser(user);
+
+        // Ensure old token's iat (epoch seconds) is strictly before password_changed_at.
+        // JWT iat has second precision; password_changed_at has microsecond precision.
+        // Without this pause, both can land in the same second, making the comparison ambiguous.
+        Thread.sleep(1100);
 
         // Change the password
         String body = """

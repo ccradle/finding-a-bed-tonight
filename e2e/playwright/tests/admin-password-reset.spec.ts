@@ -64,6 +64,7 @@ test.describe('Admin Password Reset', () => {
 
     // Verify target user can login with new password
     await page.locator('button', { hasText: /logout|sign out/i }).click();
+    await loginPage.goto();
     await loginPage.loginAndWaitForRedirect(RESET_TARGET_EMAIL, TEMP_PASSWORD);
     await expect(page).toHaveURL(/\/(coordinator|admin)/);
 

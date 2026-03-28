@@ -52,22 +52,15 @@ async function loginAndSaveState(page: Page, role: Role): Promise<void> {
     fs.mkdirSync(authDir, { recursive: true });
   }
 
-  // Navigate to login page
+  // Navigate to login page and wait for form to be ready
   await page.goto('/login');
-  await page.waitForSelector('input[type="email"]', { timeout: 10000 });
+  await page.locator('[data-testid="login-tenant-slug"]').waitFor({ state: 'visible', timeout: 10000 });
 
-  // Fill tenant slug if field exists
-  const slugInput = page.locator('input[placeholder*="tenant"], input[placeholder*="organization"], input[name*="tenant"], input[name*="slug"]');
-  if (await slugInput.count() > 0) {
-    await slugInput.first().fill(TENANT_SLUG);
-  }
-
-  // Fill credentials
-  await page.locator('input[type="email"]').fill(USERS[role].email);
-  await page.locator('input[type="password"]').fill(USERS[role].password);
-
-  // Submit
-  await page.locator('button[type="submit"]').click();
+  // Fill login form
+  await page.locator('[data-testid="login-tenant-slug"]').fill(TENANT_SLUG);
+  await page.locator('[data-testid="login-email"]').fill(USERS[role].email);
+  await page.locator('[data-testid="login-password"]').fill(USERS[role].password);
+  await page.locator('[data-testid="login-submit"]').click();
 
   // Wait for redirect away from login
   await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 10000 });
