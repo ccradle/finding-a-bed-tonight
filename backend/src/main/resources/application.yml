@@ -153,3 +153,23 @@ bucket4j:
             - capacity: 10
               time: 15
               unit: minutes
+    - cache-name: rate-limit-password-change
+      url: /api/v1/auth/password
+      http-response-body: '{"error":"rate_limited","message":"Too many password change attempts. Try again later.","status":429}'
+      http-content-type: application/json
+      rate-limits:
+        - cache-key: getRemoteAddr()
+          bandwidths:
+            - capacity: 5
+              time: 15
+              unit: minutes
+    - cache-name: rate-limit-admin-reset
+      url: /api/v1/users/.*/reset-password
+      http-response-body: '{"error":"rate_limited","message":"Too many password reset attempts. Try again later.","status":429}'
+      http-content-type: application/json
+      rate-limits:
+        - cache-key: getRemoteAddr()
+          bandwidths:
+            - capacity: 10
+              time: 15
+              unit: minutes

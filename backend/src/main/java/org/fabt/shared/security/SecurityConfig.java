@@ -91,6 +91,8 @@ public class SecurityConfig {
                         // Swagger paths disabled in prod profile (application-prod.yml).
                         // /actuator/health: show-details=when-authorized, unauthenticated sees only status.
                         // /error: server.error.include-stacktrace=never, no implementation details.
+                        // Password change requires authentication (must be before auth/** permitAll)
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/auth/password").authenticated()
                         .requestMatchers("/api/v1/auth/**").permitAll()
                         .requestMatchers("/oauth2/**", "/login/oauth2/**").permitAll()
                         .requestMatchers("/actuator/health/**").permitAll()

@@ -633,6 +633,30 @@ Every bed search is logged to `bed_search_log`. Zero-result searches increment t
 
 ---
 
+## Password Management
+
+### Self-Service Password Change
+Users change their own password via `PUT /api/v1/auth/password`. Requires current password. Minimum 12 characters (NIST 800-63B). On success, all existing JWT tokens for that user are invalidated (`password_changed_at` timestamp checked against token `iat`). The user is redirected to login.
+
+SSO-only users (no local `password_hash`) receive 409 Conflict. The "Change Password" button appears in the header for all users; the error is shown if they attempt it.
+
+Rate limited: 5 attempts per 15 minutes per IP (`rate-limit-password-change` bucket).
+
+### Admin-Initiated Password Reset
+Admins reset passwords via `POST /api/v1/users/{id}/reset-password`. Requires COC_ADMIN or PLATFORM_ADMIN role. Same-tenant enforcement — admin cannot reset passwords for users in other tenants (returns 404). Same password strength validation and JWT invalidation.
+
+Rate limited: 10 attempts per 15 minutes per IP (`rate-limit-admin-reset` bucket).
+
+### Monitoring Suspicious Activity
+- `fabt.auth.password_change.count{outcome=wrong_password}` — high rate may indicate brute force attempt against a known user
+- `fabt.auth.password_reset.count` — high count in a short window from a single admin suggests compromised admin credentials
+- `fabt.auth.token_invalidated.count{reason=admin_reset}` — unexpected spikes warrant investigation
+
+### Investigation: All users suddenly logged out
+**Symptom:** Multiple users reporting forced re-login simultaneously
+**Cause:** If an admin mass-reset passwords, `password_changed_at` timestamps invalidate all prior tokens
+**Resolution:** Check `fabt.auth.password_reset.count` and `fabt.auth.token_invalidated.count` metrics. Review `password_changed_at` timestamps: `SELECT email, password_changed_at FROM app_user WHERE password_changed_at > NOW() - INTERVAL '1 hour' ORDER BY password_changed_at DESC;`
+
 ## Common Issues
 
 ### Webhook delivery failures

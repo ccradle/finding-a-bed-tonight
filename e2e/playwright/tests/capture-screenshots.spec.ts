@@ -27,12 +27,9 @@ test.describe('Demo Screenshot Capture', () => {
 
   test('01 - Login page', async ({ page }) => {
     await page.goto('/login');
-    await page.waitForSelector('input[type="email"]', { timeout: 10000 });
-    const slugInput = page.locator('input[placeholder*="my-"]');
-    if (await slugInput.count() > 0) {
-      await slugInput.first().fill('dev-coc');
-      await page.waitForTimeout(2500);
-    }
+    await page.locator('[data-testid="login-tenant-slug"]').waitFor({ state: 'visible', timeout: 10000 });
+    await page.locator('[data-testid="login-tenant-slug"]').fill('dev-coc');
+    await page.waitForTimeout(2500);
     await page.screenshot({ path: path.join(DEMO_DIR, '01-login.png'), fullPage: true });
   });
 
@@ -179,6 +176,18 @@ test.describe('Demo Screenshot Capture', () => {
       await adminPage.waitForTimeout(1500);
     }
     await adminPage.screenshot({ path: path.join(DEMO_DIR, '16-admin-oauth2-providers.png'), fullPage: true });
+  });
+
+  // === PASSWORD MANAGEMENT ===
+
+  test('19 - Change Password modal', async ({ outreachPage }) => {
+    await outreachPage.goto('/outreach');
+    await outreachPage.waitForTimeout(1000);
+    await outreachPage.locator('[data-testid="change-password-button"]').click();
+    await outreachPage.waitForTimeout(500);
+    await outreachPage.screenshot({ path: path.join(DEMO_DIR, '19-change-password.png'), fullPage: true });
+    // Close modal without submitting
+    await outreachPage.locator('button', { hasText: /cancel/i }).click();
   });
 
   // === OBSERVABILITY STACK ===

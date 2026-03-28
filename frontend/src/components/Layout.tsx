@@ -1,11 +1,12 @@
 import { type ReactNode, useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { FormattedMessage } from 'react-intl';
+import { FormattedMessage, useIntl } from 'react-intl';
 import { useAuth } from '../auth/useAuth';
 import { getDefaultRouteForRoles } from '../auth/AuthGuard';
 import { LocaleSelector } from './LocaleSelector';
 import { OfflineBanner } from './OfflineBanner';
 import { SessionTimeoutWarning } from './SessionTimeoutWarning';
+import { ChangePasswordModal } from './ChangePasswordModal';
 import { text, weight } from '../theme/typography';
 
 /**
@@ -66,7 +67,16 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
     user?.roles.some((role) => item.roles.includes(role))
   );
 
+  const intl = useIntl();
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
+
   const handleLogout = () => {
+    logout();
+    navigate('/login');
+  };
+
+  const handlePasswordChanged = () => {
+    setChangePasswordOpen(false);
     logout();
     navigate('/login');
   };
@@ -124,6 +134,11 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
 
       <OfflineBanner />
       <SessionTimeoutWarning expiresIn={expiresIn} onLogout={handleLogout} />
+      <ChangePasswordModal
+        open={changePasswordOpen}
+        onClose={() => setChangePasswordOpen(false)}
+        onSuccess={handlePasswordChanged}
+      />
 
       {/* Header */}
       <header
@@ -154,6 +169,24 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
             </span>
           )}
           <LocaleSelector locale={locale} onLocaleChange={onLocaleChange} />
+          <button
+            onClick={() => setChangePasswordOpen(true)}
+            aria-label={intl.formatMessage({ id: 'password.change.title' })}
+            data-testid="change-password-button"
+            style={{
+              padding: '8px 16px',
+              backgroundColor: 'transparent',
+              color: '#ffffff',
+              border: '1px solid rgba(255,255,255,0.3)',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: text.base,
+              minHeight: '44px',
+              minWidth: '44px',
+            }}
+          >
+            <FormattedMessage id="password.change.button" />
+          </button>
           <button
             onClick={handleLogout}
             style={{
