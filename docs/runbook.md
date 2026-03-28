@@ -152,7 +152,7 @@ The Observability tab allows PLATFORM_ADMIN users to configure monitoring at run
 **Default station:** KRDU (Raleigh-Durham, NC)
 **Severity:** Medium — potential safety concern in freezing weather
 
-**What it means:** The NOAA API reports ambient temperature below the configured threshold (default 32°F) at the pilot city location, but no surge event is active. During freezing weather, unsheltered individuals face hypothermia risk and surge mode should typically be activated.
+**What it means:** The NOAA API reports ambient temperature below the configured threshold (default 32°F) at the configured city location, but no surge event is active. During freezing weather, unsheltered individuals face hypothermia risk and surge mode should typically be activated.
 
 **Configuration:**
 - Temperature threshold: Admin UI → Observability → "Surge activation threshold"
@@ -163,7 +163,7 @@ The Observability tab allows PLATFORM_ADMIN users to configure monitoring at run
 **Investigation:**
 1. Check the WARNING log for the reported temperature, threshold, and tenant
 2. Check the Admin UI Observability tab for current temperature and gap status
-3. Verify the NOAA station ID is correct for the pilot city
+3. Verify the NOAA station ID is correct for the configured city
 4. Check if a surge was recently deactivated (intentional)
 5. Confirm the temperature reading is accurate (cross-reference with weather.gov)
 

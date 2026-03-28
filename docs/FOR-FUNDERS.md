@@ -30,7 +30,7 @@ For the full logic model, evidence basis, and recommended grant language, see th
 
 ## Who Uses It
 
-The platform is being piloted in the Raleigh, North Carolina area, within the Wake County Continuum of Care. It is designed to serve any US community, from a rural volunteer-run network of faith shelters to a metro area with 50+ shelters.
+The platform is not yet deployed in any community. It is designed to serve any US Continuum of Care, from a rural volunteer-run network of faith shelters to a metro area with 50+ shelters. The demo environment uses Raleigh, North Carolina as its reference geography (shelter names, addresses, and NOAA weather station) because the project team is based there — this does not represent a partnership or deployment agreement with Wake County or any local organization.
 
 Three deployment tiers keep costs proportional to community size:
 - **Lite** ($15-30/month): small CoCs, rural counties

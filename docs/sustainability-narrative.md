@@ -42,7 +42,7 @@ When the first pilot deployment is active, establish a fiscal home:
 - More selective — requires demonstrated community
 
 **Option C: A local NC nonprofit** as fiscal sponsor
-- Leverages existing relationships with Wake County CoC and Raleigh housing organizations
+- Would leverage proximity to Wake County CoC and Raleigh housing organizations (no existing relationship — would need to be established)
 - Keeps governance local and accountable to the community being served
 
 **What this provides:** A financial entity that can receive foundation grants, CoC contributions, and government contracts. FABT becomes fundable.
@@ -77,7 +77,7 @@ At 10+ adopters, one of several paths:
 | Knight Foundation | Civic tech, information access | Strong — real-time public information system |
 | Mozilla Foundation | Open-source public interest technology | Strong — Apache 2.0, zero-PII, community benefit |
 | MacArthur Foundation | Safety and justice, housing | Moderate — housing focus, DV protection angle |
-| NC Community Foundation | Local NC initiatives | Strong — Raleigh/Wake County pilot |
+| NC Community Foundation | Local NC initiatives | Strong — NC-based project, would need local CoC partnership |
 | HUD Technology Grants | CoC technology, HMIS integration | Strong — if a CoC is formally involved |
 | Local corporate foundations | CRA obligations (banks, healthcare) | Moderate — community investment angle |
 
