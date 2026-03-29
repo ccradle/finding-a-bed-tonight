@@ -281,5 +281,20 @@
   "password.reset.submit": "Reset Password",
   "password.reset.success": "Password reset. {username} will need to sign in again.",
   "password.reset.ssoOnly": "This user authenticates via SSO. Password cannot be reset here.",
-  "password.reset.error": "Failed to reset password. Please try again."
+  "password.reset.error": "Failed to reset password. Please try again.",
+
+  "notifications.title": "Notifications",
+  "notifications.empty": "No notifications",
+  "notifications.bell": "Notifications",
+  "notifications.bellWithCount": "Notifications, {count} unread",
+  "notifications.screenReaderCount": "{count, plural, one {# new notification} other {# new notifications}}",
+  "notifications.dismiss": "Dismiss notification",
+  "notifications.referralResponded": "A shelter responded to your referral",
+  "notifications.referralRequested": "New referral needs your review",
+  "notifications.availabilityUpdated": "Bed availability changed at {shelterName}",
+  "notifications.referralAccepted": "A shelter accepted your referral",
+  "notifications.referralRejected": "A shelter rejected your referral",
+  "notifications.unknown": "Notification",
+  "notifications.reconnecting": "Reconnecting to live updates…",
+  "notifications.reconnected": "Reconnected"
 }

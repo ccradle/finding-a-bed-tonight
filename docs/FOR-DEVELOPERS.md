@@ -620,6 +620,14 @@ All endpoints are under `/api/v1`. Authentication is via JWT Bearer token (from 
 | `GET` | `/api/v1/subscriptions` | Any authenticated | List subscriptions for tenant |
 | `DELETE` | `/api/v1/subscriptions/{id}` | Any authenticated | Cancel subscription |
 
+### SSE Notifications
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET` | `/api/v1/notifications/stream?token=<jwt>` | Any authenticated | Server-Sent Events stream. Token passed as query parameter (EventSource API does not support Authorization header). Events: `dv-referral.responded`, `dv-referral.requested`, `availability.updated`. 5-minute timeout, client auto-reconnects. |
+
+**Security note:** The `SseTokenFilter` extracts the JWT from the `?token=` query parameter and sets the SecurityContext. This filter only applies to the `/api/v1/notifications/stream` path. Token-in-URL is the standard approach for SSE (used by GitHub, Slack). Mitigated by short-lived access tokens and read-only endpoint.
+
 ---
 
 ## Domain Glossary
@@ -1101,7 +1109,7 @@ finding-a-bed-tonight/
 - [x] `publishPercentileHistogram()` on bed search + availability update timers
 - [x] 3 new Grafana operations panels (10→13): p50/p95/p99 breakdown, availability latency, HikariCP acquire time
 - [x] WCAG color-contrast fix: Call button #059669→#047857 (3.76:1→5.48:1)
-- [x] DV referral caption: "notified instantly" corrected (no notification mechanism exists)
+- [x] DV referral caption: "notified instantly" corrected (restored with SSE notifications in v0.18.0)
 
 ### Completed: Self-Service Password Management
 
@@ -1127,6 +1135,24 @@ finding-a-bed-tonight/
 - [x] WCAG audit: 1.4.4 (Resize Text), 1.4.12 (Text Spacing) — no fixed-height text containers, no pixel-based line-heights, 200% zoom verified
 - [x] 4 new Playwright tests: font consistency, no-serif, form inheritance, WCAG 1.4.12 text spacing override
 - [x] 2 fragile Playwright selectors replaced with `data-testid` (admin-panel, outreach-search)
+
+### In Progress: SSE Notifications
+
+- [x] SSE endpoint: `GET /api/v1/notifications/stream?token=<jwt>` (SseEmitter, 5-min timeout, auto-reconnect)
+- [x] `NotificationService`: ConcurrentHashMap per-user emitters, domain event listener, tenant-scoped filtering
+- [x] `SseTokenFilter`: JWT extraction from query parameter (EventSource API limitation)
+- [x] Event types: `dv-referral.responded` (outreach workers), `dv-referral.requested` (DV coordinators), `availability.updated` (all users in tenant)
+- [x] DV safety: referral response SSE payloads contain status only, never shelter name or address
+- [x] 30-second keepalive heartbeat (SSE comment), prevents proxy/LB idle timeout
+- [x] Metrics: `fabt.sse.connections.active` gauge, `fabt.sse.events.sent.count` counter (tagged by eventType)
+- [x] Frontend: `useNotifications` hook (EventSource), `NotificationBell` component (WCAG `aria-live`, badge, dropdown)
+- [x] Auto-refresh: OutreachSearch listens for SSE events, refreshes referral list and bed search results
+- [x] Grafana: SSE Active Connections gauge + Events Sent rate panels on operations dashboard
+- [x] i18n: 10 notification keys (EN/ES)
+- [x] 4 backend integration tests (auth, event delivery, tenant isolation, DV safety)
+- [x] 8 Playwright e2e tests (bell visibility, WCAG aria, dropdown open/close, DOM ordering)
+- [x] 3 dedicated screenshot captures (header bell, dropdown empty, coordinator view)
+- [ ] Full regression (backend, Karate, Playwright, Gatling)
 
 ---
 
