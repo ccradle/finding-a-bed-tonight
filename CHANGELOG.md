@@ -11,6 +11,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.18.1] — 2026-03-29 — SSE Emitter Cleanup Fix
+
+### Fixed
+- SSE emitter cleanup double-decrement: Spring fires `onCompletion` after `onTimeout`/`onError`, causing the `activeConnections` gauge to go negative (-234 observed). Guard with `emitters.remove()` return value for idempotent cleanup.
+- Cascading SSE send failures on `availability.updated` events eliminated — dead emitters no longer accumulate in the map.
+- Gatling AvailabilityUpdate KO rate: 14.1% → 2.05% (remaining 8 are expected 409 Conflict from same-shelter concurrent writes).
+
+---
+
 ## [v0.18.0] — 2026-03-29 — SSE Real-Time Notifications
 
 ### Added
