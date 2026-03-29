@@ -1,27 +1,25 @@
 package org.fabt.auth.api;
 
-import java.time.Instant;
 import java.util.List;
-import java.util.NoSuchElementException;
 import java.util.UUID;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.fabt.auth.domain.User;
-import org.fabt.auth.repository.UserRepository;
-import org.fabt.auth.service.PasswordService;
-import org.fabt.shared.web.TenantContext;
+import org.fabt.auth.service.UserService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -29,12 +27,10 @@ import org.springframework.web.bind.annotation.RestController;
 @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
 public class UserController {
 
-    private final UserRepository userRepository;
-    private final PasswordService passwordService;
+    private final UserService userService;
 
-    public UserController(UserRepository userRepository, PasswordService passwordService) {
-        this.userRepository = userRepository;
-        this.passwordService = passwordService;
+    public UserController(UserService userService) {
+        this.userService = userService;
     }
 
     @Operation(
@@ -50,38 +46,20 @@ public class UserController {
                     "Requires COC_ADMIN or PLATFORM_ADMIN role."
     )
     @PostMapping
-    @Transactional
     public ResponseEntity<UserResponse> createUser(@Valid @RequestBody CreateUserRequest request) {
-        UUID tenantId = TenantContext.getTenantId();
-
-        User user = new User();
-        // ID left null — database generates via gen_random_uuid()
-        user.setTenantId(tenantId);
-        user.setEmail(request.email());
-        user.setDisplayName(request.displayName());
-        user.setPasswordHash(request.password() != null ? passwordService.hash(request.password()) : null);
-        user.setRoles(request.roles() != null ? request.roles() : new String[0]);
-        user.setDvAccess(request.dvAccess() != null && request.dvAccess());
-        user.setCreatedAt(Instant.now());
-        user.setUpdatedAt(Instant.now());
-
-        User saved = userRepository.save(user);
+        User saved = userService.createUser(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(UserResponse.from(saved));
     }
 
     @Operation(
             summary = "List all users in the authenticated tenant",
-            description = "Returns all users belonging to the caller's tenant. The list is unfiltered " +
-                    "and unpaginated. Each user record includes id, email, displayName, roles, " +
-                    "dvAccess flag, and timestamps. Users from other tenants are never returned — " +
-                    "tenant isolation is enforced server-side via the JWT's tenant claim. " +
+            description = "Returns all users belonging to the caller's tenant. Each user record " +
+                    "includes id, email, displayName, roles, dvAccess flag, status, and timestamps. " +
                     "Requires COC_ADMIN or PLATFORM_ADMIN role."
     )
     @GetMapping
-    @Transactional(readOnly = true)
     public ResponseEntity<List<UserResponse>> listUsers() {
-        UUID tenantId = TenantContext.getTenantId();
-        List<UserResponse> users = userRepository.findByTenantId(tenantId).stream()
+        List<UserResponse> users = userService.listUsers().stream()
                 .map(UserResponse::from)
                 .toList();
         return ResponseEntity.ok(users);
@@ -90,65 +68,60 @@ public class UserController {
     @Operation(
             summary = "Get a single user by ID within the authenticated tenant",
             description = "Returns the user with the specified UUID, provided the user belongs to " +
-                    "the caller's tenant. Returns 404 (via NoSuchElementException) if the user does " +
-                    "not exist or belongs to a different tenant — the error is intentionally " +
-                    "indistinguishable to prevent cross-tenant enumeration. " +
-                    "Requires COC_ADMIN or PLATFORM_ADMIN role."
+                    "the caller's tenant. Returns 404 if the user does not exist or belongs to a " +
+                    "different tenant. Requires COC_ADMIN or PLATFORM_ADMIN role."
     )
     @GetMapping("/{id}")
-    @Transactional(readOnly = true)
     public ResponseEntity<UserResponse> getUser(
             @Parameter(description = "UUID of the user to retrieve") @PathVariable UUID id) {
-        UUID tenantId = TenantContext.getTenantId();
-
-        User user = userRepository.findById(id)
-                .orElseThrow(() -> new NoSuchElementException("User not found: " + id));
-
-        if (!user.getTenantId().equals(tenantId)) {
-            throw new NoSuchElementException("User not found: " + id);
-        }
-
-        return ResponseEntity.ok(UserResponse.from(user));
+        return ResponseEntity.ok(UserResponse.from(userService.getUser(id)));
     }
 
     @Operation(
             summary = "Update a user's profile, roles, or DV access",
             description = "Partially updates a user within the caller's tenant. Only non-null fields " +
-                    "in the request body are applied — omit a field to leave it unchanged. Updatable " +
-                    "fields: displayName (string), roles (string array — replaces the entire role " +
-                    "list, not a merge), and dvAccess (boolean). Email cannot be changed through this " +
-                    "endpoint. Use PUT /api/v1/auth/password for self-service password change or " +
-                    "POST /api/v1/users/{id}/reset-password for admin-initiated reset. " +
-                    "Returns the full updated user object. Returns 404 if the " +
-                    "user does not exist or belongs to a different tenant. " +
+                    "in the request body are applied. Updatable fields: displayName, email, roles " +
+                    "(replaces entire list), dvAccess. Role or dvAccess changes increment " +
+                    "tokenVersion, invalidating the user's existing JWTs. " +
                     "Requires COC_ADMIN or PLATFORM_ADMIN role."
     )
     @PutMapping("/{id}")
-    @Transactional
     public ResponseEntity<UserResponse> updateUser(
             @Parameter(description = "UUID of the user to update") @PathVariable UUID id,
-            @Valid @RequestBody UpdateUserRequest request) {
-        UUID tenantId = TenantContext.getTenantId();
-
-        User user = userRepository.findById(id)
-                .orElseThrow(() -> new NoSuchElementException("User not found: " + id));
-
-        if (!user.getTenantId().equals(tenantId)) {
-            throw new NoSuchElementException("User not found: " + id);
-        }
-
-        if (request.displayName() != null) {
-            user.setDisplayName(request.displayName());
-        }
-        if (request.roles() != null) {
-            user.setRoles(request.roles());
-        }
-        if (request.dvAccess() != null) {
-            user.setDvAccess(request.dvAccess());
-        }
-        user.setUpdatedAt(Instant.now());
-
-        User saved = userRepository.save(user);
+            @Valid @RequestBody UpdateUserRequest request,
+            Authentication authentication,
+            HttpServletRequest httpRequest) {
+        UUID actorUserId = (UUID) authentication.getPrincipal();
+        String ipAddress = httpRequest.getRemoteAddr();
+        User saved = userService.updateUser(id, request, actorUserId, ipAddress);
         return ResponseEntity.ok(UserResponse.from(saved));
     }
+
+    @Operation(
+            summary = "Deactivate or reactivate a user account",
+            description = "Sets the user's status to DEACTIVATED or ACTIVE. Deactivated users " +
+                    "cannot log in and their existing JWTs are immediately invalidated via " +
+                    "tokenVersion increment. Deactivation also disconnects any active SSE " +
+                    "notification stream. Requires COC_ADMIN or PLATFORM_ADMIN role."
+    )
+    @PatchMapping("/{id}/status")
+    public ResponseEntity<UserResponse> changeStatus(
+            @Parameter(description = "UUID of the user") @PathVariable UUID id,
+            @RequestBody StatusChangeRequest request,
+            Authentication authentication,
+            HttpServletRequest httpRequest) {
+        UUID actorUserId = (UUID) authentication.getPrincipal();
+        String ipAddress = httpRequest.getRemoteAddr();
+
+        User saved = switch (request.status()) {
+            case "DEACTIVATED" -> userService.deactivateUser(id, actorUserId, ipAddress);
+            case "ACTIVE" -> userService.reactivateUser(id, actorUserId, ipAddress);
+            default -> throw new IllegalArgumentException("Invalid status: " + request.status()
+                    + ". Valid values: ACTIVE, DEACTIVATED");
+        };
+
+        return ResponseEntity.ok(UserResponse.from(saved));
+    }
+
+    public record StatusChangeRequest(String status) {}
 }

@@ -283,6 +283,18 @@
   "password.reset.ssoOnly": "This user authenticates via SSO. Password cannot be reset here.",
   "password.reset.error": "Failed to reset password. Please try again.",
 
+  "admin.user.edit": "Edit",
+  "admin.user.editTitle": "Edit User",
+  "admin.user.saved": "User updated",
+  "admin.user.saveError": "Failed to update user",
+  "admin.user.deactivate": "Deactivate",
+  "admin.user.reactivate": "Reactivate",
+  "admin.user.statusHeader": "Status",
+  "admin.user.statusActive": "Active",
+  "admin.user.statusDeactivated": "Deactivated",
+  "admin.user.deactivateConfirmTitle": "Deactivate User",
+  "admin.user.deactivateConfirmMessage": "{name} will be unable to log in. Their existing sessions will be terminated immediately. This can be reversed.",
+
   "notifications.title": "Notifications",
   "notifications.empty": "No notifications",
   "notifications.bell": "Notifications",

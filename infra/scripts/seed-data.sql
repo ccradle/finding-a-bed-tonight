@@ -51,6 +51,20 @@ VALUES (
     NOW(), NOW()
 ) ON CONFLICT (tenant_id, email) DO NOTHING;
 
+-- Deactivated user (for admin panel screenshots and testing)
+INSERT INTO app_user (id, tenant_id, email, password_hash, display_name, roles, dv_access, status, created_at, updated_at)
+VALUES (
+    'b0000000-0000-0000-0000-000000000004',
+    'a0000000-0000-0000-0000-000000000001',
+    'former@dev.fabt.org',
+    '$2b$10$D0ZKzFrhx0qdM0mQy9iZQeLYJPX8/eeEfrJi4TsO5D2o62Q/Fwhva',
+    'Former Staff Member',
+    ARRAY['OUTREACH_WORKER'],
+    false,
+    'DEACTIVATED',
+    NOW(), NOW()
+) ON CONFLICT (tenant_id, email) DO NOTHING;
+
 -- Sample OAuth2 provider (Google, for local testing — replace client ID/secret with real values)
 INSERT INTO tenant_oauth2_provider (id, tenant_id, provider_name, client_id, client_secret_encrypted, issuer_uri, enabled, created_at)
 VALUES (

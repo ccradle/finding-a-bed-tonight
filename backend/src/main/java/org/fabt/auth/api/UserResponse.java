@@ -11,6 +11,7 @@ public record UserResponse(
         String displayName,
         String[] roles,
         boolean dvAccess,
+        String status,
         Instant createdAt
 ) {
     public static UserResponse from(User user) {
@@ -20,6 +21,7 @@ public record UserResponse(
                 user.getDisplayName(),
                 user.getRoles(),
                 user.isDvAccess(),
+                user.getStatus(),
                 user.getCreatedAt()
         );
     }

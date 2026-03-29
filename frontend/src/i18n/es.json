@@ -283,6 +283,18 @@
   "password.reset.ssoOnly": "Este usuario se autentica mediante SSO. La contraseña no se puede restablecer aquí.",
   "password.reset.error": "Error al restablecer la contraseña. Inténtelo de nuevo.",
 
+  "admin.user.edit": "Editar",
+  "admin.user.editTitle": "Editar Usuario",
+  "admin.user.saved": "Usuario actualizado",
+  "admin.user.saveError": "Error al actualizar el usuario",
+  "admin.user.deactivate": "Desactivar",
+  "admin.user.reactivate": "Reactivar",
+  "admin.user.statusHeader": "Estado",
+  "admin.user.statusActive": "Activo",
+  "admin.user.statusDeactivated": "Desactivado",
+  "admin.user.deactivateConfirmTitle": "Desactivar Usuario",
+  "admin.user.deactivateConfirmMessage": "{name} no podrá iniciar sesión. Sus sesiones activas serán terminadas inmediatamente. Esto puede revertirse.",
+
   "notifications.title": "Notificaciones",
   "notifications.empty": "Sin notificaciones",
   "notifications.bell": "Notificaciones",

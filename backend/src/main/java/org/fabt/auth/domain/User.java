@@ -17,6 +17,8 @@ public class User {
     private String displayName;
     private String[] roles;
     private boolean dvAccess;
+    private String status = "ACTIVE";
+    private int tokenVersion;
     private Instant passwordChangedAt;
     private Instant createdAt;
     private Instant updatedAt;
@@ -92,6 +94,26 @@ public class User {
 
     public void setDvAccess(boolean dvAccess) {
         this.dvAccess = dvAccess;
+    }
+
+    public String getStatus() {
+        return status;
+    }
+
+    public void setStatus(String status) {
+        this.status = status;
+    }
+
+    public int getTokenVersion() {
+        return tokenVersion;
+    }
+
+    public void setTokenVersion(int tokenVersion) {
+        this.tokenVersion = tokenVersion;
+    }
+
+    public boolean isActive() {
+        return "ACTIVE".equals(status);
     }
 
     public Instant getPasswordChangedAt() {
