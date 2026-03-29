@@ -52,6 +52,14 @@ When an outreach worker finds a bed at your shelter, they can place a hold on it
 
 ---
 
+## Can I Edit My Shelter's Details?
+
+Yes. From your dashboard, expand your shelter card and tap **Edit Details**. You can update your shelter's phone number, hours, and operational information — the things that change week to week.
+
+Structural details like your shelter's name, address, and DV status are managed by your CoC administrator. If those need to change, contact them.
+
+---
+
 ## What If My Shelter Does Not Have WiFi?
 
 The platform is built as a Progressive Web App (PWA). If you lose your internet connection while updating, the app saves your work locally and sends it when you reconnect. You can also update from a phone using mobile data if your desktop is offline.

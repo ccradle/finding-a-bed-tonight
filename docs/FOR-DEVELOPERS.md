@@ -84,7 +84,7 @@ Phase 2 will add an MCP server as a thin wrapper around the REST API, enabling n
 
 ## Database Schema
 
-27 Flyway migrations (V1–V26 + V8.1):
+29 Flyway migrations (V1–V29 + V8.1):
 
 | Migration | Description |
 |---|---|
@@ -114,6 +114,10 @@ Phase 2 will add an MCP server as a thin wrapper around the REST API, enabling n
 | V23 | `bed_search_log` + `daily_utilization_summary` — analytics demand logging and pre-aggregation. BRIN index on `bed_availability.snapshot_ts` |
 | V24 | Spring Batch schema (6 tables, 3 sequences) — job/step execution history for batch jobs |
 | V25 | Composite index on `bed_availability(tenant_id, shelter_id, population_type, snapshot_ts DESC)` — lateral join skip-scan optimization |
+| V26 | Spring Batch 6.0 sequence rename (`BATCH_JOB_SEQ` → `BATCH_JOB_INSTANCE_SEQ`) |
+| V27 | `password_changed_at` column on `app_user` — tracks last password change for JWT invalidation |
+| V28 | `status` + `token_version` columns on `app_user` — user deactivation and JWT invalidation |
+| V29 | `audit_events` — audit trail for admin actions (user management, shelter DV changes) |
 
 ### Entity Relationship Diagram
 
@@ -128,6 +132,21 @@ Phase 2 will add an MCP server as a thin wrapper around the REST API, enabling n
 | [docs/asyncapi.yaml](docs/asyncapi.yaml) | AsyncAPI 3.0 spec — EventBus contract for all 3 deployment tiers |
 | [docs/architecture.drawio](docs/architecture.drawio) | Architecture diagram — includes observability stack, NOAA API. Open in [draw.io](https://app.diagrams.net) |
 | [docs/runbook.md](docs/runbook.md) | Operational runbook — monitor investigation, Grafana panels, Prometheus queries, management port production security |
+
+---
+
+## Recent Changes
+
+### Shelter Edit (v0.20.0)
+
+Shelters can now be edited from both the Admin Shelters tab and the Coordinator dashboard. DV shelter changes have tiered safeguards:
+
+- **Operational fields** (phone, curfew, max stay) — editable by COORDINATOR+
+- **Structural fields** (name, address) — editable by COC_ADMIN+, read-only for coordinators
+- **DV flag** — COC_ADMIN+ only. Changing dvShelter from true→false requires a confirmation dialog. All DV flag and DV address changes are audit-logged via `audit_events` (V29)
+- **RLS enforcement** — writing `dv_shelter=true` requires `dvAccess=true` on the session (PostgreSQL RLS policy)
+
+**Demo flow:** A 211 CSV import → shelter edit lifecycle demonstrates realistic CoC onboarding. See `e2e/fixtures/nc-211-sample.csv` for the demo data file.
 
 ---
 

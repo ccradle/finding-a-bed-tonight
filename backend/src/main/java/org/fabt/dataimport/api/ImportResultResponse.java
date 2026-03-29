@@ -4,24 +4,26 @@ import java.util.List;
 
 import org.fabt.dataimport.service.ImportResult;
 
+/**
+ * Import result matching the frontend contract:
+ * { created, updated, skipped, errors: string[] }
+ */
 public record ImportResultResponse(
         int created,
         int updated,
         int skipped,
-        int errors,
-        List<ImportErrorDto> errorDetails
+        List<String> errors
 ) {
 
     public static ImportResultResponse from(ImportResult result) {
-        List<ImportErrorDto> errorDtos = result.errorDetails().stream()
-                .map(ImportErrorDto::from)
+        List<String> formattedErrors = result.errorDetails().stream()
+                .map(e -> "Row " + e.row() + ": " + e.field() + " — " + e.message())
                 .toList();
         return new ImportResultResponse(
                 result.created(),
                 result.updated(),
                 result.skipped(),
-                result.errors(),
-                errorDtos
+                formattedErrors
         );
     }
 }

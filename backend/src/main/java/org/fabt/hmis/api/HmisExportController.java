@@ -146,32 +146,35 @@ public class HmisExportController {
         )).toList());
     }
 
-    @Operation(summary = "Add HMIS vendor",
-            description = "Add a new HMIS vendor configuration. API key is write-once. PLATFORM_ADMIN only.")
+    @Deprecated(forRemoval = true)
+    @Operation(summary = "[STUB] Add HMIS vendor — not yet implemented",
+            description = "Placeholder endpoint. Returns hardcoded response. Will be implemented in platform-hardening change.")
     @PostMapping("/vendors")
     @PreAuthorize("hasRole('PLATFORM_ADMIN')")
     public ResponseEntity<Map<String, Object>> addVendor(@RequestBody Map<String, Object> body) {
-        // TODO: Implement vendor add by updating tenant config JSONB hmis_vendors array
-        return ResponseEntity.ok(Map.of("status", "vendor added", "type", body.getOrDefault("type", "UNKNOWN")));
+        return ResponseEntity.status(501).body(Map.of("error", "not_implemented",
+                "message", "HMIS vendor management is not yet implemented"));
     }
 
-    @Operation(summary = "Update HMIS vendor (enable/disable)",
-            description = "Update vendor configuration. PLATFORM_ADMIN only.")
+    @Deprecated(forRemoval = true)
+    @Operation(summary = "[STUB] Update HMIS vendor — not yet implemented",
+            description = "Placeholder endpoint. Returns 501. Will be implemented in platform-hardening change.")
     @PutMapping("/vendors/{vendorId}")
     @PreAuthorize("hasRole('PLATFORM_ADMIN')")
     public ResponseEntity<Map<String, Object>> updateVendor(
             @PathVariable String vendorId, @RequestBody Map<String, Object> body) {
-        // TODO: Implement vendor update by modifying tenant config JSONB
-        return ResponseEntity.ok(Map.of("status", "vendor updated", "id", vendorId));
+        return ResponseEntity.status(501).body(Map.of("error", "not_implemented",
+                "message", "HMIS vendor management is not yet implemented"));
     }
 
-    @Operation(summary = "Remove HMIS vendor",
-            description = "Remove a vendor configuration. PLATFORM_ADMIN only.")
+    @Deprecated(forRemoval = true)
+    @Operation(summary = "[STUB] Remove HMIS vendor — not yet implemented",
+            description = "Placeholder endpoint. Returns 501. Will be implemented in platform-hardening change.")
     @DeleteMapping("/vendors/{vendorId}")
     @PreAuthorize("hasRole('PLATFORM_ADMIN')")
     public ResponseEntity<Map<String, Object>> removeVendor(@PathVariable String vendorId) {
-        // TODO: Implement vendor removal from tenant config JSONB
-        return ResponseEntity.ok(Map.of("status", "vendor removed", "id", vendorId));
+        return ResponseEntity.status(501).body(Map.of("error", "not_implemented",
+                "message", "HMIS vendor management is not yet implemented"));
     }
 
     @Operation(summary = "Retry dead-letter HMIS entry",

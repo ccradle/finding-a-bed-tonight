@@ -5,9 +5,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [Unreleased]
+## [v0.20.0] — 2026-03-29 — Shelter Edit & Import/Export Hardening
 
-*(Nothing yet)*
+### Added
+- **Shelter edit mode**: ShelterForm supports create and edit via `initialData` prop. PUT on save for edit, POST for create. Route: `/coordinator/shelters/:id/edit`.
+- **Edit navigation**: "Edit" link on each Admin Shelters tab row, "Edit Details" button on Coordinator dashboard expanded card. `?from=` param for return navigation.
+- **DV shelter safeguards**: `dvShelter` field on `UpdateShelterRequest`. COC_ADMIN+ can change DV flag (403 for COORDINATOR). Confirmation dialog on true→false with "Remove DV Protection?" warning. All DV flag and address changes audit-logged via `audit_events`.
+- **Demo 211 import → edit flow**: `e2e/fixtures/nc-211-sample.csv` (3 fictitious NC shelters with iCarol-style headers). Playwright e2e tests for full lifecycle.
+- **GitHub Pages**: `demo/shelter-onboarding.html` — 7-card walkthrough (import → edit → DV safeguards). "Shelter Onboarding" link in main walkthrough footer. 7 new screenshots (20-26).
+- **Import preview contract fix**: `POST /api/v1/import/211/preview` now accepts file upload (was GET with headerLine). Returns `{columns: [{sourceColumn, targetField, sampleValues}], totalRows, unmapped}` matching frontend.
+- **Apache Commons CSV**: Replaced hand-rolled CSV parser. Handles UTF-8 BOM, RFC 4180 escaped quotes, embedded newlines.
+- **Coordinate validation**: Import sanitizes lat/lng outside valid ranges (-90..90, -180..180) to null with warning log.
+- **File upload size limit**: `spring.servlet.multipart.max-file-size=10MB`. `MaxUploadSizeExceededException` → 413 response.
+- **CSV injection protection**: `HicPitExportService.escCsv()` tab-prefixes cells starting with `=`, `+`, `-`, `@` per OWASP guidance.
+- 8 backend integration tests (DV safeguards: coordinator phone edit, DV flag 403, COC_ADMIN DV change, unassigned shelter 403; CSV edge cases: BOM, escaped quotes, invalid coordinates; file size limit)
+- 4 Playwright e2e tests (admin edit name, coordinator edit phone, DV toggle, DV confirmation dialog)
+- 3 Playwright demo lifecycle tests (import → phone edit → DV flag)
+- 25 i18n keys (EN/ES) for shelter edit + import pages
+
+### Changed
+- `ImportResultResponse.errors` is now `List<String>` (human-readable "Row N: field — message") instead of `int` count. Frontend contract aligned.
+- `ImportLogResponse` fields renamed: `createdCount` → `created`, `updatedCount` → `updated`, `skippedCount` → `skipped`, `errorCount` → `errors`. Frontend contract aligned.
+- HMIS vendor endpoints (`/api/v1/hmis/vendors`) marked `@Deprecated(forRemoval=true)`, return 501 instead of fake success.
+- Card 11 caption in demo walkthrough updated to mention edit and import capability.
+
+### Fixed
+- **Import preview endpoint**: Was `GET` with `headerLine` query param but frontend sent `POST` with file upload. Now `POST` matching frontend contract.
+- **Import result crash**: Frontend expected `errors: string[]` but backend returned `errors: int`. Import success page would show `[object Object]`.
+- **Import history blank values**: Frontend expected `created/updated/skipped` but backend returned `createdCount/updatedCount/skippedCount`.
+- Typography drift: 4 hardcoded font sizes in `NotificationBell.tsx` and `UserEditDrawer.tsx` replaced with typography tokens.
 
 ---
 

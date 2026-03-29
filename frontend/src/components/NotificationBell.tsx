@@ -162,7 +162,7 @@ export function NotificationBell({
               borderRadius: '50%',
               minWidth: '18px',
               height: '18px',
-              fontSize: '11px',
+              fontSize: text['2xs'],
               fontWeight: weight.bold,
               display: 'flex',
               alignItems: 'center',
@@ -258,7 +258,7 @@ export function NotificationBell({
                       />
                     </div>
                     {notification.data.shelterName != null && notification.eventType === 'availability.updated' && (
-                      <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '2px' }}>
+                      <div style={{ fontSize: text.xs, color: '#6b7280', marginTop: '2px' }}>
                         {String(notification.data.shelterName)}
                       </div>
                     )}
@@ -272,7 +272,7 @@ export function NotificationBell({
                       color: '#9ca3af',
                       cursor: 'pointer',
                       padding: '4px',
-                      fontSize: '16px',
+                      fontSize: text.md,
                       lineHeight: 1,
                     }}
                   >

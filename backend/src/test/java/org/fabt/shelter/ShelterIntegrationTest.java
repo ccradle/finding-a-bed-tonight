@@ -497,6 +497,158 @@ class ShelterIntegrationTest extends BaseIntegrationTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
     }
 
+    // -------------------------------------------------------------------------
+    // Shelter Edit — DV Safeguard Tests (T-4 through T-7)
+    // -------------------------------------------------------------------------
+
+    private ShelterResponse createDvTestShelter(HttpHeaders headers) {
+        String body = """
+                {
+                    "name": "DV Test Shelter %s",
+                    "addressStreet": "100 Safe Haven Rd",
+                    "addressCity": "Raleigh",
+                    "addressState": "NC",
+                    "addressZip": "27601",
+                    "phone": "919-555-0777",
+                    "latitude": 35.78,
+                    "longitude": -78.64,
+                    "dvShelter": true,
+                    "constraints": {
+                        "sobrietyRequired": false,
+                        "idRequired": false,
+                        "referralRequired": true,
+                        "petsAllowed": false,
+                        "wheelchairAccessible": true,
+                        "populationTypesServed": ["DV_SURVIVOR"]
+                    },
+                    "capacities": [
+                        {"populationType": "DV_SURVIVOR", "bedsTotal": 12}
+                    ]
+                }
+                """.formatted(UUID.randomUUID().toString().substring(0, 8));
+
+        ResponseEntity<ShelterResponse> response = restTemplate.exchange(
+                "/api/v1/shelters",
+                HttpMethod.POST,
+                new HttpEntity<>(body, headers),
+                ShelterResponse.class
+        );
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        return response.getBody();
+    }
+
+    @Test
+    void test_coordinatorCanUpdateAssignedShelterPhone() {
+        HttpHeaders adminHeaders = authHelper.cocAdminHeaders();
+        ShelterResponse created = createTestShelter(adminHeaders);
+
+        // Assign coordinator
+        User coordinatorUser = authHelper.setupCoordinatorUser();
+        restTemplate.exchange(
+                "/api/v1/shelters/" + created.id() + "/coordinators",
+                HttpMethod.POST,
+                new HttpEntity<>("""
+                        {"userId": "%s"}
+                        """.formatted(coordinatorUser.getId()), adminHeaders),
+                Void.class
+        );
+
+        // Coordinator updates phone — should succeed
+        HttpHeaders coordinatorHeaders = authHelper.coordinatorHeaders();
+        String updateBody = """
+                {"phone": "919-555-9999"}
+                """;
+
+        ResponseEntity<ShelterResponse> response = restTemplate.exchange(
+                "/api/v1/shelters/" + created.id(),
+                HttpMethod.PUT,
+                new HttpEntity<>(updateBody, coordinatorHeaders),
+                ShelterResponse.class
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().phone()).isEqualTo("919-555-9999");
+    }
+
+    @Test
+    void test_coordinatorCannotChangeDvFlag() {
+        HttpHeaders adminHeaders = authHelper.cocAdminHeaders();
+        ShelterResponse created = createTestShelter(adminHeaders); // dvShelter=false
+
+        // Assign coordinator
+        User coordinatorUser = authHelper.setupCoordinatorUser();
+        restTemplate.exchange(
+                "/api/v1/shelters/" + created.id() + "/coordinators",
+                HttpMethod.POST,
+                new HttpEntity<>("""
+                        {"userId": "%s"}
+                        """.formatted(coordinatorUser.getId()), adminHeaders),
+                Void.class
+        );
+
+        // Coordinator tries to change dvShelter flag — should return 403
+        HttpHeaders coordinatorHeaders = authHelper.coordinatorHeaders();
+        String updateBody = """
+                {"dvShelter": true}
+                """;
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/shelters/" + created.id(),
+                HttpMethod.PUT,
+                new HttpEntity<>(updateBody, coordinatorHeaders),
+                String.class
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    void test_cocAdminCanChangeDvFlag() {
+        // DV flag change requires dvAccess=true to satisfy RLS policy
+        User dvAdmin = authHelper.setupUserWithDvAccess(
+                "dvadmin@test.com", "DV Admin", new String[]{"COC_ADMIN"});
+        HttpHeaders dvAdminHeaders = authHelper.headersForUser(dvAdmin);
+
+        ShelterResponse created = createTestShelter(dvAdminHeaders); // dvShelter=false
+        assertThat(created.dvShelter()).isFalse();
+
+        // COC_ADMIN with dvAccess sets dvShelter to true — should succeed
+        String updateBody = """
+                {"dvShelter": true}
+                """;
+
+        ResponseEntity<ShelterResponse> response = restTemplate.exchange(
+                "/api/v1/shelters/" + created.id(),
+                HttpMethod.PUT,
+                new HttpEntity<>(updateBody, dvAdminHeaders),
+                ShelterResponse.class
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().dvShelter()).isTrue();
+    }
+
+    @Test
+    void test_coordinatorCannotUpdateUnassignedShelter_edit() {
+        HttpHeaders adminHeaders = authHelper.cocAdminHeaders();
+        ShelterResponse created = createTestShelter(adminHeaders);
+        // Do NOT assign the coordinator
+
+        HttpHeaders coordinatorHeaders = authHelper.coordinatorHeaders();
+        String updateBody = """
+                {"phone": "919-555-0000"}
+                """;
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/shelters/" + created.id(),
+                HttpMethod.PUT,
+                new HttpEntity<>(updateBody, coordinatorHeaders),
+                String.class
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
     @Test
     void test_invalidPopulationType_returns400() {
         HttpHeaders headers = authHelper.cocAdminHeaders();
@@ -535,5 +687,86 @@ class ShelterIntegrationTest extends BaseIntegrationTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(response.getBody()).isNotNull();
+    }
+
+    // -------------------------------------------------------------------------
+    // HSDS Export — DV Redaction (T-48)
+    // -------------------------------------------------------------------------
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void test_hsdsExport_redactsDvShelterAddress_forNonDvUser() {
+        // Create a DV shelter (requires dvAccess user)
+        User dvAdmin = authHelper.setupUserWithDvAccess(
+                "dvhsds@test.com", "DV HSDS Admin", new String[]{"COC_ADMIN"});
+        HttpHeaders dvHeaders = authHelper.headersForUser(dvAdmin);
+        ShelterResponse dvShelter = createDvTestShelter(dvHeaders);
+
+        // Fetch HSDS export as a non-dvAccess user (cocadmin, dvAccess=false)
+        HttpHeaders nonDvHeaders = authHelper.cocAdminHeaders();
+        ResponseEntity<Map> response = restTemplate.exchange(
+                "/api/v1/shelters/" + dvShelter.id() + "?format=hsds",
+                HttpMethod.GET,
+                new HttpEntity<>(nonDvHeaders),
+                Map.class
+        );
+
+        // DV shelters are hidden from non-dvAccess users by RLS,
+        // so this should return 404 (shelter not visible)
+        assertThat(response.getStatusCode()).isIn(HttpStatus.NOT_FOUND, HttpStatus.OK);
+
+        if (response.getStatusCode() == HttpStatus.OK) {
+            // If RLS allows visibility (e.g., via policy), address should be redacted
+            Map<String, Object> hsds = response.getBody();
+            assertThat(hsds).isNotNull();
+            Map<String, Object> location = (Map<String, Object>) hsds.get("location");
+            if (location != null) {
+                // physical_address should be removed for non-dvAccess users
+                assertThat(location).doesNotContainKey("physical_address");
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // HIC/PIT CSV Format Validation (T-49)
+    // -------------------------------------------------------------------------
+
+    @Test
+    void test_hicExport_hasValidCsvFormat() {
+        HttpHeaders headers = authHelper.cocAdminHeaders();
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/analytics/hic?date=" + java.time.LocalDate.now(),
+                HttpMethod.GET,
+                new HttpEntity<>(headers),
+                String.class
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        String csv = response.getBody();
+        assertThat(csv).isNotNull();
+
+        String[] lines = csv.split("\n");
+        assertThat(lines.length).isGreaterThan(0);
+
+        // Verify header has all HUD-required columns
+        String header = lines[0];
+        assertThat(header).contains("ProjectID");
+        assertThat(header).contains("ProjectName");
+        assertThat(header).contains("ProjectType");
+        assertThat(header).contains("BedInventory");
+        assertThat(header).contains("TargetPopulation");
+
+        // Verify data rows have same number of columns as header
+        int headerCols = header.split(",", -1).length;
+        for (int i = 1; i < lines.length; i++) {
+            if (!lines[i].isBlank()) {
+                // Count commas accounting for quoted fields
+                int dataCols = lines[i].split(",(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)", -1).length;
+                assertThat(dataCols)
+                        .as("Row %d should have %d columns like the header", i, headerCols)
+                        .isEqualTo(headerCols);
+            }
+        }
     }
 }

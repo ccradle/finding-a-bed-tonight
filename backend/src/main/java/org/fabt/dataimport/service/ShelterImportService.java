@@ -101,7 +101,7 @@ public class ShelterImportService {
 
             for (int i = 0; i < rows.size(); i++) {
                 int rowNum = i + 1;
-                ShelterImportRow row = rows.get(i);
+                ShelterImportRow row = sanitizeCoordinates(rows.get(i), rowNum);
 
                 // Validate required fields
                 List<ImportError> rowErrors = validateRow(rowNum, row);
@@ -194,6 +194,37 @@ public class ShelterImportService {
         return errors;
     }
 
+    /**
+     * Sanitize coordinates: null out values outside valid ranges.
+     * Lat: -90 to 90, Lng: -180 to 180. Logs a warning for invalid values.
+     */
+    private ShelterImportRow sanitizeCoordinates(ShelterImportRow row, int rowNum) {
+        Double lat = row.latitude();
+        Double lng = row.longitude();
+        boolean changed = false;
+
+        if (lat != null && (lat < -90 || lat > 90)) {
+            log.warn("Import row {}: latitude {} out of range (-90..90), setting to null", rowNum, lat);
+            lat = null;
+            changed = true;
+        }
+        if (lng != null && (lng < -180 || lng > 180)) {
+            log.warn("Import row {}: longitude {} out of range (-180..180), setting to null", rowNum, lng);
+            lng = null;
+            changed = true;
+        }
+
+        if (!changed) return row;
+
+        return new ShelterImportRow(
+                row.name(), row.addressStreet(), row.addressCity(), row.addressState(),
+                row.addressZip(), row.phone(), lat, lng,
+                row.dvShelter(), row.sobrietyRequired(), row.idRequired(), row.referralRequired(),
+                row.petsAllowed(), row.wheelchairAccessible(), row.curfewTime(), row.maxStayDays(),
+                row.populationTypesServed(), row.capacityByType()
+        );
+    }
+
     private CreateShelterRequest buildCreateRequest(ShelterImportRow row) {
         ShelterConstraintsDto constraints = buildConstraints(row);
         List<ShelterCapacityDto> capacities = buildCapacities(row);
@@ -226,6 +257,7 @@ public class ShelterImportService {
                 row.phone() != null ? row.phone().trim() : null,
                 row.latitude(),
                 row.longitude(),
+                null, // dvShelter — imports don't set DV flag
                 constraints,
                 capacities
         );

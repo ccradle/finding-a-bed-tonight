@@ -11,6 +11,7 @@ import { CoordinatorDashboard } from './pages/CoordinatorDashboard';
 import { OutreachSearch } from './pages/OutreachSearch';
 import { AdminPanel } from './pages/AdminPanel';
 import { ShelterForm } from './pages/ShelterForm';
+import { ShelterEditPage } from './pages/ShelterEditPage';
 import { HsdsImportPage } from './pages/HsdsImportPage';
 import { TwoOneOneImportPage } from './pages/TwoOneOneImportPage';
 import enMessages from './i18n/en.json';
@@ -41,6 +42,7 @@ function AppRoutes({ locale, onLocaleChange }: { locale: string; onLocaleChange:
               <Routes>
                 <Route index element={<CoordinatorDashboard />} />
                 <Route path="shelters/new" element={<ShelterForm />} />
+                <Route path="shelters/:id/edit" element={<ShelterEditPage />} />
                 <Route path="import/hsds" element={<HsdsImportPage />} />
                 <Route path="import/211" element={<TwoOneOneImportPage />} />
               </Routes>

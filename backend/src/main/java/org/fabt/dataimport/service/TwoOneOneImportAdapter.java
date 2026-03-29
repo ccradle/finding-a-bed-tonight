@@ -1,15 +1,18 @@
 package org.fabt.dataimport.service;
 
-import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.StringReader;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.apache.commons.csv.CSVFormat;
+import org.apache.commons.csv.CSVParser;
+import org.apache.commons.csv.CSVRecord;
 import org.fabt.dataimport.service.ShelterImportService.ShelterImportRow;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,6 +20,7 @@ import org.springframework.stereotype.Service;
 
 /**
  * Parses 211-format CSV files into shelter import rows.
+ * Uses Apache Commons CSV for robust parsing (BOM handling, escaped quotes, embedded newlines).
  * Supports fuzzy column header matching for common synonyms.
  */
 @Service
@@ -92,32 +96,42 @@ public class TwoOneOneImportAdapter {
 
     /**
      * Parse CSV content into shelter import rows.
-     * First row is treated as headers. Fuzzy matching is applied to column names.
-     *
-     * @param csvContent raw CSV string
-     * @return list of shelter import rows
-     * @throws IllegalArgumentException if CSV is empty or has no data rows
+     * Uses Apache Commons CSV with BOM detection and RFC 4180 compliance.
      */
     public List<ShelterImportRow> parseCsv(String csvContent) {
         if (csvContent == null || csvContent.isBlank()) {
             throw new IllegalArgumentException("CSV content is empty");
         }
 
-        List<String[]> allRows = parseCsvLines(csvContent);
-        if (allRows.isEmpty()) {
-            throw new IllegalArgumentException("CSV contains no data");
+        // Strip UTF-8 BOM if present
+        String clean = stripBom(csvContent);
+
+        List<CSVRecord> records;
+        String[] headers;
+        try (CSVParser parser = CSVFormat.DEFAULT.builder()
+                .setHeader()
+                .setSkipHeaderRecord(true)
+                .setIgnoreEmptyLines(true)
+                .setTrim(true)
+                .build()
+                .parse(new StringReader(clean))) {
+
+            headers = parser.getHeaderNames().toArray(new String[0]);
+            records = parser.getRecords();
+        } catch (IOException e) {
+            throw new IllegalArgumentException("Failed to parse CSV: " + e.getMessage());
         }
 
-        String[] headers = allRows.get(0);
+        if (records.isEmpty()) {
+            return List.of();
+        }
+
         ColumnMapping mapping = resolveMapping(headers);
 
-        // Build reverse map: canonical field name -> column index
-        Map<String, Integer> fieldToIndex = new HashMap<>();
-        for (int i = 0; i < headers.length; i++) {
-            String canonical = mapping.mapped().get(headers[i].trim());
-            if (canonical != null && !fieldToIndex.containsKey(canonical)) {
-                fieldToIndex.put(canonical, i);
-            }
+        // Build reverse map: canonical field name -> header name
+        Map<String, String> fieldToHeader = new HashMap<>();
+        for (var entry : mapping.mapped().entrySet()) {
+            fieldToHeader.putIfAbsent(entry.getValue(), entry.getKey());
         }
 
         if (!mapping.unmapped().isEmpty()) {
@@ -126,42 +140,20 @@ public class TwoOneOneImportAdapter {
 
         List<ShelterImportRow> rows = new ArrayList<>();
 
-        for (int rowIdx = 1; rowIdx < allRows.size(); rowIdx++) {
-            String[] values = allRows.get(rowIdx);
-
-            // Skip completely empty rows
-            if (isEmptyRow(values)) {
-                continue;
-            }
-
-            String name = getField(values, fieldToIndex, "name");
-            String addressStreet = getField(values, fieldToIndex, "addressStreet");
-            String addressCity = getField(values, fieldToIndex, "addressCity");
-            String addressState = getField(values, fieldToIndex, "addressState");
-            String addressZip = getField(values, fieldToIndex, "addressZip");
-            String phone = getField(values, fieldToIndex, "phone");
-            Double latitude = getDoubleField(values, fieldToIndex, "latitude");
-            Double longitude = getDoubleField(values, fieldToIndex, "longitude");
+        for (CSVRecord record : records) {
+            String name = getField(record, fieldToHeader, "name");
+            String addressStreet = getField(record, fieldToHeader, "addressStreet");
+            String addressCity = getField(record, fieldToHeader, "addressCity");
+            String addressState = getField(record, fieldToHeader, "addressState");
+            String addressZip = getField(record, fieldToHeader, "addressZip");
+            String phone = getField(record, fieldToHeader, "phone");
+            Double latitude = getDoubleField(record, fieldToHeader, "latitude");
+            Double longitude = getDoubleField(record, fieldToHeader, "longitude");
 
             ShelterImportRow row = new ShelterImportRow(
-                    name,
-                    addressStreet,
-                    addressCity,
-                    addressState,
-                    addressZip,
-                    phone,
-                    latitude,
-                    longitude,
-                    null,   // dvShelter
-                    null,   // sobrietyRequired
-                    null,   // idRequired
-                    null,   // referralRequired
-                    null,   // petsAllowed
-                    null,   // wheelchairAccessible
-                    null,   // curfewTime
-                    null,   // maxStayDays
-                    null,   // populationTypesServed
-                    null    // capacityByType
+                    name, addressStreet, addressCity, addressState, addressZip,
+                    phone, latitude, longitude,
+                    null, null, null, null, null, null, null, null, null, null
             );
 
             rows.add(row);
@@ -172,23 +164,62 @@ public class TwoOneOneImportAdapter {
 
     /**
      * Preview the column mapping for a CSV header line.
-     * Returns which columns would be mapped and which would be ignored.
-     *
-     * @param csvHeaderLine the first line of the CSV (comma-separated headers)
-     * @return column mapping result
      */
     public ColumnMapping previewMapping(String csvHeaderLine) {
         if (csvHeaderLine == null || csvHeaderLine.isBlank()) {
             throw new IllegalArgumentException("Header line is empty");
         }
-        String[] headers = parseCsvRow(csvHeaderLine);
-        return resolveMapping(headers);
+        String clean = stripBom(csvHeaderLine);
+        // Parse as a single CSV row to get header values
+        try (CSVParser parser = CSVFormat.DEFAULT.parse(new StringReader(clean))) {
+            CSVRecord record = parser.iterator().next();
+            String[] headers = new String[record.size()];
+            for (int i = 0; i < record.size(); i++) {
+                headers[i] = record.get(i);
+            }
+            return resolveMapping(headers);
+        } catch (IOException e) {
+            throw new IllegalArgumentException("Failed to parse header: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Preview with full CSV content — returns mapping plus parsed rows for sample extraction.
+     */
+    public record PreviewResult(ColumnMapping mapping, List<String[]> allRows) {}
+
+    public PreviewResult previewFull(String csvContent) {
+        if (csvContent == null || csvContent.isBlank()) {
+            throw new IllegalArgumentException("CSV content is empty");
+        }
+        String clean = stripBom(csvContent);
+
+        List<String[]> allRows = new ArrayList<>();
+        try (CSVParser parser = CSVFormat.DEFAULT
+                .builder().setIgnoreEmptyLines(true).setTrim(true).build()
+                .parse(new StringReader(clean))) {
+            for (CSVRecord record : parser) {
+                String[] row = new String[record.size()];
+                for (int i = 0; i < record.size(); i++) {
+                    row[i] = record.get(i);
+                }
+                allRows.add(row);
+            }
+        } catch (IOException e) {
+            throw new IllegalArgumentException("Failed to parse CSV: " + e.getMessage());
+        }
+
+        if (allRows.isEmpty()) {
+            throw new IllegalArgumentException("CSV contains no data");
+        }
+        ColumnMapping mapping = resolveMapping(allRows.get(0));
+        return new PreviewResult(mapping, allRows);
     }
 
     private ColumnMapping resolveMapping(String[] headers) {
         Map<String, String> mapped = new LinkedHashMap<>();
         List<String> unmapped = new ArrayList<>();
-        Set<String> alreadyMappedFields = new java.util.HashSet<>();
+        Set<String> alreadyMappedFields = new HashSet<>();
 
         for (String header : headers) {
             String trimmed = header.trim();
@@ -199,7 +230,6 @@ public class TwoOneOneImportAdapter {
                 mapped.put(trimmed, canonical);
                 alreadyMappedFields.add(canonical);
             } else {
-                // No match, or duplicate mapping — treat as unmapped
                 unmapped.add(trimmed);
             }
         }
@@ -207,67 +237,20 @@ public class TwoOneOneImportAdapter {
         return new ColumnMapping(mapped, unmapped);
     }
 
-    private List<String[]> parseCsvLines(String csvContent) {
-        List<String[]> rows = new ArrayList<>();
-        try (BufferedReader reader = new BufferedReader(new StringReader(csvContent))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                if (!line.isBlank()) {
-                    rows.add(parseCsvRow(line));
-                }
-            }
-        } catch (IOException e) {
-            throw new IllegalArgumentException("Failed to read CSV: " + e.getMessage());
-        }
-        return rows;
-    }
-
-    /**
-     * Simple CSV row parser that handles quoted fields with commas.
-     * Does not handle escaped quotes within quoted fields for simplicity.
-     */
-    private String[] parseCsvRow(String line) {
-        List<String> fields = new ArrayList<>();
-        StringBuilder current = new StringBuilder();
-        boolean inQuotes = false;
-
-        for (int i = 0; i < line.length(); i++) {
-            char c = line.charAt(i);
-
-            if (c == '"') {
-                if (inQuotes && i + 1 < line.length() && line.charAt(i + 1) == '"') {
-                    // Escaped quote inside quoted field
-                    current.append('"');
-                    i++;
-                } else {
-                    inQuotes = !inQuotes;
-                }
-            } else if (c == ',' && !inQuotes) {
-                fields.add(current.toString().trim());
-                current = new StringBuilder();
-            } else {
-                current.append(c);
-            }
-        }
-        fields.add(current.toString().trim());
-
-        return fields.toArray(new String[0]);
-    }
-
-    private String getField(String[] values, Map<String, Integer> fieldToIndex, String fieldName) {
-        Integer index = fieldToIndex.get(fieldName);
-        if (index == null || index >= values.length) {
+    private String getField(CSVRecord record, Map<String, String> fieldToHeader, String fieldName) {
+        String header = fieldToHeader.get(fieldName);
+        if (header == null) return null;
+        try {
+            String value = record.get(header).trim();
+            return value.isEmpty() ? null : value;
+        } catch (IllegalArgumentException e) {
             return null;
         }
-        String value = values[index].trim();
-        return value.isEmpty() ? null : value;
     }
 
-    private Double getDoubleField(String[] values, Map<String, Integer> fieldToIndex, String fieldName) {
-        String raw = getField(values, fieldToIndex, fieldName);
-        if (raw == null) {
-            return null;
-        }
+    private Double getDoubleField(CSVRecord record, Map<String, String> fieldToHeader, String fieldName) {
+        String raw = getField(record, fieldToHeader, fieldName);
+        if (raw == null) return null;
         try {
             return Double.parseDouble(raw);
         } catch (NumberFormatException e) {
@@ -276,12 +259,15 @@ public class TwoOneOneImportAdapter {
         }
     }
 
-    private boolean isEmptyRow(String[] values) {
-        for (String value : values) {
-            if (value != null && !value.trim().isEmpty()) {
-                return false;
-            }
+    /**
+     * Strip UTF-8 BOM (byte order mark) if present.
+     * Excel on Windows exports CSV with BOM by default, which causes the first column
+     * header to be mismatched if not stripped.
+     */
+    private String stripBom(String content) {
+        if (content != null && content.length() > 0 && content.charAt(0) == '\uFEFF') {
+            return content.substring(1);
         }
-        return true;
+        return content;
     }
 }

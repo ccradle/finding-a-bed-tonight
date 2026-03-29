@@ -1,5 +1,5 @@
 import { useState, useRef, type DragEvent } from 'react';
-import { FormattedMessage } from 'react-intl';
+import { FormattedMessage, useIntl } from 'react-intl';
 import { api, ApiError } from '../services/api';
 import { text, weight } from '../theme/typography';
 
@@ -22,6 +22,7 @@ interface ImportResult {
 }
 
 export function TwoOneOneImportPage() {
+  const intl = useIntl();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -84,7 +85,7 @@ export function TwoOneOneImportPage() {
       if (err instanceof ApiError) {
         setError(err.message);
       } else {
-        setError('Failed to preview file. Please check the format.');
+        setError(intl.formatMessage({ id: 'import.previewError' }));
       }
     } finally {
       setLoading(false);
@@ -110,7 +111,7 @@ export function TwoOneOneImportPage() {
       if (err instanceof ApiError) {
         setError(err.message);
       } else {
-        setError('Import failed. Please try again.');
+        setError(intl.formatMessage({ id: 'import.importError' }));
       }
     } finally {
       setLoading(false);
@@ -186,10 +187,10 @@ export function TwoOneOneImportPage() {
             ) : (
               <div>
                 <p style={{ fontSize: text.md, fontWeight: weight.medium, color: '#374151', margin: '0 0 8px' }}>
-                  Drag and drop a 211 CSV file here, or click to browse
+                  <FormattedMessage id="import.211.dragDrop" />
                 </p>
                 <p style={{ fontSize: text.base, color: '#6b7280', margin: 0 }}>
-                  Accepts .csv files
+                  <FormattedMessage id="import.211.accepts" />
                 </p>
               </div>
             )}
@@ -211,7 +212,7 @@ export function TwoOneOneImportPage() {
               minHeight: '44px',
             }}
           >
-            {loading ? 'Analyzing...' : 'Preview Column Mapping'}
+            {loading ? intl.formatMessage({ id: 'import.211.analyzing' }) : intl.formatMessage({ id: 'import.211.previewBtn' })}
           </button>
         </>
       )}
@@ -229,19 +230,19 @@ export function TwoOneOneImportPage() {
             }}
           >
             <p style={{ fontSize: text.base, color: '#6b7280', marginTop: 0 }}>
-              {preview.totalRows} rows detected
+              <FormattedMessage id="import.rowsDetected" values={{ count: preview.totalRows }} />
             </p>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: text.base }}>
               <thead>
                 <tr>
                   <th style={{ textAlign: 'left', padding: '10px 8px', borderBottom: '2px solid #e5e7eb', color: '#374151' }}>
-                    Source Column
+                    <FormattedMessage id="import.sourceColumn" />
                   </th>
                   <th style={{ textAlign: 'left', padding: '10px 8px', borderBottom: '2px solid #e5e7eb', color: '#374151' }}>
-                    Maps To
+                    <FormattedMessage id="import.mapsTo" />
                   </th>
                   <th style={{ textAlign: 'left', padding: '10px 8px', borderBottom: '2px solid #e5e7eb', color: '#374151' }}>
-                    Sample Values
+                    <FormattedMessage id="import.sampleValues" />
                   </th>
                 </tr>
               </thead>
@@ -279,7 +280,7 @@ export function TwoOneOneImportPage() {
                 minHeight: '44px',
               }}
             >
-              Cancel
+              <FormattedMessage id="import.cancel" />
             </button>
             <button
               onClick={handleImport}
@@ -297,7 +298,7 @@ export function TwoOneOneImportPage() {
                 minHeight: '44px',
               }}
             >
-              {loading ? 'Importing...' : 'Confirm & Import'}
+              {loading ? intl.formatMessage({ id: 'import.211.importing' }) : intl.formatMessage({ id: 'import.211.confirmBtn' })}
             </button>
           </div>
         </>
@@ -316,32 +317,32 @@ export function TwoOneOneImportPage() {
             }}
           >
             <h3 style={{ fontSize: text.md, fontWeight: weight.semibold, color: '#166534', marginBottom: '12px', marginTop: 0 }}>
-              Import Complete
+              <FormattedMessage id="import.complete" />
             </h3>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', marginBottom: '12px' }}>
               <div>
                 <p style={{ fontSize: text['2xl'], fontWeight: weight.bold, color: '#166534', margin: 0 }}>
                   {result.created}
                 </p>
-                <p style={{ fontSize: text.sm, color: '#6b7280', margin: 0 }}>Created</p>
+                <p style={{ fontSize: text.sm, color: '#6b7280', margin: 0 }}><FormattedMessage id="import.created" /></p>
               </div>
               <div>
                 <p style={{ fontSize: text['2xl'], fontWeight: weight.bold, color: '#ca8a04', margin: 0 }}>
                   {result.updated}
                 </p>
-                <p style={{ fontSize: text.sm, color: '#6b7280', margin: 0 }}>Updated</p>
+                <p style={{ fontSize: text.sm, color: '#6b7280', margin: 0 }}><FormattedMessage id="import.updated" /></p>
               </div>
               <div>
                 <p style={{ fontSize: text['2xl'], fontWeight: weight.bold, color: '#6b7280', margin: 0 }}>
                   {result.skipped}
                 </p>
-                <p style={{ fontSize: text.sm, color: '#6b7280', margin: 0 }}>Skipped</p>
+                <p style={{ fontSize: text.sm, color: '#6b7280', margin: 0 }}><FormattedMessage id="import.skipped" /></p>
               </div>
             </div>
             {result.errors.length > 0 && (
               <div>
                 <p style={{ fontSize: text.base, fontWeight: weight.semibold, color: '#991b1b', marginBottom: '8px' }}>
-                  Errors ({result.errors.length}):
+                  <FormattedMessage id="import.errors" values={{ count: result.errors.length }} />
                 </p>
                 <ul style={{ margin: 0, paddingLeft: '20px', fontSize: text.sm, color: '#991b1b' }}>
                   {result.errors.map((err, i) => (
@@ -367,7 +368,7 @@ export function TwoOneOneImportPage() {
               minHeight: '44px',
             }}
           >
-            Import Another File
+            <FormattedMessage id="import.importAnother" />
           </button>
         </>
       )}

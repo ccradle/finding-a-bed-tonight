@@ -11,6 +11,7 @@ public record UpdateShelterRequest(
         String phone,
         Double latitude,
         Double longitude,
+        Boolean dvShelter,
         ShelterConstraintsDto constraints,
         List<ShelterCapacityDto> capacities
 ) {
