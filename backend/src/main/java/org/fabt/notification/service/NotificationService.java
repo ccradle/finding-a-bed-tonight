@@ -65,10 +65,13 @@ public class NotificationService {
 
         SseEmitter emitter = new SseEmitter(EMITTER_TIMEOUT_MS);
 
+        // Idempotent cleanup — Spring may fire onCompletion after onTimeout/onError,
+        // so cleanup can be called multiple times per emitter. Only decrement the gauge once.
         Runnable cleanup = () -> {
-            emitters.remove(userId);
-            activeConnections.decrementAndGet();
-            log.debug("SSE emitter removed for user {}", userId);
+            if (emitters.remove(userId) != null) {
+                activeConnections.decrementAndGet();
+                log.debug("SSE emitter removed for user {}", userId);
+            }
         };
 
         // Spring #33421/#33340: register all three callbacks to prevent deadlock and leaks
