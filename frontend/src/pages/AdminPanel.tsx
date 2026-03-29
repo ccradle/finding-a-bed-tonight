@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useContext, lazy, Suspense } from 're
 import { FormattedMessage, useIntl } from 'react-intl';
 import { api } from '../services/api';
 import { DataAge } from '../components/DataAge';
+import { UserEditDrawer } from '../components/UserEditDrawer';
 import { AuthContext } from '../auth/AuthContext';
 import { font, text, weight } from '../theme/typography';
 
@@ -16,6 +17,7 @@ interface User {
   displayName: string;
   roles: string[];
   dvAccess: boolean;
+  status: string;
 }
 
 interface ShelterListItem {
@@ -359,6 +361,7 @@ function UsersTab() {
   const [formRoles, setFormRoles] = useState<string[]>([]);
   const [formDvAccess, setFormDvAccess] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [editUser, setEditUser] = useState<User | null>(null);
   const [resetUser, setResetUser] = useState<User | null>(null);
   const [resetPassword, setResetPassword] = useState('');
   const [resetConfirm, setResetConfirm] = useState('');
@@ -536,6 +539,7 @@ function UsersTab() {
                 <th style={thStyle}><FormattedMessage id="admin.displayName" /></th>
                 <th style={thStyle}><FormattedMessage id="admin.roles" /></th>
                 <th style={thStyle}><FormattedMessage id="admin.dvAccess" /></th>
+                <th style={thStyle}><FormattedMessage id="admin.user.statusHeader" /></th>
                 <th style={thStyle}></th>
               </tr>
             </thead>
@@ -551,6 +555,31 @@ function UsersTab() {
                     <StatusBadge active={u.dvAccess} yesId="admin.active" noId="admin.inactive" />
                   </td>
                   <td style={tdStyle(i)}>
+                    <StatusBadge
+                      active={u.status !== 'DEACTIVATED'}
+                      yesId="admin.user.statusActive"
+                      noId="admin.user.statusDeactivated"
+                    />
+                  </td>
+                  <td style={{ ...tdStyle(i), display: 'flex', gap: 6, flexWrap: 'nowrap' }}>
+                    <button
+                      onClick={() => setEditUser(u)}
+                      data-testid={`edit-user-${u.email}`}
+                      style={{
+                        padding: '6px 12px',
+                        backgroundColor: 'transparent',
+                        color: '#1a56db',
+                        border: '1px solid #1a56db',
+                        borderRadius: 6,
+                        fontSize: text.xs,
+                        fontWeight: weight.semibold,
+                        cursor: 'pointer',
+                        minHeight: 32,
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      <FormattedMessage id="admin.user.edit" />
+                    </button>
                     <button
                       onClick={() => { setResetUser(u); setResetError(null); setResetSuccess(null); setResetPassword(''); setResetConfirm(''); }}
                       data-testid={`reset-password-${u.email}`}
@@ -637,6 +666,13 @@ function UsersTab() {
           </div>
         </div>
       )}
+
+      {/* User Edit Drawer */}
+      <UserEditDrawer
+        user={editUser}
+        onClose={() => setEditUser(null)}
+        onSaved={() => { fetchUsers(); setEditUser(null); }}
+      />
     </div>
   );
 }

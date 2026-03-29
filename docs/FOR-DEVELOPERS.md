@@ -553,9 +553,16 @@ All endpoints are under `/api/v1`. Authentication is via JWT Bearer token (from 
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | `POST` | `/api/v1/users` | COC_ADMIN+ | Create user (dvAccess defaults false) |
-| `GET` | `/api/v1/users` | COC_ADMIN+ | List users in tenant |
+| `GET` | `/api/v1/users` | COC_ADMIN+ | List users in tenant (includes status field) |
 | `GET` | `/api/v1/users/{id}` | COC_ADMIN+ | Get user by ID |
-| `PUT` | `/api/v1/users/{id}` | COC_ADMIN+ | Update user (roles, dvAccess) |
+| `PUT` | `/api/v1/users/{id}` | COC_ADMIN+ | Update user (displayName, email, roles, dvAccess). Role/dvAccess changes increment tokenVersion, invalidating existing JWTs |
+| `PATCH` | `/api/v1/users/{id}/status` | COC_ADMIN+ | Deactivate or reactivate user. Body: `{"status": "DEACTIVATED"}` or `{"status": "ACTIVE"}`. Disconnects SSE on deactivation |
+
+### Audit Events
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET` | `/api/v1/audit-events?targetUserId={id}` | COC_ADMIN+ | Query audit events for a user (role changes, deactivation, password resets) in reverse chronological order |
 
 ### API Keys
 

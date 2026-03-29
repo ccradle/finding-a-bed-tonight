@@ -153,6 +153,9 @@ public class SecurityConfig {
                         // Import — COC_ADMIN or PLATFORM_ADMIN
                         .requestMatchers("/api/v1/import/**").hasAnyRole("COC_ADMIN", "PLATFORM_ADMIN")
 
+                        // Audit events — COC_ADMIN or PLATFORM_ADMIN
+                        .requestMatchers("/api/v1/audit-events/**").hasAnyRole("COC_ADMIN", "PLATFORM_ADMIN")
+
                         // SSE notifications — any authenticated role (token via query param)
                         .requestMatchers("/api/v1/notifications/stream").authenticated()
 

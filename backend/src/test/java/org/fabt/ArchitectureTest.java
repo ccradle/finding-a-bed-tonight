@@ -29,7 +29,8 @@ class ArchitectureTest {
                             "org.fabt.availability..",
                             "org.fabt.reservation..",
                             "org.fabt.surge..",
-                            "org.fabt.analytics.."
+                            "org.fabt.analytics..",
+                            "org.fabt.notification.."
                     ).as("Shared kernel (except security) must not depend on any domain module");
 
     @ArchTest
@@ -263,6 +264,25 @@ class ArchitectureTest {
                             "org.fabt.reservation.domain..",
                             "org.fabt.surge.domain.."
                     ).as("Referral module must not access other modules' domain entities");
+
+    // --- Notification module boundary (v0.18.0) ---
+
+    @ArchTest
+    static final ArchRule notification_should_not_access_other_repositories =
+            noClasses().that().resideInAPackage("org.fabt.notification..")
+                    .should().dependOnClassesThat().resideInAnyPackage(
+                            "org.fabt.tenant.repository..",
+                            "org.fabt.auth.repository..",
+                            "org.fabt.shelter.repository..",
+                            "org.fabt.dataimport.repository..",
+                            "org.fabt.subscription.repository..",
+                            "org.fabt.availability.repository..",
+                            "org.fabt.reservation.repository..",
+                            "org.fabt.referral.repository..",
+                            "org.fabt.surge.repository..",
+                            "org.fabt.hmis.repository..",
+                            "org.fabt.analytics.repository.."
+                    ).as("Notification module must not access other modules' repositories");
 
     // --- API controllers must reside in api packages ---
 

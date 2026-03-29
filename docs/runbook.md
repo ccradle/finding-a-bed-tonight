@@ -695,6 +695,32 @@ Rate limited: 10 attempts per 15 minutes per IP (`rate-limit-admin-reset` bucket
 
 ---
 
+## User Deactivation
+
+### Procedure
+1. Admin navigates to Administration → Users tab
+2. Clicks "Edit" on the user row → drawer opens
+3. Clicks "Deactivate" → confirmation dialog appears
+4. Confirms → user status set to DEACTIVATED
+
+### What happens on deactivation
+- `token_version` incremented → all existing JWTs immediately rejected
+- SSE notification stream disconnected (if connected)
+- Login attempts return "Account deactivated. Contact your administrator."
+- Audit event recorded: action=USER_DEACTIVATED, actor, timestamp, IP
+
+### Reactivation
+- Same flow: Edit → "Reactivate" button (green, replaces Deactivate)
+- `token_version` incremented again → user must log in fresh
+- Audit event recorded: action=USER_REACTIVATED
+
+### JWT invalidation troubleshooting
+**Symptom:** User reports "still logged in" after role change or deactivation
+**Cause:** JWT claims cache (Caffeine, 30s TTL) may hold stale claims
+**Resolution:** Token version check runs on every request. Maximum delay is the cache TTL (30s). If the user's client doesn't refresh within 30s, force-expire by incrementing `token_version` again.
+
+---
+
 ## SSE Notifications
 
 ### Architecture

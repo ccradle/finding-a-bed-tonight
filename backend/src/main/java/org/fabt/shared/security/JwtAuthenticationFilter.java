@@ -66,16 +66,33 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             // has microsecond precision. Truncate both to seconds for a fair comparison —
             // otherwise a token issued in the same second as the password change would be
             // incorrectly rejected because iat=12:00:00.000 < password_changed_at=12:00:00.456.
-            if (claims.issuedAt() != null) {
-                User user = userRepository.findById(claims.userId()).orElse(null);
-                if (user != null && user.getPasswordChangedAt() != null
-                        && claims.issuedAt().truncatedTo(java.time.temporal.ChronoUnit.SECONDS)
-                                .isBefore(user.getPasswordChangedAt().truncatedTo(java.time.temporal.ChronoUnit.SECONDS))) {
-                    log.debug("JWT rejected: issued before password change for user {}", claims.userId());
-                    SecurityContextHolder.clearContext();
-                    filterChain.doFilter(request, response);
-                    return;
-                }
+            User user = userRepository.findById(claims.userId()).orElse(null);
+
+            // Reject tokens for deactivated users
+            if (user != null && !user.isActive()) {
+                log.debug("JWT rejected: user {} is deactivated", claims.userId());
+                SecurityContextHolder.clearContext();
+                filterChain.doFilter(request, response);
+                return;
+            }
+
+            // Reject tokens with stale token version (role change, dvAccess change, deactivation)
+            if (user != null && claims.tokenVersion() != user.getTokenVersion()) {
+                log.debug("JWT rejected: token version {} does not match current {} for user {}",
+                        claims.tokenVersion(), user.getTokenVersion(), claims.userId());
+                SecurityContextHolder.clearContext();
+                filterChain.doFilter(request, response);
+                return;
+            }
+
+            // Reject tokens issued before password change
+            if (claims.issuedAt() != null && user != null && user.getPasswordChangedAt() != null
+                    && claims.issuedAt().truncatedTo(java.time.temporal.ChronoUnit.SECONDS)
+                            .isBefore(user.getPasswordChangedAt().truncatedTo(java.time.temporal.ChronoUnit.SECONDS))) {
+                log.debug("JWT rejected: issued before password change for user {}", claims.userId());
+                SecurityContextHolder.clearContext();
+                filterChain.doFilter(request, response);
+                return;
             }
 
             UsernamePasswordAuthenticationToken authentication =

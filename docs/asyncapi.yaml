@@ -673,3 +673,35 @@ components:
           type: string
           enum: [ACCEPTED, REJECTED]
           description: Shelter response. Present on dv-referral.responded events only.
+
+  # -----------------------------------------------------------------------
+  # User lifecycle events (v0.19.0 — admin-user-management)
+  # -----------------------------------------------------------------------
+
+  UserLifecyclePayload:
+    type: object
+    description: |
+      Payload for user lifecycle events: deactivation, reactivation, role change.
+      Published to the EventBus when admin actions modify user accounts.
+      Consumed by NotificationService (SSE disconnect on deactivation) and
+      AuditEventService (persistence to audit_events table).
+    properties:
+      user_id:
+        type: string
+        format: uuid
+        description: UUID of the affected user.
+      tenant_id:
+        type: string
+        format: uuid
+        description: Continuum of Care tenant.
+      action:
+        type: string
+        enum: [USER_DEACTIVATED, USER_REACTIVATED, ROLE_CHANGED, DV_ACCESS_CHANGED]
+        description: The admin action performed.
+      actor_user_id:
+        type: string
+        format: uuid
+        description: UUID of the admin who performed the action.
+      details:
+        type: object
+        description: Old/new values (e.g., old_roles, new_roles).

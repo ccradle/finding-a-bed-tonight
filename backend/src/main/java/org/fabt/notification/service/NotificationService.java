@@ -97,6 +97,23 @@ public class NotificationService {
     }
 
     /**
+     * Complete a specific user's emitter. Used when a user is deactivated
+     * to immediately disconnect their SSE notification stream.
+     */
+    public void completeEmitter(UUID userId) {
+        EmitterEntry entry = emitters.remove(userId);
+        if (entry != null) {
+            try {
+                entry.emitter().complete();
+                activeConnections.decrementAndGet();
+                log.debug("SSE emitter completed for deactivated user {}", userId);
+            } catch (Exception e) {
+                log.debug("Error completing emitter for user {}: {}", userId, e.getMessage());
+            }
+        }
+    }
+
+    /**
      * Complete all active emitters. Used during test cleanup and graceful shutdown
      * to ensure Tomcat doesn't block waiting for SSE requests to finish.
      */

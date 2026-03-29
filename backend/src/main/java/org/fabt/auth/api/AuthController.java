@@ -67,6 +67,12 @@ public class AuthController {
                     .body(new ErrorBody("Invalid credentials"));
         }
 
+        // Reject deactivated users
+        if (!user.isActive()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new ErrorBody("Account deactivated. Contact your administrator."));
+        }
+
         // Verify password
         if (!passwordService.matches(request.password(), user.getPasswordHash())) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
