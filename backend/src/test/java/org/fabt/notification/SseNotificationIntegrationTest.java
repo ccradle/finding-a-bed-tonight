@@ -4,6 +4,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -106,6 +107,7 @@ class SseNotificationIntegrationTest extends BaseIntegrationTest {
         } finally {
             response.body().close();
             httpClient.shutdownNow();
+            httpClient.awaitTermination(Duration.ofSeconds(2));
         }
     }
 
@@ -214,6 +216,7 @@ class SseNotificationIntegrationTest extends BaseIntegrationTest {
         // Close the SSE stream and HttpClient to release connections
         response.body().close();
         httpClient.shutdownNow();
+        httpClient.awaitTermination(Duration.ofSeconds(2));
 
         assertThat(received).as("SSE event should be received within 5 seconds").isTrue();
 
