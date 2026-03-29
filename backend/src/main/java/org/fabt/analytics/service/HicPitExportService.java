@@ -1,7 +1,6 @@
 package org.fabt.analytics.service;
 
-import java.time.Instant;
-import java.util.ArrayList;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -12,18 +11,45 @@ import org.fabt.shelter.domain.Shelter;
 import org.fabt.shelter.service.ShelterService;
 import org.fabt.tenant.domain.Tenant;
 import org.fabt.tenant.service.TenantService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
- * Generates HIC and PIT CSV export data (Design D6, D7).
+ * Generates HIC and PIT CSV export data aligned with HUD Inventory.csv schema (FY2024+).
  *
- * HIC (Housing Inventory Count): CSV with HUD format columns.
- * PIT (Point-in-Time): sheltered count by project type and household.
+ * HIC (Housing Inventory Count): Columns match HUD LSA Data Dictionary Inventory.csv.
+ * PIT (Point-in-Time): Sheltered count by project type and household category.
+ *   NOTE: PIT data is submitted via direct entry in HDX 2.0, not CSV upload.
+ *   This PIT CSV is a working document for CoC administrators, not a HUD submission file.
  *
- * DV shelters included in HIC but with suppressed address. DV beds aggregated in PIT.
+ * DV shelters are aggregated (Design D18) — suppressed if fewer than 3 distinct DV shelters.
+ * DV shelters use HMISParticipation=2 (Comparable Database) per HUD requirement.
+ *
+ * References:
+ * - HUD LSA Data Dictionary: github.com/HMIS/LSASampleCode
+ * - HMIS CSV Format Specifications FY2024
+ * - FY2024 Emergency Shelter split: ProjectType 0 (Entry/Exit) and 1 (Night-by-Night)
  */
 @Service
 public class HicPitExportService {
+
+    private static final Logger log = LoggerFactory.getLogger(HicPitExportService.class);
+
+    // HUD coded values (FY2024+ LSA Data Dictionary)
+    private static final int PROJECT_TYPE_ES_ENTRY_EXIT = 0;
+    private static final int HOUSEHOLD_WITHOUT_CHILDREN = 1;
+    private static final int HOUSEHOLD_WITH_ADULTS_AND_CHILDREN = 3;
+    private static final int HOUSEHOLD_CHILDREN_ONLY = 4;
+    private static final int AVAILABILITY_YEAR_ROUND = 1;
+    private static final int ES_BED_TYPE_FACILITY = 1;
+    private static final int TARGET_POP_DV = 1;
+    private static final int TARGET_POP_NA = 4;
+    private static final int HMIS_PARTICIPATING = 1;
+    private static final int HMIS_COMPARABLE_DB = 2;
+
+    // DV aggregation thresholds (Design D18)
+    private static final int DV_MIN_SHELTER_COUNT = 3;
 
     private final ShelterService shelterService;
     private final AvailabilityService availabilityService;
@@ -38,21 +64,28 @@ public class HicPitExportService {
     }
 
     /**
-     * Generate HIC CSV data for a tenant on a given date.
-     * Returns CSV string with HUD HIC submission columns.
+     * Generate HIC CSV matching HUD Inventory.csv schema (FY2024+).
      */
-    public String generateHic(UUID tenantId, java.time.LocalDate date) throws Exception {
+    public String generateHic(UUID tenantId, LocalDate date) throws Exception {
         return TenantContext.callWithContext(tenantId, true, () -> {
+            Tenant tenant = tenantService.findById(tenantId).orElseThrow();
+            String cocCode = tenant.getSlug() != null ? tenant.getSlug() : tenantId.toString();
             List<Shelter> shelters = shelterService.findByTenantId();
             List<AvailabilitySnapshot> snapshots = availabilityService.getLatestByTenantId(tenantId);
 
             StringBuilder csv = new StringBuilder();
-            csv.append("ProjectID,ProjectName,ProjectType,HouseholdType,BedType,")
-               .append("AvailabilityCategory,BedInventory,UnitInventory,TargetPopulation,HMISParticipation\n");
+            // HUD Inventory.csv header (FY2024+ LSA Data Dictionary)
+            csv.append("InventoryID,ProjectID,CoCCode,HouseholdType,Availability,")
+               .append("UnitInventory,BedInventory,")
+               .append("CHVetBedInventory,YouthVetBedInventory,VetBedInventory,")
+               .append("CHYouthBedInventory,YouthBedInventory,CHBedInventory,OtherBedInventory,")
+               .append("ESBedType,InventoryStartDate,InventoryEndDate\n");
 
             // DV aggregation accumulators
             int dvTotalBeds = 0;
-            int dvShelterCount = 0; // D18: count distinct DV shelters
+            int dvShelterCount = 0;
+            int dvVetBeds = 0;
+            java.time.Instant dvEarliestStart = null;
 
             for (Shelter shelter : shelters) {
                 List<AvailabilitySnapshot> shelterSnaps = snapshots.stream()
@@ -64,32 +97,75 @@ public class HicPitExportService {
                     for (AvailabilitySnapshot snap : shelterSnaps) {
                         if (snap.bedsTotal() > 0) {
                             dvTotalBeds += snap.bedsTotal();
+                            if ("VETERAN".equals(snap.populationType())) {
+                                dvVetBeds += snap.bedsTotal();
+                            }
                         }
+                    }
+                    if (dvEarliestStart == null || (shelter.getCreatedAt() != null
+                            && shelter.getCreatedAt().isBefore(dvEarliestStart))) {
+                        dvEarliestStart = shelter.getCreatedAt();
                     }
                 } else {
                     for (AvailabilitySnapshot snap : shelterSnaps) {
                         if (snap.bedsTotal() <= 0) continue;
+                        if (snap.populationType() == null) {
+                            log.warn("HIC export: skipping snapshot with null populationType for shelter {}", shelter.getId());
+                            continue;
+                        }
                         if ("DV_SURVIVOR".equals(snap.populationType())) continue;
 
-                        csv.append(escCsv(shelter.getId().toString())).append(',')
-                           .append(escCsv(shelter.getName())).append(',')
-                           .append("ES,") // Emergency Shelter
-                           .append(mapHouseholdType(snap.populationType())).append(',')
-                           .append("Facility-Based,")
-                           .append("Year-Round,")
-                           .append(snap.bedsTotal()).append(',')
-                           .append(snap.bedsTotal()).append(',') // unit = bed for ES
-                           .append(escCsv(snap.populationType())).append(',')
-                           .append("Yes\n");
+                        int householdType = mapHouseholdTypeCode(snap.populationType());
+                        int vetBeds = "VETERAN".equals(snap.populationType()) ? snap.bedsTotal() : 0;
+                        int otherBeds = snap.bedsTotal() - vetBeds;
+                        String inventoryId = generateInventoryId(shelter.getId(), snap.populationType());
+                        String startDate = shelter.getCreatedAt() != null
+                                ? shelter.getCreatedAt().toString().substring(0, 10) : date.toString();
+
+                        csv.append(escCsv(inventoryId)).append(',')
+                           .append(escCsv(shelter.getId().toString())).append(',')
+                           .append(escCsv(cocCode)).append(',')
+                           .append(householdType).append(',')
+                           .append(AVAILABILITY_YEAR_ROUND).append(',')
+                           .append(snap.bedsTotal()).append(',')  // UnitInventory (= beds for ES)
+                           .append(snap.bedsTotal()).append(',')  // BedInventory
+                           .append(0).append(',')  // CHVetBedInventory
+                           .append(0).append(',')  // YouthVetBedInventory
+                           .append(vetBeds).append(',')  // VetBedInventory
+                           .append(0).append(',')  // CHYouthBedInventory
+                           .append(0).append(',')  // YouthBedInventory
+                           .append(0).append(',')  // CHBedInventory
+                           .append(otherBeds).append(',')  // OtherBedInventory
+                           .append(ES_BED_TYPE_FACILITY).append(',')
+                           .append(startDate).append(',')  // InventoryStartDate
+                           .append('\n');  // InventoryEndDate (empty = active)
                     }
                 }
             }
 
-            // DV aggregated row — suppressed if < 3 distinct shelters (Design D18)
-            if (dvTotalBeds > 0 && dvShelterCount >= 3) {
-                csv.append(",DV Shelters (Aggregated),ES,DV,Facility-Based,Year-Round,")
-                   .append(dvTotalBeds).append(',')
-                   .append(dvTotalBeds).append(",DV_SURVIVOR,Yes\n");
+            // DV aggregated row — suppressed if < DV_MIN_SHELTER_COUNT distinct shelters (Design D18)
+            if (dvTotalBeds > 0 && dvShelterCount >= DV_MIN_SHELTER_COUNT) {
+                String dvStartDate = dvEarliestStart != null
+                        ? dvEarliestStart.toString().substring(0, 10) : date.toString();
+                int dvOtherBeds = dvTotalBeds - dvVetBeds;
+
+                csv.append(',')  // InventoryID (none for aggregate)
+                   .append(',')  // ProjectID (none for aggregate)
+                   .append(escCsv(cocCode)).append(',')
+                   .append(HOUSEHOLD_WITH_ADULTS_AND_CHILDREN).append(',')  // HouseholdType
+                   .append(AVAILABILITY_YEAR_ROUND).append(',')
+                   .append(dvTotalBeds).append(',')  // UnitInventory
+                   .append(dvTotalBeds).append(',')  // BedInventory
+                   .append(0).append(',')  // CHVetBedInventory
+                   .append(0).append(',')  // YouthVetBedInventory
+                   .append(dvVetBeds).append(',')  // VetBedInventory
+                   .append(0).append(',')  // CHYouthBedInventory
+                   .append(0).append(',')  // YouthBedInventory
+                   .append(0).append(',')  // CHBedInventory
+                   .append(dvOtherBeds).append(',')  // OtherBedInventory
+                   .append(ES_BED_TYPE_FACILITY).append(',')
+                   .append(dvStartDate).append(',')
+                   .append('\n');
             }
 
             return csv.toString();
@@ -98,9 +174,10 @@ public class HicPitExportService {
 
     /**
      * Generate sheltered PIT count CSV for a tenant on a given date.
-     * Returns CSV string with HUD PIT submission columns.
+     * NOTE: PIT data is submitted via direct entry in HDX 2.0, not CSV upload.
+     * This CSV is a working document for CoC administrators.
      */
-    public String generatePit(UUID tenantId, java.time.LocalDate date) throws Exception {
+    public String generatePit(UUID tenantId, LocalDate date) throws Exception {
         return TenantContext.callWithContext(tenantId, true, () -> {
             Tenant tenant = tenantService.findById(tenantId).orElseThrow();
             List<Shelter> shelters = shelterService.findByTenantId();
@@ -109,11 +186,11 @@ public class HicPitExportService {
             StringBuilder csv = new StringBuilder();
             csv.append("CoCCode,ProjectType,HouseholdType,TotalPersons\n");
 
-            // Aggregate by population type across all shelters
-            // DV shelters aggregated together per D4, suppressed if < 3 shelters (D18)
-            java.util.Map<String, Integer> countsByPopType = new java.util.LinkedHashMap<>();
+            java.util.Map<Integer, Integer> countsByHouseholdType = new java.util.LinkedHashMap<>();
             int dvTotal = 0;
             int dvShelterCount = 0;
+
+            String cocCode = tenant.getSlug() != null ? tenant.getSlug() : tenantId.toString();
 
             for (Shelter shelter : shelters) {
                 List<AvailabilitySnapshot> shelterSnaps = snapshots.stream()
@@ -127,23 +204,29 @@ public class HicPitExportService {
                     }
                 } else {
                     for (AvailabilitySnapshot snap : shelterSnaps) {
+                        if (snap.populationType() == null) {
+                            log.warn("PIT export: skipping snapshot with null populationType for shelter {}", shelter.getId());
+                            continue;
+                        }
                         if ("DV_SURVIVOR".equals(snap.populationType())) continue;
-                        countsByPopType.merge(snap.populationType(), snap.bedsOccupied(), Integer::sum);
+                        int hhType = mapHouseholdTypeCode(snap.populationType());
+                        countsByHouseholdType.merge(hhType, snap.bedsOccupied(), Integer::sum);
                     }
                 }
             }
 
-            String cocCode = tenant.getSlug() != null ? tenant.getSlug() : tenantId.toString();
-
-            for (var entry : countsByPopType.entrySet()) {
-                csv.append(escCsv(cocCode)).append(",ES,")
-                   .append(mapHouseholdType(entry.getKey())).append(',')
+            for (var entry : countsByHouseholdType.entrySet()) {
+                csv.append(escCsv(cocCode)).append(',')
+                   .append(PROJECT_TYPE_ES_ENTRY_EXIT).append(',')
+                   .append(entry.getKey()).append(',')
                    .append(entry.getValue()).append('\n');
             }
 
-            // DV aggregated — suppressed if < 3 distinct shelters (Design D18)
-            if (dvTotal > 0 && dvShelterCount >= 3) {
-                csv.append(escCsv(cocCode)).append(",ES,DV,")
+            // DV aggregated — suppressed if < DV_MIN_SHELTER_COUNT distinct shelters (Design D18)
+            if (dvTotal > 0 && dvShelterCount >= DV_MIN_SHELTER_COUNT) {
+                csv.append(escCsv(cocCode)).append(',')
+                   .append(PROJECT_TYPE_ES_ENTRY_EXIT).append(',')
+                   .append(HOUSEHOLD_WITH_ADULTS_AND_CHILDREN).append(',')
                    .append(dvTotal).append('\n');
             }
 
@@ -151,23 +234,40 @@ public class HicPitExportService {
         });
     }
 
-    private String mapHouseholdType(String populationType) {
+    /**
+     * Map FABT population type to HUD HouseholdType integer code.
+     * HUD FY2024+: 1=without children, 3=adult+child, 4=children only.
+     * Throws on unknown types to prevent silent HUD data corruption.
+     */
+    int mapHouseholdTypeCode(String populationType) {
         return switch (populationType) {
-            case "FAMILY_WITH_CHILDREN" -> "Families";
-            case "SINGLE_ADULT" -> "Adults Only";
-            case "WOMEN_ONLY" -> "Adults Only";
-            case "VETERAN" -> "Veterans";
-            case "YOUTH_18_24" -> "Children Only";
-            case "YOUTH_UNDER_18" -> "Children Only";
-            case "DV_SURVIVOR" -> "DV";
-            default -> populationType;
+            case "FAMILY_WITH_CHILDREN" -> HOUSEHOLD_WITH_ADULTS_AND_CHILDREN;
+            case "SINGLE_ADULT", "WOMEN_ONLY", "VETERAN" -> HOUSEHOLD_WITHOUT_CHILDREN;
+            case "YOUTH_18_24" -> HOUSEHOLD_WITHOUT_CHILDREN;  // 18-24 are adults per HUD
+            case "YOUTH_UNDER_18" -> HOUSEHOLD_CHILDREN_ONLY;
+            case "DV_SURVIVOR" -> HOUSEHOLD_WITH_ADULTS_AND_CHILDREN;  // DV aggregate default
+            default -> throw new IllegalArgumentException(
+                    "Unmapped population type for HUD HouseholdType: '" + populationType
+                    + "'. Add mapping before exporting.");
         };
     }
 
+    /**
+     * Generate deterministic InventoryID from shelterId + populationType.
+     * HUD requires a unique identifier per inventory record.
+     */
+    private String generateInventoryId(UUID shelterId, String populationType) {
+        return UUID.nameUUIDFromBytes(
+                (shelterId.toString() + ":" + populationType).getBytes()
+        ).toString();
+    }
+
+    /**
+     * CSV escape with OWASP CSV injection protection.
+     * Prefixes cells starting with formula characters (=, +, -, @) with tab.
+     */
     private String escCsv(String value) {
         if (value == null) return "";
-        // CSV injection protection (OWASP): prefix cells starting with formula characters
-        // with a tab inside quotes to prevent Excel formula execution.
         String safe = value;
         if (!safe.isEmpty() && "=+-@".indexOf(safe.charAt(0)) >= 0) {
             safe = "\t" + safe;

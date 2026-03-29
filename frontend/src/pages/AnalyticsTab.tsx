@@ -186,6 +186,33 @@ function DashboardSection() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [exportDate, setExportDate] = useState(new Date().toISOString().split('T')[0]);
+  const [downloading, setDownloading] = useState<string | null>(null);
+
+  const handleDownloadCsv = async (type: 'hic' | 'pit') => {
+    setDownloading(type);
+    try {
+      const token = localStorage.getItem('fabt_access_token');
+      const res = await fetch(`/api/v1/analytics/${type}?date=${exportDate}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error(`Export failed: ${res.status}`);
+      const blob = await res.blob();
+      const disposition = res.headers.get('Content-Disposition');
+      const filename = disposition?.match(/filename=(.+)/)?.[1] || `${type}-${exportDate}.csv`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error(`Failed to download ${type.toUpperCase()} CSV:`, err);
+    } finally {
+      setDownloading(null);
+    }
+  };
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -341,22 +368,22 @@ function DashboardSection() {
             data-testid="export-date-picker"
             aria-label="Export date for HIC/PIT report"
           />
-          <a
-            href={`/api/v1/analytics/hic?date=${exportDate}`}
-            download
-            style={{ ...primaryBtnStyle, textDecoration: 'none', display: 'inline-block' }}
+          <button
+            onClick={() => handleDownloadCsv('hic')}
+            disabled={downloading === 'hic'}
+            style={primaryBtnStyle}
             data-testid="download-hic-btn"
           >
-            <FormattedMessage id="analytics.downloadHic" defaultMessage="Download HIC CSV" />
-          </a>
-          <a
-            href={`/api/v1/analytics/pit?date=${exportDate}`}
-            download
-            style={{ ...primaryBtnStyle, textDecoration: 'none', display: 'inline-block', backgroundColor: '#047857' }}
+            {downloading === 'hic' ? '...' : <FormattedMessage id="analytics.downloadHic" defaultMessage="Download HIC CSV" />}
+          </button>
+          <button
+            onClick={() => handleDownloadCsv('pit')}
+            disabled={downloading === 'pit'}
+            style={{ ...primaryBtnStyle, backgroundColor: '#047857' }}
             data-testid="download-pit-btn"
           >
-            <FormattedMessage id="analytics.downloadPit" defaultMessage="Download PIT CSV" />
-          </a>
+            {downloading === 'pit' ? '...' : <FormattedMessage id="analytics.downloadPit" defaultMessage="Download PIT CSV" />}
+          </button>
         </div>
       </div>
     </>
