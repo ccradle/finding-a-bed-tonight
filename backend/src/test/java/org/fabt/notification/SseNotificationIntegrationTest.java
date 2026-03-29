@@ -17,6 +17,7 @@ import org.fabt.shared.event.DomainEvent;
 import org.fabt.shared.event.EventBus;
 import org.fabt.shared.web.TenantContext;
 import org.fabt.tenant.domain.Tenant;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -60,6 +61,15 @@ class SseNotificationIntegrationTest extends BaseIntegrationTest {
         authHelper.setupCoordinatorUser();
     }
 
+    @AfterEach
+    void tearDown() {
+        // Complete all server-side SSE emitters so Tomcat doesn't block on shutdown
+        // waiting for active requests to finish. SseEmitter only detects client
+        // disconnect on the next write attempt — without this, graceful shutdown
+        // hangs until the 5-minute emitter timeout.
+        notificationService.completeAll();
+    }
+
     @Test
     @DisplayName("SSE endpoint returns 401 without token")
     void sseEndpointRejectsUnauthenticated() {
@@ -95,6 +105,7 @@ class SseNotificationIntegrationTest extends BaseIntegrationTest {
                     .hasValueSatisfying(ct -> assertThat(ct).contains("text/event-stream"));
         } finally {
             response.body().close();
+            httpClient.shutdownNow();
         }
     }
 
@@ -200,8 +211,9 @@ class SseNotificationIntegrationTest extends BaseIntegrationTest {
         // Wait for the event to arrive on the wire
         boolean received = latch.await(5, TimeUnit.SECONDS);
 
-        // Close the SSE stream to release the server thread and JDBC connection
+        // Close the SSE stream and HttpClient to release connections
         response.body().close();
+        httpClient.shutdownNow();
 
         assertThat(received).as("SSE event should be received within 5 seconds").isTrue();
 

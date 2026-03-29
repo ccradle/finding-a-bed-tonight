@@ -94,6 +94,20 @@ public class NotificationService {
     }
 
     /**
+     * Complete all active emitters. Used during test cleanup and graceful shutdown
+     * to ensure Tomcat doesn't block waiting for SSE requests to finish.
+     */
+    public void completeAll() {
+        emitters.forEach((userId, entry) -> {
+            try {
+                entry.emitter().complete();
+            } catch (Exception e) {
+                log.debug("Error completing emitter for user {}: {}", userId, e.getMessage());
+            }
+        });
+    }
+
+    /**
      * Listens to all DomainEvents published via SpringEventBus and dispatches
      * to relevant connected SSE clients based on event type, tenant, and role.
      */
