@@ -87,6 +87,8 @@ Before implementing a new feature:
 
 - Java: follow existing patterns in the codebase (no Javadoc on trivial methods, constructor injection)
 - TypeScript: functional components with hooks, all text via react-intl
+- Colors: use `import { color } from '../theme/colors'` — never hardcode hex values. Use `color.primaryText` for links/labels, `color.primary` for button fills. See `colors.ts` header comment.
+- Typography: use `import { text, weight } from '../theme/typography'` — never hardcode font sizes or weights.
 - SQL: Flyway migrations are immutable once merged — use new migration files for changes
 
 ## License

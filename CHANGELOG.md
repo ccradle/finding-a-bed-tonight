@@ -5,6 +5,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.21.0] — 2026-03-29 — Color System, Dark Mode, HIC/PIT FY2024+, Training Materials
+
+### Added
+- **Color system**: 30 semantic color tokens as CSS custom properties in `global.css`, shared TypeScript constants in `colors.ts`. Follows Radix/Carbon split pattern: `primaryText` for links/labels, `primary` for button fills — resolves the dark mode dual-contrast problem.
+- **Dark mode**: System-only `prefers-color-scheme: dark` support across all views. No manual toggle. Dark palette sourced from Carbon Design System (Blue-60/40, Green-40, Red-40, Yellow-30). `color-scheme: light dark` for native dark scrollbars and form controls.
+- **HIC export rewrite**: Matches HUD Inventory.csv schema (FY2024+) — 17 columns, integer codes for all coded fields (HouseholdType 1/3/4, ProjectType 0, Availability 1, ESBedType 1). Veteran bed breakdown columns (CHVet/YouthVet/Vet/CHYouth/Youth/CH/Other). CoCCode, InventoryID, InventoryStartDate. DV aggregate row with small-cell suppression.
+- **PIT export update**: Integer codes for ProjectType (0) and HouseholdType (1/3/4). Code comment documents HDX 2.0 submission note.
+- **Training materials**: Coordinator quick-start card (print-ready HTML, front: 5-step flow, back: 5 troubleshooting scenarios). Admin onboarding checklist (fillable, per-shelter). Freshness badge tooltips on DataAge component (4 i18n keys EN/ES).
+- **Freshness tooltips**: Hover/focus on freshness badges shows plain-language guidance ("Over 8 hours old. Call the shelter before driving there.")
+- Playwright TDD test guards: axe-core contrast scan in dark mode, source-level hex grep (501→0), light mode regression guard
+- Playwright E2E: click Download HIC/PIT → receive file → validate HUD schema content
+- 6 new backend integration tests (HIC row-by-row validation, CSV round-trip, unknown type rejection, DV suppression boundary)
+
+### Changed
+- **18 component files migrated** from 501 hardcoded hex values to semantic `color.*` tokens (OAuth provider brand colors excluded)
+- HIC CSV columns use HUD integer codes instead of strings (HouseholdType: "Families" → 3)
+- `mapHouseholdTypeCode()` throws on unknown population types (was silent pass-through)
+- HMIS vendor endpoints return 501 (was fake 200 success)
+- WCAG-ACR updated to note dark mode coverage
+- SPM mapping doc updated for HIC FY2024+ schema
+
+### Fixed
+- **Download bug**: `<a href download>` doesn't send JWT auth headers — changed to `fetch()` + blob download in AnalyticsTab. HIC/PIT downloads were broken for all users.
+- 4 pre-existing typography drift fixes (NotificationBell, UserEditDrawer) — hardcoded px → tokens
+
+---
+
 ## [v0.20.0] — 2026-03-29 — Shelter Edit & Import/Export Hardening
 
 ### Added

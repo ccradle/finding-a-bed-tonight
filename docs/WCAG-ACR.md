@@ -82,7 +82,7 @@
 |---|---|---|
 | **1.3.4 Orientation** | Supports | Content is not restricted to a single orientation. Responsive design adapts to portrait and landscape. |
 | **1.3.5 Identify Input Purpose** | Partially Supports | Login form inputs have appropriate type attributes (email, password). Not all form inputs use autocomplete attributes for standard fields. |
-| **1.4.3 Contrast (Minimum)** | Supports | All text meets 4.5:1 minimum contrast ratio. Secondary text colors updated from #64748b to #475569 (7.5:1). Status badge text verified against badge backgrounds. Opacity-based transparency removed where it reduced effective contrast. axe-core confirms zero contrast violations. |
+| **1.4.3 Contrast (Minimum)** | Supports | All text meets 4.5:1 minimum contrast ratio in both light and dark modes. Color system uses CSS custom properties with `@media (prefers-color-scheme: dark)` overrides. Dark mode palette sourced from Carbon Design System (Blue-60/Blue-40 split for fills vs text). Automated axe-core contrast scans run in both modes — zero violations. |
 | **1.4.4 Resize Text** | Supports | Text can be resized to 200% without loss of content or functionality. Layout uses flexbox for reflow. Typography system uses CSS custom properties — all font sizes are centrally defined and scale consistently. Verified at 200% browser zoom. |
 | **1.4.5 Images of Text** | Supports | No images of text used. All text is rendered as HTML text. |
 | **1.4.10 Reflow** | Supports | Content reflows at 320px viewport width. Mobile bottom navigation provides access to all sections. No horizontal scrolling required for primary content. |
