@@ -11,6 +11,8 @@ bucket4j:
   enabled: false
 
 fabt:
+  scheduling:
+    enabled: false
   deployment-tier: lite
   cache:
     l1-ttl-seconds: 60

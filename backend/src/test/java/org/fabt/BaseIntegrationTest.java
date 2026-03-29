@@ -28,7 +28,8 @@ public abstract class BaseIntegrationTest {
         POSTGRES = new PostgreSQLContainer("postgres:16-alpine")
                 .withDatabaseName("fabt_test")
                 .withUsername("fabt_test")
-                .withPassword("fabt_test");
+                .withPassword("fabt_test")
+                .withCommand("postgres -c max_connections=200");
         POSTGRES.start();
     }
 
@@ -37,6 +38,10 @@ public abstract class BaseIntegrationTest {
         registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
         registry.add("spring.datasource.username", POSTGRES::getUsername);
         registry.add("spring.datasource.password", POSTGRES::getPassword);
+        // Keep pool small — multiple Spring test contexts (due to @AutoConfigureMetrics,
+        // @TestPropertySource, etc.) each create their own HikariCP pool against the
+        // shared Testcontainers PostgreSQL. 4 contexts x 3 connections = 12, well within
+        // the 200 max_connections configured on the container. (Spring Boot #31467)
         registry.add("spring.datasource.hikari.maximum-pool-size", () -> "10");
         registry.add("spring.datasource.hikari.minimum-idle", () -> "2");
         // Flyway uses the same Testcontainers credentials (owner role in test)
