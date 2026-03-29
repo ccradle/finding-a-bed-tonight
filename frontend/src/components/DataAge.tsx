@@ -22,6 +22,13 @@ function getStatusLabelId(seconds: number | null): string {
   return 'data.age.stale';
 }
 
+function getTooltipId(seconds: number | null): string {
+  if (seconds === null) return 'data.age.tooltip.unknown';
+  if (seconds < FRESH_THRESHOLD) return 'data.age.tooltip.fresh';
+  if (seconds < AGING_THRESHOLD) return 'data.age.tooltip.aging';
+  return 'data.age.tooltip.stale';
+}
+
 function getAgeLabelId(seconds: number | null): { id: string; values?: Record<string, number> } {
   if (seconds === null) return { id: 'data.age.unknown' };
   if (seconds < 60) return { id: 'data.age.justNow' };
@@ -38,9 +45,11 @@ export function DataAge({ dataAgeSeconds }: DataAgeProps) {
   const statusLabel = intl.formatMessage({ id: statusLabelId });
   const ageInfo = getAgeLabelId(dataAgeSeconds);
   const ageText = intl.formatMessage({ id: ageInfo.id }, ageInfo.values);
+  const tooltip = intl.formatMessage({ id: getTooltipId(dataAgeSeconds) });
 
   return (
     <span
+      title={tooltip}
       style={{
         color,
         fontSize: text.xs,
