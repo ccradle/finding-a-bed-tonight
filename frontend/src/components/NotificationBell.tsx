@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import { useNavigate } from 'react-router-dom';
 import { text, weight } from '../theme/typography';
+import { color } from '../theme/colors';
 import type { Notification } from '../hooks/useNotifications';
 
 interface NotificationBellProps {
@@ -131,7 +132,7 @@ export function NotificationBell({
           position: 'relative',
           padding: '8px',
           backgroundColor: 'transparent',
-          color: '#ffffff',
+          color: color.textInverse,
           border: '1px solid rgba(255,255,255,0.3)',
           borderRadius: '6px',
           cursor: 'pointer',
@@ -157,8 +158,8 @@ export function NotificationBell({
               position: 'absolute',
               top: '2px',
               right: '2px',
-              backgroundColor: '#ef4444',
-              color: '#ffffff',
+              backgroundColor: color.errorMid,
+              color: color.textInverse,
               borderRadius: '50%',
               minWidth: '18px',
               height: '18px',
@@ -192,7 +193,7 @@ export function NotificationBell({
             width: '320px',
             maxHeight: '400px',
             overflowY: 'auto',
-            backgroundColor: '#ffffff',
+            backgroundColor: color.bg,
             borderRadius: '8px',
             boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
             zIndex: 1000,
@@ -200,9 +201,9 @@ export function NotificationBell({
         >
           <div style={{
             padding: '12px 16px',
-            borderBottom: '1px solid #e5e7eb',
+            borderBottom: `1px solid ${color.border}`,
             fontWeight: weight.semibold,
-            color: '#111827',
+            color: color.text,
             fontSize: text.sm,
           }}>
             <FormattedMessage id="notifications.title" />
@@ -212,7 +213,7 @@ export function NotificationBell({
             <div style={{
               padding: '24px 16px',
               textAlign: 'center',
-              color: '#6b7280',
+              color: color.textMuted,
               fontSize: text.sm,
             }}>
               <FormattedMessage id="notifications.empty" />
@@ -238,9 +239,9 @@ export function NotificationBell({
                   }}
                   style={{
                     padding: '12px 16px',
-                    borderBottom: '1px solid #f3f4f6',
+                    borderBottom: `1px solid ${color.bgTertiary}`,
                     cursor: 'pointer',
-                    backgroundColor: notification.read ? '#ffffff' : '#eff6ff',
+                    backgroundColor: notification.read ? color.bg : color.bgHighlight,
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
@@ -249,7 +250,7 @@ export function NotificationBell({
                   <div style={{ flex: 1 }}>
                     <div style={{
                       fontSize: text.sm,
-                      color: '#111827',
+                      color: color.text,
                       fontWeight: notification.read ? weight.normal : weight.semibold,
                     }}>
                       <FormattedMessage
@@ -258,7 +259,7 @@ export function NotificationBell({
                       />
                     </div>
                     {notification.data.shelterName != null && notification.eventType === 'availability.updated' && (
-                      <div style={{ fontSize: text.xs, color: '#6b7280', marginTop: '2px' }}>
+                      <div style={{ fontSize: text.xs, color: color.textMuted, marginTop: '2px' }}>
                         {String(notification.data.shelterName)}
                       </div>
                     )}
@@ -269,7 +270,7 @@ export function NotificationBell({
                     style={{
                       background: 'none',
                       border: 'none',
-                      color: '#9ca3af',
+                      color: color.textMuted,
                       cursor: 'pointer',
                       padding: '4px',
                       fontSize: text.md,

@@ -5,27 +5,28 @@
  * Import and use in component inline styles:
  *
  *   import { color } from '../theme/colors';
- *   <div style={{ backgroundColor: color.bg, color: color.text, border: `1px solid ${color.border}` }}>
+ *   <div style={{ backgroundColor: color.bg, color: color.text }}>
+ *   <a style={{ color: color.primaryText }}>Link</a>
+ *   <button style={{ backgroundColor: color.primary, color: color.textInverse }}>Button</button>
  *
- * The CSS custom properties are the canonical source of truth. Light and dark
- * mode values are defined in global.css via @media (prefers-color-scheme: dark).
- * These TypeScript constants provide type safety and IDE autocomplete.
+ * Dark mode architecture (Radix/Carbon split pattern):
+ * - color.primary:     button fills, solid backgrounds — white text on it
+ * - color.primaryText: links, labels, inline colored text — readable on bg
+ * - color.primaryLight: active nav bg, selection — primaryText on it
+ * In light mode these converge (same value). In dark mode they diverge.
  *
- * WCAG 2.1 AA contrast ratios verified for all token pairs:
- * - Normal text on bg: 4.5:1 minimum in both light and dark modes
- * - Large text on bg: 3:1 minimum
- * - UI components: 3:1 against adjacent colors
+ * WCAG 2.1 AA contrast verified for all token pairs in both modes.
+ * See global.css for specific ratios.
  *
  * For new components: ALWAYS use color.* tokens. Never hardcode hex values.
- * See the color audit in openspec/changes/color-system-dark-mode/design.md D2.
  */
 
-/** Brand colors */
 export const color = {
   // Brand
-  primary: 'var(--color-primary)',
+  primary: 'var(--color-primary)',           // button fills, solid backgrounds
+  primaryText: 'var(--color-primary-text)',   // links, labels, inline colored text
   primaryHover: 'var(--color-primary-hover)',
-  primaryLight: 'var(--color-primary-light)',
+  primaryLight: 'var(--color-primary-light)', // active nav bg, selection bg
   primaryDisabled: 'var(--color-primary-disabled)',
 
   // Surface (backgrounds)
@@ -39,7 +40,7 @@ export const color = {
   textSecondary: 'var(--color-text-secondary)',
   textTertiary: 'var(--color-text-tertiary)',
   textMuted: 'var(--color-text-muted)',
-  textInverse: 'var(--color-text-inverse)',
+  textInverse: 'var(--color-text-inverse)',   // white — on colored button fills
 
   // Border
   border: 'var(--color-border)',
@@ -65,13 +66,15 @@ export const color = {
   warningMid: 'var(--color-warning-mid)',
   warningBright: 'var(--color-warning-bright)',
 
-  // Safety (DV shelters)
+  // Safety (DV shelters) — split like primary: dv for fills, dvText for readability
   dv: 'var(--color-dv)',
+  dvText: 'var(--color-dv-text)',
   dvBg: 'var(--color-dv-bg)',
   dvBorder: 'var(--color-dv-border)',
 
-  // Header
+  // Header (always dark bg + light text in both modes)
   headerBg: 'var(--color-header-bg)',
+  headerText: 'var(--color-header-text)',
   headerGradientStart: 'var(--color-header-gradient-start)',
   headerGradientMid: 'var(--color-header-gradient-mid)',
   headerGradientEnd: 'var(--color-header-gradient-end)',

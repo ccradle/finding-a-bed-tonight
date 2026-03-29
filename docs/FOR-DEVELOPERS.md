@@ -137,6 +137,20 @@ Phase 2 will add an MCP server as a thin wrapper around the REST API, enabling n
 
 ## Recent Changes
 
+### Color System & Dark Mode (v0.21.0)
+
+CSS custom property color tokens with automatic dark mode (`prefers-color-scheme: dark`). Architecture follows the **Radix/Carbon split pattern**:
+
+- `color.primary` — button fills, solid backgrounds (white text on them)
+- `color.primaryText` — links, labels, inline colored text (readable on dark bg)
+- `color.primaryLight` — active nav bg, selection (primaryText on it)
+
+In light mode these converge (same value). In dark mode they diverge (Carbon Blue-60 for fills, Blue-40 for text).
+
+**For new components:** Import `{ color } from '../theme/colors'` and use semantic tokens. Never hardcode hex values. See `colors.ts` header comment for usage guide.
+
+Dark mode values sourced from Carbon Design System (Blue-60/40, Green-40, Red-40, Yellow-30) — proven accessible at scale. All token pairs verified via axe-core automated scans in both modes.
+
 ### Shelter Edit (v0.20.0)
 
 Shelters can now be edited from both the Admin Shelters tab and the Coordinator dashboard. DV shelter changes have tiered safeguards:

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { FormattedMessage } from 'react-intl';
 import { text, weight } from '../theme/typography';
+import { color } from '../theme/colors';
 
 interface ConnectionStatusBannerProps {
   connected: boolean;
@@ -66,8 +67,8 @@ export function ConnectionStatusBanner({ connected }: ConnectionStatusBannerProp
         data-testid="connection-status-reconnected"
         style={{
           padding: '8px 20px',
-          backgroundColor: '#047857',
-          color: '#ffffff',
+          backgroundColor: color.success,
+          color: color.textInverse,
           fontSize: text.sm,
           fontWeight: weight.semibold,
           textAlign: 'center',
@@ -87,8 +88,8 @@ export function ConnectionStatusBanner({ connected }: ConnectionStatusBannerProp
       data-testid="connection-status-reconnecting"
       style={{
         padding: '8px 20px',
-        backgroundColor: '#d97706',
-        color: '#ffffff',
+        backgroundColor: color.warningMid,
+        color: color.textInverse,
         fontSize: text.sm,
         fontWeight: weight.semibold,
         textAlign: 'center',

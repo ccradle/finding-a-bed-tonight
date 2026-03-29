@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import { api } from '../services/api';
 import { text, weight } from '../theme/typography';
+import { color } from '../theme/colors';
 
 interface User {
   id: string;
@@ -121,30 +122,30 @@ export function UserEditDrawer({ user, onClose, onSaved }: UserEditDrawerProps) 
         data-testid="user-edit-drawer"
         style={{
           position: 'fixed', top: 0, right: 0, bottom: 0, width: '400px', maxWidth: '90vw',
-          backgroundColor: '#ffffff', boxShadow: '-4px 0 20px rgba(0,0,0,0.15)',
+          backgroundColor: color.bg, boxShadow: '-4px 0 20px rgba(0,0,0,0.15)',
           zIndex: 1001, display: 'flex', flexDirection: 'column', overflow: 'hidden',
         }}
       >
         {/* Header */}
         <div style={{
-          padding: '16px 20px', borderBottom: '1px solid #e5e7eb',
+          padding: '16px 20px', borderBottom: `1px solid ${color.border}`,
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
         }}>
           <h2 style={{ margin: 0, fontSize: text.lg, fontWeight: weight.bold }}>
             <FormattedMessage id="admin.user.editTitle" />
           </h2>
           <button onClick={onClose} aria-label="Close" style={{
-            background: 'none', border: 'none', fontSize: text.xl, cursor: 'pointer', color: '#6b7280',
+            background: 'none', border: 'none', fontSize: text.xl, cursor: 'pointer', color: color.textMuted,
           }}>×</button>
         </div>
 
         {/* Status badge */}
-        <div style={{ padding: '12px 20px', borderBottom: '1px solid #f3f4f6' }}>
+        <div style={{ padding: '12px 20px', borderBottom: `1px solid ${color.bgTertiary}` }}>
           <span style={{
             display: 'inline-block', padding: '4px 10px', borderRadius: 12,
             fontSize: text.xs, fontWeight: weight.semibold,
-            backgroundColor: isDeactivated ? '#fef2f2' : '#f0fdf4',
-            color: isDeactivated ? '#dc2626' : '#166534',
+            backgroundColor: isDeactivated ? color.errorBg : color.successBg,
+            color: isDeactivated ? color.errorMid : color.success,
           }}>
             {isDeactivated
               ? intl.formatMessage({ id: 'admin.user.statusDeactivated' })
@@ -156,7 +157,7 @@ export function UserEditDrawer({ user, onClose, onSaved }: UserEditDrawerProps) 
         <div style={{ flex: 1, overflowY: 'auto', padding: '20px' }}>
           {/* Display Name */}
           <label style={{ display: 'block', marginBottom: 16 }}>
-            <span style={{ fontSize: text.sm, fontWeight: weight.semibold, color: '#374151', display: 'block', marginBottom: 4 }}>
+            <span style={{ fontSize: text.sm, fontWeight: weight.semibold, color: color.textSecondary, display: 'block', marginBottom: 4 }}>
               <FormattedMessage id="admin.displayName" />
             </span>
             <input
@@ -164,7 +165,7 @@ export function UserEditDrawer({ user, onClose, onSaved }: UserEditDrawerProps) 
               onChange={(e) => setDisplayName(e.target.value)}
               data-testid="user-edit-displayName"
               style={{
-                width: '100%', padding: '10px 12px', border: '1px solid #d1d5db',
+                width: '100%', padding: '10px 12px', border: `1px solid ${color.borderMedium}`,
                 borderRadius: 6, fontSize: text.base, boxSizing: 'border-box',
               }}
             />
@@ -172,7 +173,7 @@ export function UserEditDrawer({ user, onClose, onSaved }: UserEditDrawerProps) 
 
           {/* Email */}
           <label style={{ display: 'block', marginBottom: 16 }}>
-            <span style={{ fontSize: text.sm, fontWeight: weight.semibold, color: '#374151', display: 'block', marginBottom: 4 }}>
+            <span style={{ fontSize: text.sm, fontWeight: weight.semibold, color: color.textSecondary, display: 'block', marginBottom: 4 }}>
               <FormattedMessage id="admin.email" />
             </span>
             <input
@@ -180,7 +181,7 @@ export function UserEditDrawer({ user, onClose, onSaved }: UserEditDrawerProps) 
               onChange={(e) => setEmail(e.target.value)}
               data-testid="user-edit-email"
               style={{
-                width: '100%', padding: '10px 12px', border: '1px solid #d1d5db',
+                width: '100%', padding: '10px 12px', border: `1px solid ${color.borderMedium}`,
                 borderRadius: 6, fontSize: text.base, boxSizing: 'border-box',
               }}
             />
@@ -188,7 +189,7 @@ export function UserEditDrawer({ user, onClose, onSaved }: UserEditDrawerProps) 
 
           {/* Roles */}
           <fieldset style={{ border: 'none', padding: 0, marginBottom: 16 }}>
-            <legend style={{ fontSize: text.sm, fontWeight: weight.semibold, color: '#374151', marginBottom: 8 }}>
+            <legend style={{ fontSize: text.sm, fontWeight: weight.semibold, color: color.textSecondary, marginBottom: 8 }}>
               <FormattedMessage id="admin.roles" />
             </legend>
             {AVAILABLE_ROLES.map((role) => (
@@ -214,32 +215,32 @@ export function UserEditDrawer({ user, onClose, onSaved }: UserEditDrawerProps) 
               data-testid="user-edit-dvAccess"
               style={{ width: 18, height: 18 }}
             />
-            <span style={{ fontSize: text.sm, fontWeight: weight.semibold, color: '#374151' }}>
+            <span style={{ fontSize: text.sm, fontWeight: weight.semibold, color: color.textSecondary }}>
               <FormattedMessage id="admin.dvAccess" />
             </span>
           </label>
 
           {/* Error / Success */}
           {error && (
-            <div style={{ backgroundColor: '#fef2f2', color: '#dc2626', padding: '10px 14px', borderRadius: 8, marginBottom: 12, fontSize: text.sm }}>
+            <div style={{ backgroundColor: color.errorBg, color: color.errorMid, padding: '10px 14px', borderRadius: 8, marginBottom: 12, fontSize: text.sm }}>
               {error}
             </div>
           )}
           {success && (
-            <div style={{ backgroundColor: '#f0fdf4', color: '#166534', padding: '10px 14px', borderRadius: 8, marginBottom: 12, fontSize: text.sm }}>
+            <div style={{ backgroundColor: color.successBg, color: color.success, padding: '10px 14px', borderRadius: 8, marginBottom: 12, fontSize: text.sm }}>
               {success}
             </div>
           )}
         </div>
 
         {/* Footer actions */}
-        <div style={{ padding: '16px 20px', borderTop: '1px solid #e5e7eb', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        <div style={{ padding: '16px 20px', borderTop: `1px solid ${color.border}`, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <button
             onClick={handleSave}
             disabled={saving}
             data-testid="user-edit-save"
             style={{
-              flex: 1, padding: '10px 16px', backgroundColor: '#1a56db', color: '#ffffff',
+              flex: 1, padding: '10px 16px', backgroundColor: color.primary, color: color.textInverse,
               border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: text.sm,
               fontWeight: weight.semibold, minHeight: 44, opacity: saving ? 0.6 : 1,
             }}
@@ -253,7 +254,7 @@ export function UserEditDrawer({ user, onClose, onSaved }: UserEditDrawerProps) 
               disabled={statusChanging}
               data-testid="user-reactivate-button"
               style={{
-                padding: '10px 16px', backgroundColor: '#047857', color: '#ffffff',
+                padding: '10px 16px', backgroundColor: color.success, color: color.textInverse,
                 border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: text.sm,
                 fontWeight: weight.semibold, minHeight: 44,
               }}
@@ -265,8 +266,8 @@ export function UserEditDrawer({ user, onClose, onSaved }: UserEditDrawerProps) 
               onClick={() => setShowDeactivateConfirm(true)}
               data-testid="user-deactivate-button"
               style={{
-                padding: '10px 16px', backgroundColor: 'transparent', color: '#dc2626',
-                border: '1px solid #dc2626', borderRadius: 6, cursor: 'pointer',
+                padding: '10px 16px', backgroundColor: 'transparent', color: color.errorMid,
+                border: `1px solid ${color.errorMid}`, borderRadius: 6, cursor: 'pointer',
                 fontSize: text.sm, fontWeight: weight.semibold, minHeight: 44,
               }}
             >
@@ -286,21 +287,21 @@ export function UserEditDrawer({ user, onClose, onSaved }: UserEditDrawerProps) 
               aria-label={intl.formatMessage({ id: 'admin.user.deactivateConfirmTitle' })}
               data-testid="deactivate-confirm-dialog"
               style={{
-                backgroundColor: '#ffffff', borderRadius: 12, padding: '24px',
+                backgroundColor: color.bg, borderRadius: 12, padding: '24px',
                 maxWidth: 360, boxShadow: '0 8px 30px rgba(0,0,0,0.2)',
               }}
             >
               <h3 style={{ margin: '0 0 12px', fontSize: text.base, fontWeight: weight.bold }}>
                 <FormattedMessage id="admin.user.deactivateConfirmTitle" />
               </h3>
-              <p style={{ margin: '0 0 20px', fontSize: text.sm, color: '#6b7280' }}>
+              <p style={{ margin: '0 0 20px', fontSize: text.sm, color: color.textMuted }}>
                 <FormattedMessage id="admin.user.deactivateConfirmMessage" values={{ name: user.displayName }} />
               </p>
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                 <button
                   onClick={() => setShowDeactivateConfirm(false)}
                   style={{
-                    padding: '8px 16px', backgroundColor: 'transparent', border: '1px solid #d1d5db',
+                    padding: '8px 16px', backgroundColor: 'transparent', border: `1px solid ${color.borderMedium}`,
                     borderRadius: 6, cursor: 'pointer', fontSize: text.sm, minHeight: 40,
                   }}
                 >
@@ -311,7 +312,7 @@ export function UserEditDrawer({ user, onClose, onSaved }: UserEditDrawerProps) 
                   disabled={statusChanging}
                   data-testid="deactivate-confirm-button"
                   style={{
-                    padding: '8px 16px', backgroundColor: '#dc2626', color: '#ffffff',
+                    padding: '8px 16px', backgroundColor: color.errorMid, color: color.bg,
                     border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: text.sm,
                     fontWeight: weight.semibold, minHeight: 40,
                   }}
