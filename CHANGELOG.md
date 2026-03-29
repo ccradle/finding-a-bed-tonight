@@ -11,6 +11,41 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.18.0] — 2026-03-29 — SSE Real-Time Notifications
+
+### Added
+- Server-Sent Events endpoint: `GET /api/v1/notifications/stream?token=<jwt>` with per-user SseEmitter, tenant-scoped event filtering, 30s keepalive heartbeat
+- `NotificationService`: ConcurrentHashMap emitter management, `@EventListener` for DomainEvent dispatch, Spring #33421/#33340 callbacks
+- `SseTokenFilter`: JWT extraction from query parameter for EventSource API limitation (standard approach per GitHub, Slack)
+- `NotificationController` with `@Operation` annotation for MCP discoverability
+- SecurityConfig rule for SSE endpoint, filter chain ordering (JWT → SSE → API key)
+- Notification bell UI: WAI-ARIA disclosure pattern (`aria-expanded`, `aria-controls`, Escape-to-close, focus management)
+- Connection status banner: Slack disconnect-only model, `role="status"` + `aria-live="polite"`, 3s reconnected toast
+- `useNotifications` hook: EventSource connection, window custom events for page-level auto-refresh
+- Auto-refresh: OutreachSearch refreshes referral list on `dv-referral.responded`, bed search on `availability.updated`
+- Person-centered i18n: "A shelter accepted your referral" (not "Referral response received"), 15 keys EN/ES
+- Micrometer metrics: `fabt.sse.connections.active` gauge, `fabt.sse.events.sent.count` counter (tagged by eventType)
+- Grafana: SSE Active Connections gauge + Events Sent rate panels on operations dashboard
+- Gatling `SseSearchConcurrentSimulation`: concurrent SSE + bed search load test (p99=116ms with 20 SSE connections)
+- 5 backend integration tests (HttpClient.sendAsync wire-level DV safety assertion)
+- 13 Playwright e2e tests (bell visibility, WCAG disclosure, Escape-to-close, connection status)
+- 3 dedicated notification screenshot captures
+- Runbook: SSE architecture, metrics, troubleshooting (proxy blocking, connection accumulation)
+- `SchedulingConfig`: `@EnableScheduling` gated by `fabt.scheduling.enabled` property (disabled in tests)
+- Testcontainers PostgreSQL `max_connections=200` for multi-context test safety
+
+### Changed
+- DV referral demo caption: "Darius's notification bell lights up instantly" (was "when Darius refreshes")
+- `@EnableScheduling` moved from Application.java to dedicated SchedulingConfig (ConditionalOnProperty)
+- Virtual screen reader test: added `globalThis.CSS` polyfill for @guidepup/virtual-screen-reader
+
+### Fixed
+- SSE integration tests: `HttpClient.shutdownNow()` + `awaitTermination()` + `NotificationService.completeAll()` prevent Tomcat shutdown hang and JDBC pool exhaustion
+- `@Scheduled` DV canary firing on test context startup, exhausting HikariCP pool (gated by property)
+- Accessibility scan: ConnectionStatusBanner green toast contrast ratio 3.76:1→5.48:1 (#047857)
+
+---
+
 ## [v0.17.0] — 2026-03-28 — Story-Aligned Seed Data + Observability
 
 ### Added

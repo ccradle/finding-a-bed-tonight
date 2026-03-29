@@ -59,14 +59,14 @@ Full setup guide: [For Developers](docs/FOR-DEVELOPERS.md#prerequisites)
 | Backend | Java 25, Spring Boot 4.0, Spring MVC, Spring Data JDBC, Virtual Threads |
 | Database | PostgreSQL 16, Flyway (27 migrations), Row Level Security (DV shelters) |
 | Frontend | React 19, Vite, TypeScript, Workbox PWA, react-intl (EN/ES), CSS custom properties design tokens |
-| Testing | JUnit 5, Testcontainers, ArchUnit (267 tests), Playwright (128 UI tests), Karate (26 API scenarios), Gatling (4 simulations) |
+| Testing | JUnit 5, Testcontainers, ArchUnit (272 tests), Playwright (143 UI tests), Karate (26 API scenarios), Gatling (5 simulations) |
 | Infra | Docker, GitHub Actions CI/CD + E2E pipeline, Terraform (3 tiers) |
 
 ---
 
 ## What's Complete
 
-**Current version: v0.17.0** — 29 archived OpenSpec changes, 65 specs, 12 modules.
+**Current version: v0.18.0** — 30 archived OpenSpec changes, 66 specs, 13 modules.
 
 - Real-time bed search with freshness indicators and constraint filters
 - Soft-hold reservations with configurable hold duration (default 90 min)
@@ -78,6 +78,7 @@ Full setup guide: [For Developers](docs/FOR-DEVELOPERS.md#prerequisites)
 - OAuth2 SSO: Google, Microsoft, Keycloak with per-tenant provider management
 - Security hardening: JWT validation, rate limiting, security headers, OWASP ZAP baseline
 - Typography system: CSS custom properties design tokens, consistent rendering across platforms
+- SSE real-time notifications: bell UI with WCAG disclosure pattern, connection status banner, auto-refresh on events
 - Dignity-centered copy: "Safety Shelter" label, i18n freshness badges, human error messages
 
 Full feature details: [For Developers — Project Status](docs/FOR-DEVELOPERS.md#project-status)

@@ -35,7 +35,7 @@ Three deployment tiers allow the same codebase to serve communities of vastly di
 | Events | Spring Events (Lite) / Kafka (Full) |
 | Auth | JWT + OAuth2/OIDC + API Keys (hybrid) |
 | Frontend | React 19, Vite, TypeScript, Workbox PWA, react-intl (EN/ES), CSS custom properties design tokens |
-| Testing | JUnit 5, Testcontainers, ArchUnit (256 tests), Playwright (118 UI tests), Karate (26 API scenarios), Gatling (4 simulations) |
+| Testing | JUnit 5, Testcontainers, ArchUnit (272 tests), Playwright (143 UI tests), Karate (26 API scenarios), Gatling (5 simulations) |
 | Infra | Docker, GitHub Actions CI/CD + E2E pipeline, Terraform (3 tiers) |
 
 ---
@@ -1136,7 +1136,7 @@ finding-a-bed-tonight/
 - [x] 4 new Playwright tests: font consistency, no-serif, form inheritance, WCAG 1.4.12 text spacing override
 - [x] 2 fragile Playwright selectors replaced with `data-testid` (admin-panel, outreach-search)
 
-### In Progress: SSE Notifications
+### Completed: SSE Notifications
 
 - [x] SSE endpoint: `GET /api/v1/notifications/stream?token=<jwt>` (SseEmitter, 5-min timeout, auto-reconnect)
 - [x] `NotificationService`: ConcurrentHashMap per-user emitters, domain event listener, tenant-scoped filtering
@@ -1145,14 +1145,14 @@ finding-a-bed-tonight/
 - [x] DV safety: referral response SSE payloads contain status only, never shelter name or address
 - [x] 30-second keepalive heartbeat (SSE comment), prevents proxy/LB idle timeout
 - [x] Metrics: `fabt.sse.connections.active` gauge, `fabt.sse.events.sent.count` counter (tagged by eventType)
-- [x] Frontend: `useNotifications` hook (EventSource), `NotificationBell` component (WCAG `aria-live`, badge, dropdown)
+- [x] Frontend: `useNotifications` hook (EventSource), `NotificationBell` (WAI-ARIA disclosure pattern), `ConnectionStatusBanner` (Slack model)
 - [x] Auto-refresh: OutreachSearch listens for SSE events, refreshes referral list and bed search results
 - [x] Grafana: SSE Active Connections gauge + Events Sent rate panels on operations dashboard
-- [x] i18n: 10 notification keys (EN/ES)
-- [x] 4 backend integration tests (auth, event delivery, tenant isolation, DV safety)
-- [x] 8 Playwright e2e tests (bell visibility, WCAG aria, dropdown open/close, DOM ordering)
-- [x] 3 dedicated screenshot captures (header bell, dropdown empty, coordinator view)
-- [ ] Full regression (backend, Karate, Playwright, Gatling)
+- [x] i18n: 15 notification keys (EN/ES), person-centered language
+- [x] 5 backend integration tests (auth, wire-level DV safety, tenant isolation, event delivery)
+- [x] 13 Playwright e2e tests (bell visibility, WCAG disclosure, Escape-to-close, connection status)
+- [x] 3 dedicated screenshot captures, Gatling SSE concurrent load simulation
+- [x] Full regression: 272 backend, 143 Playwright, 26 Karate — all green
 
 ---
 
