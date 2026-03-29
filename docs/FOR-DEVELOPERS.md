@@ -35,7 +35,7 @@ Three deployment tiers allow the same codebase to serve communities of vastly di
 | Events | Spring Events (Lite) / Kafka (Full) |
 | Auth | JWT + OAuth2/OIDC + API Keys (hybrid) |
 | Frontend | React 19, Vite, TypeScript, Workbox PWA, react-intl (EN/ES), CSS custom properties design tokens |
-| Testing | JUnit 5, Testcontainers, ArchUnit (272 tests), Playwright (143 UI tests), Karate (26 API scenarios), Gatling (5 simulations) |
+| Testing | JUnit 5, Testcontainers, ArchUnit (278 tests), Playwright (150 UI tests), Karate (26 API scenarios), Gatling (5 simulations) |
 | Infra | Docker, GitHub Actions CI/CD + E2E pipeline, Terraform (3 tiers) |
 
 ---
@@ -1160,6 +1160,19 @@ finding-a-bed-tonight/
 - [x] 13 Playwright e2e tests (bell visibility, WCAG disclosure, Escape-to-close, connection status)
 - [x] 3 dedicated screenshot captures, Gatling SSE concurrent load simulation
 - [x] Full regression: 272 backend, 143 Playwright, 26 Karate — all green
+
+### Completed: Admin User Management
+
+- [x] User edit drawer: slide-out panel from admin Users table (display name, email, roles, dvAccess)
+- [x] User deactivation: soft-delete with status field, confirmation dialog, reactivation
+- [x] JWT token versioning: `ver` claim, `token_version` column, immediate invalidation on role/status change
+- [x] Audit trail: `audit_events` table (V29), query endpoint, Spring event listener persistence
+- [x] UserService extracted from controller (tech debt fix — business logic was in controller)
+- [x] SSE disconnect on deactivation via `NotificationService.completeEmitter()`
+- [x] ArchUnit: notification module boundary rule (22 rules total), audit package restructured
+- [x] DBML, AsyncAPI (UserLifecyclePayload), @Operation on all endpoints
+- [x] 5 backend integration tests, 7 Playwright e2e tests, 11 i18n keys (EN/ES)
+- [x] Full regression: 278 backend, 150 Playwright — all green
 
 ---
 

@@ -11,6 +11,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.19.0] — 2026-03-29 — Admin User Management
+
+### Added
+- User edit drawer: slide-out panel from admin Users table — display name, email, roles (multi-select), dvAccess toggle
+- User deactivation: soft-delete with `status` field (ACTIVE/DEACTIVATED), confirmation dialog, admin can reactivate
+- JWT token versioning: `ver` claim in JWT, `token_version` column on app_user. Incremented on role change, dvAccess change, deactivation, reactivation. Existing JWTs immediately invalidated.
+- Audit trail: `audit_events` table (V29) with BRIN index. Records: ROLE_CHANGED, USER_DEACTIVATED, USER_REACTIVATED, DV_ACCESS_CHANGED, PASSWORD_RESET. Query endpoint: `GET /api/v1/audit-events?targetUserId={id}`
+- `UserService` extracted from controller (tech debt — business logic was in controller layer)
+- `NotificationService.completeEmitter(userId)` — disconnects SSE on user deactivation
+- ArchUnit boundary rule for notification module (22 rules total)
+- Deactivated user in seed data (former@dev.fabt.org) for screenshots
+- 5 backend integration tests (role edit, deactivate, JWT rejection, audit persistence, reactivate)
+- 7 Playwright e2e tests (drawer, edit, deactivate confirm, status badge, Escape, dialog role)
+- 11 i18n keys (EN/ES) for user management
+
+### Changed
+- `UserResponse` includes `status` field
+- `UpdateUserRequest` includes `email` field
+- Login rejects deactivated users with "Account deactivated. Contact your administrator."
+- `JwtAuthenticationFilter` checks user status + token version before password-change timestamp
+- `shared.audit` package with proper ArchUnit boundaries (api, repository sub-packages)
+
+### Fixed
+- Playwright test pollution: user-management tests no longer modify seed user roles (edits deactivated test user instead)
+
+---
+
 ## [v0.18.1] — 2026-03-29 — SSE Emitter Cleanup Fix
 
 ### Fixed
