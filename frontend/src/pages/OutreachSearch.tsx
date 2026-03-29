@@ -4,6 +4,7 @@ import { api } from '../services/api';
 import { DataAge } from '../components/DataAge';
 import { text, weight, leading } from '../theme/typography';
 import { getPopulationTypeLabel } from '../utils/populationTypeLabels';
+import { SSE_REFERRAL_UPDATE, SSE_AVAILABILITY_UPDATE } from '../hooks/useNotifications';
 
 const POPULATION_TYPES = [
   { value: '', labelId: 'search.allTypes' },
@@ -234,6 +235,18 @@ export function OutreachSearch() {
       } catch { /* silent */ }
     })();
   }, []);
+
+  // Auto-refresh on SSE notifications
+  useEffect(() => {
+    const handleReferralUpdate = () => { fetchReferrals(); };
+    const handleAvailabilityUpdate = () => { fetchBeds(); };
+    window.addEventListener(SSE_REFERRAL_UPDATE, handleReferralUpdate);
+    window.addEventListener(SSE_AVAILABILITY_UPDATE, handleAvailabilityUpdate);
+    return () => {
+      window.removeEventListener(SSE_REFERRAL_UPDATE, handleReferralUpdate);
+      window.removeEventListener(SSE_AVAILABILITY_UPDATE, handleAvailabilityUpdate);
+    };
+  }, [fetchReferrals, fetchBeds]);
 
   // Countdown timer for active reservations
   useEffect(() => {

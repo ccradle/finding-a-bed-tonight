@@ -281,5 +281,20 @@
   "password.reset.submit": "Restablecer contraseña",
   "password.reset.success": "Contraseña restablecida. {username} deberá iniciar sesión de nuevo.",
   "password.reset.ssoOnly": "Este usuario se autentica mediante SSO. La contraseña no se puede restablecer aquí.",
-  "password.reset.error": "Error al restablecer la contraseña. Inténtelo de nuevo."
+  "password.reset.error": "Error al restablecer la contraseña. Inténtelo de nuevo.",
+
+  "notifications.title": "Notificaciones",
+  "notifications.empty": "Sin notificaciones",
+  "notifications.bell": "Notificaciones",
+  "notifications.bellWithCount": "Notificaciones, {count} sin leer",
+  "notifications.screenReaderCount": "{count, plural, one {# nueva notificación} other {# nuevas notificaciones}}",
+  "notifications.dismiss": "Descartar notificación",
+  "notifications.referralResponded": "Un refugio respondió a su referencia",
+  "notifications.referralRequested": "Nueva referencia necesita su revisión",
+  "notifications.availabilityUpdated": "Disponibilidad de camas cambió en {shelterName}",
+  "notifications.referralAccepted": "Un refugio aceptó su referencia",
+  "notifications.referralRejected": "Un refugio rechazó su referencia",
+  "notifications.unknown": "Notificación",
+  "notifications.reconnecting": "Reconectando a actualizaciones en vivo…",
+  "notifications.reconnected": "Reconectado"
 }

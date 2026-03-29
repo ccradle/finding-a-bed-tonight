@@ -692,3 +692,44 @@ Rate limited: 10 attempts per 15 minutes per IP (`rate-limit-admin-reset` bucket
 **Symptom:** Playwright/Karate tests fail with 401 after running for 15+ minutes
 **Cause:** Access tokens have 15-minute lifespan. Cached auth state file contains expired token.
 **Resolution:** The auth fixture (`auth.fixture.ts`) checks JWT expiry and re-authenticates automatically. If stale state persists, delete `e2e/playwright/auth/` directory. See Portfolio Lesson 42.
+
+---
+
+## SSE Notifications
+
+### Architecture
+- Endpoint: `GET /api/v1/notifications/stream?token=<jwt>` (Server-Sent Events)
+- One `SseEmitter` per authenticated user, stored in `ConcurrentHashMap<UUID, SseEmitter>`
+- Virtual threads handle long-lived connections — no thread pool sizing concern
+- Keepalive: SSE comment sent every 30 seconds to prevent proxy/LB idle timeout
+- Emitter timeout: 5 minutes. Client `EventSource` auto-reconnects with `retry: 5000ms`
+
+### Metrics
+| Metric | Type | Description |
+|--------|------|-------------|
+| `fabt_sse_connections_active` | Gauge | Current number of connected SSE clients |
+| `fabt_sse_events_sent_count_total` | Counter (tag: eventType) | Total SSE events pushed to clients |
+
+### Expected connection count
+- One SSE connection per authenticated browser tab
+- In a typical CoC deployment (10-50 concurrent users), expect 10-50 active connections
+- Connections are cleaned up on timeout (5 min), disconnect, or error
+
+### Troubleshooting
+
+#### SSE connections accumulating
+**Symptom:** `fabt_sse_connections_active` climbing without plateau
+**Cause:** Emitter cleanup callbacks not firing (Spring #33421/#33340), client reconnecting without closing old connection
+**Resolution:** Check for `SseEmitter` error logs. The `NotificationService` registers `onCompletion`/`onTimeout`/`onError` callbacks. If connections accumulate, restart the service — emitters are in-memory and will be re-established by clients.
+
+#### Proxy blocking SSE
+**Symptom:** SSE connection opens but no events received, or connection drops immediately
+**Cause:** Reverse proxy (nginx, CloudFlare) buffering responses or closing idle connections
+**Resolution:** Ensure proxy config disables buffering for the SSE path:
+- nginx: `proxy_buffering off;` and `proxy_read_timeout 3600;` for `/api/v1/notifications/stream`
+- CloudFlare: disable "Rocket Loader" and response buffering for the SSE path
+
+#### Keepalive not preventing disconnects
+**Symptom:** SSE connections drop every 60-90 seconds despite 30s keepalive
+**Cause:** Proxy idle timeout is shorter than keepalive interval, or keepalive failing silently
+**Resolution:** Check for keepalive errors in logs (`"Keepalive failed for user"`). Verify proxy idle timeout is > 30 seconds.

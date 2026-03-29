@@ -4,9 +4,12 @@ import { FormattedMessage, useIntl } from 'react-intl';
 import { useAuth } from '../auth/useAuth';
 import { getDefaultRouteForRoles } from '../auth/AuthGuard';
 import { LocaleSelector } from './LocaleSelector';
+import { NotificationBell } from './NotificationBell';
+import { ConnectionStatusBanner } from './ConnectionStatusBanner';
 import { OfflineBanner } from './OfflineBanner';
 import { SessionTimeoutWarning } from './SessionTimeoutWarning';
 import { ChangePasswordModal } from './ChangePasswordModal';
+import { useNotifications } from '../hooks/useNotifications';
 import { text, weight } from '../theme/typography';
 
 /**
@@ -69,6 +72,7 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
 
   const intl = useIntl();
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
+  const { notifications, unreadCount, markRead, markAllRead, dismiss, connected } = useNotifications();
 
   const handleLogout = () => {
     logout();
@@ -169,6 +173,13 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
             </span>
           )}
           <LocaleSelector locale={locale} onLocaleChange={onLocaleChange} />
+          <NotificationBell
+            notifications={notifications}
+            unreadCount={unreadCount}
+            onMarkRead={markRead}
+            onMarkAllRead={markAllRead}
+            onDismiss={dismiss}
+          />
           <button
             onClick={() => setChangePasswordOpen(true)}
             aria-label={intl.formatMessage({ id: 'password.change.title' })}
@@ -205,6 +216,8 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
           </button>
         </div>
       </header>
+
+      <ConnectionStatusBanner connected={connected} />
 
       <div style={{ display: 'flex', flex: 1 }}>
         {/* Desktop Sidebar */}

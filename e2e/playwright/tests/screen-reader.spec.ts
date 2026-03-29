@@ -25,6 +25,7 @@ async function getPageDOM(page: any): Promise<Document> {
   (globalThis as any).document = dom.window.document;
   (globalThis as any).window = dom.window;
   (globalThis as any).Node = dom.window.Node;
+  (globalThis as any).CSS = (dom.window as any).CSS;
   return dom.window.document;
 }
 
@@ -140,9 +141,7 @@ test.describe('Virtual Screen Reader Tests', () => {
     await outreachPage.waitForTimeout(2000);
 
     const doc = await getPageDOM(outreachPage);
-    const body = doc.body;
-
-    await virtual.start({ container: body as unknown as HTMLElement });
+    await virtual.start({ container: doc.body as unknown as HTMLElement });
 
     // First focusable element should be the skip link
     await virtual.next();

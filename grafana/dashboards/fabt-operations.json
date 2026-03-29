@@ -364,6 +364,69 @@
         "type": "prometheus",
         "uid": "PBFA97CFB590B2093"
       }
+    },
+    {
+      "title": "SSE Active Connections",
+      "type": "gauge",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 36
+      },
+      "targets": [
+        {
+          "expr": "fabt_sse_connections_active",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 50
+              },
+              {
+                "color": "red",
+                "value": 200
+              }
+            ]
+          },
+          "min": 0,
+          "max": 500
+        }
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
+    },
+    {
+      "title": "SSE Events Sent Rate",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 36
+      },
+      "targets": [
+        {
+          "expr": "rate(fabt_sse_events_sent_count_total[1m])",
+          "legendFormat": "{{eventType}}",
+          "refId": "A"
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      }
     }
   ],
   "schemaVersion": 39,

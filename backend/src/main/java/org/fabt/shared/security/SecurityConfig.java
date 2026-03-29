@@ -36,6 +36,7 @@ public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final ApiKeyAuthenticationFilter apiKeyAuthenticationFilter;
+    private final SseTokenFilter sseTokenFilter;
 
     /**
      * Comma-separated list of allowed CORS origins.
@@ -47,9 +48,11 @@ public class SecurityConfig {
     private String allowedOriginsConfig;
 
     public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter,
-                          ApiKeyAuthenticationFilter apiKeyAuthenticationFilter) {
+                          ApiKeyAuthenticationFilter apiKeyAuthenticationFilter,
+                          SseTokenFilter sseTokenFilter) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
         this.apiKeyAuthenticationFilter = apiKeyAuthenticationFilter;
+        this.sseTokenFilter = sseTokenFilter;
     }
 
     /**
@@ -150,6 +153,9 @@ public class SecurityConfig {
                         // Import — COC_ADMIN or PLATFORM_ADMIN
                         .requestMatchers("/api/v1/import/**").hasAnyRole("COC_ADMIN", "PLATFORM_ADMIN")
 
+                        // SSE notifications — any authenticated role (token via query param)
+                        .requestMatchers("/api/v1/notifications/stream").authenticated()
+
                         // Subscriptions — any authenticated role
                         .requestMatchers("/api/v1/subscriptions/**").authenticated()
 
@@ -168,7 +174,8 @@ public class SecurityConfig {
                                     "{\"error\":\"access_denied\",\"message\":\"Insufficient permissions\",\"status\":403}");
                         }))
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
-                .addFilterAfter(apiKeyAuthenticationFilter, JwtAuthenticationFilter.class);
+                .addFilterAfter(sseTokenFilter, JwtAuthenticationFilter.class)
+                .addFilterAfter(apiKeyAuthenticationFilter, SseTokenFilter.class);
 
         return http.build();
     }
