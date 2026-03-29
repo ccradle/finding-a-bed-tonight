@@ -59,14 +59,14 @@ Full setup guide: [For Developers](docs/FOR-DEVELOPERS.md#prerequisites)
 | Backend | Java 25, Spring Boot 4.0, Spring MVC, Spring Data JDBC, Virtual Threads |
 | Database | PostgreSQL 16, Flyway (29 migrations), Row Level Security (DV shelters) |
 | Frontend | React 19, Vite, TypeScript, Workbox PWA, react-intl (EN/ES), CSS custom properties design tokens |
-| Testing | JUnit 5, Testcontainers, ArchUnit (278 tests), Playwright (150 UI tests), Karate (26 API scenarios), Gatling (5 simulations) |
+| Testing | JUnit 5, Testcontainers, ArchUnit (290 tests), Playwright (159 UI tests), Karate (26 API scenarios), Gatling (5 simulations) |
 | Infra | Docker, GitHub Actions CI/CD + E2E pipeline, Terraform (3 tiers) |
 
 ---
 
 ## What's Complete
 
-**Current version: v0.19.0** — 31 archived OpenSpec changes, 67 specs, 13 modules.
+**Current version: v0.20.0** — 32 archived OpenSpec changes, 78 specs, 13 modules.
 
 - Real-time bed search with freshness indicators and constraint filters
 - Soft-hold reservations with configurable hold duration (default 90 min)
@@ -80,6 +80,8 @@ Full setup guide: [For Developers](docs/FOR-DEVELOPERS.md#prerequisites)
 - Typography system: CSS custom properties design tokens, consistent rendering across platforms
 - SSE real-time notifications: bell UI with WCAG disclosure pattern, connection status banner, auto-refresh on events
 - Admin user management: edit drawer, deactivation/reactivation, JWT token versioning, audit trail
+- Shelter edit: admin and coordinator edit paths, DV safeguards (role-gated, confirmation dialog, audit-logged), 211 CSV import with preview
+- Import/export hardening: Apache Commons CSV parser, file size limits, CSV injection protection, UTF-8 BOM handling
 - Dignity-centered copy: "Safety Shelter" label, i18n freshness badges, human error messages
 
 Full feature details: [For Developers — Project Status](docs/FOR-DEVELOPERS.md#project-status)
