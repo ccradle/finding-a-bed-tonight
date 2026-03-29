@@ -1,10 +1,11 @@
 import { FormattedMessage } from 'react-intl';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { text, weight } from '../theme/typography';
+import { color } from '../theme/colors';
 
 const bannerStyle: React.CSSProperties = {
-  backgroundColor: '#fbbf24',
-  color: '#78350f',
+  backgroundColor: color.warningBright,
+  color: color.warning,
   padding: '12px 16px',
   textAlign: 'center',
   fontWeight: weight.semibold,

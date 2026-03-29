@@ -11,6 +11,7 @@ import { SessionTimeoutWarning } from './SessionTimeoutWarning';
 import { ChangePasswordModal } from './ChangePasswordModal';
 import { useNotifications } from '../hooks/useNotifications';
 import { text, weight } from '../theme/typography';
+import { color } from '../theme/colors';
 
 /**
  * Visually hidden styles — content accessible to screen readers but not visible.
@@ -120,7 +121,7 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
           Object.assign(e.currentTarget.style, {
             position: 'fixed', top: '8px', left: '8px', width: 'auto', height: 'auto',
             clip: 'auto', whiteSpace: 'normal', overflow: 'visible', margin: 0,
-            padding: '12px 20px', backgroundColor: '#1a56db', color: '#fff',
+            padding: '12px 20px', backgroundColor: color.primary, color: color.headerText,
             borderRadius: '8px', zIndex: '9999', fontSize: text.base, fontWeight: weight.bold,
           });
         }}
@@ -151,8 +152,8 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
           alignItems: 'center',
           justifyContent: 'space-between',
           padding: '12px 20px',
-          backgroundColor: '#1a56db',
-          color: '#ffffff',
+          backgroundColor: color.headerBg,
+          color: color.headerText,
           minHeight: '56px',
         }}
       >
@@ -160,7 +161,7 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
           <a
             href="#"
             onClick={(e) => { e.preventDefault(); navigate(user ? getDefaultRouteForRoles(user.roles) : '/'); }}
-            style={{ color: '#ffffff', textDecoration: 'none', cursor: 'pointer' }}
+            style={{ color: color.headerText, textDecoration: 'none', cursor: 'pointer' }}
             aria-label="Finding A Bed Tonight — go to home page"
           >
             <FormattedMessage id="app.name" />
@@ -187,7 +188,7 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
             style={{
               padding: '8px 16px',
               backgroundColor: 'transparent',
-              color: '#ffffff',
+              color: color.headerText,
               border: '1px solid rgba(255,255,255,0.3)',
               borderRadius: '6px',
               cursor: 'pointer',
@@ -203,7 +204,7 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
             style={{
               padding: '8px 16px',
               backgroundColor: 'transparent',
-              color: '#ffffff',
+              color: color.headerText,
               border: '1px solid rgba(255,255,255,0.5)',
               borderRadius: '6px',
               cursor: 'pointer',
@@ -225,8 +226,8 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
           <nav
             style={{
               width: '220px',
-              backgroundColor: '#f3f4f6',
-              borderRight: '1px solid #e5e7eb',
+              backgroundColor: color.bgTertiary,
+              borderRight: `1px solid ${color.border}`,
               padding: '16px 0',
             }}
           >
@@ -239,8 +240,8 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
                   width: '100%',
                   padding: '14px 20px',
                   border: 'none',
-                  backgroundColor: isActive(item.path) ? '#dbeafe' : 'transparent',
-                  color: isActive(item.path) ? '#1a56db' : '#374151',
+                  backgroundColor: isActive(item.path) ? color.primaryLight : 'transparent',
+                  color: isActive(item.path) ? color.primaryText : color.textSecondary,
                   textAlign: 'left',
                   cursor: 'pointer',
                   fontSize: text.base,
@@ -281,8 +282,8 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
             right: 0,
             display: 'flex',
             justifyContent: 'space-around',
-            backgroundColor: '#ffffff',
-            borderTop: '1px solid #e5e7eb',
+            backgroundColor: color.bg,
+            borderTop: `1px solid ${color.border}`,
             padding: '8px 0',
             zIndex: 900,
           }}
@@ -299,7 +300,7 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
                 padding: '10px 4px',
                 border: 'none',
                 backgroundColor: 'transparent',
-                color: isActive(item.path) ? '#1a56db' : '#6b7280',
+                color: isActive(item.path) ? color.primaryText : color.textMuted,
                 cursor: 'pointer',
                 fontSize: text.xs,
                 fontWeight: isActive(item.path) ? weight.semibold : weight.normal,

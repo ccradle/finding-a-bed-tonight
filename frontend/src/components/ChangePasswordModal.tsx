@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import { api } from '../services/api';
 import { text, weight } from '../theme/typography';
+import { color } from '../theme/colors';
 
 interface ChangePasswordModalProps {
   open: boolean;
@@ -76,10 +77,10 @@ export function ChangePasswordModal({ open, onClose, onSuccess }: ChangePassword
     width: '100%',
     padding: '12px 14px',
     borderRadius: 10,
-    border: '2px solid #e2e8f0',
+    border: `2px solid ${color.border}`,
     fontSize: text.base,
     boxSizing: 'border-box',
-    color: '#0f172a',
+    color: color.text,
     fontWeight: weight.medium,
     outline: 'none',
   };
@@ -87,7 +88,7 @@ export function ChangePasswordModal({ open, onClose, onSuccess }: ChangePassword
   const labelStyle: React.CSSProperties = {
     fontSize: text.xs,
     fontWeight: weight.semibold,
-    color: '#475569',
+    color: color.textTertiary,
     marginBottom: 4,
     display: 'block',
   };
@@ -113,7 +114,7 @@ export function ChangePasswordModal({ open, onClose, onSuccess }: ChangePassword
         tabIndex={-1}
         onKeyDown={handleKeyDown}
         style={{
-          background: '#fff',
+          background: color.bg,
           borderRadius: 16,
           padding: 32,
           maxWidth: 420,
@@ -123,7 +124,7 @@ export function ChangePasswordModal({ open, onClose, onSuccess }: ChangePassword
       >
         <h2
           id="change-password-title"
-          style={{ margin: '0 0 20px', fontSize: text.xl, fontWeight: weight.bold, color: '#0f172a' }}
+          style={{ margin: '0 0 20px', fontSize: text.xl, fontWeight: weight.bold, color: color.text }}
         >
           <FormattedMessage id="password.change.title" />
         </h2>
@@ -132,8 +133,8 @@ export function ChangePasswordModal({ open, onClose, onSuccess }: ChangePassword
           <div
             role="alert"
             style={{
-              backgroundColor: '#fef2f2',
-              color: '#991b1b',
+              backgroundColor: color.errorBg,
+              color: color.error,
               padding: '12px 16px',
               borderRadius: 10,
               marginBottom: 16,
@@ -177,7 +178,7 @@ export function ChangePasswordModal({ open, onClose, onSuccess }: ChangePassword
               style={inputStyle}
               data-testid="new-password-input"
             />
-            <span style={{ fontSize: text.xs, color: '#6b7280', marginTop: 2, display: 'block' }}>
+            <span style={{ fontSize: text.xs, color: color.textMuted, marginTop: 2, display: 'block' }}>
               <FormattedMessage id="password.change.minLength" />
             </span>
           </div>
@@ -206,9 +207,9 @@ export function ChangePasswordModal({ open, onClose, onSuccess }: ChangePassword
               style={{
                 flex: 1,
                 padding: '12px 16px',
-                backgroundColor: '#f3f4f6',
-                color: '#374151',
-                border: '1px solid #e2e8f0',
+                backgroundColor: color.bgTertiary,
+                color: color.textSecondary,
+                border: `1px solid ${color.border}`,
                 borderRadius: 10,
                 fontSize: text.base,
                 fontWeight: weight.semibold,
@@ -224,8 +225,8 @@ export function ChangePasswordModal({ open, onClose, onSuccess }: ChangePassword
               style={{
                 flex: 1,
                 padding: '12px 16px',
-                backgroundColor: '#1a56db',
-                color: '#fff',
+                backgroundColor: color.primary,
+                color: color.textInverse,
                 border: 'none',
                 borderRadius: 10,
                 fontSize: text.base,

@@ -141,9 +141,9 @@ class AnalyticsIntegrationTest extends BaseIntegrationTest {
         }
     }
 
-    // --- 16.8 HIC export generates CSV ---
+    // --- 16.8 HIC export matches HUD Inventory.csv schema (FY2024+) ---
     @Test
-    void hicExport_generatesCsvWithCorrectColumns() {
+    void hicExport_hasHudInventoryCsvHeader() {
         ResponseEntity<String> response = restTemplate.exchange(
                 "/api/v1/analytics/hic?date=2026-01-29",
                 HttpMethod.GET,
@@ -153,8 +153,40 @@ class AnalyticsIntegrationTest extends BaseIntegrationTest {
         assertEquals(HttpStatus.OK, response.getStatusCode());
         String csv = response.getBody();
         assertNotNull(csv);
-        assertTrue(csv.startsWith("ProjectID,ProjectName,ProjectType,"),
-                "HIC CSV should have HUD format header");
+        assertTrue(csv.startsWith("InventoryID,ProjectID,CoCCode,HouseholdType,Availability,"),
+                "HIC CSV should match HUD Inventory.csv header");
+        // Verify all required columns present
+        String header = csv.split("\n")[0];
+        assertTrue(header.contains("BedInventory"), "Must have BedInventory column");
+        assertTrue(header.contains("VetBedInventory"), "Must have VetBedInventory column");
+        assertTrue(header.contains("ESBedType"), "Must have ESBedType column");
+        assertTrue(header.contains("InventoryStartDate"), "Must have InventoryStartDate column");
+    }
+
+    @Test
+    void hicExport_usesIntegerCodes() {
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/analytics/hic?date=" + java.time.LocalDate.now(),
+                HttpMethod.GET,
+                new HttpEntity<>(adminHeaders),
+                String.class);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        String csv = response.getBody();
+        assertNotNull(csv);
+        String[] lines = csv.split("\n");
+        assertTrue(lines.length > 1, "HIC should have at least one data row");
+
+        // Data rows should use integer codes, not strings
+        for (int i = 1; i < lines.length; i++) {
+            String line = lines[i].trim();
+            if (line.isEmpty()) continue;
+            // HouseholdType (column 3, 0-indexed) should be 1, 3, or 4
+            String[] cols = line.split(",", -1);
+            String hhType = cols[3].trim();
+            assertTrue(hhType.equals("1") || hhType.equals("3") || hhType.equals("4"),
+                    "HouseholdType should be HUD integer (1/3/4) but was '" + hhType + "' in row " + i);
+        }
     }
 
     // --- 16.9 PIT export aggregates DV ---
@@ -171,6 +203,12 @@ class AnalyticsIntegrationTest extends BaseIntegrationTest {
         assertNotNull(csv);
         assertTrue(csv.startsWith("CoCCode,ProjectType,HouseholdType,TotalPersons"),
                 "PIT CSV should have correct header");
+        // PIT ProjectType should be integer 0 (ES Entry/Exit), not string "ES"
+        if (csv.split("\n").length > 1) {
+            String firstDataRow = csv.split("\n")[1];
+            String[] cols = firstDataRow.split(",", -1);
+            assertEquals("0", cols[1].trim(), "PIT ProjectType should be HUD integer code 0 (ES Entry/Exit)");
+        }
     }
 
     // --- CSV injection protection on HIC export ---
@@ -357,8 +395,249 @@ class AnalyticsIntegrationTest extends BaseIntegrationTest {
         assertEquals(HttpStatus.OK, response.getStatusCode());
         String csv = response.getBody();
         assertNotNull(csv);
-        assertFalse(csv.contains("DV Shelters (Aggregated)"),
-                "HIC export must not contain DV aggregate row when < 3 DV shelters");
+        // With new HUD Inventory.csv format, DV aggregate row has empty InventoryID and ProjectID
+        // If suppression works, no row should start with ",," (empty InventoryID + empty ProjectID)
+        String[] lines = csv.split("\n");
+        for (int i = 1; i < lines.length; i++) {
+            if (lines[i].isBlank()) continue;
+            assertFalse(lines[i].startsWith(",,"),
+                    "DV aggregate row should be suppressed when < 3 DV shelters, but found row starting with empty IDs: " + lines[i]);
+        }
+    }
+
+    // --- HIC/PIT Edge Case Tests (T-48 through T-55) ---
+
+    @Test
+    void hicExport_unknownPopulationType_returns400() {
+        // Create a shelter with an invalid population type via direct DB insert
+        UUID badShelterId = UUID.randomUUID();
+        TenantContext.runWithContext(tenantId, true, () -> {
+            jdbcTemplate.update(
+                    "INSERT INTO shelter (id, tenant_id, name, address_street, address_city, address_state, address_zip, dv_shelter) "
+                    + "VALUES (?, ?, 'Bad Pop Type Shelter', '1 Test', 'Raleigh', 'NC', '27601', false)",
+                    badShelterId, tenantId);
+            jdbcTemplate.update(
+                    "INSERT INTO bed_availability (shelter_id, tenant_id, population_type, beds_total, beds_occupied, beds_on_hold) "
+                    + "VALUES (?, ?, 'NONEXISTENT_TYPE', 10, 5, 0)",
+                    badShelterId, tenantId);
+        });
+
+        try {
+            ResponseEntity<String> response = restTemplate.exchange(
+                    "/api/v1/analytics/hic?date=" + java.time.LocalDate.now(),
+                    HttpMethod.GET,
+                    new HttpEntity<>(adminHeaders),
+                    String.class);
+
+            // Should fail because NONEXISTENT_TYPE can't be mapped
+            // IllegalArgumentException → 400 via GlobalExceptionHandler
+            assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+        } finally {
+            // Clean up so subsequent tests aren't poisoned
+            TenantContext.runWithContext(tenantId, true, () -> {
+                jdbcTemplate.update("DELETE FROM bed_availability WHERE shelter_id = ?", badShelterId);
+                jdbcTemplate.update("DELETE FROM shelter WHERE id = ?", badShelterId);
+            });
+        }
+    }
+
+    // --- Riley's thorough HIC/PIT content validation ---
+    // "If Marcus hands this to HUD, every column in every row must be correct."
+
+    @Test
+    void hicExport_rowByRow_correctColumnsAndValues() {
+        // Create a shelter with known data so we can verify exact row content
+        UUID knownId = UUID.randomUUID();
+        TenantContext.runWithContext(tenantId, true, () -> {
+            jdbcTemplate.update(
+                    "INSERT INTO shelter (id, tenant_id, name, address_street, address_city, address_state, address_zip, dv_shelter, created_at) "
+                    + "VALUES (?, ?, 'Riley Verification Shelter', '100 Test St', 'Raleigh', 'NC', '27601', false, '2026-01-15T00:00:00Z')",
+                    knownId, tenantId);
+            // Family beds: 30 total
+            jdbcTemplate.update(
+                    "INSERT INTO bed_availability (shelter_id, tenant_id, population_type, beds_total, beds_occupied, beds_on_hold) "
+                    + "VALUES (?, ?, 'FAMILY_WITH_CHILDREN', 30, 20, 3)", knownId, tenantId);
+            // Veteran beds: 10 total
+            jdbcTemplate.update(
+                    "INSERT INTO bed_availability (shelter_id, tenant_id, population_type, beds_total, beds_occupied, beds_on_hold) "
+                    + "VALUES (?, ?, 'VETERAN', 10, 5, 0)", knownId, tenantId);
+        });
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/analytics/hic?date=" + java.time.LocalDate.now(),
+                HttpMethod.GET,
+                new HttpEntity<>(adminHeaders),
+                String.class);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        String csv = response.getBody();
+        assertNotNull(csv);
+
+        // Parse CSV into structured data
+        String[] lines = csv.split("\n");
+        String[] headers = lines[0].split(",", -1);
+
+        // Map header names to column indices
+        java.util.Map<String, Integer> colIndex = new java.util.HashMap<>();
+        for (int i = 0; i < headers.length; i++) {
+            colIndex.put(headers[i].trim(), i);
+        }
+
+        // Verify all HUD required columns exist
+        for (String required : List.of("InventoryID", "ProjectID", "CoCCode", "HouseholdType",
+                "Availability", "UnitInventory", "BedInventory", "VetBedInventory",
+                "OtherBedInventory", "ESBedType", "InventoryStartDate")) {
+            assertTrue(colIndex.containsKey(required),
+                    "Missing required HUD column: " + required);
+        }
+
+        // Find rows for our known shelter (by ProjectID)
+        String projectId = knownId.toString();
+        java.util.List<String[]> shelterRows = new java.util.ArrayList<>();
+        for (int i = 1; i < lines.length; i++) {
+            if (lines[i].isBlank()) continue;
+            String[] cols = lines[i].split(",", -1);
+            if (cols[colIndex.get("ProjectID")].contains(projectId)) {
+                shelterRows.add(cols);
+            }
+        }
+
+        // Should have 2 rows: one for FAMILY_WITH_CHILDREN, one for VETERAN
+        assertEquals(2, shelterRows.size(),
+                "Riley Verification Shelter should have exactly 2 inventory rows (family + veteran)");
+
+        // Verify family row
+        String[] familyRow = shelterRows.stream()
+                .filter(r -> "3".equals(r[colIndex.get("HouseholdType")].trim()))
+                .findFirst().orElseThrow(() -> new AssertionError("No family household type (3) row found"));
+
+        assertEquals("30", familyRow[colIndex.get("BedInventory")].trim(),
+                "Family BedInventory should be 30");
+        assertEquals("30", familyRow[colIndex.get("UnitInventory")].trim(),
+                "Family UnitInventory should be 30 (= beds for ES)");
+        assertEquals("0", familyRow[colIndex.get("VetBedInventory")].trim(),
+                "Family row VetBedInventory should be 0");
+        assertEquals("30", familyRow[colIndex.get("OtherBedInventory")].trim(),
+                "Family row OtherBedInventory should be 30");
+        assertEquals("1", familyRow[colIndex.get("Availability")].trim(),
+                "Availability should be 1 (Year-round)");
+        assertEquals("1", familyRow[colIndex.get("ESBedType")].trim(),
+                "ESBedType should be 1 (Facility-based)");
+        assertTrue(familyRow[colIndex.get("InventoryStartDate")].trim().startsWith("2026-01-15"),
+                "InventoryStartDate should come from shelter createdAt");
+
+        // Verify veteran row
+        String[] vetRow = shelterRows.stream()
+                .filter(r -> "1".equals(r[colIndex.get("HouseholdType")].trim()))
+                .findFirst().orElseThrow(() -> new AssertionError("No veteran household type (1) row found"));
+
+        assertEquals("10", vetRow[colIndex.get("BedInventory")].trim(),
+                "Veteran BedInventory should be 10");
+        assertEquals("10", vetRow[colIndex.get("VetBedInventory")].trim(),
+                "Veteran row VetBedInventory should be 10");
+        assertEquals("0", vetRow[colIndex.get("OtherBedInventory")].trim(),
+                "Veteran row OtherBedInventory should be 0 (all beds are vet beds)");
+
+        // Verify CoCCode matches tenant slug
+        assertFalse(familyRow[colIndex.get("CoCCode")].trim().isEmpty(),
+                "CoCCode must be populated");
+
+        // Verify InventoryID is non-empty and deterministic
+        assertFalse(familyRow[colIndex.get("InventoryID")].trim().isEmpty(),
+                "InventoryID must be populated");
+    }
+
+    @Test
+    void hicExport_allRows_haveConsistentColumnCount() {
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/analytics/hic?date=" + java.time.LocalDate.now(),
+                HttpMethod.GET,
+                new HttpEntity<>(adminHeaders),
+                String.class);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        String csv = response.getBody();
+        assertNotNull(csv);
+
+        String[] lines = csv.split("\n");
+        int headerColCount = lines[0].split(",", -1).length;
+
+        for (int i = 1; i < lines.length; i++) {
+            if (lines[i].isBlank()) continue;
+            int rowColCount = lines[i].split(",", -1).length;
+            assertEquals(headerColCount, rowColCount,
+                    "Row " + i + " has " + rowColCount + " columns but header has " + headerColCount);
+        }
+    }
+
+    @Test
+    void pitExport_rowByRow_usesIntegerCodes() {
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/analytics/pit?date=" + java.time.LocalDate.now(),
+                HttpMethod.GET,
+                new HttpEntity<>(adminHeaders),
+                String.class);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        String csv = response.getBody();
+        assertNotNull(csv);
+
+        String[] lines = csv.split("\n");
+        assertTrue(lines.length > 1, "PIT should have at least one data row");
+
+        for (int i = 1; i < lines.length; i++) {
+            if (lines[i].isBlank()) continue;
+            String[] cols = lines[i].split(",", -1);
+
+            // Column 1: ProjectType — should be integer 0 (ES Entry/Exit)
+            assertEquals("0", cols[1].trim(),
+                    "PIT ProjectType should be HUD integer 0 (ES Entry/Exit) in row " + i);
+
+            // Column 2: HouseholdType — should be integer 1, 3, or 4
+            String hhType = cols[2].trim();
+            assertTrue(hhType.equals("1") || hhType.equals("3") || hhType.equals("4"),
+                    "PIT HouseholdType should be HUD integer (1/3/4) but was '" + hhType + "' in row " + i);
+
+            // Column 3: TotalPersons — should be a non-negative integer
+            int persons = Integer.parseInt(cols[3].trim());
+            assertTrue(persons >= 0,
+                    "PIT TotalPersons should be >= 0 but was " + persons + " in row " + i);
+        }
+    }
+
+    @Test
+    void hicExport_csvParseable_byStandardParser() throws Exception {
+        // Riley: "Parse it back. If a CSV library chokes on our output, HUD's system will too."
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/analytics/hic?date=" + java.time.LocalDate.now(),
+                HttpMethod.GET,
+                new HttpEntity<>(adminHeaders),
+                String.class);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        String csv = response.getBody();
+        assertNotNull(csv);
+
+        // Parse with Apache Commons CSV — the same library we use for import
+        try (var parser = org.apache.commons.csv.CSVFormat.DEFAULT.builder()
+                .setHeader().setSkipHeaderRecord(true).setIgnoreEmptyLines(true).build()
+                .parse(new java.io.StringReader(csv))) {
+
+            var records = parser.getRecords();
+            assertFalse(records.isEmpty(), "CSV should have at least one parseable data record");
+
+            // Every record should have the same number of fields as the header
+            int headerSize = parser.getHeaderNames().size();
+            for (int i = 0; i < records.size(); i++) {
+                assertEquals(headerSize, records.get(i).size(),
+                        "Record " + i + " has " + records.get(i).size() + " fields but header has " + headerSize);
+            }
+
+            // Verify known header names are present
+            assertTrue(parser.getHeaderNames().contains("InventoryID"), "Parsed header must include InventoryID");
+            assertTrue(parser.getHeaderNames().contains("BedInventory"), "Parsed header must include BedInventory");
+            assertTrue(parser.getHeaderNames().contains("CoCCode"), "Parsed header must include CoCCode");
+        }
     }
 
     // --- Helper ---

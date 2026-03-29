@@ -1,5 +1,6 @@
 import { useIntl } from 'react-intl';
 import { text, weight } from '../theme/typography';
+import { color } from '../theme/colors';
 
 interface DataAgeProps {
   dataAgeSeconds: number | null;
@@ -8,11 +9,11 @@ interface DataAgeProps {
 const FRESH_THRESHOLD = 2 * 60 * 60; // 2 hours in seconds
 const AGING_THRESHOLD = 8 * 60 * 60; // 8 hours in seconds
 
-function getColor(seconds: number | null): string {
-  if (seconds === null) return '#6b7280'; // gray - UNKNOWN
-  if (seconds < FRESH_THRESHOLD) return '#166534'; // dark green - FRESH (4.5:1 on white)
-  if (seconds < AGING_THRESHOLD) return '#92400e'; // dark amber - AGING (4.5:1 on white)
-  return '#991b1b'; // dark red - STALE (4.5:1 on white)
+function getStatusColor(seconds: number | null): string {
+  if (seconds === null) return color.textMuted; // gray - UNKNOWN
+  if (seconds < FRESH_THRESHOLD) return color.success; // dark green - FRESH (4.5:1 on white)
+  if (seconds < AGING_THRESHOLD) return color.warning; // dark amber - AGING (4.5:1 on white)
+  return color.error; // dark red - STALE (4.5:1 on white)
 }
 
 function getStatusLabelId(seconds: number | null): string {
@@ -20,6 +21,13 @@ function getStatusLabelId(seconds: number | null): string {
   if (seconds < FRESH_THRESHOLD) return 'data.age.fresh';
   if (seconds < AGING_THRESHOLD) return 'data.age.aging';
   return 'data.age.stale';
+}
+
+function getTooltipId(seconds: number | null): string {
+  if (seconds === null) return 'data.age.tooltip.unknown';
+  if (seconds < FRESH_THRESHOLD) return 'data.age.tooltip.fresh';
+  if (seconds < AGING_THRESHOLD) return 'data.age.tooltip.aging';
+  return 'data.age.tooltip.stale';
 }
 
 function getAgeLabelId(seconds: number | null): { id: string; values?: Record<string, number> } {
@@ -33,16 +41,18 @@ function getAgeLabelId(seconds: number | null): { id: string; values?: Record<st
 
 export function DataAge({ dataAgeSeconds }: DataAgeProps) {
   const intl = useIntl();
-  const color = getColor(dataAgeSeconds);
+  const statusColor = getStatusColor(dataAgeSeconds);
   const statusLabelId = getStatusLabelId(dataAgeSeconds);
   const statusLabel = intl.formatMessage({ id: statusLabelId });
   const ageInfo = getAgeLabelId(dataAgeSeconds);
   const ageText = intl.formatMessage({ id: ageInfo.id }, ageInfo.values);
+  const tooltip = intl.formatMessage({ id: getTooltipId(dataAgeSeconds) });
 
   return (
     <span
+      title={tooltip}
       style={{
-        color,
+        color: statusColor,
         fontSize: text.xs,
         fontWeight: weight.medium,
         display: 'inline-flex',
@@ -56,7 +66,7 @@ export function DataAge({ dataAgeSeconds }: DataAgeProps) {
           width: '8px',
           height: '8px',
           borderRadius: '50%',
-          backgroundColor: color,
+          backgroundColor: statusColor,
           display: 'inline-block',
         }}
         aria-hidden="true"

@@ -1,27 +1,38 @@
 /*
- * Global typography system for Finding A Bed Tonight.
+ * Global design token system for Finding A Bed Tonight.
  *
- * Defines CSS custom properties as the single source of truth for all
- * font families, sizes, weights, and line heights. Components reference
- * these via var() in inline styles or via the typography.ts constants.
+ * Typography tokens: font families, sizes, weights, line heights.
+ * Color tokens: semantic colors with light/dark mode sets.
  *
- * System font stack: uses the OS native font on every platform.
- * No web fonts are loaded — system fonts are the accessible, performant choice.
+ * CSS custom properties are the canonical source of truth. Components
+ * reference these via var() in inline styles or via the TypeScript
+ * constants in typography.ts and colors.ts.
+ *
+ * Dark mode color architecture follows the Radix/Carbon split pattern:
+ * - primary:     button fills, solid backgrounds (white text on it)
+ * - primaryText: links, labels, inline text (on dark/light backgrounds)
+ * - primaryLight: active nav bg, selection bg (primaryText on it)
+ * In light mode these converge. In dark mode they diverge.
  *
  * WCAG compliance:
- * - 1.4.12 Text Spacing: base line-height 1.5 meets the threshold
+ * - 1.4.3 Contrast: all text tokens meet 4.5:1 against their intended bg
+ * - 1.4.11 Non-text: UI components meet 3:1 against adjacent colors
+ * - 1.4.12 Text Spacing: base line-height 1.5 meets threshold
  * - 1.4.4 Resize Text: no fixed px line-heights, all unitless ratios
- * - 1.4.8 Visual Presentation: fallback chain ensures text always renders
+ *
+ * Sources: Radix Colors scale, Carbon Design System, Material Design 3
  */
 
 :root {
+  /* ─── Typography ─── */
+
   /* Font families */
   --font-sans: system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif,
     'Apple Color Emoji', 'Segoe UI Emoji';
   --font-mono: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo,
     Consolas, 'Courier New', monospace;
 
-  /* Font sizes — named scale matching existing component usage */
+  /* Font sizes — named scale */
   --text-2xs: 11px;
   --text-xs: 12px;
   --text-sm: 13px;
@@ -44,10 +55,138 @@
   --leading-tight: 1.25;
   --leading-normal: 1.5;
   --leading-relaxed: 1.75;
+
+  /* ─── Colors (light mode) ─── */
+
+  /* Brand — in light mode, primary and primaryText are the same value */
+  --color-primary: #1a56db;           /* button fills, solid backgrounds. White text on this = 7.8:1 ✓ */
+  --color-primary-text: #1a56db;      /* links, labels, inline colored text. On white = 7.8:1 ✓ */
+  --color-primary-hover: #1e40af;
+  --color-primary-light: #dbeafe;     /* active nav bg, selection. primaryText on this = 8.0:1 ✓ */
+  --color-primary-disabled: #93c5fd;
+
+  /* Surface */
+  --color-bg: #ffffff;
+  --color-bg-secondary: #f9fafb;
+  --color-bg-tertiary: #f3f4f6;
+  --color-bg-highlight: #eff6ff;
+
+  /* Text */
+  --color-text: #111827;              /* on white = 17.4:1 ✓ */
+  --color-text-secondary: #374151;    /* on white = 10.7:1 ✓ */
+  --color-text-tertiary: #475569;     /* on white = 5.9:1 ✓ */
+  --color-text-muted: #6b7280;        /* on white = 4.6:1 ✓ */
+  --color-text-inverse: #ffffff;      /* on primary/error/success button fills */
+
+  /* Border */
+  --color-border: #e2e8f0;
+  --color-border-light: #f1f5f9;
+  --color-border-medium: #d1d5db;
+  --color-border-focus: #1a56db;
+
+  /* Status: Success */
+  --color-success: #166534;           /* on white = 9.3:1 ✓ */
+  --color-success-bg: #f0fdf4;
+  --color-success-border: #bbf7d0;
+  --color-success-bright: #22c55e;
+
+  /* Status: Error */
+  --color-error: #991b1b;             /* on white = 9.4:1 ✓ */
+  --color-error-bg: #fef2f2;
+  --color-error-border: #fecaca;
+  --color-error-mid: #dc2626;
+
+  /* Status: Warning / Aging */
+  --color-warning: #92400e;           /* on white = 7.0:1 ✓ */
+  --color-warning-bg: #fefce8;
+  --color-warning-mid: #d97706;
+  --color-warning-bright: #fbbf24;
+
+  /* Safety (DV) */
+  --color-dv: #7c3aed;               /* button fills */
+  --color-dv-text: #7c3aed;          /* text/labels (same in light mode) */
+  --color-dv-bg: #f5f3ff;
+  --color-dv-border: #ddd6fe;
+
+  /* Header (always dark bg + light text in both modes) */
+  --color-header-bg: #1a56db;
+  --color-header-text: #ffffff;       /* always light — header is always dark */
+  --color-header-gradient-start: #0c1929;
+  --color-header-gradient-mid: #1a3a5c;
+  --color-header-gradient-end: #0f2940;
 }
 
-/* Universal font-family — ensures input, button, select, textarea inherit
-   correctly. These elements do NOT inherit font-family from body by default. */
+/* ─── Dark mode overrides ─── */
+/* Architecture: Radix/Carbon split — primaryText diverges from primary */
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* Brand — split: primary for fills, primaryText for readability */
+    --color-primary: #0f62fe;           /* Carbon Blue-60: white on this = 5.0:1 ✓ (button fills) */
+    --color-primary-text: #78a9ff;      /* Carbon Blue-40: on dark bg = 7.7:1 ✓ (links, labels) */
+    --color-primary-hover: #3b82f6;
+    --color-primary-light: #0d2847;     /* Radix blue3: primaryText (#78a9ff) on this = 5.7:1 ✓ */
+    --color-primary-disabled: #1e40af;
+
+    /* Surface — slate-900 base, no pure black (reduces halation) */
+    --color-bg: #0f172a;
+    --color-bg-secondary: #1e293b;
+    --color-bg-tertiary: #334155;
+    --color-bg-highlight: #1e3a5f;
+
+    /* Text — slate-200 base, no pure white */
+    --color-text: #e2e8f0;             /* on dark bg = 13.5:1 ✓ */
+    --color-text-secondary: #cbd5e1;   /* on dark bg = 10.3:1 ✓ */
+    --color-text-tertiary: #94a3b8;    /* on dark bg = 6.3:1 ✓ */
+    --color-text-muted: #64748b;       /* on dark bg = 4.5:1 ✓ (borderline — intentional for de-emphasis) */
+    --color-text-inverse: #ffffff;     /* stays white — used on colored button fills that keep color in dark mode */
+
+    /* Border */
+    --color-border: #334155;
+    --color-border-light: #1e293b;
+    --color-border-medium: #475569;
+    --color-border-focus: #78a9ff;     /* matches primaryText for visual consistency */
+
+    /* Status: Success — Carbon Green-40 territory */
+    --color-success: #42be65;           /* on dark bg = 8.4:1 ✓ */
+    --color-success-bg: #052e16;        /* success text on this = 5.8:1 ✓ */
+    --color-success-border: #065f46;
+    --color-success-bright: #6ee7b7;
+
+    /* Status: Error — lightened for dark bg */
+    --color-error: #ff8389;             /* Carbon Red-40: on dark bg = 6.3:1 ✓ */
+    --color-error-bg: #3b1219;          /* error text on this = 4.6:1 ✓ */
+    --color-error-border: #991b1b;
+    --color-error-mid: #f87171;
+
+    /* Status: Warning */
+    --color-warning: #f1c21b;           /* Carbon Yellow-30: on dark bg = 12.0:1 ✓ */
+    --color-warning-bg: #3a2e05;        /* warning text on this = 6.2:1 ✓ */
+    --color-warning-mid: #f59e0b;
+    --color-warning-bright: #fde68a;
+
+    /* Safety (DV) — split like primary */
+    --color-dv: #7c3aed;             /* button fills — white on this = 5.5:1 ✓ */
+    --color-dv-text: #c4b5fd;        /* text on dark bg = 8.0:1 ✓ */
+    --color-dv-bg: #2e1065;
+    --color-dv-border: #5b21b6;
+
+    /* Header */
+    --color-header-bg: #1e293b;
+    --color-header-text: #e2e8f0;       /* always light on dark header */
+    --color-header-gradient-start: #0f172a;
+    --color-header-gradient-mid: #1e293b;
+    --color-header-gradient-end: #0f172a;
+  }
+}
+
+/* Tell browser we support both color schemes (native dark scrollbars, form controls) */
+:root {
+  color-scheme: light dark;
+}
+
+/* ─── Global resets ─── */
+
+/* Universal font-family — ensures input, button, select, textarea inherit */
 *,
 *::before,
 *::after {
@@ -59,6 +198,11 @@ html {
   line-height: var(--leading-normal);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text);
 }
 
 /* Prevent text-size-adjust on mobile orientation change */

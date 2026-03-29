@@ -3,6 +3,7 @@ import { FormattedMessage, useIntl } from 'react-intl';
 import { api } from '../services/api';
 import { DataAge } from '../components/DataAge';
 import { text, weight, leading } from '../theme/typography';
+import { color } from '../theme/colors';
 import { getPopulationTypeLabel } from '../utils/populationTypeLabels';
 import { SSE_REFERRAL_UPDATE, SSE_AVAILABILITY_UPDATE } from '../hooks/useNotifications';
 
@@ -330,10 +331,10 @@ export function OutreachSearch() {
 
   const freshnessLabel = (freshness: string) => {
     const colors: Record<string, { bg: string; color: string }> = {
-      FRESH: { bg: '#f0fdf4', color: '#166534' },
-      AGING: { bg: '#fefce8', color: '#854d0e' },
-      STALE: { bg: '#fef2f2', color: '#991b1b' },
-      UNKNOWN: { bg: '#f1f5f9', color: '#475569' },
+      FRESH: { bg: color.successBg, color: color.success },
+      AGING: { bg: color.warningBg, color: color.warning },
+      STALE: { bg: color.errorBg, color: color.error },
+      UNKNOWN: { bg: color.borderLight, color: color.textTertiary },
     };
     const style = colors[freshness] || colors.UNKNOWN;
     return (
@@ -349,14 +350,14 @@ export function OutreachSearch() {
     <div style={{ maxWidth: 720, margin: '0 auto' }}>
       {/* Header */}
       <div style={{
-        background: 'linear-gradient(135deg, #0c1929 0%, #1a3a5c 50%, #0f2940 100%)',
-        borderRadius: 16, padding: '28px 24px', marginBottom: 20, color: '#fff',
+        background: `linear-gradient(135deg, ${color.headerGradientStart} 0%, ${color.headerGradientMid} 50%, ${color.headerGradientEnd} 100%)`,
+        borderRadius: 16, padding: '28px 24px', marginBottom: 20, color: color.textInverse,
         boxShadow: '0 4px 24px rgba(0,0,0,0.15)',
       }}>
         <h1 style={{ margin: 0, fontSize: text['2xl'], fontWeight: weight.extrabold, letterSpacing: '-0.03em' }}>
           <FormattedMessage id="search.title" />
         </h1>
-        <p style={{ margin: '6px 0 0', fontSize: text.base, color: '#94b8d8' }}>
+        <p style={{ margin: '6px 0 0', fontSize: text.base, color: color.textTertiary }}>
           <FormattedMessage id="search.subtitle" />
         </p>
       </div>
@@ -365,8 +366,8 @@ export function OutreachSearch() {
       {activeSurge && (
         <div style={{
           padding: '14px 20px', borderRadius: 12, marginBottom: 14,
-          background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
-          color: '#fff', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          background: `linear-gradient(135deg, ${color.errorMid} 0%, ${color.error} 100%)`,
+          color: color.textInverse, display: 'flex', justifyContent: 'space-between', alignItems: 'center',
           boxShadow: '0 2px 12px rgba(220,38,38,0.3)',
         }}>
           <div>
@@ -375,7 +376,7 @@ export function OutreachSearch() {
             </div>
             <div style={{ fontSize: text.base, fontWeight: weight.medium }}>{activeSurge.reason}</div>
           </div>
-          <div style={{ fontSize: text.xs, color: '#475569' }}>
+          <div style={{ fontSize: text.xs, color: color.textTertiary }}>
             <FormattedMessage id="surge.since" />: {new Date(activeSurge.activatedAt).toLocaleString()}
           </div>
         </div>
@@ -390,9 +391,9 @@ export function OutreachSearch() {
         aria-label={intl.formatMessage({ id: 'search.placeholder' })}
         style={{
           width: '100%', padding: '15px 18px', borderRadius: 14,
-          border: '2px solid #e2e8f0', fontSize: text.md, minHeight: 50,
+          border: `2px solid ${color.border}`, fontSize: text.md, minHeight: 50,
           boxSizing: 'border-box', marginBottom: 14, outline: 'none',
-          fontWeight: weight.medium, color: '#0f172a',
+          fontWeight: weight.medium, color: color.text,
         }}
       />
 
@@ -404,9 +405,9 @@ export function OutreachSearch() {
           onChange={(e) => setPopulationType(e.target.value)}
           aria-label="Filter by population type"
           style={{
-            padding: '11px 14px', borderRadius: 10, border: '2px solid #e2e8f0',
-            fontSize: text.base, minHeight: 44, backgroundColor: populationType ? '#eff6ff' : '#fff',
-            color: populationType ? '#1a56db' : '#475569', fontWeight: weight.medium, cursor: 'pointer',
+            padding: '11px 14px', borderRadius: 10, border: `2px solid ${color.border}`,
+            fontSize: text.base, minHeight: 44, backgroundColor: populationType ? color.bgHighlight : color.bg,
+            color: populationType ? color.primary : color.textTertiary, fontWeight: weight.medium, cursor: 'pointer',
           }}
         >
           {POPULATION_TYPES.map((pt) => (
@@ -418,7 +419,7 @@ export function OutreachSearch() {
       </div>
 
       {/* Count */}
-      <div style={{ fontSize: text.sm, color: '#475569', marginBottom: 10, fontWeight: weight.semibold, letterSpacing: '0.02em' }}>
+      <div style={{ fontSize: text.sm, color: color.textTertiary, marginBottom: 10, fontWeight: weight.semibold, letterSpacing: '0.02em' }}>
         {loading
           ? <FormattedMessage id="search.loading" />
           : <FormattedMessage id="search.resultCount" values={{ count: filtered.length }} />}
@@ -426,7 +427,7 @@ export function OutreachSearch() {
 
       {error && (
         <div style={{
-          backgroundColor: '#fef2f2', color: '#991b1b', padding: '14px 18px',
+          backgroundColor: color.errorBg, color: color.error, padding: '14px 18px',
           borderRadius: 12, marginBottom: 16, fontSize: text.base, fontWeight: weight.medium,
         }}>{error}</div>
       )}
@@ -440,8 +441,8 @@ export function OutreachSearch() {
             onClick={() => setShowReservations(!showReservations)}
             style={{
               width: '100%', padding: '14px 18px', borderRadius: 12,
-              border: '2px solid #1a56db', backgroundColor: '#eff6ff',
-              color: '#1a56db', fontSize: text.base, fontWeight: weight.bold, cursor: 'pointer',
+              border: `2px solid ${color.primary}`, backgroundColor: color.bgHighlight,
+              color: color.primaryText, fontSize: text.base, fontWeight: weight.bold, cursor: 'pointer',
               display: 'flex', justifyContent: 'space-between', alignItems: 'center',
             }}
           >
@@ -449,7 +450,7 @@ export function OutreachSearch() {
             <span>{showReservations ? '▲' : '▼'}</span>
           </button>
           {showReservations && (
-            <div style={{ border: '2px solid #e2e8f0', borderTop: 'none', borderRadius: '0 0 12px 12px', padding: '12px 16px' }}>
+            <div style={{ border: `2px solid ${color.border}`, borderTop: 'none', borderRadius: '0 0 12px 12px', padding: '12px 16px' }}>
               {reservations.filter(r => r.status === 'HELD').map((res) => {
                 const mins = Math.floor(res.remainingSeconds / 60);
                 const secs = res.remainingSeconds % 60;
@@ -457,19 +458,19 @@ export function OutreachSearch() {
                 const shelterResult = results.find(r => r.shelterId === res.shelterId);
                 return (
                   <div key={res.id} style={{
-                    padding: '12px 0', borderBottom: '1px solid #f1f5f9',
+                    padding: '12px 0', borderBottom: `1px solid ${color.borderLight}`,
                     display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8,
                   }}>
                     <div>
-                      <div style={{ fontWeight: weight.bold, fontSize: text.base, color: '#0f172a' }}>
+                      <div style={{ fontWeight: weight.bold, fontSize: text.base, color: color.text }}>
                         {shelterResult?.shelterName || res.shelterId.substring(0, 8)}
                       </div>
-                      <div style={{ fontSize: text.xs, color: '#475569' }}>
+                      <div style={{ fontSize: text.xs, color: color.textTertiary }}>
                         {getPopulationTypeLabel(res.populationType, intl)}
                       </div>
                       <div style={{
                         fontSize: text.sm, fontWeight: weight.bold, marginTop: 4,
-                        color: isExpiring ? '#991b1b' : '#1a56db',
+                        color: isExpiring ? color.error : color.primary,
                       }}>
                         {res.remainingSeconds > 0
                           ? intl.formatMessage({ id: 'reservations.expiresIn' }, { minutes: mins, seconds: secs })
@@ -481,14 +482,14 @@ export function OutreachSearch() {
                         onClick={() => confirmReservation(res.id)}
                         style={{
                           padding: '8px 14px', borderRadius: 8, border: 'none',
-                          backgroundColor: '#047857', color: '#fff', fontSize: text.sm, fontWeight: weight.bold, cursor: 'pointer',
+                          backgroundColor: color.success, color: color.textInverse, fontSize: text.sm, fontWeight: weight.bold, cursor: 'pointer',
                         }}
                       ><FormattedMessage id="reservations.confirm" /></button>
                       <button
                         onClick={() => cancelReservation(res.id)}
                         style={{
-                          padding: '8px 14px', borderRadius: 8, border: '2px solid #e2e8f0',
-                          backgroundColor: '#fff', color: '#475569', fontSize: text.sm, fontWeight: weight.semibold, cursor: 'pointer',
+                          padding: '8px 14px', borderRadius: 8, border: `2px solid ${color.border}`,
+                          backgroundColor: color.bg, color: color.textTertiary, fontSize: text.sm, fontWeight: weight.semibold, cursor: 'pointer',
                         }}
                       ><FormattedMessage id="reservations.cancel" /></button>
                     </div>
@@ -512,35 +513,35 @@ export function OutreachSearch() {
             onClick={() => openDetail(r.shelterId)}
             style={{
               display: 'block', width: '100%', textAlign: 'left', padding: '18px 20px',
-              marginBottom: 10, borderRadius: 14, border: `2px solid ${isFull ? '#fecaca' : '#e2e8f0'}`,
-              backgroundColor: isFull ? '#fefefe' : '#fff', cursor: 'pointer',
+              marginBottom: 10, borderRadius: 14, border: `2px solid ${isFull ? color.errorBorder : color.border}`,
+              backgroundColor: isFull ? color.bg : color.bg, cursor: 'pointer',
               transition: 'border-color 0.12s, box-shadow 0.12s',
               // No opacity reduction — WCAG 1.4.3 contrast requirement
             }}
-            onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#3b82f6'; e.currentTarget.style.boxShadow = '0 2px 12px rgba(59,130,246,0.1)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.borderColor = isFull ? '#fecaca' : '#e2e8f0'; e.currentTarget.style.boxShadow = 'none'; }}
+            onMouseEnter={(e) => { e.currentTarget.style.borderColor = color.borderFocus; e.currentTarget.style.boxShadow = '0 2px 12px rgba(59,130,246,0.1)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.borderColor = isFull ? color.errorBorder : color.border; e.currentTarget.style.boxShadow = 'none'; }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 3 }}>
-              <div style={{ fontSize: text.lg, fontWeight: weight.bold, color: '#0f172a' }}>{r.shelterName}</div>
+              <div style={{ fontSize: text.lg, fontWeight: weight.bold, color: color.text }}>{r.shelterName}</div>
               {/* Beds available badge */}
               {isFull ? (
                 <span style={{
                   padding: '4px 10px', borderRadius: 8, fontSize: text.xs, fontWeight: weight.bold,
-                  backgroundColor: '#fef2f2', color: '#991b1b',
+                  backgroundColor: color.errorBg, color: color.error,
                 }}><FormattedMessage id="search.currentlyFull" /></span>
               ) : (
                 <span style={{
                   padding: '4px 10px', borderRadius: 8, fontSize: text.base, fontWeight: weight.extrabold,
-                  backgroundColor: '#f0fdf4', color: '#166534',
+                  backgroundColor: color.successBg, color: color.success,
                 }}>{avail}</span>
               )}
             </div>
-            <div style={{ fontSize: text.base, color: r.dvShelter ? '#7c3aed' : '#475569', fontStyle: r.dvShelter ? 'italic' : 'normal', marginBottom: 6 }}>
+            <div style={{ fontSize: text.base, color: r.dvShelter ? color.dvText : color.textTertiary, fontStyle: r.dvShelter ? 'italic' : 'normal', marginBottom: 6 }}>
               {r.dvShelter ? intl.formatMessage({ id: 'search.dvAddressHidden' }) : r.address}
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                {r.phone && <span style={{ fontSize: text.base, color: '#1a56db', fontWeight: weight.semibold }}>📞 {r.phone}</span>}
+                {r.phone && <span style={{ fontSize: text.base, color: color.primaryText, fontWeight: weight.semibold }}>📞 {r.phone}</span>}
               </div>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 {freshnessLabel(r.dataFreshness)}
@@ -554,12 +555,12 @@ export function OutreachSearch() {
                   <div key={a.populationType} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                     <span style={{
                       padding: '3px 8px', borderRadius: 6, fontSize: text['2xs'], fontWeight: weight.semibold,
-                      backgroundColor: a.bedsAvailable > 0 ? '#f0fdf4' : '#fef2f2',
-                      color: a.bedsAvailable > 0 ? '#166534' : '#991b1b',
+                      backgroundColor: a.bedsAvailable > 0 ? color.successBg : color.errorBg,
+                      color: a.bedsAvailable > 0 ? color.success : color.error,
                     }}>
                       {getPopulationTypeLabel(a.populationType, intl)}: {a.bedsAvailable}
-                      {a.bedsOnHold > 0 && <span style={{ color: '#854d0e' }}> ({a.bedsOnHold} held)</span>}
-                      {a.overflowBeds > 0 && <span style={{ color: '#dc2626' }}> +{a.overflowBeds} overflow</span>}
+                      {a.bedsOnHold > 0 && <span style={{ color: color.warning }}> ({a.bedsOnHold} held)</span>}
+                      {a.overflowBeds > 0 && <span style={{ color: color.errorMid }}> +{a.overflowBeds} overflow</span>}
                     </span>
                     {a.bedsAvailable > 0 && !r.dvShelter && (
                       <button
@@ -568,7 +569,7 @@ export function OutreachSearch() {
                         disabled={holdingShelterId === r.shelterId && holdPopType === a.populationType}
                         style={{
                           padding: '6px 12px', borderRadius: 6, border: 'none',
-                          backgroundColor: '#1a56db', color: '#fff', fontSize: text.xs, fontWeight: weight.bold,
+                          backgroundColor: color.primary, color: color.textInverse, fontSize: text.xs, fontWeight: weight.bold,
                           cursor: 'pointer', minHeight: 44, minWidth: 44,
                         }}
                       >
@@ -583,7 +584,7 @@ export function OutreachSearch() {
                         onClick={(e) => { e.stopPropagation(); setReferralModal({ shelterId: r.shelterId, popType: a.populationType }); }}
                         style={{
                           padding: '6px 12px', borderRadius: 6, border: 'none',
-                          backgroundColor: '#7c3aed', color: '#fff', fontSize: text.xs, fontWeight: weight.bold,
+                          backgroundColor: color.dv, color: color.textInverse, fontSize: text.xs, fontWeight: weight.bold,
                           cursor: 'pointer', minHeight: 44, minWidth: 44,
                         }}
                       >
@@ -599,7 +600,7 @@ export function OutreachSearch() {
       })}
 
       {!loading && filtered.length === 0 && (
-        <div style={{ textAlign: 'center', padding: 48, color: '#6b7280' }}>
+        <div style={{ textAlign: 'center', padding: 48, color: color.textMuted }}>
           <div style={{ fontSize: text['4xl'], marginBottom: 12 }}>🏠</div>
           <div style={{ fontSize: text.md, fontWeight: weight.medium }}><FormattedMessage id="search.noResults" /></div>
           <div style={{ fontSize: text.base, marginTop: 6 }}><FormattedMessage id="search.tryDifferent" /></div>
@@ -611,18 +612,18 @@ export function OutreachSearch() {
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
           onClick={() => setSelectedShelter(null)}>
           <div style={{
-            backgroundColor: '#fff', borderRadius: '24px 24px 0 0', width: '100%', maxWidth: 600,
+            backgroundColor: color.bg, borderRadius: '24px 24px 0 0', width: '100%', maxWidth: 600,
             maxHeight: '88vh', overflowY: 'auto', padding: '28px 24px 36px',
           }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ width: 40, height: 4, backgroundColor: '#d1d5db', borderRadius: 2, margin: '0 auto 22px' }} />
+            <div style={{ width: 40, height: 4, backgroundColor: color.borderMedium, borderRadius: 2, margin: '0 auto 22px' }} />
 
-            <h2 style={{ margin: '0 0 4px', fontSize: text['2xl'], fontWeight: weight.extrabold, color: '#0f172a' }}>{selectedShelter.shelter.name}</h2>
+            <h2 style={{ margin: '0 0 4px', fontSize: text['2xl'], fontWeight: weight.extrabold, color: color.text }}>{selectedShelter.shelter.name}</h2>
             {selectedShelter.shelter.dvShelter ? (
-              <p style={{ margin: '0 0 16px', fontSize: text.base, color: '#7c3aed', fontStyle: 'italic' }}>
+              <p style={{ margin: '0 0 16px', fontSize: text.base, color: color.dvText, fontStyle: 'italic' }}>
                 <FormattedMessage id="search.dvAddressHidden" />
               </p>
             ) : (
-              <p style={{ margin: '0 0 16px', fontSize: text.base, color: '#475569' }}>
+              <p style={{ margin: '0 0 16px', fontSize: text.base, color: color.textTertiary }}>
                 {[selectedShelter.shelter.addressStreet, selectedShelter.shelter.addressCity,
                   selectedShelter.shelter.addressState, selectedShelter.shelter.addressZip].filter(Boolean).join(', ')}
               </p>
@@ -636,7 +637,7 @@ export function OutreachSearch() {
             <div style={{ display: 'flex', gap: 10, marginBottom: 24 }}>
               {selectedShelter.shelter.phone && (
                 <a href={`tel:${selectedShelter.shelter.phone}`} style={{
-                  flex: 1, padding: 14, backgroundColor: '#047857', color: '#fff', borderRadius: 12,
+                  flex: 1, padding: 14, backgroundColor: color.success, color: color.textInverse, borderRadius: 12,
                   textAlign: 'center', textDecoration: 'none', fontSize: text.md, fontWeight: weight.bold, minHeight: 50,
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
                 }}>📞 <FormattedMessage id="search.call" /></a>
@@ -653,7 +654,7 @@ export function OutreachSearch() {
                   surgeActive: false,
                   dvShelter: false,
                 })} target="_blank" rel="noopener noreferrer" style={{
-                  flex: 1, padding: 14, backgroundColor: '#1a56db', color: '#fff', borderRadius: 12,
+                  flex: 1, padding: 14, backgroundColor: color.primary, color: color.textInverse, borderRadius: 12,
                   textAlign: 'center', textDecoration: 'none', fontSize: text.md, fontWeight: weight.bold, minHeight: 50,
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
                 }}>🗺️ <FormattedMessage id="search.directions" /></a>
@@ -666,22 +667,22 @@ export function OutreachSearch() {
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                   {selectedShelter.availability.map((a) => (
                     <div key={a.populationType} style={{
-                      padding: '12px 18px', backgroundColor: a.bedsAvailable > 0 ? '#f0fdf4' : '#fef2f2',
-                      border: `1px solid ${a.bedsAvailable > 0 ? '#bbf7d0' : '#fecaca'}`,
+                      padding: '12px 18px', backgroundColor: a.bedsAvailable > 0 ? color.successBg : color.errorBg,
+                      border: `1px solid ${a.bedsAvailable > 0 ? color.successBorder : color.errorBorder}`,
                       borderRadius: 12, textAlign: 'center', minWidth: 100,
                     }}>
                       <div style={{
-                        fontWeight: weight.extrabold, color: a.bedsAvailable > 0 ? '#166534' : '#991b1b',
+                        fontWeight: weight.extrabold, color: a.bedsAvailable > 0 ? color.success : color.error,
                         fontSize: text['2xl'], lineHeight: leading.tight,
                       }}>{a.bedsAvailable}</div>
                       <div style={{
-                        color: a.bedsAvailable > 0 ? '#15803d' : '#991b1b',
+                        color: a.bedsAvailable > 0 ? color.success : color.error,
                         fontSize: text['2xs'], fontWeight: weight.semibold, marginTop: 4,
                         textTransform: 'uppercase', letterSpacing: '0.04em',
                       }}>
                         {getPopulationTypeLabel(a.populationType, intl)}
                       </div>
-                      <div style={{ fontSize: text['2xs'], color: '#475569', marginTop: 4 }}>
+                      <div style={{ fontSize: text['2xs'], color: color.textTertiary, marginTop: 4 }}>
                         {a.bedsTotal} total / {a.bedsOccupied} occ
                       </div>
                     </div>
@@ -696,11 +697,11 @@ export function OutreachSearch() {
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                   {selectedShelter.capacities.map((cap) => (
                     <div key={cap.populationType} style={{
-                      padding: '12px 18px', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0',
+                      padding: '12px 18px', backgroundColor: color.successBg, border: `1px solid ${color.successBorder}`,
                       borderRadius: 12, textAlign: 'center', minWidth: 90,
                     }}>
-                      <div style={{ fontWeight: weight.extrabold, color: '#166534', fontSize: text['2xl'], lineHeight: leading.tight }}>{cap.bedsTotal}</div>
-                      <div style={{ color: '#15803d', fontSize: text['2xs'], fontWeight: weight.semibold, marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      <div style={{ fontWeight: weight.extrabold, color: color.success, fontSize: text['2xl'], lineHeight: leading.tight }}>{cap.bedsTotal}</div>
+                      <div style={{ color: color.success, fontSize: text['2xs'], fontWeight: weight.semibold, marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                         {getPopulationTypeLabel(cap.populationType, intl)}
                       </div>
                     </div>
@@ -720,25 +721,25 @@ export function OutreachSearch() {
                   <Badge ok={!selectedShelter.constraints.referralRequired} yes="✅ Walk-in OK" no="📋 Referral Required" />
                 </div>
                 {selectedShelter.constraints.curfewTime && (
-                  <div style={{ marginTop: 12, fontSize: text.base, color: '#475569', fontWeight: weight.medium }}>
+                  <div style={{ marginTop: 12, fontSize: text.base, color: color.textTertiary, fontWeight: weight.medium }}>
                     ⏰ <FormattedMessage id="search.curfew" />: {selectedShelter.constraints.curfewTime}
                   </div>
                 )}
                 {selectedShelter.constraints.maxStayDays && (
-                  <div style={{ marginTop: 4, fontSize: text.base, color: '#475569', fontWeight: weight.medium }}>
+                  <div style={{ marginTop: 4, fontSize: text.base, color: color.textTertiary, fontWeight: weight.medium }}>
                     📅 <FormattedMessage id="search.maxStay" />: {selectedShelter.constraints.maxStayDays} <FormattedMessage id="search.days" />
                   </div>
                 )}
                 {selectedShelter.constraints.populationTypesServed?.length > 0 && (
                   <div style={{ marginTop: 12 }}>
-                    <div style={{ fontSize: text.xs, fontWeight: weight.semibold, color: '#475569', marginBottom: 6, textTransform: 'uppercase' }}>
+                    <div style={{ fontSize: text.xs, fontWeight: weight.semibold, color: color.textTertiary, marginBottom: 6, textTransform: 'uppercase' }}>
                       <FormattedMessage id="search.serves" />
                     </div>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                       {selectedShelter.constraints.populationTypesServed.map((pt) => (
                         <span key={pt} style={{
                           padding: '4px 10px', borderRadius: 6, fontSize: text.xs, fontWeight: weight.semibold,
-                          backgroundColor: '#eff6ff', color: '#1e40af',
+                          backgroundColor: color.bgHighlight, color: color.primaryHover,
                         }}>{pt.replace(/_/g, ' ')}</span>
                       ))}
                     </div>
@@ -748,7 +749,7 @@ export function OutreachSearch() {
             )}
 
             <button onClick={() => setSelectedShelter(null)} style={{
-              width: '100%', padding: 16, backgroundColor: '#f1f5f9', color: '#475569',
+              width: '100%', padding: 16, backgroundColor: color.borderLight, color: color.textTertiary,
               border: 'none', borderRadius: 12, fontSize: text.base, fontWeight: weight.semibold, cursor: 'pointer', minHeight: 50,
             }}><FormattedMessage id="search.close" /></button>
           </div>
@@ -760,63 +761,63 @@ export function OutreachSearch() {
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1002, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           onClick={() => setReferralModal(null)}>
           <div data-testid="referral-modal" style={{
-            backgroundColor: '#fff', borderRadius: 16, width: '90%', maxWidth: 440, padding: '28px 24px',
+            backgroundColor: color.bg, borderRadius: 16, width: '90%', maxWidth: 440, padding: '28px 24px',
             boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
           }} onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ margin: '0 0 4px', fontSize: text.lg, fontWeight: weight.extrabold, color: '#7c3aed' }}>
+            <h3 style={{ margin: '0 0 4px', fontSize: text.lg, fontWeight: weight.extrabold, color: color.dvText }}>
               <FormattedMessage id="referral.title" />
             </h3>
-            <p style={{ margin: '0 0 16px', fontSize: text.sm, color: '#475569' }}>
+            <p style={{ margin: '0 0 16px', fontSize: text.sm, color: color.textTertiary }}>
               <FormattedMessage id="referral.subtitle" />
             </p>
 
-            <label style={{ fontSize: text.xs, fontWeight: weight.semibold, color: '#475569', display: 'block', marginBottom: 4 }}>
+            <label style={{ fontSize: text.xs, fontWeight: weight.semibold, color: color.textTertiary, display: 'block', marginBottom: 4 }}>
               <FormattedMessage id="referral.householdSize" />
             </label>
             <input data-testid="referral-household-size" type="number" min={1} max={20} value={referralForm.householdSize}
               onChange={(e) => setReferralForm(f => ({ ...f, householdSize: parseInt(e.target.value) || 1 }))}
-              style={{ width: '100%', padding: 10, borderRadius: 8, border: '2px solid #e2e8f0', fontSize: text.base, marginBottom: 12 }} />
+              style={{ width: '100%', padding: 10, borderRadius: 8, border: `2px solid ${color.border}`, fontSize: text.base, marginBottom: 12 }} />
 
-            <label style={{ fontSize: text.xs, fontWeight: weight.semibold, color: '#475569', display: 'block', marginBottom: 4 }}>
+            <label style={{ fontSize: text.xs, fontWeight: weight.semibold, color: color.textTertiary, display: 'block', marginBottom: 4 }}>
               <FormattedMessage id="referral.urgency" />
             </label>
             <div data-testid="referral-urgency" style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
               {['STANDARD', 'URGENT', 'EMERGENCY'].map(u => (
                 <button key={u} onClick={() => setReferralForm(f => ({ ...f, urgency: u }))}
                   style={{
-                    flex: 1, padding: 8, borderRadius: 8, border: `2px solid ${referralForm.urgency === u ? '#7c3aed' : '#e2e8f0'}`,
-                    backgroundColor: referralForm.urgency === u ? '#f5f3ff' : '#fff',
-                    color: referralForm.urgency === u ? '#7c3aed' : '#475569',
+                    flex: 1, padding: 8, borderRadius: 8, border: `2px solid ${referralForm.urgency === u ? color.dv : color.border}`,
+                    backgroundColor: referralForm.urgency === u ? color.dvBg : color.bg,
+                    color: referralForm.urgency === u ? color.dvText : color.textTertiary,
                     fontSize: text.xs, fontWeight: weight.bold, cursor: 'pointer',
                   }}>{u}</button>
               ))}
             </div>
 
-            <label style={{ fontSize: text.xs, fontWeight: weight.semibold, color: '#475569', display: 'block', marginBottom: 4 }}>
+            <label style={{ fontSize: text.xs, fontWeight: weight.semibold, color: color.textTertiary, display: 'block', marginBottom: 4 }}>
               <FormattedMessage id="referral.specialNeeds" />
             </label>
             <textarea data-testid="referral-special-needs" value={referralForm.specialNeeds}
               onChange={(e) => setReferralForm(f => ({ ...f, specialNeeds: e.target.value }))}
               placeholder={intl.formatMessage({ id: 'referral.specialNeedsPlaceholder' })}
-              style={{ width: '100%', padding: 10, borderRadius: 8, border: '2px solid #e2e8f0', fontSize: text.sm, minHeight: 60, resize: 'vertical', marginBottom: 12 }} />
+              style={{ width: '100%', padding: 10, borderRadius: 8, border: `2px solid ${color.border}`, fontSize: text.sm, minHeight: 60, resize: 'vertical', marginBottom: 12 }} />
 
-            <label style={{ fontSize: text.xs, fontWeight: weight.semibold, color: '#475569', display: 'block', marginBottom: 4 }}>
+            <label style={{ fontSize: text.xs, fontWeight: weight.semibold, color: color.textTertiary, display: 'block', marginBottom: 4 }}>
               <FormattedMessage id="referral.callbackNumber" />
             </label>
             <input data-testid="referral-callback" type="tel" value={referralForm.callbackNumber}
               onChange={(e) => setReferralForm(f => ({ ...f, callbackNumber: e.target.value }))}
               placeholder="919-555-0000"
-              style={{ width: '100%', padding: 10, borderRadius: 8, border: '2px solid #e2e8f0', fontSize: text.base, marginBottom: 16 }} />
+              style={{ width: '100%', padding: 10, borderRadius: 8, border: `2px solid ${color.border}`, fontSize: text.base, marginBottom: 16 }} />
 
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={() => setReferralModal(null)}
-                style={{ flex: 1, padding: 12, borderRadius: 10, border: '2px solid #e2e8f0', backgroundColor: '#fff', color: '#475569', fontSize: text.base, fontWeight: weight.semibold, cursor: 'pointer' }}>
+                style={{ flex: 1, padding: 12, borderRadius: 10, border: `2px solid ${color.border}`, backgroundColor: color.bg, color: color.textTertiary, fontSize: text.base, fontWeight: weight.semibold, cursor: 'pointer' }}>
                 <FormattedMessage id="referral.cancel" />
               </button>
               <button data-testid="referral-submit" onClick={submitReferral} disabled={referralSubmitting || !referralForm.callbackNumber}
                 style={{
                   flex: 1, padding: 12, borderRadius: 10, border: 'none',
-                  backgroundColor: referralSubmitting ? '#a78bfa' : '#7c3aed', color: '#fff',
+                  backgroundColor: referralSubmitting ? color.dv : color.dv, color: color.textInverse,
                   fontSize: text.base, fontWeight: weight.bold, cursor: referralSubmitting ? 'default' : 'pointer',
                 }}>
                 {referralSubmitting ? '...' : intl.formatMessage({ id: 'referral.submit' })}
@@ -832,49 +833,49 @@ export function OutreachSearch() {
           <button onClick={() => setShowReferrals(!showReferrals)}
             style={{
               width: '100%', padding: '14px 18px', borderRadius: 12,
-              border: '2px solid #7c3aed', backgroundColor: '#f5f3ff',
-              color: '#7c3aed', fontSize: text.base, fontWeight: weight.bold, cursor: 'pointer',
+              border: `2px solid ${color.dv}`, backgroundColor: color.dvBg,
+              color: color.dvText, fontSize: text.base, fontWeight: weight.bold, cursor: 'pointer',
               display: 'flex', justifyContent: 'space-between', alignItems: 'center',
             }}>
             <span><FormattedMessage id="referral.myReferrals" /> ({myReferrals.filter(r => r.status === 'PENDING').length} <FormattedMessage id="referral.pending" />)</span>
             <span>{showReferrals ? '▲' : '▼'}</span>
           </button>
           {showReferrals && (
-            <div data-testid="my-referrals" style={{ border: '2px solid #e2e8f0', borderTop: 'none', borderRadius: '0 0 12px 12px', padding: '12px 16px' }}>
+            <div data-testid="my-referrals" style={{ border: `2px solid ${color.border}`, borderTop: 'none', borderRadius: '0 0 12px 12px', padding: '12px 16px' }}>
               {myReferrals.map((ref) => (
                 <div key={ref.id} data-testid={`referral-${ref.id}`} style={{
-                  padding: '10px 0', borderBottom: '1px solid #f1f5f9',
+                  padding: '10px 0', borderBottom: `1px solid ${color.borderLight}`,
                   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                 }}>
                   <div>
-                    <span style={{ fontSize: text.sm, fontWeight: weight.semibold, color: '#0f172a' }}>
+                    <span style={{ fontSize: text.sm, fontWeight: weight.semibold, color: color.text }}>
                       {getPopulationTypeLabel(ref.populationType, intl)} — {ref.householdSize} person{ref.householdSize > 1 ? 's' : ''}
                     </span>
-                    <div style={{ fontSize: text['2xs'], color: '#475569', marginTop: 2 }}>
+                    <div style={{ fontSize: text['2xs'], color: color.textTertiary, marginTop: 2 }}>
                       {ref.status === 'ACCEPTED' && ref.shelterPhone && (
-                        <span data-testid={`referral-phone-${ref.id}`} style={{ color: '#166534', fontWeight: weight.bold }}>
+                        <span data-testid={`referral-phone-${ref.id}`} style={{ color: color.success, fontWeight: weight.bold }}>
                           <FormattedMessage id="referral.callShelter" /> {ref.shelterPhone}
                         </span>
                       )}
                       {ref.status === 'REJECTED' && ref.rejectionReason && (
-                        <span style={{ color: '#991b1b' }}>
+                        <span style={{ color: color.error }}>
                           <FormattedMessage id="referral.declined" />: {ref.rejectionReason}
                         </span>
                       )}
                       {ref.status === 'PENDING' && ref.remainingSeconds != null && (
-                        <span style={{ color: '#854d0e' }}>
+                        <span style={{ color: color.warning }}>
                           <FormattedMessage id="referral.waiting" /> — {Math.floor(ref.remainingSeconds / 60)}m remaining
                         </span>
                       )}
                       {ref.status === 'EXPIRED' && (
-                        <span style={{ color: '#991b1b' }}><FormattedMessage id="referral.expired" /></span>
+                        <span style={{ color: color.error }}><FormattedMessage id="referral.expired" /></span>
                       )}
                     </div>
                   </div>
                   <span style={{
                     padding: '3px 8px', borderRadius: 6, fontSize: text['2xs'], fontWeight: weight.bold,
-                    backgroundColor: ref.status === 'ACCEPTED' ? '#f0fdf4' : ref.status === 'REJECTED' ? '#fef2f2' : ref.status === 'EXPIRED' ? '#fef2f2' : '#fefce8',
-                    color: ref.status === 'ACCEPTED' ? '#166534' : ref.status === 'REJECTED' || ref.status === 'EXPIRED' ? '#991b1b' : '#854d0e',
+                    backgroundColor: ref.status === 'ACCEPTED' ? color.successBg : ref.status === 'REJECTED' ? color.errorBg : ref.status === 'EXPIRED' ? color.errorBg : color.warningBg,
+                    color: ref.status === 'ACCEPTED' ? color.success : ref.status === 'REJECTED' || ref.status === 'EXPIRED' ? color.error : color.warning,
                   }}>{ref.status}</span>
                 </div>
               ))}
@@ -885,7 +886,7 @@ export function OutreachSearch() {
 
       {detailLoading && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.3)', zIndex: 1001, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ backgroundColor: '#fff', borderRadius: 16, padding: 32 }}><Spinner /></div>
+          <div style={{ backgroundColor: color.bg, borderRadius: 16, padding: 32 }}><Spinner /></div>
         </div>
       )}
     </div>
@@ -895,8 +896,8 @@ export function OutreachSearch() {
 function ToggleChip({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
   return (
     <button onClick={onClick} style={{
-      padding: '10px 14px', borderRadius: 10, border: `2px solid ${active ? '#1a56db' : '#e2e8f0'}`,
-      backgroundColor: active ? '#eff6ff' : '#fff', color: active ? '#1a56db' : '#475569',
+      padding: '10px 14px', borderRadius: 10, border: `2px solid ${active ? color.primary : color.border}`,
+      backgroundColor: active ? color.bgHighlight : color.bg, color: active ? color.primary : color.textTertiary,
       cursor: 'pointer', fontSize: text.base, fontWeight: active ? weight.semibold : weight.medium, minHeight: 44,
       display: 'flex', alignItems: 'center', gap: 4, transition: 'all 0.12s',
     }}>{label}</button>
@@ -907,8 +908,8 @@ function Badge({ ok, yes, no }: { ok: boolean; yes: string; no: string }) {
   return (
     <span style={{
       padding: '6px 12px', borderRadius: 8, fontSize: text.sm, fontWeight: weight.semibold,
-      backgroundColor: ok ? '#f0fdf4' : '#fef2f2', color: ok ? '#166534' : '#991b1b',
-      border: `1px solid ${ok ? '#bbf7d0' : '#fecaca'}`,
+      backgroundColor: ok ? color.successBg : color.errorBg, color: ok ? color.success : color.error,
+      border: `1px solid ${ok ? color.successBorder : color.errorBorder}`,
     }}>{ok ? yes : no}</span>
   );
 }
@@ -916,7 +917,7 @@ function Badge({ ok, yes, no }: { ok: boolean; yes: string; no: string }) {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div style={{ marginBottom: 22 }}>
-      <h3 style={{ fontSize: text.xs, fontWeight: weight.bold, color: '#475569', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{title}</h3>
+      <h3 style={{ fontSize: text.xs, fontWeight: weight.bold, color: color.textTertiary, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{title}</h3>
       {children}
     </div>
   );
@@ -924,9 +925,9 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 function Spinner() {
   return (
-    <div style={{ textAlign: 'center', padding: 32, color: '#6b7280' }}>
+    <div style={{ textAlign: 'center', padding: 32, color: color.textMuted }}>
       <div style={{
-        width: 32, height: 32, border: '3px solid #e2e8f0', borderTopColor: '#1a56db',
+        width: 32, height: 32, border: `3px solid ${color.border}`, borderTopColor: color.primary,
         borderRadius: '50%', animation: 'fabt-spin 0.7s linear infinite', margin: '0 auto 10px',
       }} />
       <style>{`@keyframes fabt-spin { to { transform: rotate(360deg); } }`}</style>

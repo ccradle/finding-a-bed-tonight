@@ -4,6 +4,7 @@ import { FormattedMessage, useIntl } from 'react-intl';
 import { useAuth } from '../auth/useAuth';
 import { getDefaultRouteForRoles } from '../auth/AuthGuard';
 import { text, weight } from '../theme/typography';
+import { color } from '../theme/colors';
 import { api, ApiError } from '../services/api';
 
 interface OAuth2Provider {
@@ -116,13 +117,13 @@ export function LoginPage() {
         justifyContent: 'center',
         alignItems: 'center',
         minHeight: '100vh',
-        backgroundColor: '#f3f4f6',
+        backgroundColor: color.bgTertiary,
         padding: '20px',
       }}
     >
       <div
         style={{
-          backgroundColor: '#ffffff',
+          backgroundColor: color.bg,
           borderRadius: '12px',
           padding: '40px',
           width: '100%',
@@ -136,7 +137,7 @@ export function LoginPage() {
             fontWeight: weight.bold,
             textAlign: 'center',
             marginBottom: '8px',
-            color: '#1a56db',
+            color: color.primaryText,
           }}
         >
           <FormattedMessage id="app.name" />
@@ -147,7 +148,7 @@ export function LoginPage() {
             fontWeight: weight.medium,
             textAlign: 'center',
             marginBottom: '24px',
-            color: '#475569',
+            color: color.textTertiary,
             fontStyle: 'italic',
           }}
         >
@@ -159,7 +160,7 @@ export function LoginPage() {
             fontWeight: weight.medium,
             textAlign: 'center',
             marginBottom: '32px',
-            color: '#6b7280',
+            color: color.textMuted,
           }}
         >
           <FormattedMessage id="login.title" />
@@ -168,8 +169,8 @@ export function LoginPage() {
         {error && (
           <div
             style={{
-              backgroundColor: '#fef2f2',
-              color: '#991b1b',
+              backgroundColor: color.errorBg,
+              color: color.error,
               padding: '12px 16px',
               borderRadius: '8px',
               marginBottom: '20px',
@@ -185,7 +186,7 @@ export function LoginPage() {
           <div style={{ marginBottom: '16px' }}>
             <label
               htmlFor="tenant"
-              style={{ display: 'block', marginBottom: '6px', fontSize: text.base, fontWeight: weight.medium, color: '#374151' }}
+              style={{ display: 'block', marginBottom: '6px', fontSize: text.base, fontWeight: weight.medium, color: color.textSecondary }}
             >
               <FormattedMessage id="login.tenant" />
             </label>
@@ -200,7 +201,7 @@ export function LoginPage() {
                 width: '100%',
                 padding: '12px',
                 borderRadius: '8px',
-                border: '1px solid #d1d5db',
+                border: `1px solid ${color.borderMedium}`,
                 fontSize: text.md,
                 minHeight: '44px',
                 boxSizing: 'border-box',
@@ -211,7 +212,7 @@ export function LoginPage() {
           <div style={{ marginBottom: '16px' }}>
             <label
               htmlFor="email"
-              style={{ display: 'block', marginBottom: '6px', fontSize: text.base, fontWeight: weight.medium, color: '#374151' }}
+              style={{ display: 'block', marginBottom: '6px', fontSize: text.base, fontWeight: weight.medium, color: color.textSecondary }}
             >
               <FormattedMessage id="login.email" />
             </label>
@@ -226,7 +227,7 @@ export function LoginPage() {
                 width: '100%',
                 padding: '12px',
                 borderRadius: '8px',
-                border: '1px solid #d1d5db',
+                border: `1px solid ${color.borderMedium}`,
                 fontSize: text.md,
                 minHeight: '44px',
                 boxSizing: 'border-box',
@@ -237,7 +238,7 @@ export function LoginPage() {
           <div style={{ marginBottom: '24px' }}>
             <label
               htmlFor="password"
-              style={{ display: 'block', marginBottom: '6px', fontSize: text.base, fontWeight: weight.medium, color: '#374151' }}
+              style={{ display: 'block', marginBottom: '6px', fontSize: text.base, fontWeight: weight.medium, color: color.textSecondary }}
             >
               <FormattedMessage id="login.password" />
             </label>
@@ -252,7 +253,7 @@ export function LoginPage() {
                 width: '100%',
                 padding: '12px',
                 borderRadius: '8px',
-                border: '1px solid #d1d5db',
+                border: `1px solid ${color.borderMedium}`,
                 fontSize: text.md,
                 minHeight: '44px',
                 boxSizing: 'border-box',
@@ -267,8 +268,8 @@ export function LoginPage() {
             style={{
               width: '100%',
               padding: '14px',
-              backgroundColor: loading ? '#93c5fd' : '#1a56db',
-              color: '#ffffff',
+              backgroundColor: loading ? color.primaryDisabled : color.primary,
+              color: color.textInverse,
               border: 'none',
               borderRadius: '8px',
               fontSize: text.md,
@@ -291,11 +292,11 @@ export function LoginPage() {
                 marginBottom: '16px',
               }}
             >
-              <div style={{ flex: 1, height: '1px', backgroundColor: '#e5e7eb' }} />
-              <span style={{ fontSize: text.sm, color: '#9ca3af' }}>
+              <div style={{ flex: 1, height: '1px', backgroundColor: color.border }} />
+              <span style={{ fontSize: text.sm, color: color.textMuted }}>
                 <FormattedMessage id="login.oauth.divider" />
               </span>
-              <div style={{ flex: 1, height: '1px', backgroundColor: '#e5e7eb' }} />
+              <div style={{ flex: 1, height: '1px', backgroundColor: color.border }} />
             </div>
             {oauthProviders.map((provider) => {
               const isGoogle = provider.providerName.toLowerCase().includes('google');
@@ -309,7 +310,7 @@ export function LoginPage() {
                     padding: '12px 16px',
                     backgroundColor: isGoogle ? '#ffffff' : isMicrosoft ? '#2f2f2f' : '#ffffff',
                     color: isGoogle ? '#3c4043' : isMicrosoft ? '#ffffff' : '#374151',
-                    border: isGoogle ? '1px solid #dadce0' : isMicrosoft ? 'none' : '1px solid #d1d5db',
+                    border: isGoogle ? '1px solid #dadce0' : isMicrosoft ? 'none' : `1px solid ${color.borderMedium}`,
                     borderRadius: '8px',
                     fontSize: text.base,
                     fontWeight: weight.medium,

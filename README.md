@@ -59,25 +59,25 @@ Full setup guide: [For Developers](docs/FOR-DEVELOPERS.md#prerequisites)
 | Backend | Java 25, Spring Boot 4.0, Spring MVC, Spring Data JDBC, Virtual Threads |
 | Database | PostgreSQL 16, Flyway (29 migrations), Row Level Security (DV shelters) |
 | Frontend | React 19, Vite, TypeScript, Workbox PWA, react-intl (EN/ES), CSS custom properties design tokens |
-| Testing | JUnit 5, Testcontainers, ArchUnit (290 tests), Playwright (159 UI tests), Karate (26 API scenarios), Gatling (5 simulations) |
+| Testing | JUnit 5, Testcontainers, ArchUnit (296 tests), Playwright (165+ UI tests), Karate (26 API scenarios), Gatling (5 simulations) |
 | Infra | Docker, GitHub Actions CI/CD + E2E pipeline, Terraform (3 tiers) |
 
 ---
 
 ## What's Complete
 
-**Current version: v0.20.0** — 32 archived OpenSpec changes, 78 specs, 13 modules.
+**Current version: v0.21.0** — 33 archived OpenSpec changes, 82 specs, 13 modules.
 
 - Real-time bed search with freshness indicators and constraint filters
 - Soft-hold reservations with configurable hold duration (default 90 min)
 - Self-service password change and admin-initiated password reset (NIST 800-63B, JWT invalidation)
 - DV shelter protection: zero-PII opaque referral, database-level Row Level Security, address redaction
 - HMIS bridge: automated push to Clarity, WellSky, ClientTrack with DV aggregation
-- CoC analytics: utilization trends, demand signals, HIC/PIT export (designed to align with HUD format)
+- CoC analytics: utilization trends, demand signals, HIC/PIT export (HUD Inventory.csv FY2024+ format)
 - WCAG 2.1 AA: self-assessed ACR, axe-core CI gate, session timeout warning, virtual screen reader tests
 - OAuth2 SSO: Google, Microsoft, Keycloak with per-tenant provider management
 - Security hardening: JWT validation, rate limiting, security headers, OWASP ZAP baseline
-- Typography system: CSS custom properties design tokens, consistent rendering across platforms
+- Design token system: typography + color tokens as CSS custom properties, automatic dark mode (prefers-color-scheme), WCAG AA verified in both modes
 - SSE real-time notifications: bell UI with WCAG disclosure pattern, connection status banner, auto-refresh on events
 - Admin user management: edit drawer, deactivation/reactivation, JWT token versioning, audit trail
 - Shelter edit: admin and coordinator edit paths, DV safeguards (role-gated, confirmation dialog, audit-logged), 211 CSV import with preview

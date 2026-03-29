@@ -5,6 +5,7 @@ import { api, ApiError } from '../services/api';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { enqueueAction } from '../services/offlineQueue';
 import { text, weight } from '../theme/typography';
+import { color } from '../theme/colors';
 
 const POPULATION_TYPES = [
   'SINGLE_ADULT',
@@ -200,7 +201,7 @@ export function ShelterForm({ initialData, readOnlyFields = [], onSaveComplete }
     width: '100%',
     padding: '12px',
     borderRadius: '8px',
-    border: '1px solid #d1d5db',
+    border: `1px solid ${color.borderMedium}`,
     fontSize: text.md,
     minHeight: '44px',
     boxSizing: 'border-box',
@@ -208,8 +209,8 @@ export function ShelterForm({ initialData, readOnlyFields = [], onSaveComplete }
 
   const disabledInputStyle: React.CSSProperties = {
     ...inputStyle,
-    backgroundColor: '#f3f4f6',
-    color: '#6b7280',
+    backgroundColor: color.bgTertiary,
+    color: color.textMuted,
     cursor: 'not-allowed',
   };
 
@@ -218,7 +219,7 @@ export function ShelterForm({ initialData, readOnlyFields = [], onSaveComplete }
     marginBottom: '6px',
     fontSize: text.base,
     fontWeight: weight.medium,
-    color: '#374151',
+    color: color.textSecondary,
   };
 
   const fieldGroup: React.CSSProperties = {
@@ -230,7 +231,7 @@ export function ShelterForm({ initialData, readOnlyFields = [], onSaveComplete }
     alignItems: 'center',
     gap: '8px',
     fontSize: text.base,
-    color: '#374151',
+    color: color.textSecondary,
     cursor: 'pointer',
     minHeight: '44px',
     padding: '4px 0',
@@ -238,15 +239,15 @@ export function ShelterForm({ initialData, readOnlyFields = [], onSaveComplete }
 
   return (
     <div style={{ maxWidth: '680px', margin: '0 auto' }}>
-      <h2 style={{ fontSize: text['2xl'], fontWeight: weight.bold, color: '#111827', marginBottom: '24px' }}>
+      <h2 style={{ fontSize: text['2xl'], fontWeight: weight.bold, color: color.text, marginBottom: '24px' }}>
         <FormattedMessage id={isEditMode ? 'shelter.edit' : 'shelter.create'} />
       </h2>
 
       {error && (
         <div
           style={{
-            backgroundColor: '#fef2f2',
-            color: '#991b1b',
+            backgroundColor: color.errorBg,
+            color: color.error,
             padding: '12px 16px',
             borderRadius: '8px',
             marginBottom: '20px',
@@ -409,7 +410,7 @@ export function ShelterForm({ initialData, readOnlyFields = [], onSaveComplete }
                   height: '28px',
                   borderRadius: '14px',
                   border: 'none',
-                  backgroundColor: dvShelter ? '#7c3aed' : '#d1d5db',
+                  backgroundColor: dvShelter ? color.dv : color.borderMedium,
                   cursor: isFieldReadOnly('dvShelter') ? 'not-allowed' : 'pointer',
                   position: 'relative',
                   transition: 'background-color 0.2s',
@@ -423,14 +424,14 @@ export function ShelterForm({ initialData, readOnlyFields = [], onSaveComplete }
                   width: '24px',
                   height: '24px',
                   borderRadius: '50%',
-                  backgroundColor: '#fff',
+                  backgroundColor: color.bg,
                   transition: 'left 0.2s',
                 }} />
               </button>
               {isFieldReadOnly('dvShelter') && (
                 <span
                   data-testid="dv-readonly-tooltip"
-                  style={{ fontSize: text.xs, color: '#6b7280', fontStyle: 'italic' }}
+                  style={{ fontSize: text.xs, color: color.textMuted, fontStyle: 'italic' }}
                 >
                   <FormattedMessage id="shelter.dvFlagDisabled" />
                 </span>
@@ -459,17 +460,17 @@ export function ShelterForm({ initialData, readOnlyFields = [], onSaveComplete }
             onKeyDown={(e) => { if (e.key === 'Escape') cancelDvChange(); }}
           >
             <div style={{
-              backgroundColor: '#fff',
+              backgroundColor: color.bg,
               borderRadius: '12px',
               padding: '24px',
               maxWidth: '480px',
               width: '90%',
               boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
             }}>
-              <h3 id="dv-confirm-title" style={{ fontSize: text.lg, fontWeight: weight.bold, color: '#991b1b', marginTop: 0 }}>
+              <h3 id="dv-confirm-title" style={{ fontSize: text.lg, fontWeight: weight.bold, color: color.error, marginTop: 0 }}>
                 <FormattedMessage id="shelter.dvConfirmTitle" />
               </h3>
-              <p id="dv-confirm-desc" style={{ fontSize: text.base, color: '#374151', lineHeight: 1.6 }}>
+              <p id="dv-confirm-desc" style={{ fontSize: text.base, color: color.textSecondary, lineHeight: 1.6 }}>
                 <FormattedMessage id="shelter.dvConfirmMessage" />
               </p>
               <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '20px' }}>
@@ -480,9 +481,9 @@ export function ShelterForm({ initialData, readOnlyFields = [], onSaveComplete }
                   style={{
                     padding: '10px 20px',
                     borderRadius: '8px',
-                    border: '1px solid #d1d5db',
-                    backgroundColor: '#fff',
-                    color: '#374151',
+                    border: `1px solid ${color.borderMedium}`,
+                    backgroundColor: color.bg,
+                    color: color.textSecondary,
                     cursor: 'pointer',
                     fontSize: text.base,
                     minHeight: '44px',
@@ -499,8 +500,8 @@ export function ShelterForm({ initialData, readOnlyFields = [], onSaveComplete }
                     padding: '10px 20px',
                     borderRadius: '8px',
                     border: 'none',
-                    backgroundColor: '#991b1b',
-                    color: '#fff',
+                    backgroundColor: color.error,
+                    color: color.textInverse,
                     cursor: 'pointer',
                     fontSize: text.base,
                     fontWeight: weight.semibold,
@@ -515,7 +516,7 @@ export function ShelterForm({ initialData, readOnlyFields = [], onSaveComplete }
         )}
 
         {/* Constraints */}
-        <h3 style={{ fontSize: text.md, fontWeight: weight.semibold, color: '#111827', marginBottom: '12px', marginTop: '24px' }}>
+        <h3 style={{ fontSize: text.md, fontWeight: weight.semibold, color: color.text, marginBottom: '12px', marginTop: '24px' }}>
           Requirements &amp; Accessibility
         </h3>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 16px', marginBottom: '16px' }}>
@@ -546,7 +547,7 @@ export function ShelterForm({ initialData, readOnlyFields = [], onSaveComplete }
         </div>
 
         {/* Population Types Served */}
-        <h3 style={{ fontSize: text.md, fontWeight: weight.semibold, color: '#111827', marginBottom: '12px', marginTop: '24px' }}>
+        <h3 style={{ fontSize: text.md, fontWeight: weight.semibold, color: color.text, marginBottom: '12px', marginTop: '24px' }}>
           Population Types Served
         </h3>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '24px' }}>
@@ -559,10 +560,10 @@ export function ShelterForm({ initialData, readOnlyFields = [], onSaveComplete }
                 padding: '8px 16px',
                 borderRadius: '20px',
                 border: populationTypesServed.includes(type)
-                  ? '2px solid #1a56db'
-                  : '1px solid #d1d5db',
-                backgroundColor: populationTypesServed.includes(type) ? '#dbeafe' : '#ffffff',
-                color: populationTypesServed.includes(type) ? '#1a56db' : '#374151',
+                  ? `2px solid ${color.primaryText}`
+                  : `1px solid ${color.borderMedium}`,
+                backgroundColor: populationTypesServed.includes(type) ? color.primaryLight : color.bg,
+                color: populationTypesServed.includes(type) ? color.primary : color.textSecondary,
                 cursor: 'pointer',
                 fontSize: text.sm,
                 fontWeight: weight.medium,
@@ -575,7 +576,7 @@ export function ShelterForm({ initialData, readOnlyFields = [], onSaveComplete }
         </div>
 
         {/* Capacities */}
-        <h3 style={{ fontSize: text.md, fontWeight: weight.semibold, color: '#111827', marginBottom: '12px', marginTop: '24px' }}>
+        <h3 style={{ fontSize: text.md, fontWeight: weight.semibold, color: color.text, marginBottom: '12px', marginTop: '24px' }}>
           Bed Capacities
         </h3>
         {capacities.map((cap, index) => (
@@ -619,9 +620,9 @@ export function ShelterForm({ initialData, readOnlyFields = [], onSaveComplete }
               onClick={() => removeCapacity(index)}
               style={{
                 padding: '12px',
-                backgroundColor: '#fef2f2',
-                color: '#991b1b',
-                border: '1px solid #fecaca',
+                backgroundColor: color.errorBg,
+                color: color.error,
+                border: `1px solid ${color.errorBorder}`,
                 borderRadius: '8px',
                 cursor: 'pointer',
                 minHeight: '44px',
@@ -638,9 +639,9 @@ export function ShelterForm({ initialData, readOnlyFields = [], onSaveComplete }
           onClick={addCapacity}
           style={{
             padding: '10px 20px',
-            backgroundColor: '#f9fafb',
-            color: '#374151',
-            border: '1px dashed #d1d5db',
+            backgroundColor: color.bgSecondary,
+            color: color.textSecondary,
+            border: `1px dashed ${color.borderMedium}`,
             borderRadius: '8px',
             cursor: 'pointer',
             fontSize: text.base,
@@ -659,8 +660,8 @@ export function ShelterForm({ initialData, readOnlyFields = [], onSaveComplete }
             style={{
               width: '100%',
               padding: '14px',
-              backgroundColor: loading ? '#93c5fd' : '#1a56db',
-              color: '#ffffff',
+              backgroundColor: loading ? color.primaryDisabled : color.primary,
+              color: color.textInverse,
               border: 'none',
               borderRadius: '8px',
               fontSize: text.md,

@@ -33,7 +33,13 @@ The platform is functional today with these capabilities:
 
 ## HUD Reporting
 
-The analytics module includes HIC/PIT data export. This is designed to align with HUD's reporting format and produce data that supports your annual submissions.
+The analytics module includes HIC/PIT data export aligned with the HUD Inventory.csv schema (FY2024+).
+
+**HIC export columns:** InventoryID, ProjectID, CoCCode, HouseholdType, Availability, UnitInventory, BedInventory, veteran bed breakdown (CHVet/YouthVet/Vet/CHYouth/Youth/CH/Other), ESBedType, InventoryStartDate, InventoryEndDate. All coded fields use HUD integer values (e.g., HouseholdType: 1=without children, 3=adult+child, 4=children only).
+
+**PIT export:** Working document for CoC administrators showing sheltered counts by household type. Note: PIT data is submitted via direct entry in HDX 2.0, not CSV upload. This CSV supports your preparation workflow.
+
+**DV shelters:** Aggregated in both exports per HUD guidance. Suppressed entirely if fewer than 3 DV shelters exist (small-cell protection). DV shelters report HMISParticipation=2 (Comparable Database).
 
 **Important clarification:** The export is designed to support HUD reporting requirements. It has not been certified by HUD. You should review exported data against your existing submission process before relying on it as your sole source.
 

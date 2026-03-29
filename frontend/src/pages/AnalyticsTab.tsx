@@ -3,6 +3,7 @@ import { FormattedMessage } from 'react-intl';
 import { api } from '../services/api';
 import { AuthContext } from '../auth/AuthContext';
 import { text, weight } from '../theme/typography';
+import { color } from '../theme/colors';
 
 // Lazy-load Recharts (~200KB) — only when admin opens Analytics tab.
 // Outreach workers on phones never download it.
@@ -80,26 +81,26 @@ interface GeographicShelter {
 // --- Styles ---
 
 const sectionStyle: React.CSSProperties = {
-  background: '#fff', borderRadius: 12, padding: 20, marginBottom: 16,
-  border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+  background: color.bg, borderRadius: 12, padding: 20, marginBottom: 16,
+  border: `1px solid ${color.border}`, boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
 };
 
 const sectionTitleStyle: React.CSSProperties = {
-  fontSize: text.md, fontWeight: weight.bold, color: '#0f172a', margin: '0 0 12px',
+  fontSize: text.md, fontWeight: weight.bold, color: color.text, margin: '0 0 12px',
 };
 
 const metricCardStyle: React.CSSProperties = {
   display: 'flex', flexDirection: 'column', alignItems: 'center',
-  padding: 16, borderRadius: 10, backgroundColor: '#f8fafc',
-  border: '1px solid #e2e8f0', minWidth: 120,
+  padding: 16, borderRadius: 10, backgroundColor: color.bgSecondary,
+  border: `1px solid ${color.border}`, minWidth: 120,
 };
 
 const metricValueStyle: React.CSSProperties = {
-  fontSize: text['3xl'], fontWeight: weight.extrabold, color: '#0f172a',
+  fontSize: text['3xl'], fontWeight: weight.extrabold, color: color.text,
 };
 
 const metricLabelStyle: React.CSSProperties = {
-  fontSize: text.xs, color: '#475569', fontWeight: weight.semibold, marginTop: 4,
+  fontSize: text.xs, color: color.textTertiary, fontWeight: weight.semibold, marginTop: 4,
 };
 
 const tableStyle: React.CSSProperties = {
@@ -107,18 +108,18 @@ const tableStyle: React.CSSProperties = {
 };
 
 const thStyle: React.CSSProperties = {
-  textAlign: 'left', padding: '10px 14px', fontWeight: weight.bold, color: '#0f172a',
-  borderBottom: '2px solid #e2e8f0', fontSize: text.xs, textTransform: 'uppercase',
+  textAlign: 'left', padding: '10px 14px', fontWeight: weight.bold, color: color.text,
+  borderBottom: `2px solid ${color.border}`, fontSize: text.xs, textTransform: 'uppercase',
   letterSpacing: '0.04em',
 };
 
 const tdFn = (index: number): React.CSSProperties => ({
-  padding: '12px 14px', borderBottom: '1px solid #f1f5f9',
-  backgroundColor: index % 2 === 0 ? '#fff' : '#f9fafb', color: '#0f172a',
+  padding: '12px 14px', borderBottom: `1px solid ${color.borderLight}`,
+  backgroundColor: index % 2 === 0 ? color.bg : color.bgSecondary, color: color.text,
 });
 
 const primaryBtnStyle: React.CSSProperties = {
-  padding: '10px 18px', backgroundColor: '#1a56db', color: '#fff',
+  padding: '10px 18px', backgroundColor: color.primary, color: color.textInverse,
   border: 'none', borderRadius: 10, fontSize: text.base, fontWeight: weight.bold,
   cursor: 'pointer', minHeight: 44,
 };
@@ -130,9 +131,9 @@ const badgeStyle = (color: string, bg: string): React.CSSProperties => ({
 
 // WCAG 1.4.1 — status label so color is not the sole indicator
 function ragColor(utilization: number): { color: string; bg: string; label: string } {
-  if (utilization >= 1.05) return { color: '#991b1b', bg: '#fef2f2', label: 'Over' };
-  if (utilization >= 0.65) return { color: '#166534', bg: '#f0fdf4', label: 'OK' };
-  return { color: '#92400e', bg: '#fffbeb', label: 'Low' };
+  if (utilization >= 1.05) return { color: color.error, bg: color.errorBg, label: 'Over' };
+  if (utilization >= 0.65) return { color: color.success, bg: color.successBg, label: 'OK' };
+  return { color: color.warning, bg: color.warningBg, label: 'Low' };
 }
 
 // --- Main Analytics Tab Component ---
@@ -152,8 +153,8 @@ export default function AnalyticsTab() {
           onClick={() => setSection('dashboard')}
           style={{
             ...primaryBtnStyle,
-            backgroundColor: section === 'dashboard' ? '#1a56db' : '#e2e8f0',
-            color: section === 'dashboard' ? '#fff' : '#475569',
+            backgroundColor: section === 'dashboard' ? color.primary : color.border,
+            color: section === 'dashboard' ? color.textInverse : color.textTertiary,
           }}
         >
           <FormattedMessage id="analytics.dashboard" defaultMessage="Dashboard" />
@@ -163,8 +164,8 @@ export default function AnalyticsTab() {
           onClick={() => setSection('batchJobs')}
           style={{
             ...primaryBtnStyle,
-            backgroundColor: section === 'batchJobs' ? '#1a56db' : '#e2e8f0',
-            color: section === 'batchJobs' ? '#fff' : '#475569',
+            backgroundColor: section === 'batchJobs' ? color.primary : color.border,
+            color: section === 'batchJobs' ? color.textInverse : color.textTertiary,
           }}
         >
           <FormattedMessage id="analytics.batchJobs" defaultMessage="Batch Jobs" />
@@ -186,6 +187,33 @@ function DashboardSection() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [exportDate, setExportDate] = useState(new Date().toISOString().split('T')[0]);
+  const [downloading, setDownloading] = useState<string | null>(null);
+
+  const handleDownloadCsv = async (type: 'hic' | 'pit') => {
+    setDownloading(type);
+    try {
+      const token = localStorage.getItem('fabt_access_token');
+      const res = await fetch(`/api/v1/analytics/${type}?date=${exportDate}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error(`Export failed: ${res.status}`);
+      const blob = await res.blob();
+      const disposition = res.headers.get('Content-Disposition');
+      const filename = disposition?.match(/filename=(.+)/)?.[1] || `${type}-${exportDate}.csv`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error(`Failed to download ${type.toUpperCase()} CSV:`, err);
+    } finally {
+      setDownloading(null);
+    }
+  };
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -212,8 +240,8 @@ function DashboardSection() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  if (loading) return <div style={{ textAlign: 'center', padding: 40, color: '#475569' }}>Loading analytics...</div>;
-  if (error) return <div style={{ padding: 16, color: '#991b1b', backgroundColor: '#fef2f2', borderRadius: 8 }}>{error}</div>;
+  if (loading) return <div style={{ textAlign: 'center', padding: 40, color: color.textTertiary }}>Loading analytics...</div>;
+  if (error) return <div style={{ padding: 16, color: color.error, backgroundColor: color.errorBg, borderRadius: 8 }}>{error}</div>;
 
   return (
     <>
@@ -226,7 +254,7 @@ function DashboardSection() {
           <div style={metricCardStyle} data-testid="metric-utilization">
             <span style={{
               ...metricValueStyle,
-              color: utilization ? ragColor(utilization.avgUtilization).color : '#0f172a',
+              color: utilization ? ragColor(utilization.avgUtilization).color : color.text,
             }}>
               {utilization ? `${(utilization.avgUtilization * 100).toFixed(1)}%` : '—'}
             </span>
@@ -241,7 +269,7 @@ function DashboardSection() {
             </span>
           </div>
           <div style={metricCardStyle} data-testid="metric-zero-results">
-            <span style={{ ...metricValueStyle, color: (demand?.zeroResultSearches ?? 0) > 0 ? '#991b1b' : '#166534' }}>
+            <span style={{ ...metricValueStyle, color: (demand?.zeroResultSearches ?? 0) > 0 ? color.error : color.success }}>
               {demand?.zeroResultSearches ?? '—'}
             </span>
             <span style={metricLabelStyle}>
@@ -257,7 +285,7 @@ function DashboardSection() {
             </span>
           </div>
           <div style={metricCardStyle} data-testid="metric-expiry-rate">
-            <span style={{ ...metricValueStyle, color: (demand?.reservations?.expiryRate ?? 0) > 0.3 ? '#991b1b' : '#0f172a' }}>
+            <span style={{ ...metricValueStyle, color: (demand?.reservations?.expiryRate ?? 0) > 0.3 ? color.error : color.text }}>
               {demand?.reservations ? `${(demand.reservations.expiryRate * 100).toFixed(1)}%` : '—'}
             </span>
             <span style={metricLabelStyle}>
@@ -273,11 +301,11 @@ function DashboardSection() {
           <FormattedMessage id="analytics.utilizationTrends" defaultMessage="Utilization Trends" />
         </h3>
         {utilization && utilization.details.length > 0 ? (
-          <Suspense fallback={<div style={{ height: 250, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#475569' }}>Loading chart...</div>}>
+          <Suspense fallback={<div style={{ height: 250, display: 'flex', alignItems: 'center', justifyContent: 'center', color: color.textTertiary }}>Loading chart...</div>}>
             <UtilizationChart data={utilization.details} />
           </Suspense>
         ) : (
-          <div style={{ padding: 20, textAlign: 'center', color: '#475569' }}>
+          <div style={{ padding: 20, textAlign: 'center', color: color.textTertiary }}>
             <FormattedMessage id="analytics.noData" defaultMessage="No utilization data available for this period" />
           </div>
         )}
@@ -321,7 +349,7 @@ function DashboardSection() {
             </table>
           </div>
         ) : (
-          <div style={{ padding: 20, textAlign: 'center', color: '#475569' }}>
+          <div style={{ padding: 20, textAlign: 'center', color: color.textTertiary }}>
             <FormattedMessage id="analytics.noShelters" defaultMessage="No shelter data available" />
           </div>
         )}
@@ -337,26 +365,26 @@ function DashboardSection() {
             type="date"
             value={exportDate}
             onChange={e => setExportDate(e.target.value)}
-            style={{ padding: '10px 14px', borderRadius: 10, border: '2px solid #e2e8f0', fontSize: text.base, minHeight: 44 }}
+            style={{ padding: '10px 14px', borderRadius: 10, border: `2px solid ${color.border}`, fontSize: text.base, minHeight: 44 }}
             data-testid="export-date-picker"
             aria-label="Export date for HIC/PIT report"
           />
-          <a
-            href={`/api/v1/analytics/hic?date=${exportDate}`}
-            download
-            style={{ ...primaryBtnStyle, textDecoration: 'none', display: 'inline-block' }}
+          <button
+            onClick={() => handleDownloadCsv('hic')}
+            disabled={downloading === 'hic'}
+            style={primaryBtnStyle}
             data-testid="download-hic-btn"
           >
-            <FormattedMessage id="analytics.downloadHic" defaultMessage="Download HIC CSV" />
-          </a>
-          <a
-            href={`/api/v1/analytics/pit?date=${exportDate}`}
-            download
-            style={{ ...primaryBtnStyle, textDecoration: 'none', display: 'inline-block', backgroundColor: '#047857' }}
+            {downloading === 'hic' ? '...' : <FormattedMessage id="analytics.downloadHic" defaultMessage="Download HIC CSV" />}
+          </button>
+          <button
+            onClick={() => handleDownloadCsv('pit')}
+            disabled={downloading === 'pit'}
+            style={{ ...primaryBtnStyle, backgroundColor: color.success }}
             data-testid="download-pit-btn"
           >
-            <FormattedMessage id="analytics.downloadPit" defaultMessage="Download PIT CSV" />
-          </a>
+            {downloading === 'pit' ? '...' : <FormattedMessage id="analytics.downloadPit" defaultMessage="Download PIT CSV" />}
+          </button>
         </div>
       </div>
     </>
@@ -387,7 +415,7 @@ function UtilizationChart({ data }: { data: Array<{ summaryDate: string; avgUtil
     <div>
       <button
         onClick={() => setShowTable(!showTable)}
-        style={{ fontSize: text.xs, color: '#1a56db', background: 'none', border: 'none', cursor: 'pointer', marginBottom: 8, textDecoration: 'underline' }}
+        style={{ fontSize: text.xs, color: color.primaryText, background: 'none', border: 'none', cursor: 'pointer', marginBottom: 8, textDecoration: 'underline' }}
         aria-label={showTable ? 'Show as chart' : 'Show as table'}
       >
         {showTable ? 'Show as chart' : 'Show as table'}
@@ -396,15 +424,15 @@ function UtilizationChart({ data }: { data: Array<{ summaryDate: string; avgUtil
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: text.xs }}>
           <thead>
             <tr>
-              <th style={{ textAlign: 'left', padding: '6px 10px', borderBottom: '2px solid #e2e8f0' }}>Date</th>
-              <th style={{ textAlign: 'right', padding: '6px 10px', borderBottom: '2px solid #e2e8f0' }}>Utilization</th>
+              <th style={{ textAlign: 'left', padding: '6px 10px', borderBottom: `2px solid ${color.border}` }}>Date</th>
+              <th style={{ textAlign: 'right', padding: '6px 10px', borderBottom: `2px solid ${color.border}` }}>Utilization</th>
             </tr>
           </thead>
           <tbody>
             {chartData.map(d => (
               <tr key={d.date}>
-                <td style={{ padding: '4px 10px', borderBottom: '1px solid #f1f5f9' }}>{d.date}</td>
-                <td style={{ padding: '4px 10px', borderBottom: '1px solid #f1f5f9', textAlign: 'right' }}>{d.utilization}%</td>
+                <td style={{ padding: '4px 10px', borderBottom: `1px solid ${color.borderLight}` }}>{d.date}</td>
+                <td style={{ padding: '4px 10px', borderBottom: `1px solid ${color.borderLight}`, textAlign: 'right' }}>{d.utilization}%</td>
               </tr>
             ))}
           </tbody>
@@ -415,7 +443,7 @@ function UtilizationChart({ data }: { data: Array<{ summaryDate: string; avgUtil
             <LazyXAxis dataKey="date" tick={{ fontSize: text['2xs'] }} />
             <LazyYAxis tick={{ fontSize: text['2xs'] }} domain={[0, 120]} unit="%" />
             <LazyTooltip />
-            <LazyLine type="monotone" dataKey="utilization" stroke="#1a56db" strokeWidth={2} dot={false}
+            <LazyLine type="monotone" dataKey="utilization" stroke={color.primary} strokeWidth={2} dot={false}
               isAnimationActive={!prefersReducedMotion} />
           </LazyLineChart>
         </LazyResponsiveContainer>
@@ -499,8 +527,8 @@ function BatchJobsSection({ isPlatformAdmin }: { isPlatformAdmin: boolean }) {
     }
   };
 
-  if (loading) return <div style={{ textAlign: 'center', padding: 40, color: '#475569' }}>Loading batch jobs...</div>;
-  if (error) return <div style={{ padding: 16, color: '#991b1b', backgroundColor: '#fef2f2', borderRadius: 8 }}>{error}</div>;
+  if (loading) return <div style={{ textAlign: 'center', padding: 40, color: color.textTertiary }}>Loading batch jobs...</div>;
+  if (error) return <div style={{ padding: 16, color: color.error, backgroundColor: color.errorBg, borderRadius: 8 }}>{error}</div>;
 
   return (
     <>
@@ -525,20 +553,20 @@ function BatchJobsSection({ isPlatformAdmin }: { isPlatformAdmin: boolean }) {
                 <td style={tdFn(i)}>
                   <button
                     onClick={() => loadExecutions(job.jobName)}
-                    style={{ background: 'none', border: 'none', color: '#1a56db', cursor: 'pointer', fontWeight: weight.semibold, fontSize: text.base }}
+                    style={{ background: 'none', border: 'none', color: color.primaryText, cursor: 'pointer', fontWeight: weight.semibold, fontSize: text.base }}
                     data-testid={`batch-job-expand-${job.jobName}`}
                   >
                     {job.jobName}
                   </button>
                 </td>
                 <td style={tdFn(i)}>
-                  <code style={{ fontSize: text.xs, backgroundColor: '#f1f5f9', padding: '2px 6px', borderRadius: 4 }}>
+                  <code style={{ fontSize: text.xs, backgroundColor: color.borderLight, padding: '2px 6px', borderRadius: 4 }}>
                     {job.cron}
                   </code>
                   {isPlatformAdmin && (
                     <button
                       onClick={() => setEditCron({ jobName: job.jobName, cron: job.cron })}
-                      style={{ marginLeft: 8, background: 'none', border: 'none', color: '#475569', cursor: 'pointer', fontSize: text.xs, minWidth: 44, minHeight: 44 }}
+                      style={{ marginLeft: 8, background: 'none', border: 'none', color: color.textTertiary, cursor: 'pointer', fontSize: text.xs, minWidth: 44, minHeight: 44 }}
                       data-testid={`batch-job-edit-cron-${job.jobName}`}
                       aria-label={`Edit schedule for ${job.jobName}`}
                     >
@@ -552,8 +580,8 @@ function BatchJobsSection({ isPlatformAdmin }: { isPlatformAdmin: boolean }) {
                       onClick={() => handleToggleEnabled(job.jobName, job.enabled)}
                       style={{
                         ...badgeStyle(
-                          job.enabled ? '#166534' : '#991b1b',
-                          job.enabled ? '#f0fdf4' : '#fef2f2'
+                          job.enabled ? color.success : color.error,
+                          job.enabled ? color.successBg : color.errorBg
                         ),
                         cursor: 'pointer', border: 'none',
                       }}
@@ -563,8 +591,8 @@ function BatchJobsSection({ isPlatformAdmin }: { isPlatformAdmin: boolean }) {
                     </button>
                   ) : (
                     <span style={badgeStyle(
-                      job.enabled ? '#166534' : '#991b1b',
-                      job.enabled ? '#f0fdf4' : '#fef2f2'
+                      job.enabled ? color.success : color.error,
+                      job.enabled ? color.successBg : color.errorBg
                     )}>
                       {job.enabled ? 'Enabled' : 'Disabled'}
                     </span>
@@ -573,8 +601,8 @@ function BatchJobsSection({ isPlatformAdmin }: { isPlatformAdmin: boolean }) {
                 <td style={tdFn(i)}>
                   {job.lastStatus ? (
                     <span style={badgeStyle(
-                      job.lastStatus === 'COMPLETED' ? '#166534' : '#991b1b',
-                      job.lastStatus === 'COMPLETED' ? '#f0fdf4' : '#fef2f2'
+                      job.lastStatus === 'COMPLETED' ? color.success : color.error,
+                      job.lastStatus === 'COMPLETED' ? color.successBg : color.errorBg
                     )}>
                       {job.lastStatus}
                     </span>
@@ -604,7 +632,7 @@ function BatchJobsSection({ isPlatformAdmin }: { isPlatformAdmin: boolean }) {
           backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center',
           zIndex: 1000,
         }} data-testid="edit-cron-modal">
-          <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: 400 }}>
+          <div style={{ background: color.bg, borderRadius: 16, padding: 24, width: 400 }}>
             <h3 style={{ margin: '0 0 16px' }}>
               <FormattedMessage id="analytics.editSchedule" defaultMessage="Edit Schedule" /> — {editCron.jobName}
             </h3>
@@ -612,11 +640,11 @@ function BatchJobsSection({ isPlatformAdmin }: { isPlatformAdmin: boolean }) {
               type="text"
               value={editCron.cron}
               onChange={e => setEditCron({ ...editCron, cron: e.target.value })}
-              style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: '2px solid #e2e8f0', fontSize: text.base, boxSizing: 'border-box' }}
+              style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: `2px solid ${color.border}`, fontSize: text.base, boxSizing: 'border-box' }}
               data-testid="edit-cron-input"
             />
             <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
-              <button onClick={() => setEditCron(null)} style={{ ...primaryBtnStyle, backgroundColor: '#e2e8f0', color: '#475569' }}>
+              <button onClick={() => setEditCron(null)} style={{ ...primaryBtnStyle, backgroundColor: color.border, color: color.textTertiary }}>
                 <FormattedMessage id="common.cancel" defaultMessage="Cancel" />
               </button>
               <button onClick={handleSaveCron} style={primaryBtnStyle} data-testid="save-cron-btn">
@@ -650,7 +678,7 @@ function BatchJobsSection({ isPlatformAdmin }: { isPlatformAdmin: boolean }) {
                     <td style={tdFn(i)}>
                       <button
                         onClick={() => setExpandedExec(expandedExec === exec.executionId ? null : exec.executionId)}
-                        style={{ background: 'none', border: 'none', color: '#1a56db', cursor: 'pointer', fontWeight: weight.semibold }}
+                        style={{ background: 'none', border: 'none', color: color.primaryText, cursor: 'pointer', fontWeight: weight.semibold }}
                         data-testid={`execution-expand-${exec.executionId}`}
                       >
                         #{exec.executionId}
@@ -658,8 +686,8 @@ function BatchJobsSection({ isPlatformAdmin }: { isPlatformAdmin: boolean }) {
                     </td>
                     <td style={tdFn(i)}>
                       <span style={badgeStyle(
-                        exec.status === 'COMPLETED' ? '#166534' : '#991b1b',
-                        exec.status === 'COMPLETED' ? '#f0fdf4' : '#fef2f2'
+                        exec.status === 'COMPLETED' ? color.success : color.error,
+                        exec.status === 'COMPLETED' ? color.successBg : color.errorBg
                       )}>
                         {exec.status}
                       </span>
@@ -670,7 +698,7 @@ function BatchJobsSection({ isPlatformAdmin }: { isPlatformAdmin: boolean }) {
                       {isPlatformAdmin && exec.status === 'FAILED' && (
                         <button
                           onClick={() => handleRestart(selectedJob, exec.executionId)}
-                          style={{ ...primaryBtnStyle, padding: '6px 12px', fontSize: text.xs, backgroundColor: '#dc2626' }}
+                          style={{ ...primaryBtnStyle, padding: '6px 12px', fontSize: text.xs, backgroundColor: color.errorMid }}
                           data-testid={`execution-restart-${exec.executionId}`}
                         >
                           <FormattedMessage id="analytics.restart" defaultMessage="Restart" />
@@ -681,7 +709,7 @@ function BatchJobsSection({ isPlatformAdmin }: { isPlatformAdmin: boolean }) {
                   {/* Step Detail */}
                   {expandedExec === exec.executionId && exec.steps.length > 0 && (
                     <tr key={`${exec.executionId}-steps`}>
-                      <td colSpan={5} style={{ padding: '8px 14px 16px', backgroundColor: '#f8fafc' }}>
+                      <td colSpan={5} style={{ padding: '8px 14px 16px', backgroundColor: color.bgSecondary }}>
                         <table style={{ ...tableStyle, fontSize: text.xs }}>
                           <thead>
                             <tr>
@@ -707,7 +735,7 @@ function BatchJobsSection({ isPlatformAdmin }: { isPlatformAdmin: boolean }) {
                           </tbody>
                         </table>
                         {exec.exitMessage && (
-                          <div style={{ marginTop: 8, padding: 8, backgroundColor: '#fef2f2', borderRadius: 6, fontSize: text.xs, color: '#991b1b' }}>
+                          <div style={{ marginTop: 8, padding: 8, backgroundColor: color.errorBg, borderRadius: 6, fontSize: text.xs, color: color.error }}>
                             {exec.exitMessage}
                           </div>
                         )}

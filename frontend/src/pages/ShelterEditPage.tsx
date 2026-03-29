@@ -5,6 +5,7 @@ import { api } from '../services/api';
 import { useAuth } from '../auth/useAuth';
 import { ShelterForm, type ShelterInitialData } from './ShelterForm';
 import { text } from '../theme/typography';
+import { color } from '../theme/colors';
 
 export function ShelterEditPage() {
   const { id } = useParams<{ id: string }>();
@@ -74,7 +75,7 @@ export function ShelterEditPage() {
 
   if (error || !initialData) {
     return (
-      <div style={{ textAlign: 'center', padding: '40px', color: '#991b1b', fontSize: text.base }}>
+      <div style={{ textAlign: 'center', padding: '40px', color: color.error, fontSize: text.base }}>
         {error || 'Shelter not found'}
       </div>
     );

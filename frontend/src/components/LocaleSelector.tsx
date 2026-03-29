@@ -1,4 +1,5 @@
 import { text } from '../theme/typography';
+import { color } from '../theme/colors';
 
 interface LocaleSelectorProps {
   locale: string;
@@ -8,8 +9,8 @@ interface LocaleSelectorProps {
 const selectStyle: React.CSSProperties = {
   padding: '8px 12px',
   borderRadius: '6px',
-  border: '1px solid #d1d5db',
-  backgroundColor: '#ffffff',
+  border: `1px solid ${color.borderMedium}`,
+  backgroundColor: color.bg,
   fontSize: text.base,
   cursor: 'pointer',
   minHeight: '44px',

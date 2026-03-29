@@ -749,13 +749,15 @@ class ShelterIntegrationTest extends BaseIntegrationTest {
         String[] lines = csv.split("\n");
         assertThat(lines.length).isGreaterThan(0);
 
-        // Verify header has all HUD-required columns
+        // Verify header matches HUD Inventory.csv schema (FY2024+)
         String header = lines[0];
+        assertThat(header).contains("InventoryID");
         assertThat(header).contains("ProjectID");
-        assertThat(header).contains("ProjectName");
-        assertThat(header).contains("ProjectType");
+        assertThat(header).contains("CoCCode");
+        assertThat(header).contains("HouseholdType");
         assertThat(header).contains("BedInventory");
-        assertThat(header).contains("TargetPopulation");
+        assertThat(header).contains("VetBedInventory");
+        assertThat(header).contains("ESBedType");
 
         // Verify data rows have same number of columns as header
         int headerCols = header.split(",", -1).length;

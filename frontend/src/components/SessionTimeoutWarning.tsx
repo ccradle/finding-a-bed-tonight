@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../services/api';
 import { text, weight } from '../theme/typography';
+import { color } from '../theme/colors';
 
 /**
  * Session timeout warning — WCAG 2.2.1 Timing Adjustable.
@@ -181,16 +182,16 @@ export function SessionTimeoutWarning({ expiresIn, onLogout }: Props) {
         aria-describedby="session-timeout-desc"
         onKeyDown={handleKeyDown}
         style={{
-          background: '#fff', borderRadius: 16, padding: 32, maxWidth: 420,
+          background: color.bg, borderRadius: 16, padding: 32, maxWidth: 420,
           width: '90%', boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
         }}
       >
-        <h2 id="session-timeout-title" style={{ margin: '0 0 12px', fontSize: text.xl, fontWeight: weight.bold, color: '#0f172a' }}>
+        <h2 id="session-timeout-title" style={{ margin: '0 0 12px', fontSize: text.xl, fontWeight: weight.bold, color: color.text }}>
           Session Expiring
         </h2>
-        <p id="session-timeout-desc" style={{ margin: '0 0 8px', fontSize: text.base, color: '#475569', lineHeight: 'var(--leading-normal)' }}>
+        <p id="session-timeout-desc" style={{ margin: '0 0 8px', fontSize: text.base, color: color.textTertiary, lineHeight: 'var(--leading-normal)' }}>
           Your session will expire in{' '}
-          <span aria-live="assertive" aria-atomic="true" style={{ fontWeight: weight.bold, color: '#991b1b' }}>
+          <span aria-live="assertive" aria-atomic="true" style={{ fontWeight: weight.bold, color: color.error }}>
             {timeText}
           </span>.
           Press Continue to stay signed in.
@@ -200,7 +201,7 @@ export function SessionTimeoutWarning({ expiresIn, onLogout }: Props) {
             data-testid="session-continue-btn"
             onClick={handleExtend}
             style={{
-              flex: 1, padding: '12px 20px', backgroundColor: '#1a56db', color: '#fff',
+              flex: 1, padding: '12px 20px', backgroundColor: color.primary, color: color.textInverse,
               border: 'none', borderRadius: 10, fontSize: text.base, fontWeight: weight.bold,
               cursor: 'pointer', minHeight: 44,
             }}
@@ -211,8 +212,8 @@ export function SessionTimeoutWarning({ expiresIn, onLogout }: Props) {
             data-testid="session-logout-btn"
             onClick={onLogout}
             style={{
-              flex: 1, padding: '12px 20px', backgroundColor: '#f1f5f9', color: '#475569',
-              border: '1px solid #e2e8f0', borderRadius: 10, fontSize: text.base, fontWeight: weight.bold,
+              flex: 1, padding: '12px 20px', backgroundColor: color.borderLight, color: color.textTertiary,
+              border: `1px solid ${color.border}`, borderRadius: 10, fontSize: text.base, fontWeight: weight.bold,
               cursor: 'pointer', minHeight: 44,
             }}
           >
