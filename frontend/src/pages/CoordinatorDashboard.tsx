@@ -326,6 +326,30 @@ export function CoordinatorDashboard() {
               <div style={{ padding: '0 20px 20px' }}>
                 <div style={{ height: 1, backgroundColor: '#e2e8f0', marginBottom: 16 }} />
 
+                {/* Edit Details button */}
+                <div style={{ marginBottom: 16 }}>
+                  <a
+                    href={`/coordinator/shelters/${s.id}/edit?from=/coordinator`}
+                    data-testid={`edit-details-${s.id}`}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      padding: '8px 16px',
+                      backgroundColor: '#f8fafc',
+                      color: '#1a56db',
+                      border: '1px solid #cbd5e1',
+                      borderRadius: 8,
+                      fontSize: text.sm,
+                      fontWeight: weight.semibold,
+                      textDecoration: 'none',
+                      minHeight: 44,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <FormattedMessage id="shelter.editDetails" />
+                  </a>
+                </div>
+
                 {/* Availability update section */}
                 <h4 style={{ fontSize: text.sm, fontWeight: weight.bold, color: '#1a56db', margin: '0 0 12px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                   <FormattedMessage id="coord.availability" />

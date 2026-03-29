@@ -29,7 +29,9 @@ import org.fabt.shelter.domain.Shelter;
 import org.fabt.shelter.domain.ShelterConstraints;
 import org.fabt.shelter.repository.ShelterConstraintsRepository;
 import org.fabt.shelter.repository.ShelterRepository;
+import org.fabt.shared.audit.AuditEventRecord;
 import org.fabt.shared.web.TenantContext;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -61,19 +63,22 @@ public class ShelterService {
     private final TenantService tenantService;
     private final ObjectMapper objectMapper;
     private final JdbcTemplate jdbcTemplate;
+    private final ApplicationEventPublisher eventPublisher;
 
     public ShelterService(ShelterRepository shelterRepository,
                           ShelterConstraintsRepository constraintsRepository,
                           @Lazy AvailabilityService availabilityService,
                           TenantService tenantService,
                           ObjectMapper objectMapper,
-                          JdbcTemplate jdbcTemplate) {
+                          JdbcTemplate jdbcTemplate,
+                          ApplicationEventPublisher eventPublisher) {
         this.shelterRepository = shelterRepository;
         this.constraintsRepository = constraintsRepository;
         this.availabilityService = availabilityService;
         this.tenantService = tenantService;
         this.objectMapper = objectMapper;
         this.jdbcTemplate = jdbcTemplate;
+        this.eventPublisher = eventPublisher;
     }
 
     /**
@@ -151,8 +156,16 @@ public class ShelterService {
         return saved;
     }
 
+    /**
+     * Backward-compatible overload for callers without actor context (e.g., import service).
+     */
     @Transactional
     public Shelter update(UUID id, UpdateShelterRequest req) {
+        return update(id, req, null);
+    }
+
+    @Transactional
+    public Shelter update(UUID id, UpdateShelterRequest req, UUID actorUserId) {
         UUID tenantId = TenantContext.getTenantId();
 
         Shelter shelter = shelterRepository.findByTenantIdAndId(tenantId, id)
@@ -170,6 +183,12 @@ public class ShelterService {
             }
         }
 
+        // Track DV-sensitive changes for audit logging
+        boolean dvFlagChanged = req.dvShelter() != null && req.dvShelter() != shelter.isDvShelter();
+        boolean addressChanged = shelter.isDvShelter() && isAddressChanging(shelter, req);
+        String oldDvFlag = String.valueOf(shelter.isDvShelter());
+        String oldAddress = formatAddress(shelter);
+
         if (req.name() != null) shelter.setName(req.name());
         if (req.addressStreet() != null) shelter.setAddressStreet(req.addressStreet());
         if (req.addressCity() != null) shelter.setAddressCity(req.addressCity());
@@ -178,6 +197,7 @@ public class ShelterService {
         if (req.phone() != null) shelter.setPhone(req.phone());
         if (req.latitude() != null) shelter.setLatitude(req.latitude());
         if (req.longitude() != null) shelter.setLongitude(req.longitude());
+        if (req.dvShelter() != null) shelter.setDvShelter(req.dvShelter());
         shelter.setUpdatedAt(Instant.now());
 
         Shelter saved = shelterRepository.save(shelter);
@@ -210,7 +230,40 @@ public class ShelterService {
             }
         }
 
+        // Audit: DV flag changes (T-3 — elevated visibility)
+        if (dvFlagChanged && actorUserId != null) {
+            eventPublisher.publishEvent(new AuditEventRecord(
+                    actorUserId, null, "SHELTER_DV_FLAG_CHANGED",
+                    java.util.Map.of("shelterId", saved.getId(), "shelterName", saved.getName(),
+                            "oldValue", oldDvFlag, "newValue", String.valueOf(saved.isDvShelter())),
+                    null));
+        }
+
+        // Audit: DV shelter address changes (T-2 — old/new values)
+        if (addressChanged && actorUserId != null) {
+            eventPublisher.publishEvent(new AuditEventRecord(
+                    actorUserId, null, "DV_SHELTER_ADDRESS_CHANGED",
+                    java.util.Map.of("shelterId", saved.getId(), "shelterName", saved.getName(),
+                            "oldAddress", oldAddress, "newAddress", formatAddress(saved)),
+                    null));
+        }
+
         return saved;
+    }
+
+    private boolean isAddressChanging(Shelter shelter, UpdateShelterRequest req) {
+        return (req.addressStreet() != null && !req.addressStreet().equals(shelter.getAddressStreet()))
+                || (req.addressCity() != null && !req.addressCity().equals(shelter.getAddressCity()))
+                || (req.addressState() != null && !req.addressState().equals(shelter.getAddressState()))
+                || (req.addressZip() != null && !req.addressZip().equals(shelter.getAddressZip()));
+    }
+
+    private String formatAddress(Shelter shelter) {
+        return String.join(", ",
+                shelter.getAddressStreet() != null ? shelter.getAddressStreet() : "",
+                shelter.getAddressCity() != null ? shelter.getAddressCity() : "",
+                shelter.getAddressState() != null ? shelter.getAddressState() : "",
+                shelter.getAddressZip() != null ? shelter.getAddressZip() : "");
     }
 
     @Transactional(readOnly = true)

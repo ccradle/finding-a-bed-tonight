@@ -173,6 +173,38 @@ class AnalyticsIntegrationTest extends BaseIntegrationTest {
                 "PIT CSV should have correct header");
     }
 
+    // --- CSV injection protection on HIC export ---
+    @Test
+    void hicExport_sanitizesFormulaInjection() {
+        // Create a shelter with a formula-prefix name
+        String body = """
+                {
+                    "name": "=CMD|'/C calc'!A0",
+                    "addressStreet": "100 Danger St",
+                    "addressCity": "Raleigh",
+                    "addressState": "NC",
+                    "addressZip": "27601",
+                    "dvShelter": false,
+                    "capacities": [{"populationType": "SINGLE_ADULT", "bedsTotal": 5}]
+                }
+                """;
+        restTemplate.exchange("/api/v1/shelters", HttpMethod.POST,
+                new HttpEntity<>(body, adminHeaders), String.class);
+
+        // Export HIC — dangerous name should be tab-prefixed per OWASP
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/analytics/hic?date=" + java.time.LocalDate.now(),
+                HttpMethod.GET,
+                new HttpEntity<>(adminHeaders),
+                String.class);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        String csv = response.getBody();
+        assertNotNull(csv);
+        // The dangerous name should NOT appear unsanitized — tab prefix prevents formula execution
+        assertFalse(csv.contains(",=CMD"), "CSV must not contain unsanitized formula-prefix cell");
+    }
+
     // --- 16.10 Outreach worker cannot access analytics endpoints ---
     @Test
     void outreachWorker_cannotAccessAnalyticsEndpoints() {

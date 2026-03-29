@@ -253,17 +253,30 @@ public class ShelterController {
             @Parameter(description = "UUID of the shelter to update") @PathVariable UUID id,
             @Valid @RequestBody UpdateShelterRequest request,
             Authentication authentication) {
-        // Coordinators must be assigned to this shelter
-        if (hasRole(authentication, "ROLE_COORDINATOR")
+        boolean isCoordinatorOnly = hasRole(authentication, "ROLE_COORDINATOR")
                 && !hasRole(authentication, "ROLE_COC_ADMIN")
-                && !hasRole(authentication, "ROLE_PLATFORM_ADMIN")) {
+                && !hasRole(authentication, "ROLE_PLATFORM_ADMIN");
+
+        // Coordinators must be assigned to this shelter
+        if (isCoordinatorOnly) {
             UUID userId = UUID.fromString(authentication.getName());
             if (!coordinatorAssignmentRepository.isAssigned(userId, id)) {
                 throw new AccessDeniedException("Coordinator is not assigned to this shelter");
             }
         }
 
-        Shelter shelter = shelterService.update(id, request);
+        // DV flag changes require COC_ADMIN+ — coordinators cannot change dvShelter
+        if (request.dvShelter() != null && isCoordinatorOnly) {
+            // Check if the value is actually changing
+            Shelter existing = shelterService.findById(id)
+                    .orElseThrow(() -> new java.util.NoSuchElementException("Shelter not found: " + id));
+            if (request.dvShelter() != existing.isDvShelter()) {
+                throw new AccessDeniedException("Coordinator cannot change DV shelter status");
+            }
+        }
+
+        UUID actorUserId = UUID.fromString(authentication.getName());
+        Shelter shelter = shelterService.update(id, request, actorUserId);
         return ResponseEntity.ok(ShelterResponse.from(shelter));
     }
 

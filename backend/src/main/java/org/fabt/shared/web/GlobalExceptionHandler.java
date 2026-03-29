@@ -167,6 +167,16 @@ public class GlobalExceptionHandler {
                 ));
     }
 
+    @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException.class)
+    public ResponseEntity<ErrorResponse> handleMaxUploadSize(
+            org.springframework.web.multipart.MaxUploadSizeExceededException ex) {
+        log.warn("File upload too large: {}", ex.getMessage());
+        return ResponseEntity
+                .status(413)
+                .body(new ErrorResponse("file_too_large",
+                        "File exceeds the maximum upload size of 10MB.", 413));
+    }
+
     private static String extractFirstPathSegment(String path) {
         if (path == null || path.isBlank()) return "/";
         String trimmed = path.startsWith("/") ? path.substring(1) : path;

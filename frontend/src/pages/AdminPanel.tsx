@@ -725,6 +725,7 @@ function SheltersTab() {
                 <th style={thStyle}>Beds Available</th>
                 <th style={thStyle}>Freshness</th>
                 <th style={thStyle}>Updated</th>
+                <th style={thStyle}></th>
               </tr>
             </thead>
             <tbody>
@@ -754,6 +755,20 @@ function SheltersTab() {
                   </td>
                   <td style={tdStyle(i)}>
                     <DataAge dataAgeSeconds={item.shelter.updatedAt ? Math.floor((Date.now() - new Date(item.shelter.updatedAt).getTime()) / 1000) : null} />
+                  </td>
+                  <td style={tdStyle(i)}>
+                    <a
+                      href={`/coordinator/shelters/${item.shelter.id}/edit?from=/admin`}
+                      data-testid={`edit-shelter-${item.shelter.id}`}
+                      style={{
+                        color: '#1a56db',
+                        fontSize: text.sm,
+                        fontWeight: weight.semibold,
+                        textDecoration: 'none',
+                      }}
+                    >
+                      <FormattedMessage id="shelter.editBtn" />
+                    </a>
                   </td>
                 </tr>
               ))}

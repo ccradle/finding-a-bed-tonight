@@ -166,9 +166,15 @@ public class HicPitExportService {
 
     private String escCsv(String value) {
         if (value == null) return "";
-        if (value.contains(",") || value.contains("\"") || value.contains("\n")) {
-            return "\"" + value.replace("\"", "\"\"") + "\"";
+        // CSV injection protection (OWASP): prefix cells starting with formula characters
+        // with a tab inside quotes to prevent Excel formula execution.
+        String safe = value;
+        if (!safe.isEmpty() && "=+-@".indexOf(safe.charAt(0)) >= 0) {
+            safe = "\t" + safe;
         }
-        return value;
+        if (safe.contains(",") || safe.contains("\"") || safe.contains("\n") || safe.contains("\t")) {
+            return "\"" + safe.replace("\"", "\"\"") + "\"";
+        }
+        return safe;
     }
 }

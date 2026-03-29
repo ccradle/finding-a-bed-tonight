@@ -117,20 +117,20 @@ public class ImportController {
 
     @Operation(
             summary = "Preview column mapping for a 2-1-1 CSV before importing",
-            description = "Accepts a comma-separated header line from a 2-1-1 CSV file and returns " +
-                    "the column mapping the importer will use. The response shows which CSV columns " +
-                    "map to which shelter fields and which columns will be ignored. Use this before " +
-                    "calling POST /api/v1/import/211 to verify that the CSV format is compatible " +
-                    "and to communicate any unmapped columns to the user. This is a read-only, " +
-                    "side-effect-free operation — no data is imported. " +
+            description = "Accepts a multipart CSV file and returns the column mapping the importer " +
+                    "will use, plus sample values from the first rows. The response shows which CSV " +
+                    "columns map to which shelter fields and which columns will be ignored. Use this " +
+                    "before calling POST /api/v1/import/211 to verify that the CSV format is " +
+                    "compatible. This is a read-only, side-effect-free operation — no data is imported. " +
                     "Requires COC_ADMIN or PLATFORM_ADMIN role."
     )
-    @GetMapping("/211/preview")
+    @PostMapping("/211/preview")
     public ResponseEntity<ColumnMappingResponse> previewCsvMapping(
-            @Parameter(description = "Comma-separated header line from the CSV file (e.g., 'Name,Address,City,State,Zip,Phone')")
-            @RequestParam("headerLine") String headerLine) {
-        ColumnMapping mapping = twoOneOneImportAdapter.previewMapping(headerLine);
-        return ResponseEntity.ok(ColumnMappingResponse.from(mapping));
+            @Parameter(description = "CSV file in 2-1-1 format to preview column mapping")
+            @RequestParam("file") MultipartFile file) {
+        String csvContent = readFileContent(file);
+        TwoOneOneImportAdapter.PreviewResult preview = twoOneOneImportAdapter.previewFull(csvContent);
+        return ResponseEntity.ok(ColumnMappingResponse.from(preview.mapping(), preview.allRows()));
     }
 
     @Operation(

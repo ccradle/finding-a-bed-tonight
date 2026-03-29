@@ -134,7 +134,7 @@ export function UserEditDrawer({ user, onClose, onSaved }: UserEditDrawerProps) 
             <FormattedMessage id="admin.user.editTitle" />
           </h2>
           <button onClick={onClose} aria-label="Close" style={{
-            background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#6b7280',
+            background: 'none', border: 'none', fontSize: text.xl, cursor: 'pointer', color: '#6b7280',
           }}>×</button>
         </div>
 

@@ -5,14 +5,18 @@ import java.util.UUID;
 
 import org.fabt.dataimport.domain.ImportLog;
 
+/**
+ * Import history entry matching the frontend contract:
+ * { id, importType, filename, created, updated, skipped, errors, createdAt }
+ */
 public record ImportLogResponse(
         UUID id,
         String importType,
         String filename,
-        int createdCount,
-        int updatedCount,
-        int skippedCount,
-        int errorCount,
+        int created,
+        int updated,
+        int skipped,
+        int errors,
         Instant createdAt
 ) {
 

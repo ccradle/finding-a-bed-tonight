@@ -1,5 +1,5 @@
 import { useState, useRef, type DragEvent } from 'react';
-import { FormattedMessage } from 'react-intl';
+import { FormattedMessage, useIntl } from 'react-intl';
 import { api, ApiError } from '../services/api';
 import { text, weight } from '../theme/typography';
 
@@ -11,6 +11,7 @@ interface ImportResult {
 }
 
 export function HsdsImportPage() {
+  const intl = useIntl();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -67,7 +68,7 @@ export function HsdsImportPage() {
       if (err instanceof ApiError) {
         setError(err.message);
       } else {
-        setError('Import failed. Please try again.');
+        setError(intl.formatMessage({ id: 'import.importError' }));
       }
     } finally {
       setLoading(false);
@@ -133,10 +134,10 @@ export function HsdsImportPage() {
         ) : (
           <div>
             <p style={{ fontSize: text.md, fontWeight: weight.medium, color: '#374151', margin: '0 0 8px' }}>
-              Drag and drop an HSDS file here, or click to browse
+              <FormattedMessage id="import.hsds.dragDrop" />
             </p>
             <p style={{ fontSize: text.base, color: '#6b7280', margin: 0 }}>
-              Accepts .json or .zip files
+              <FormattedMessage id="import.hsds.accepts" />
             </p>
           </div>
         )}
@@ -159,7 +160,7 @@ export function HsdsImportPage() {
           marginBottom: '24px',
         }}
       >
-        {loading ? 'Importing...' : 'Upload & Import'}
+        {loading ? intl.formatMessage({ id: 'import.hsds.uploading' }) : intl.formatMessage({ id: 'import.hsds.uploadBtn' })}
       </button>
 
       {/* Results */}
@@ -173,32 +174,32 @@ export function HsdsImportPage() {
           }}
         >
           <h3 style={{ fontSize: text.md, fontWeight: weight.semibold, color: '#166534', marginBottom: '12px', marginTop: 0 }}>
-            Import Complete
+            <FormattedMessage id="import.complete" />
           </h3>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px', marginBottom: '12px' }}>
             <div>
               <p style={{ fontSize: text['2xl'], fontWeight: weight.bold, color: '#166534', margin: 0 }}>
                 {result.created}
               </p>
-              <p style={{ fontSize: text.sm, color: '#6b7280', margin: 0 }}>Created</p>
+              <p style={{ fontSize: text.sm, color: '#6b7280', margin: 0 }}><FormattedMessage id="import.created" /></p>
             </div>
             <div>
               <p style={{ fontSize: text['2xl'], fontWeight: weight.bold, color: '#ca8a04', margin: 0 }}>
                 {result.updated}
               </p>
-              <p style={{ fontSize: text.sm, color: '#6b7280', margin: 0 }}>Updated</p>
+              <p style={{ fontSize: text.sm, color: '#6b7280', margin: 0 }}><FormattedMessage id="import.updated" /></p>
             </div>
             <div>
               <p style={{ fontSize: text['2xl'], fontWeight: weight.bold, color: '#6b7280', margin: 0 }}>
                 {result.skipped}
               </p>
-              <p style={{ fontSize: text.sm, color: '#6b7280', margin: 0 }}>Skipped</p>
+              <p style={{ fontSize: text.sm, color: '#6b7280', margin: 0 }}><FormattedMessage id="import.skipped" /></p>
             </div>
           </div>
           {result.errors.length > 0 && (
             <div>
               <p style={{ fontSize: text.base, fontWeight: weight.semibold, color: '#991b1b', marginBottom: '8px' }}>
-                Errors ({result.errors.length}):
+                <FormattedMessage id="import.errors" values={{ count: result.errors.length }} />
               </p>
               <ul style={{ margin: 0, paddingLeft: '20px', fontSize: text.sm, color: '#991b1b' }}>
                 {result.errors.map((err, i) => (

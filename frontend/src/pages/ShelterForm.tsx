@@ -21,31 +21,72 @@ interface Capacity {
   bedsTotal: number;
 }
 
-export function ShelterForm() {
+export interface ShelterInitialData {
+  id: string;
+  name: string;
+  addressStreet: string;
+  addressCity: string;
+  addressState: string;
+  addressZip: string;
+  phone: string;
+  latitude: number | null;
+  longitude: number | null;
+  dvShelter: boolean;
+  constraints?: {
+    sobrietyRequired: boolean;
+    idRequired: boolean;
+    referralRequired: boolean;
+    petsAllowed: boolean;
+    wheelchairAccessible: boolean;
+    populationTypesServed: string[];
+  };
+  capacities: Capacity[];
+}
+
+interface ShelterFormProps {
+  initialData?: ShelterInitialData;
+  readOnlyFields?: string[];
+  onSaveComplete?: () => void;
+}
+
+export function ShelterForm({ initialData, readOnlyFields = [], onSaveComplete }: ShelterFormProps) {
   const navigate = useNavigate();
   const intl = useIntl();
   const { isOnline } = useOnlineStatus();
 
-  const [name, setName] = useState('');
-  const [addressStreet, setAddressStreet] = useState('');
-  const [addressCity, setAddressCity] = useState('');
-  const [addressState, setAddressState] = useState('');
-  const [addressZip, setAddressZip] = useState('');
-  const [phone, setPhone] = useState('');
-  const [latitude, setLatitude] = useState('');
-  const [longitude, setLongitude] = useState('');
+  const isEditMode = !!initialData;
 
-  const [sobrietyRequired, setSobrietyRequired] = useState(false);
-  const [idRequired, setIdRequired] = useState(false);
-  const [referralRequired, setReferralRequired] = useState(false);
-  const [petsAllowed, setPetsAllowed] = useState(false);
-  const [wheelchairAccessible, setWheelchairAccessible] = useState(false);
-  const [populationTypesServed, setPopulationTypesServed] = useState<string[]>([]);
+  const [name, setName] = useState(initialData?.name || '');
+  const [addressStreet, setAddressStreet] = useState(initialData?.addressStreet || '');
+  const [addressCity, setAddressCity] = useState(initialData?.addressCity || '');
+  const [addressState, setAddressState] = useState(initialData?.addressState || '');
+  const [addressZip, setAddressZip] = useState(initialData?.addressZip || '');
+  const [phone, setPhone] = useState(initialData?.phone || '');
+  const [latitude, setLatitude] = useState(initialData?.latitude?.toString() || '');
+  const [longitude, setLongitude] = useState(initialData?.longitude?.toString() || '');
+  const [dvShelter, setDvShelter] = useState(initialData?.dvShelter || false);
 
-  const [capacities, setCapacities] = useState<Capacity[]>([{ populationType: '', bedsTotal: 0 }]);
+  const [sobrietyRequired, setSobrietyRequired] = useState(initialData?.constraints?.sobrietyRequired || false);
+  const [idRequired, setIdRequired] = useState(initialData?.constraints?.idRequired || false);
+  const [referralRequired, setReferralRequired] = useState(initialData?.constraints?.referralRequired || false);
+  const [petsAllowed, setPetsAllowed] = useState(initialData?.constraints?.petsAllowed || false);
+  const [wheelchairAccessible, setWheelchairAccessible] = useState(initialData?.constraints?.wheelchairAccessible || false);
+  const [populationTypesServed, setPopulationTypesServed] = useState<string[]>(
+    initialData?.constraints?.populationTypesServed || []
+  );
+
+  const [capacities, setCapacities] = useState<Capacity[]>(
+    initialData?.capacities && initialData.capacities.length > 0
+      ? initialData.capacities
+      : [{ populationType: '', bedsTotal: 0 }]
+  );
 
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [showDvConfirm, setShowDvConfirm] = useState(false);
+  const [pendingDvValue, setPendingDvValue] = useState(false);
+
+  const isFieldReadOnly = (field: string) => readOnlyFields.includes(field);
 
   const togglePopulationType = (type: string) => {
     setPopulationTypesServed((prev) =>
@@ -67,6 +108,25 @@ export function ShelterForm() {
     );
   };
 
+  const handleDvToggle = (newValue: boolean) => {
+    // Turning DV off (true→false) requires confirmation
+    if (dvShelter && !newValue) {
+      setPendingDvValue(newValue);
+      setShowDvConfirm(true);
+      return;
+    }
+    setDvShelter(newValue);
+  };
+
+  const confirmDvChange = () => {
+    setDvShelter(pendingDvValue);
+    setShowDvConfirm(false);
+  };
+
+  const cancelDvChange = () => {
+    setShowDvConfirm(false);
+  };
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -80,7 +140,7 @@ export function ShelterForm() {
       return;
     }
 
-    const payload = {
+    const payload: Record<string, unknown> = {
       name: name.trim(),
       addressStreet: addressStreet.trim(),
       addressCity: addressCity.trim(),
@@ -89,7 +149,6 @@ export function ShelterForm() {
       phone: phone.trim(),
       latitude: latitude ? parseFloat(latitude) : null,
       longitude: longitude ? parseFloat(longitude) : null,
-      dvShelter: false,
       constraints: {
         sobrietyRequired,
         idRequired,
@@ -101,22 +160,36 @@ export function ShelterForm() {
       capacities: capacities.filter((c) => c.populationType),
     };
 
+    if (isEditMode) {
+      payload.dvShelter = dvShelter;
+    } else {
+      payload.dvShelter = false;
+    }
+
     setLoading(true);
 
     try {
-      if (!isOnline) {
-        await enqueueAction('CREATE_SHELTER', '/api/v1/shelters', 'POST', payload);
+      if (isEditMode) {
+        await api.put(`/api/v1/shelters/${initialData.id}`, payload);
+        if (onSaveComplete) {
+          onSaveComplete();
+        } else {
+          navigate('/admin');
+        }
+      } else {
+        if (!isOnline) {
+          await enqueueAction('CREATE_SHELTER', '/api/v1/shelters', 'POST', payload);
+          navigate('/coordinator');
+          return;
+        }
+        await api.post('/api/v1/shelters', payload);
         navigate('/coordinator');
-        return;
       }
-
-      await api.post('/api/v1/shelters', payload);
-      navigate('/coordinator');
     } catch (err) {
       if (err instanceof ApiError) {
         setError(err.message);
       } else {
-        setError('Failed to create shelter');
+        setError(isEditMode ? 'Failed to update shelter' : 'Failed to create shelter');
       }
     } finally {
       setLoading(false);
@@ -131,6 +204,13 @@ export function ShelterForm() {
     fontSize: text.md,
     minHeight: '44px',
     boxSizing: 'border-box',
+  };
+
+  const disabledInputStyle: React.CSSProperties = {
+    ...inputStyle,
+    backgroundColor: '#f3f4f6',
+    color: '#6b7280',
+    cursor: 'not-allowed',
   };
 
   const labelStyle: React.CSSProperties = {
@@ -159,7 +239,7 @@ export function ShelterForm() {
   return (
     <div style={{ maxWidth: '680px', margin: '0 auto' }}>
       <h2 style={{ fontSize: text['2xl'], fontWeight: weight.bold, color: '#111827', marginBottom: '24px' }}>
-        <FormattedMessage id="shelter.create" />
+        <FormattedMessage id={isEditMode ? 'shelter.edit' : 'shelter.create'} />
       </h2>
 
       {error && (
@@ -185,24 +265,30 @@ export function ShelterForm() {
           </label>
           <input
             id="shelter-name"
+            data-testid="shelter-name"
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
             required
-            style={inputStyle}
+            disabled={isFieldReadOnly('name')}
+            aria-disabled={isFieldReadOnly('name')}
+            style={isFieldReadOnly('name') ? disabledInputStyle : inputStyle}
           />
         </div>
 
         <div style={fieldGroup}>
           <label htmlFor="address-street" style={labelStyle}>
-            Street Address
+            <FormattedMessage id="shelter.address" />
           </label>
           <input
             id="address-street"
+            data-testid="shelter-address-street"
             type="text"
             value={addressStreet}
             onChange={(e) => setAddressStreet(e.target.value)}
-            style={inputStyle}
+            disabled={isFieldReadOnly('addressStreet')}
+            aria-disabled={isFieldReadOnly('addressStreet')}
+            style={isFieldReadOnly('addressStreet') ? disabledInputStyle : inputStyle}
           />
         </div>
 
@@ -213,11 +299,14 @@ export function ShelterForm() {
             </label>
             <input
               id="address-city"
+              data-testid="shelter-address-city"
               type="text"
               value={addressCity}
               onChange={(e) => setAddressCity(e.target.value)}
               required
-              style={inputStyle}
+              disabled={isFieldReadOnly('addressCity')}
+              aria-disabled={isFieldReadOnly('addressCity')}
+              style={isFieldReadOnly('addressCity') ? disabledInputStyle : inputStyle}
             />
           </div>
           <div>
@@ -226,11 +315,14 @@ export function ShelterForm() {
             </label>
             <input
               id="address-state"
+              data-testid="shelter-address-state"
               type="text"
               value={addressState}
               onChange={(e) => setAddressState(e.target.value)}
               maxLength={2}
-              style={inputStyle}
+              disabled={isFieldReadOnly('addressState')}
+              aria-disabled={isFieldReadOnly('addressState')}
+              style={isFieldReadOnly('addressState') ? disabledInputStyle : inputStyle}
             />
           </div>
           <div>
@@ -239,10 +331,13 @@ export function ShelterForm() {
             </label>
             <input
               id="address-zip"
+              data-testid="shelter-address-zip"
               type="text"
               value={addressZip}
               onChange={(e) => setAddressZip(e.target.value)}
-              style={inputStyle}
+              disabled={isFieldReadOnly('addressZip')}
+              aria-disabled={isFieldReadOnly('addressZip')}
+              style={isFieldReadOnly('addressZip') ? disabledInputStyle : inputStyle}
             />
           </div>
         </div>
@@ -253,6 +348,7 @@ export function ShelterForm() {
           </label>
           <input
             id="phone"
+            data-testid="shelter-phone"
             type="tel"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
@@ -288,6 +384,135 @@ export function ShelterForm() {
             />
           </div>
         </div>
+
+        {/* DV Shelter toggle — edit mode only */}
+        {isEditMode && (
+          <div style={{ ...fieldGroup, marginTop: '24px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', position: 'relative' }}>
+              <label
+                htmlFor="dv-shelter-toggle"
+                style={{ ...labelStyle, marginBottom: 0, cursor: isFieldReadOnly('dvShelter') ? 'not-allowed' : 'pointer' }}
+              >
+                <FormattedMessage id="shelter.dvFlag" />
+              </label>
+              <button
+                id="dv-shelter-toggle"
+                data-testid="dv-shelter-toggle"
+                type="button"
+                role="switch"
+                aria-checked={dvShelter}
+                aria-disabled={isFieldReadOnly('dvShelter')}
+                disabled={isFieldReadOnly('dvShelter')}
+                onClick={() => handleDvToggle(!dvShelter)}
+                style={{
+                  width: '48px',
+                  height: '28px',
+                  borderRadius: '14px',
+                  border: 'none',
+                  backgroundColor: dvShelter ? '#7c3aed' : '#d1d5db',
+                  cursor: isFieldReadOnly('dvShelter') ? 'not-allowed' : 'pointer',
+                  position: 'relative',
+                  transition: 'background-color 0.2s',
+                  opacity: isFieldReadOnly('dvShelter') ? 0.5 : 1,
+                }}
+              >
+                <span style={{
+                  position: 'absolute',
+                  top: '2px',
+                  left: dvShelter ? '22px' : '2px',
+                  width: '24px',
+                  height: '24px',
+                  borderRadius: '50%',
+                  backgroundColor: '#fff',
+                  transition: 'left 0.2s',
+                }} />
+              </button>
+              {isFieldReadOnly('dvShelter') && (
+                <span
+                  data-testid="dv-readonly-tooltip"
+                  style={{ fontSize: text.xs, color: '#6b7280', fontStyle: 'italic' }}
+                >
+                  <FormattedMessage id="shelter.dvFlagDisabled" />
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* DV Confirmation Dialog */}
+        {showDvConfirm && (
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="dv-confirm-title"
+            aria-describedby="dv-confirm-desc"
+            data-testid="dv-confirm-dialog"
+            style={{
+              position: 'fixed',
+              top: 0, left: 0, right: 0, bottom: 0,
+              backgroundColor: 'rgba(0,0,0,0.5)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 1000,
+            }}
+            onKeyDown={(e) => { if (e.key === 'Escape') cancelDvChange(); }}
+          >
+            <div style={{
+              backgroundColor: '#fff',
+              borderRadius: '12px',
+              padding: '24px',
+              maxWidth: '480px',
+              width: '90%',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+            }}>
+              <h3 id="dv-confirm-title" style={{ fontSize: text.lg, fontWeight: weight.bold, color: '#991b1b', marginTop: 0 }}>
+                <FormattedMessage id="shelter.dvConfirmTitle" />
+              </h3>
+              <p id="dv-confirm-desc" style={{ fontSize: text.base, color: '#374151', lineHeight: 1.6 }}>
+                <FormattedMessage id="shelter.dvConfirmMessage" />
+              </p>
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '20px' }}>
+                <button
+                  type="button"
+                  data-testid="dv-confirm-cancel"
+                  onClick={cancelDvChange}
+                  style={{
+                    padding: '10px 20px',
+                    borderRadius: '8px',
+                    border: '1px solid #d1d5db',
+                    backgroundColor: '#fff',
+                    color: '#374151',
+                    cursor: 'pointer',
+                    fontSize: text.base,
+                    minHeight: '44px',
+                  }}
+                >
+                  <FormattedMessage id="referral.cancel" />
+                </button>
+                <button
+                  type="button"
+                  data-testid="dv-confirm-proceed"
+                  onClick={confirmDvChange}
+                  autoFocus
+                  style={{
+                    padding: '10px 20px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    backgroundColor: '#991b1b',
+                    color: '#fff',
+                    cursor: 'pointer',
+                    fontSize: text.base,
+                    fontWeight: weight.semibold,
+                    minHeight: '44px',
+                  }}
+                >
+                  <FormattedMessage id="shelter.dvConfirmProceed" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Constraints */}
         <h3 style={{ fontSize: text.md, fontWeight: weight.semibold, color: '#111827', marginBottom: '12px', marginTop: '24px' }}>
@@ -429,6 +654,7 @@ export function ShelterForm() {
         <div>
           <button
             type="submit"
+            data-testid="shelter-save"
             disabled={loading}
             style={{
               width: '100%',
@@ -445,7 +671,7 @@ export function ShelterForm() {
           >
             {loading
               ? 'Saving...'
-              : intl.formatMessage({ id: 'shelter.create' })}
+              : intl.formatMessage({ id: isEditMode ? 'shelter.save' : 'shelter.create' })}
           </button>
         </div>
       </form>

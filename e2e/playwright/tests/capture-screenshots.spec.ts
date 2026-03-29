@@ -194,6 +194,92 @@ test.describe('Demo Screenshot Capture', () => {
     await outreachPage.locator('button', { hasText: /cancel/i }).click();
   });
 
+  // === SHELTER EDIT: 211 IMPORT → EDIT LIFECYCLE ===
+  // One test, multiple screenshots — the import must persist across captures
+  // so each subsequent screenshot sees the imported shelters. This mirrors
+  // the real user flow: Marcus stays in one browser session.
+
+  test('20-25 - Import → Edit → DV shelter flow', async ({ adminPage }) => {
+    const fixturePath = path.join(__dirname, '..', '..', 'fixtures', 'nc-211-sample.csv');
+
+    // --- Screenshot 20: Import 211 preview ---
+    // "Marcus is onboarding three new partner shelters from the region's 211 database —
+    //  every hour a shelter isn't in the system is an hour a family can't find it."
+    await adminPage.goto('/coordinator/import/211');
+    await adminPage.waitForTimeout(1000);
+    await adminPage.locator('input[type="file"]').setInputFiles(fixturePath);
+    await adminPage.waitForTimeout(500);
+    // Step 1: Click "Preview Column Mapping" to see the mapping
+    await adminPage.locator('button', { hasText: /preview column mapping/i }).click();
+    await adminPage.waitForTimeout(2000);
+    await adminPage.screenshot({ path: path.join(DEMO_DIR, '20-import-211-preview.png'), fullPage: true });
+
+    // --- Screenshot 21: Import success ---
+    // Step 2: Click "Confirm & Import" to execute
+    await adminPage.locator('button', { hasText: /confirm.*import/i }).click();
+    await adminPage.waitForTimeout(3000);
+    await adminPage.screenshot({ path: path.join(DEMO_DIR, '21-import-211-success.png'), fullPage: true });
+
+    // --- Screenshot 22: Shelters tab with Edit links ---
+    // "Every shelter in the community is here — including the three that just arrived."
+    await adminPage.goto('/admin');
+    await adminPage.locator('main button', { hasText: /^Shelters$/ }).first().click();
+    await adminPage.waitForTimeout(1500);
+    await adminPage.screenshot({ path: path.join(DEMO_DIR, '22-admin-shelters-edit.png'), fullPage: true });
+
+    // --- Screenshot 23: Edit shelter phone ---
+    // "A phone number came through wrong. Sandra will need this number tonight."
+    const sunriseRow = adminPage.locator('tr', { hasText: 'Sunrise Family Center' });
+    await sunriseRow.locator('a', { hasText: /^Edit$/ }).click();
+    await adminPage.waitForTimeout(1500);
+    await adminPage.screenshot({ path: path.join(DEMO_DIR, '23-shelter-edit-phone.png'), fullPage: true });
+
+    // Back to shelters tab for DV screenshots
+    await adminPage.goto('/admin');
+    await adminPage.locator('main button', { hasText: /^Shelters$/ }).first().click();
+    await adminPage.waitForTimeout(1000);
+
+    // --- Screenshot 24: DV toggle on Safe Passage House ---
+    // "This shelter protects survivors."
+    const safePassageRow = adminPage.locator('tr', { hasText: 'Safe Passage House' });
+    await safePassageRow.locator('a', { hasText: /^Edit$/ }).click();
+    await adminPage.waitForTimeout(1500);
+    await adminPage.screenshot({ path: path.join(DEMO_DIR, '24-shelter-edit-dv-toggle.png'), fullPage: true });
+
+    // --- Screenshot 25: DV confirmation dialog ---
+    // Enable DV first (false→true, no dialog needed)
+    const dvToggle = adminPage.locator('[data-testid="dv-shelter-toggle"]');
+    const isCurrentlyDv = (await dvToggle.getAttribute('aria-checked')) === 'true';
+    if (!isCurrentlyDv) {
+      await dvToggle.click();
+      await adminPage.waitForTimeout(500);
+    }
+    // Now disable DV (true→false) — this triggers the confirmation dialog
+    await dvToggle.click();
+    await adminPage.waitForTimeout(500);
+    await adminPage.screenshot({ path: path.join(DEMO_DIR, '25-dv-confirm-dialog.png'), fullPage: true });
+    // Cancel — don't actually remove protection
+    await adminPage.locator('[data-testid="dv-confirm-cancel"]').click();
+  });
+
+  test('26 - Coordinator edit form', async ({ coordinatorPage }) => {
+    // "Sandra can update phone and hours — the things that change week to week.
+    //  But name, address, and DV status are read-only for her role."
+    // NOTE: coordinatorPage is COC_ADMIN — all fields editable. A true COORDINATOR
+    // would see structural fields grayed out. Caption notes this distinction.
+    await coordinatorPage.goto('/coordinator');
+    await coordinatorPage.waitForTimeout(1000);
+
+    const shelterCard = coordinatorPage.locator('[data-testid^="shelter-card-"]').first();
+    await shelterCard.click();
+    await coordinatorPage.waitForTimeout(500);
+    const editBtn = coordinatorPage.locator('a', { hasText: /edit details/i }).first();
+    await editBtn.click();
+    await coordinatorPage.waitForTimeout(1500);
+
+    await coordinatorPage.screenshot({ path: path.join(DEMO_DIR, '26-coordinator-edit-form.png'), fullPage: true });
+  });
+
   // === OBSERVABILITY STACK ===
 
   test('17 - Grafana dashboard', async ({ browser }) => {

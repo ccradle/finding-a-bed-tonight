@@ -46,9 +46,11 @@ The [CoC Analytics SPM Mapping](coc-analytics-spm-mapping.md) document details h
 A typical onboarding takes about 7 days:
 
 **Day 1-2: Setup**
-1. Create the shelter profile in the admin panel (name, address, phone, population types served, bed capacity, constraints)
-2. Create a coordinator user account for the shelter's point person
-3. Assign the coordinator to the shelter
+1. Create the shelter profile in the admin panel — either one at a time, or bulk-import from a 211 CSV file (Admin → Imports → 2-1-1 Import)
+2. Review imported data and edit any details that need correction (phone numbers, addresses) via the Edit link on the Shelters tab
+3. If the shelter serves DV survivors, enable the DV Shelter toggle on the edit form — this activates address redaction and audit logging
+4. Create a coordinator user account for the shelter's point person
+5. Assign the coordinator to the shelter
 
 **Day 3-4: Verification**
 4. The coordinator logs in and verifies the shelter information is correct
