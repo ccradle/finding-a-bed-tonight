@@ -257,7 +257,7 @@ export function NotificationBell({
                         values={getNotificationMessageValues(notification)}
                       />
                     </div>
-                    {notification.data.shelterName && notification.eventType === 'availability.updated' && (
+                    {notification.data.shelterName != null && notification.eventType === 'availability.updated' && (
                       <div style={{ fontSize: '12px', color: '#6b7280', marginTop: '2px' }}>
                         {String(notification.data.shelterName)}
                       </div>

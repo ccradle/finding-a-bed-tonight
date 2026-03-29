@@ -88,10 +88,14 @@ class SseNotificationIntegrationTest extends BaseIntegrationTest {
                 .sendAsync(request, HttpResponse.BodyHandlers.ofLines())
                 .get(5, TimeUnit.SECONDS);
 
-        assertThat(response.statusCode()).isEqualTo(200);
-        assertThat(response.headers().firstValue("Content-Type"))
-                .isPresent()
-                .hasValueSatisfying(ct -> assertThat(ct).contains("text/event-stream"));
+        try {
+            assertThat(response.statusCode()).isEqualTo(200);
+            assertThat(response.headers().firstValue("Content-Type"))
+                    .isPresent()
+                    .hasValueSatisfying(ct -> assertThat(ct).contains("text/event-stream"));
+        } finally {
+            response.body().close();
+        }
     }
 
     @Test
@@ -195,6 +199,10 @@ class SseNotificationIntegrationTest extends BaseIntegrationTest {
 
         // Wait for the event to arrive on the wire
         boolean received = latch.await(5, TimeUnit.SECONDS);
+
+        // Close the SSE stream to release the server thread and JDBC connection
+        response.body().close();
+
         assertThat(received).as("SSE event should be received within 5 seconds").isTrue();
 
         // Assert on actual wire content — shelter_name and shelter_address must be absent
