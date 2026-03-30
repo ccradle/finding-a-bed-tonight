@@ -5,6 +5,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.22.0] — 2026-03-30 — Import Hardening
+
+### Fixed
+- **Import navigation bug**: Admin panel import links used `<a href="/import/211">` — a full page navigation to a non-existent route. Replaced with React Router `<Link to="/coordinator/import/211">`. The 211 and HSDS import buttons were completely broken for all users.
+- **CSV injection (CWE-1236)**: Imported CSV and JSON data was stored unsanitized. A malicious `=CMD('calc')` in a shelter name would execute when exported and opened in Excel. New `CsvSanitizer` strips dangerous `=`, `+`, `@` prefixes while preserving legitimate patterns (`+1-919-555-0100`, `-123 Main St`). Applied to both 211 CSV and HSDS JSON import paths.
+- **Headers-only CSV**: Importing a CSV with only headers and no data rows silently proceeded to preview. Now shows "no data rows" error immediately after preview.
+
+### Added
+- MIME type validation on import endpoints (rejects non-CSV/JSON uploads)
+- Field length validation on all imported fields (matches DB column sizes, row-level errors)
+- 18 `CsvSanitizer` unit tests (`@ParameterizedTest`)
+- 7 negative backend integration tests (empty file, headers-only, malformed CSV, injection, field length, missing column)
+- 3 Playwright E2E negative tests (empty file, headers-only, injection sanitization)
+- 1 Playwright admin panel click-through test (the test that would have caught the navigation bug)
+
+---
+
 ## [v0.21.0] — 2026-03-29 — Color System, Dark Mode, HIC/PIT FY2024+, Training Materials
 
 ### Added

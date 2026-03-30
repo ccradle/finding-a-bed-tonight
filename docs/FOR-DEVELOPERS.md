@@ -35,7 +35,7 @@ Three deployment tiers allow the same codebase to serve communities of vastly di
 | Events | Spring Events (Lite) / Kafka (Full) |
 | Auth | JWT + OAuth2/OIDC + API Keys (hybrid) |
 | Frontend | React 19, Vite, TypeScript, Workbox PWA, react-intl (EN/ES), CSS custom properties design tokens |
-| Testing | JUnit 5, Testcontainers, ArchUnit (278 tests), Playwright (150 UI tests), Karate (26 API scenarios), Gatling (5 simulations) |
+| Testing | JUnit 5, Testcontainers, ArchUnit (321 tests), Playwright (173 UI tests), Karate (26 API scenarios), Gatling (6 simulations) |
 | Infra | Docker, GitHub Actions CI/CD + E2E pipeline, Terraform (3 tiers) |
 
 ---
@@ -54,7 +54,7 @@ The backend is a **modular monolith** — not a flat package-by-layer structure.
 | `availability` | `org.fabt.availability` | Real-time bed availability snapshots, bed search queries, data freshness |
 | `reservation` | `org.fabt.reservation` | Soft-hold bed reservations: create, confirm, cancel, auto-expire |
 | `surge` | `org.fabt.surge` | White Flag / emergency surge events: activation, deactivation, overflow capacity, auto-expiry |
-| `dataimport` | `org.fabt.dataimport` | HSDS JSON import, 211 CSV import (fuzzy matching), import audit log |
+| `dataimport` | `org.fabt.dataimport` | HSDS JSON import, 211 CSV import (fuzzy matching), CsvSanitizer (CWE-1236), MIME validation, import audit log |
 | `observability` | `org.fabt.observability` | Structured JSON logging, Micrometer metrics, health probes, data freshness, i18n |
 | `subscription` | `org.fabt.subscription` | Webhook subscriptions, HMAC-SHA256 event delivery, MCP-ready |
 | `referral` | `org.fabt.referral` | DV opaque referral tokens: create, accept, reject, expire, warm handoff |
@@ -313,11 +313,11 @@ curl -s http://localhost:8080/actuator/health | python3 -m json.tool
 ```bash
 cd backend
 
-# Run all 236 backend tests
+# Run all 321 backend tests
 mvn test
 
 # Run E2E tests (requires dev-start.sh stack running)
-cd ../e2e/playwright && npx playwright test    # 114 UI tests
+cd ../e2e/playwright && npx playwright test    # 173 UI tests
 cd ../e2e/karate && mvn test                   # 77 API tests (71 + 6 @observability)
 cd ../e2e/gatling && mvn gatling:test           # Gatling performance simulations
 
@@ -359,9 +359,10 @@ mvn test -Dtest="AvailabilityIntegrationTest#test_createSnapshot_appendOnly_pres
 | `DvAddressRedactionTest` | 13 | Policy-based address redaction: ADMIN_AND_ASSIGNED, ADMIN_ONLY, ALL_DV_ACCESS, NONE, safeguards |
 | `HmisBridgeIntegrationTest` | 14 | Transformer, DV aggregation, outbox, push, preview, status, security |
 | `AnalyticsIntegrationTest` | 13 | Utilization, demand, HIC/PIT export, batch jobs, security |
-| **Backend Total** | **236** | |
+| `CsvSanitizerTest` | 18 | Parameterized injection prevention, edge cases |
+| **Backend Total** | **321** | |
 | | | |
-| **E2E: Playwright** | **114** | **UI tests (Chromium, data-testid locators)** |
+| **E2E: Playwright** | **173** | **UI tests (Chromium, data-testid locators)** |
 | `auth.spec.ts` | 4 | Login per role, failed login |
 | `outreach-search.spec.ts` | 9 | Results, filters, modal, hold/cancel, language, freshness |
 | `coordinator-dashboard.spec.ts` | 5 | Load, expand, update, save, hold indicator |
@@ -843,7 +844,7 @@ finding-a-bed-tonight/
 │       │   ├── db/migration/                          # 26 Flyway migrations (V1–V25 + V8.1)
 │       │   ├── logback-spring.xml                     # Structured JSON logging (Logstash encoder)
 │       │   └── messages/                              # i18n error messages (EN, ES)
-│       └── test/java/org/fabt/                        # 236 tests (unit + integration)
+│       └── test/java/org/fabt/                        # 321 tests (unit + integration)
 │           ├── BaseIntegrationTest.java               # Singleton Testcontainers PostgreSQL
 │           ├── TestAuthHelper.java                    # Per-role JWT helper for tests
 │           ├── ArchitectureTest.java                  # 21 ArchUnit module boundary rules
@@ -883,7 +884,7 @@ finding-a-bed-tonight/
 │           └── es.json                                # Spanish (100+ keys)
 │
 ├── e2e/                                               # End-to-end test suites
-│   ├── playwright/                                    # UI tests (114 tests, Chromium)
+│   ├── playwright/                                    # UI tests (173 tests, Chromium)
 │   │   ├── package.json                               # @playwright/test + TypeScript
 │   │   ├── playwright.config.ts                       # baseURL, workers, retries, HTML reporter
 │   │   ├── fixtures/auth.fixture.ts                   # Per-role storageState (admin, cocadmin, outreach)

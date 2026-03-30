@@ -46,6 +46,7 @@ The platform implements defense-in-depth security practices:
 - **Rate limiting** -- API endpoints are rate-limited to prevent abuse
 - **ZAP scan baseline** -- OWASP ZAP automated security scanning is used as part of the security review process
 - **Restricted database role** -- the application connects as a non-superuser role (`fabt_app`) with DML-only permissions
+- **CSV injection prevention (CWE-1236)** -- all imported data is sanitized to prevent formula injection when exported to spreadsheets
 - **JWT authentication** -- stateless authentication with configurable secret strength
 - **Multi-tenant isolation** -- each CoC's data is isolated by tenant at every layer
 
@@ -124,7 +125,7 @@ A comprehensive guide covering procurement, deployment, security, accessibility,
 | Who owns the data? | You do. Self-hosted, your infrastructure. |
 | What does it cost? | $15-100+/month for hosting. Software is free. |
 | Is it accessible? | Self-assessed WCAG 2.1 AA. Third-party audit planned. |
-| Is it secure? | OWASP gate, RLS, rate limiting, ZAP baseline. No formal pen test yet. |
+| Is it secure? | OWASP gate, RLS, rate limiting, CSV injection prevention, ZAP baseline. No formal pen test yet. |
 | What if we stop using it? | Export in HSDS 3.0 format. No lock-in. |
 | Who supports it? | Community support. Any IT professional can maintain it. |
 | What is the license? | Apache 2.0 -- permissive, irrevocable, government-friendly. |
