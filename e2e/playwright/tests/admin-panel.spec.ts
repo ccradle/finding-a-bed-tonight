@@ -78,4 +78,16 @@ test.describe('Admin Panel', () => {
     // Either the activate button or an active surge banner should be visible
     expect(hasActivate || hasBanner).toBe(true);
   });
+
+  test('2-1-1 Import link navigates to import page from admin panel', async ({ adminPage }) => {
+    await adminPage.goto('/admin');
+    // Click Imports tab
+    await adminPage.locator('main button', { hasText: /imports/i }).click();
+    await adminPage.waitForTimeout(500);
+    // Click 2-1-1 Import link
+    await adminPage.locator('a', { hasText: /2-1-1 import/i }).click();
+    // Verify we navigated to the import page (file upload area visible)
+    await expect(adminPage).toHaveURL(/\/coordinator\/import\/211/);
+    await expect(adminPage.locator('input[type="file"]')).toBeAttached();
+  });
 });

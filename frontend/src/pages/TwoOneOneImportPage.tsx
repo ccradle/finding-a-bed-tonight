@@ -80,6 +80,10 @@ export function TwoOneOneImportPage() {
       const previewData = await api.post<PreviewResponse>('/api/v1/import/211/preview', formData, {
         isFormData: true,
       });
+      if (previewData.totalRows === 0) {
+        setError(intl.formatMessage({ id: 'import.noDataRows' }, { defaultMessage: 'CSV file contains no data rows — only headers were found.' }));
+        return;
+      }
       setPreview(previewData);
       setStep('preview');
     } catch (err) {

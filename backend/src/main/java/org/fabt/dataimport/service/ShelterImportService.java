@@ -167,6 +167,14 @@ public class ShelterImportService {
             errors.add(new ImportError(rowNum, "addressCity", "City is required"));
         }
 
+        // Field length validation (matches DB column sizes)
+        validateLength(errors, rowNum, "name", row.name(), 255);
+        validateLength(errors, rowNum, "addressStreet", row.addressStreet(), 500);
+        validateLength(errors, rowNum, "addressCity", row.addressCity(), 255);
+        validateLength(errors, rowNum, "addressState", row.addressState(), 50);
+        validateLength(errors, rowNum, "addressZip", row.addressZip(), 10);
+        validateLength(errors, rowNum, "phone", row.phone(), 50);
+
         // Validate population types if provided
         if (row.populationTypesServed() != null) {
             for (String popType : row.populationTypesServed()) {
@@ -192,6 +200,13 @@ public class ShelterImportService {
         }
 
         return errors;
+    }
+
+    private void validateLength(List<ImportError> errors, int rowNum, String field, String value, int maxLength) {
+        if (value != null && value.length() > maxLength) {
+            errors.add(new ImportError(rowNum, field,
+                    field + " cannot exceed " + maxLength + " characters (was " + value.length() + ")"));
+        }
     }
 
     /**

@@ -80,8 +80,10 @@ public class HsdsImportAdapter {
         }
 
         List<ShelterImportRow> rows = new ArrayList<>();
+        int rowNum = 0;
 
         for (JsonNode org : organizationsNode) {
+            rowNum++;
             String orgId = textOrNull(org, "id");
             String name = textOrNull(org, "name");
 
@@ -159,6 +161,14 @@ public class HsdsImportAdapter {
                     }
                 }
             }
+
+            // Sanitize all string fields for CSV injection prevention (CWE-1236)
+            name = CsvSanitizer.sanitize(name, rowNum, "name");
+            addressStreet = CsvSanitizer.sanitize(addressStreet, rowNum, "addressStreet");
+            addressCity = CsvSanitizer.sanitize(addressCity, rowNum, "addressCity");
+            addressState = CsvSanitizer.sanitize(addressState, rowNum, "addressState");
+            addressZip = CsvSanitizer.sanitize(addressZip, rowNum, "addressZip");
+            phone = CsvSanitizer.sanitize(phone, rowNum, "phone");
 
             ShelterImportRow row = new ShelterImportRow(
                     name,

@@ -54,6 +54,7 @@
   "import.211.previewBtn": "Preview Column Mapping",
   "import.211.importing": "Importing...",
   "import.211.confirmBtn": "Confirm & Import",
+  "import.noDataRows": "CSV file contains no data rows — only headers were found.",
   "import.rowsDetected": "{count} rows detected",
   "import.sourceColumn": "Source Column",
   "import.mapsTo": "Maps To",

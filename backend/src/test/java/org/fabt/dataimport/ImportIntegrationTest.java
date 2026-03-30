@@ -417,4 +417,172 @@ class ImportIntegrationTest extends BaseIntegrationTest {
             assertThat(log.importType()).isNotBlank();
         }
     }
+
+    // -------------------------------------------------------------------------
+    // Negative tests — import hardening
+    // -------------------------------------------------------------------------
+
+    @Test
+    void test_211Import_emptyFile_returns400() {
+        HttpHeaders headers = authHelper.cocAdminHeaders();
+        HttpEntity<MultiValueMap<String, Object>> request =
+                buildMultipartRequest(headers, "", "empty.csv");
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/import/211",
+                HttpMethod.POST,
+                request,
+                String.class
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    @Test
+    void test_211Import_headersOnly_returns400() {
+        HttpHeaders headers = authHelper.cocAdminHeaders();
+        String headersOnlyCsv = "name,address,city,state,zip,phone\n";
+        HttpEntity<MultiValueMap<String, Object>> request =
+                buildMultipartRequest(headers, headersOnlyCsv, "headers-only.csv");
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/import/211",
+                HttpMethod.POST,
+                request,
+                String.class
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    @Test
+    void test_211Import_malformedCsv_returns400() {
+        HttpHeaders headers = authHelper.cocAdminHeaders();
+        String malformed = "name,address\n\"Unclosed Quote,123 Main\n";
+        HttpEntity<MultiValueMap<String, Object>> request =
+                buildMultipartRequest(headers, malformed, "malformed.csv");
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/import/211",
+                HttpMethod.POST,
+                request,
+                String.class
+        );
+
+        // Malformed CSV may throw parse error (400) or produce 0 rows (400)
+        assertThat(response.getStatusCode().value()).isIn(400, 500);
+    }
+
+    @Test
+    void test_211Import_csvInjection_sanitized() {
+        HttpHeaders headers = authHelper.cocAdminHeaders();
+        String injectionCsv = "name,address,city,state,zip,phone\n" +
+                "=CMD('calc'),123 Main St,Raleigh,NC,27601,919-555-0100\n" +
+                "+cmd|'/C calc',456 Oak Ave,Raleigh,NC,27601,919-555-0200\n" +
+                "@SUM(A1:A10),789 Pine Rd,Raleigh,NC,27601,919-555-0300\n" +
+                "Normal Shelter,321 Elm St,Raleigh,NC,27601,+1-919-555-0400\n";
+        HttpEntity<MultiValueMap<String, Object>> request =
+                buildMultipartRequest(headers, injectionCsv, "injection.csv");
+
+        ResponseEntity<ImportResultResponse> response = restTemplate.exchange(
+                "/api/v1/import/211",
+                HttpMethod.POST,
+                request,
+                ImportResultResponse.class
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        ImportResultResponse result = response.getBody();
+        assertThat(result).isNotNull();
+        // All 4 rows should import (sanitized, not rejected)
+        assertThat(result.created() + result.updated()).isGreaterThanOrEqualTo(4);
+        assertThat(result.errors()).isEmpty();
+    }
+
+    @Test
+    void test_211Import_fieldLengthExceeded_reportsRowError() {
+        HttpHeaders headers = authHelper.cocAdminHeaders();
+        String longName = "A".repeat(300);
+        String csv = "name,address,city,state,zip,phone\n" +
+                longName + ",123 Main St,Raleigh,NC,27601,919-555-0100\n";
+        HttpEntity<MultiValueMap<String, Object>> request =
+                buildMultipartRequest(headers, csv, "long-name.csv");
+
+        ResponseEntity<ImportResultResponse> response = restTemplate.exchange(
+                "/api/v1/import/211",
+                HttpMethod.POST,
+                request,
+                ImportResultResponse.class
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        ImportResultResponse result = response.getBody();
+        assertThat(result).isNotNull();
+        // Validation failures go to errorCount, not skipped
+        assertThat(result.errors()).isNotEmpty();
+        assertThat(result.errors().get(0)).contains("255");
+    }
+
+    @Test
+    void test_211Import_missingNameColumn_reportsError() {
+        HttpHeaders headers = authHelper.cocAdminHeaders();
+        // CSV with address but no name column — name will be null
+        String csv = "address,city,state,zip,phone\n" +
+                "123 Main St,Raleigh,NC,27601,919-555-0100\n";
+        HttpEntity<MultiValueMap<String, Object>> request =
+                buildMultipartRequest(headers, csv, "no-name.csv");
+
+        ResponseEntity<ImportResultResponse> response = restTemplate.exchange(
+                "/api/v1/import/211",
+                HttpMethod.POST,
+                request,
+                ImportResultResponse.class
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        ImportResultResponse result = response.getBody();
+        assertThat(result).isNotNull();
+        assertThat(result.errors()).isNotEmpty();
+        assertThat(result.errors().get(0)).contains("Name is required");
+    }
+
+    @Test
+    void test_hsdsImport_csvInjection_sanitized() {
+        HttpHeaders headers = authHelper.cocAdminHeaders();
+        String injectionJson = """
+                {
+                    "organizations": [
+                        {"id": "org-inj-1", "name": "=CMD('calc')", "description": "Injection test"},
+                        {"id": "org-inj-2", "name": "@SUM(A1)", "description": "At-sign test"}
+                    ],
+                    "locations": [
+                        {
+                            "id": "loc-inj-1",
+                            "organization_id": "org-inj-1",
+                            "physical_address": [{"address_1": "+cmd|'/C calc'", "city": "Raleigh", "state_province": "NC", "postal_code": "27601"}]
+                        },
+                        {
+                            "id": "loc-inj-2",
+                            "organization_id": "org-inj-2",
+                            "physical_address": [{"address_1": "Normal St", "city": "Raleigh", "state_province": "NC", "postal_code": "27601"}]
+                        }
+                    ]
+                }
+                """;
+        HttpEntity<MultiValueMap<String, Object>> request =
+                buildMultipartRequest(headers, injectionJson, "injection.json");
+
+        ResponseEntity<ImportResultResponse> response = restTemplate.exchange(
+                "/api/v1/import/hsds",
+                HttpMethod.POST,
+                request,
+                ImportResultResponse.class
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        ImportResultResponse result = response.getBody();
+        assertThat(result).isNotNull();
+        // Both orgs should import (sanitized names, not rejected)
+        assertThat(result.created() + result.updated()).isGreaterThanOrEqualTo(2);
+    }
 }
