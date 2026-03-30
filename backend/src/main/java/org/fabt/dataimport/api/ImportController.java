@@ -3,7 +3,11 @@ package org.fabt.dataimport.api;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -69,6 +73,7 @@ public class ImportController {
             throw new IllegalStateException("Tenant context is not set");
         }
 
+        validateJsonMimeType(file);
         String jsonContent = readFileContent(file);
         String filename = file.getOriginalFilename() != null ? file.getOriginalFilename() : "hsds-import.json";
 
@@ -102,6 +107,7 @@ public class ImportController {
             throw new IllegalStateException("Tenant context is not set");
         }
 
+        validateCsvMimeType(file);
         String csvContent = readFileContent(file);
         String filename = file.getOriginalFilename() != null ? file.getOriginalFilename() : "211-import.csv";
 
@@ -128,6 +134,7 @@ public class ImportController {
     public ResponseEntity<ColumnMappingResponse> previewCsvMapping(
             @Parameter(description = "CSV file in 2-1-1 format to preview column mapping")
             @RequestParam("file") MultipartFile file) {
+        validateCsvMimeType(file);
         String csvContent = readFileContent(file);
         TwoOneOneImportAdapter.PreviewResult preview = twoOneOneImportAdapter.previewFull(csvContent);
         return ResponseEntity.ok(ColumnMappingResponse.from(preview.mapping(), preview.allRows()));
@@ -164,6 +171,37 @@ public class ImportController {
             return new String(file.getBytes(), StandardCharsets.UTF_8);
         } catch (IOException e) {
             throw new IllegalArgumentException("Failed to read uploaded file: " + e.getMessage());
+        }
+    }
+
+    private static final Logger log = LoggerFactory.getLogger(ImportController.class);
+
+    private static final Set<String> CSV_MIME_TYPES = Set.of(
+            "text/csv", "text/plain", "application/csv", "application/octet-stream");
+    private static final Set<String> JSON_MIME_TYPES = Set.of(
+            "application/json", "text/plain", "application/octet-stream");
+
+    private void validateCsvMimeType(MultipartFile file) {
+        String contentType = file.getContentType();
+        if (contentType == null) {
+            log.warn("Import file '{}' has no content type — accepting but logging for monitoring",
+                    file.getOriginalFilename());
+            return;
+        }
+        if (!CSV_MIME_TYPES.contains(contentType)) {
+            throw new IllegalArgumentException("File must be CSV format (received: " + contentType + ")");
+        }
+    }
+
+    private void validateJsonMimeType(MultipartFile file) {
+        String contentType = file.getContentType();
+        if (contentType == null) {
+            log.warn("Import file '{}' has no content type — accepting but logging for monitoring",
+                    file.getOriginalFilename());
+            return;
+        }
+        if (!JSON_MIME_TYPES.contains(contentType)) {
+            throw new IllegalArgumentException("File must be JSON format (received: " + contentType + ")");
         }
     }
 }

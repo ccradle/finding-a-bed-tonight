@@ -150,3 +150,80 @@ test.describe('Demo: 211 Import → Edit Lifecycle', () => {
     expect(await dvToggleAfter.getAttribute('aria-checked')).toBe('true');
   });
 });
+
+test.describe('211 Import — negative cases', () => {
+  test.afterAll(async () => { await cleanupTestData(); });
+
+  test('empty file shows error message', async ({ adminPage }) => {
+    await adminPage.goto('/coordinator/import/211');
+
+    const fileInput = adminPage.locator('input[type="file"]');
+    await fileInput.setInputFiles({
+      name: 'empty.csv',
+      mimeType: 'text/csv',
+      buffer: Buffer.from(''),
+    });
+
+    // Click preview button (may be labeled differently)
+    const previewBtn = adminPage.locator('button', { hasText: /preview|upload/i });
+    if (await previewBtn.isVisible()) {
+      await previewBtn.click();
+    }
+
+    // Should show an error
+    await expect(adminPage.locator('[role="alert"], [data-testid="error-message"]')).toBeVisible({ timeout: 5000 });
+  });
+
+  test('headers-only file shows error message', async ({ adminPage }) => {
+    await adminPage.goto('/coordinator/import/211');
+
+    const fileInput = adminPage.locator('input[type="file"]');
+    await fileInput.setInputFiles({
+      name: 'headers-only.csv',
+      mimeType: 'text/csv',
+      buffer: Buffer.from('name,address,city,state,zip,phone\n'),
+    });
+
+    const previewBtn = adminPage.locator('button', { hasText: /preview|upload/i });
+    if (await previewBtn.isVisible()) {
+      await previewBtn.click();
+    }
+
+    await expect(adminPage.locator('[role="alert"], [data-testid="error-message"]')).toBeVisible({ timeout: 5000 });
+  });
+
+  test('CSV injection payloads are sanitized on import', async ({ adminPage }) => {
+    await adminPage.goto('/coordinator/import/211');
+
+    const fileInput = adminPage.locator('input[type="file"]');
+    await fileInput.setInputFiles({
+      name: 'injection-test.csv',
+      mimeType: 'text/csv',
+      buffer: Buffer.from(
+        'name,address,city,state,zip,phone\n' +
+        '=CMD(calc),123 Main St,Raleigh,NC,27601,919-555-0100\n'
+      ),
+    });
+
+    // Preview
+    await adminPage.locator('button', { hasText: /preview/i }).click();
+    await adminPage.waitForTimeout(1000);
+
+    // Confirm import
+    await adminPage.locator('button', { hasText: /confirm/i }).click();
+    await expect(adminPage.locator('text=/Import Complete/i')).toBeVisible({ timeout: 10000 });
+
+    // Verify the stored name was sanitized (leading = stripped)
+    // Navigate to shelters and check the imported shelter name
+    await adminPage.goto('/admin');
+    await adminPage.locator('main button', { hasText: /^Shelters$/ }).first().click();
+    await adminPage.waitForTimeout(1000);
+    // Should show "CMD(calc)" not "=CMD(calc)" — sanitizer strips leading =
+    // Use getByText with exact match to distinguish
+    await expect(adminPage.getByText('CMD(calc)', { exact: true })).toBeVisible();
+    // The unsanitized value should not appear anywhere in the table
+    const cells = await adminPage.locator('td').allTextContents();
+    const hasUnsanitized = cells.some(text => text.trim() === '=CMD(calc)');
+    expect(hasUnsanitized).toBe(false);
+  });
+});

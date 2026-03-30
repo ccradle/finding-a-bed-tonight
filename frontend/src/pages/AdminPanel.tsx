@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useContext, lazy, Suspense } from 'react';
+import { Link } from 'react-router-dom';
 import { FormattedMessage, useIntl } from 'react-intl';
 import { api } from '../services/api';
 import { DataAge } from '../components/DataAge';
@@ -958,14 +959,14 @@ function ImportsTab() {
       {error && <ErrorBox message={error} />}
 
       <div style={{ marginBottom: 16, display: 'flex', gap: 10 }}>
-        <a href="/import/hsds" style={{
+        <Link to="/coordinator/import/hsds" style={{
           ...primaryBtnStyle, textDecoration: 'none',
           display: 'inline-flex', alignItems: 'center',
-        }}>HSDS Import</a>
-        <a href="/import/211" style={{
+        }}>HSDS Import</Link>
+        <Link to="/coordinator/import/211" style={{
           ...primaryBtnStyle, textDecoration: 'none',
           display: 'inline-flex', alignItems: 'center',
-        }}>2-1-1 Import</a>
+        }}>2-1-1 Import</Link>
       </div>
 
       {imports.length === 0 ? <NoData /> : (

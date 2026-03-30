@@ -141,12 +141,13 @@ public class TwoOneOneImportAdapter {
         List<ShelterImportRow> rows = new ArrayList<>();
 
         for (CSVRecord record : records) {
-            String name = getField(record, fieldToHeader, "name");
-            String addressStreet = getField(record, fieldToHeader, "addressStreet");
-            String addressCity = getField(record, fieldToHeader, "addressCity");
-            String addressState = getField(record, fieldToHeader, "addressState");
-            String addressZip = getField(record, fieldToHeader, "addressZip");
-            String phone = getField(record, fieldToHeader, "phone");
+            int rowNum = (int) record.getRecordNumber();
+            String name = CsvSanitizer.sanitize(getField(record, fieldToHeader, "name"), rowNum, "name");
+            String addressStreet = CsvSanitizer.sanitize(getField(record, fieldToHeader, "addressStreet"), rowNum, "addressStreet");
+            String addressCity = CsvSanitizer.sanitize(getField(record, fieldToHeader, "addressCity"), rowNum, "addressCity");
+            String addressState = CsvSanitizer.sanitize(getField(record, fieldToHeader, "addressState"), rowNum, "addressState");
+            String addressZip = CsvSanitizer.sanitize(getField(record, fieldToHeader, "addressZip"), rowNum, "addressZip");
+            String phone = CsvSanitizer.sanitize(getField(record, fieldToHeader, "phone"), rowNum, "phone");
             Double latitude = getDoubleField(record, fieldToHeader, "latitude");
             Double longitude = getDoubleField(record, fieldToHeader, "longitude");
 
