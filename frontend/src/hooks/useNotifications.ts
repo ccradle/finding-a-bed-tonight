@@ -35,6 +35,7 @@ export function useNotifications(): UseNotificationsReturn {
   const [connected, setConnected] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectingRef = useRef(false);
+  const lastCatchUpRef = useRef(0);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
@@ -63,9 +64,12 @@ export function useNotifications(): UseNotificationsReturn {
     });
   }, []);
 
-  // REST catch-up on reconnection
+  // REST catch-up on reconnection (debounced — max once per 30 seconds)
   const catchUp = useCallback(() => {
     if (reconnectingRef.current) return;
+    const now = Date.now();
+    if (now - lastCatchUpRef.current < 30_000) return;
+    lastCatchUpRef.current = now;
     reconnectingRef.current = true;
     try {
       window.dispatchEvent(new Event(SSE_REFERRAL_UPDATE));

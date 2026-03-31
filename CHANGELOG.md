@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.22.1] — 2026-03-30 — SSE Proxy Fix
+
+### Fixed
+- **SSE notification stream broken through nginx proxy**: The frontend container's nginx was buffering SSE responses, causing the EventSource to disconnect and reconnect every ~5 seconds. Each reconnect triggered a full refetch of bed search results and DV referrals, creating constant page refreshing. Added dedicated SSE proxy location with `proxy_buffering off`, `proxy_cache off`, and `proxy_read_timeout 86400s`.
+- **catchUp storm on SSE reconnect**: Every `onerror` on the EventSource fired `catchUp()` which dispatched refetch events with no cooldown. Added 30-second debounce to prevent API hammering during flaky connectivity.
+
+---
+
 ## [v0.22.0] — 2026-03-30 — Import Hardening
 
 ### Fixed
