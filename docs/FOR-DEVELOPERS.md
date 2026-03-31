@@ -35,7 +35,7 @@ Three deployment tiers allow the same codebase to serve communities of vastly di
 | Events | Spring Events (Lite) / Kafka (Full) |
 | Auth | JWT + OAuth2/OIDC + API Keys (hybrid) |
 | Frontend | React 19, Vite, TypeScript, Workbox PWA, react-intl (EN/ES), CSS custom properties design tokens |
-| Testing | JUnit 5, Testcontainers, ArchUnit (321 tests), Playwright (175 UI tests), Karate (26 API scenarios), Gatling (6 simulations) |
+| Testing | JUnit 5, Testcontainers, ArchUnit (325 tests), Playwright (174 UI tests), Karate (26 API scenarios), Gatling (6 simulations) |
 | Infra | Docker, GitHub Actions CI/CD + E2E pipeline, Terraform (3 tiers) |
 
 ---
@@ -313,11 +313,11 @@ curl -s http://localhost:8080/actuator/health | python3 -m json.tool
 ```bash
 cd backend
 
-# Run all 321 backend tests
+# Run all 325 backend tests
 mvn test
 
 # Run E2E tests (requires dev-start.sh stack running)
-cd ../e2e/playwright && npx playwright test    # 175 UI tests
+cd ../e2e/playwright && npx playwright test    # 174 UI tests
 cd ../e2e/karate && mvn test                   # 77 API tests (71 + 6 @observability)
 cd ../e2e/gatling && mvn gatling:test           # Gatling performance simulations
 
@@ -356,6 +356,28 @@ npx playwright test --project=nginx       # Run E2E through nginx proxy
 
 **Future:** Consider adding the nginx Playwright profile to CI as a weekly or pre-release job.
 
+### SSE Architecture
+
+Real-time notifications use Server-Sent Events (SSE) via Spring Boot `SseEmitter` + `@microsoft/fetch-event-source`.
+
+**Server (`NotificationService`):**
+- `SseEmitter(-1L)` — no server-side timeout. Dead connections detected by 20-second heartbeat failures.
+- Named heartbeat events (not SSE comments) with `id:` — advances `Last-Event-ID` for accurate reconnect replay.
+- Bounded replay buffer (100 events / 5 minutes, tenant-filtered) for `Last-Event-ID` catchup.
+- Sends `refresh` event when gap is too large (client does single bulk refetch).
+- `@PreDestroy` graceful shutdown closes all emitters.
+- Micrometer metrics: `sse.connections.active`, `sse.reconnections.total`, `sse.event.delivery.duration`, `sse.send.failures.total`.
+
+**Client (`useNotifications` hook):**
+- `@microsoft/fetch-event-source` with `Authorization` header (not query-param token).
+- Exponential backoff with jitter on reconnect (1s → 30s max).
+- `openWhenHidden: false` — auto-close when tab backgrounded, reconnect on visible.
+- No full-refetch on reconnect — server replays via `Last-Event-ID`. Only `refresh` event triggers bulk refetch.
+
+**Caching:** Workbox `NetworkFirst` for all API routes (5-second timeout, falls back to cache). Changed from `StaleWhileRevalidate` to prevent stale data after writes.
+
+**Monitoring:** Grafana FABT Operations dashboard has SSE health panels. A sawtooth pattern in `sse.connections.active` indicates a timeout/reconnect loop (the v0.22.1 bug pattern).
+
 ### Test Breakdown
 
 | Test Class | Tests | What It Covers |
@@ -386,9 +408,10 @@ npx playwright test --project=nginx       # Run E2E through nginx proxy
 | `HmisBridgeIntegrationTest` | 14 | Transformer, DV aggregation, outbox, push, preview, status, security |
 | `AnalyticsIntegrationTest` | 13 | Utilization, demand, HIC/PIT export, batch jobs, security |
 | `CsvSanitizerTest` | 18 | Parameterized injection prevention, edge cases |
-| **Backend Total** | **321** | |
+| `SseStabilityTest` | 4 | Timeout behavior, initial event, Last-Event-ID, metrics |
+| **Backend Total** | **325** | |
 | | | |
-| **E2E: Playwright** | **175** | **UI tests (Chromium, data-testid locators)** |
+| **E2E: Playwright** | **174** | **UI tests (Chromium, data-testid locators)** |
 | `auth.spec.ts` | 4 | Login per role, failed login |
 | `outreach-search.spec.ts` | 9 | Results, filters, modal, hold/cancel, language, freshness |
 | `coordinator-dashboard.spec.ts` | 5 | Load, expand, update, save, hold indicator |
@@ -870,7 +893,7 @@ finding-a-bed-tonight/
 │       │   ├── db/migration/                          # 26 Flyway migrations (V1–V25 + V8.1)
 │       │   ├── logback-spring.xml                     # Structured JSON logging (Logstash encoder)
 │       │   └── messages/                              # i18n error messages (EN, ES)
-│       └── test/java/org/fabt/                        # 321 tests (unit + integration)
+│       └── test/java/org/fabt/                        # 325 tests (unit + integration)
 │           ├── BaseIntegrationTest.java               # Singleton Testcontainers PostgreSQL
 │           ├── TestAuthHelper.java                    # Per-role JWT helper for tests
 │           ├── ArchitectureTest.java                  # 21 ArchUnit module boundary rules
@@ -910,7 +933,7 @@ finding-a-bed-tonight/
 │           └── es.json                                # Spanish (100+ keys)
 │
 ├── e2e/                                               # End-to-end test suites
-│   ├── playwright/                                    # UI tests (175 tests, Chromium + nginx profile)
+│   ├── playwright/                                    # UI tests (174 tests, Chromium + nginx profile)
 │   │   ├── package.json                               # @playwright/test + TypeScript
 │   │   ├── playwright.config.ts                       # baseURL, workers, retries, HTML reporter
 │   │   ├── fixtures/auth.fixture.ts                   # Per-role storageState (admin, cocadmin, outreach)

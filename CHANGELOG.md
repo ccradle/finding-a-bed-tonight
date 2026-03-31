@@ -5,6 +5,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.23.0] — 2026-03-31 — SSE Stability & Cache Fix
+
+### Fixed
+- **SSE notification stream causing page refresh**: SseEmitter 5-minute timeout caused periodic disconnects, each triggering full data refetch. Changed to -1L (no timeout) with 20-second heartbeat-based dead connection detection.
+- **Stale data after shelter edit**: Workbox `StaleWhileRevalidate` served cached API responses after PUT, showing old phone numbers and settings. Changed to `NetworkFirst` with 5-second timeout — users always see fresh data after saves.
+- **Misleading offline test**: Removed Playwright test that asserted "page doesn't crash" as proof of offline queue replay. Real queue tests will come in the offline-honesty change.
+- **Test isolation**: Coordinator dashboard/beds/availability-math tests targeted specific shelter by name instead of fragile "first shelter" index.
+
+### Added
+- **SSE Last-Event-ID replay buffer**: Server maintains 100 most recent events (5-minute window). On reconnect, replays only missed events filtered by tenant and DV access. Sends `refresh` event if gap too large.
+- **@microsoft/fetch-event-source**: Replaces native EventSource. Auth via Authorization header (eliminates query-param token leak), exponential backoff with jitter on reconnect, auto-close when tab backgrounded (Page Visibility).
+- **SSE Micrometer metrics**: `sse.connections.active` gauge, `sse.reconnections.total` counter, `sse.event.delivery.duration` timer, `sse.send.failures.total` counter.
+- **Grafana SSE health panels**: Reconnection Rate and Send Failures panels in FABT Operations dashboard.
+- **SseStabilityTest**: 4 backend integration tests (timeout behavior, initial event format, Last-Event-ID replay, metrics registration).
+- **SseTokenFilter deprecation warning**: Logs WARN when query-param token auth is used for SSE.
+- **Graceful shutdown**: `@PreDestroy` closes all SSE emitters, triggering immediate client reconnection.
+- `test.describe.serial` for import lifecycle tests (dependent test ordering enforced).
+- Color-system tests migrated from CDN axe-core injection to `@axe-core/playwright` AxeBuilder (CSP-compatible).
+
+### Changed
+- Heartbeat: 30-second SSE comments → 20-second named events with `id:` (advances Last-Event-ID for accurate replay)
+- Backend version: 0.22.0 → 0.23.0
+- Test counts: 325 backend (+4), 174 Playwright (-1 misleading test removed, +2 SSE connectivity)
+
+---
+
 ## [v0.22.2] — 2026-03-30 — Nginx Dev Parity
 
 ### Added
