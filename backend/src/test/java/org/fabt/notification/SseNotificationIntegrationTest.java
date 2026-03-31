@@ -119,7 +119,7 @@ class SseNotificationIntegrationTest extends BaseIntegrationTest {
 
         SseEmitter emitter = notificationService.register(
                 outreach.getId(), tenantId,
-                new String[]{"OUTREACH_WORKER"}, true);
+                new String[]{"OUTREACH_WORKER"}, true, null);
 
         Map<String, Object> payload = Map.of(
                 "token_id", UUID.randomUUID().toString(),
@@ -146,10 +146,10 @@ class SseNotificationIntegrationTest extends BaseIntegrationTest {
 
         SseEmitter emitterA = notificationService.register(
                 outreachA.getId(), tenantA.getId(),
-                new String[]{"OUTREACH_WORKER"}, true);
+                new String[]{"OUTREACH_WORKER"}, true, null);
         SseEmitter emitterB = notificationService.register(
                 outreachB.getId(), tenantB.getId(),
-                new String[]{"OUTREACH_WORKER"}, true);
+                new String[]{"OUTREACH_WORKER"}, true, null);
 
         Map<String, Object> payload = Map.of(
                 "shelter_id", UUID.randomUUID().toString(),

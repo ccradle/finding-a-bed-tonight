@@ -66,6 +66,8 @@ public class SseTokenFilter extends OncePerRequestFilter {
             return;
         }
 
+        log.warn("SSE auth via query param is deprecated — use Authorization header instead");
+
         UUID tenantId = null;
         boolean dvAccess = false;
 

@@ -24,9 +24,10 @@ export default defineConfig({
         runtimeCaching: [
           {
             urlPattern: /^https?:\/\/.*\/api\/v1\/.*/,
-            handler: 'StaleWhileRevalidate',
+            handler: 'NetworkFirst',
             options: {
               cacheName: 'api-cache',
+              networkTimeoutSeconds: 5,
               expiration: { maxEntries: 100, maxAgeSeconds: 300 }
             }
           }

@@ -17,7 +17,7 @@ test.describe('Coordinator Dashboard', () => {
     const dashboard = new CoordinatorDashboardPage(coordinatorPage);
     await dashboard.goto();
     await dashboard.waitForShelters();
-    await dashboard.expandShelter(0);
+    await dashboard.expandShelterByName('Downtown Warming Station');
     await expect(coordinatorPage.locator('main h4', { hasText: /availability/i })).toBeVisible();
     const stepperButtons = coordinatorPage.locator('main button:has-text("+"), main button:has-text("−")');
     expect(await stepperButtons.count()).toBeGreaterThan(0);
@@ -27,7 +27,7 @@ test.describe('Coordinator Dashboard', () => {
     const dashboard = new CoordinatorDashboardPage(coordinatorPage);
     await dashboard.goto();
     await dashboard.waitForShelters();
-    await dashboard.expandShelter(0);
+    await dashboard.expandShelterByName('Downtown Warming Station');
     const updateBtn = coordinatorPage.locator('main button', { hasText: /update availability/i }).first();
     await updateBtn.click();
     await coordinatorPage.waitForTimeout(2000);
@@ -42,7 +42,7 @@ test.describe('Coordinator Dashboard', () => {
     const dashboard = new CoordinatorDashboardPage(coordinatorPage);
     await dashboard.goto();
     await dashboard.waitForShelters();
-    await dashboard.expandShelter(0);
+    await dashboard.expandShelterByName('Downtown Warming Station');
     // In unified layout (D10), use Update Availability button
     const saveButton = coordinatorPage.locator('[data-testid^="save-avail-"]').first();
     await expect(saveButton).toBeVisible();
@@ -56,7 +56,7 @@ test.describe('Coordinator Dashboard', () => {
     const dashboard = new CoordinatorDashboardPage(coordinatorPage);
     await dashboard.goto();
     await dashboard.waitForShelters();
-    await dashboard.expandShelter(0);
+    await dashboard.expandShelterByName('Downtown Warming Station');
     // If any beds are on hold, the "Active Holds" section should be visible
     // This depends on seed data or prior test state having holds
     const holdsSection = coordinatorPage.locator('main h4', { hasText: /active holds/i });

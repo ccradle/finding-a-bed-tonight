@@ -1,17 +1,23 @@
 package org.fabt.notification.service;
 
 import java.io.IOException;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import org.fabt.shared.event.DomainEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import jakarta.annotation.PreDestroy;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -22,23 +28,40 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  * Each authenticated user gets one SseEmitter keyed by userId.
  *
  * Spring #33421: onCompletion/onTimeout/onError callbacks registered to prevent deadlock.
- * Spring #33340: 5-minute timeout + cleanup callbacks prevent emitter accumulation.
+ * No server-side timeout (-1L) — dead connections detected by 20-second heartbeat failures.
  */
 @Service
 public class NotificationService {
 
     private static final Logger log = LoggerFactory.getLogger(NotificationService.class);
-    private static final long EMITTER_TIMEOUT_MS = 5 * 60 * 1000L; // 5 minutes
+    private static final long EMITTER_TIMEOUT_MS = -1L; // No timeout — dead connections detected by heartbeat failure
+
+    private static final int MAX_BUFFER_SIZE = 100;
+    private static final long MAX_BUFFER_AGE_MS = 5 * 60 * 1000L; // 5 minutes
 
     private final ConcurrentHashMap<UUID, EmitterEntry> emitters = new ConcurrentHashMap<>();
+    private final ConcurrentLinkedDeque<BufferedEvent> eventBuffer = new ConcurrentLinkedDeque<>();
     private final AtomicInteger activeConnections = new AtomicInteger(0);
     private final AtomicLong eventIdCounter = new AtomicLong(0);
     private final MeterRegistry meterRegistry;
+    private final Counter sendFailuresCounter;
+    private final Timer eventDeliveryTimer;
+
+    /**
+     * Buffered event for Last-Event-ID replay. Includes tenant/DV metadata for per-user filtering.
+     */
+    public record BufferedEvent(long id, String eventType, Object data, UUID tenantId, boolean requiresDvAccess, Instant timestamp) {}
 
     public NotificationService(MeterRegistry meterRegistry) {
         this.meterRegistry = meterRegistry;
-        // Register gauge for active SSE connections
         meterRegistry.gauge("fabt.sse.connections.active", activeConnections);
+        this.sendFailuresCounter = Counter.builder("sse.send.failures.total")
+                .description("SSE send failures (dead connection detection)")
+                .register(meterRegistry);
+        this.eventDeliveryTimer = Timer.builder("sse.event.delivery.duration")
+                .description("Time to deliver an event to all connected clients")
+                .publishPercentiles(0.5, 0.95, 0.99)
+                .register(meterRegistry);
     }
 
     /**
@@ -54,8 +77,9 @@ public class NotificationService {
 
     /**
      * Register a new SSE connection for an authenticated user.
+     * @param lastEventId if present, replay missed events from buffer after this ID
      */
-    public SseEmitter register(UUID userId, UUID tenantId, String[] roles, boolean dvAccess) {
+    public SseEmitter register(UUID userId, UUID tenantId, String[] roles, boolean dvAccess, Long lastEventId) {
         // Close any existing emitter for this user (reconnection case)
         EmitterEntry existing = emitters.remove(userId);
         if (existing != null) {
@@ -85,11 +109,20 @@ public class NotificationService {
         emitters.put(userId, new EmitterEntry(emitter, userId, tenantId, roles, dvAccess));
         activeConnections.incrementAndGet();
 
-        // Send initial retry directive
+        // Send initial connection event with retry field and monotonic id
         try {
-            emitter.send(SseEmitter.event().reconnectTime(5000));
+            emitter.send(SseEmitter.event()
+                    .id(String.valueOf(eventIdCounter.incrementAndGet()))
+                    .name("connected")
+                    .data("{\"heartbeatInterval\":20000}")
+                    .reconnectTime(5000));
         } catch (IOException e) {
-            log.debug("Failed to send initial retry directive to user {}", userId);
+            log.debug("Failed to send initial connection event to user {}", userId);
+        }
+
+        // Replay missed events if client reconnects with Last-Event-ID
+        if (lastEventId != null) {
+            replayFromBuffer(emitter, lastEventId, tenantId, roles, dvAccess);
         }
 
         log.debug("SSE emitter registered for user {} (tenant {})", userId, tenantId);
@@ -114,17 +147,27 @@ public class NotificationService {
     }
 
     /**
-     * Complete all active emitters. Used during test cleanup and graceful shutdown
-     * to ensure Tomcat doesn't block waiting for SSE requests to finish.
+     * Complete all active emitters. Called on graceful shutdown to trigger immediate
+     * client reconnection to a healthy node, and during test cleanup.
      */
+    @PreDestroy
     public void completeAll() {
-        emitters.forEach((userId, entry) -> {
+        // Remove from map FIRST, then complete — prevents heartbeat scheduler
+        // from seeing completed emitters during the cleanup window
+        var snapshot = new java.util.ArrayList<>(emitters.values());
+        int count = snapshot.size();
+        emitters.clear();
+        activeConnections.set(0);
+        if (count > 0) {
+            log.info("Closing {} SSE connections for graceful shutdown", count);
+        }
+        for (var entry : snapshot) {
             try {
                 entry.emitter().complete();
             } catch (Exception e) {
-                log.debug("Error completing emitter for user {}: {}", userId, e.getMessage());
+                log.debug("Error completing emitter for user {}: {}", entry.userId(), e.getMessage());
             }
-        });
+        }
     }
 
     /**
@@ -142,17 +185,28 @@ public class NotificationService {
     }
 
     /**
-     * Send SSE comment as keepalive to prevent proxy/LB idle timeout.
-     * SSE comments are ignored by EventSource — they don't trigger event handlers.
+     * Send heartbeat as a named event (not a comment) every 20 seconds.
+     * Named events advance Last-Event-ID for accurate reconnect replay.
+     * Also detects dead connections — IOException triggers immediate cleanup.
+     * Per-emitter try-catch: one stuck emitter cannot block heartbeats to others.
      */
-    @Scheduled(fixedRate = 30_000)
-    public void sendKeepalive() {
+    @Scheduled(fixedRate = 20_000)
+    public void sendHeartbeat() {
         emitters.forEach((userId, entry) -> {
             try {
-                entry.emitter().send(SseEmitter.event().comment("keepalive"));
+                entry.emitter().send(SseEmitter.event()
+                        .id(String.valueOf(eventIdCounter.incrementAndGet()))
+                        .name("heartbeat")
+                        .data("{}"));
             } catch (IOException e) {
-                log.debug("Keepalive failed for user {}, removing emitter", userId);
+                sendFailuresCounter.increment();
+                log.debug("Heartbeat failed for user {}, removing emitter", userId);
                 entry.emitter().completeWithError(e);
+            } catch (IllegalStateException e) {
+                // Emitter already completed (client disconnect raced with heartbeat tick)
+                sendFailuresCounter.increment();
+                log.debug("Heartbeat skipped for user {} (emitter already completed)", userId);
+                emitters.remove(userId);
             }
         });
     }
@@ -184,7 +238,7 @@ public class NotificationService {
             // This is safe because the payload contains no sensitive data (no shelter info).
             if (!hasRole(entry.roles(), "OUTREACH_WORKER")) return;
 
-            sendEvent(entry, "dv-referral.responded", ssePayload);
+            sendAndBufferEvent(entry, "dv-referral.responded", ssePayload, tenantId, false);
         });
     }
 
@@ -205,7 +259,7 @@ public class NotificationService {
             if (!entry.dvAccess()) return;
             if (!hasRole(entry.roles(), "COORDINATOR")) return;
 
-            sendEvent(entry, "dv-referral.requested", ssePayload);
+            sendAndBufferEvent(entry, "dv-referral.requested", ssePayload, tenantId, true);
         });
     }
 
@@ -226,23 +280,118 @@ public class NotificationService {
         emitters.forEach((userId, entry) -> {
             if (!entry.tenantId().equals(tenantId)) return;
 
-            sendEvent(entry, "availability.updated", ssePayload);
+            sendAndBufferEvent(entry, "availability.updated", ssePayload, tenantId, false);
         });
     }
 
-    private void sendEvent(EmitterEntry entry, String eventType, Map<String, Object> data) {
-        try {
-            entry.emitter().send(
-                    SseEmitter.event()
-                            .id(String.valueOf(eventIdCounter.incrementAndGet()))
-                            .name(eventType)
-                            .data(data)
-            );
-            eventsSentCounter(eventType).increment();
-        } catch (IOException e) {
-            log.debug("Failed to send SSE event to user {}, removing emitter", entry.userId());
-            entry.emitter().completeWithError(e);
+    /**
+     * Replay events from the buffer that the client missed (after lastEventId),
+     * filtered by tenant and role. If lastEventId is not found in buffer, send a
+     * 'refresh' event type so the client does a single bulk refetch.
+     */
+    private void replayFromBuffer(SseEmitter emitter, long lastEventId, UUID tenantId, String[] roles, boolean dvAccess) {
+        // Find events after lastEventId
+        List<BufferedEvent> missed = new ArrayList<>();
+        boolean found = false;
+        for (BufferedEvent ev : eventBuffer) {
+            if (ev.id() == lastEventId) {
+                found = true;
+                continue;
+            }
+            if (found) {
+                // Filter by tenant and DV access (same logic as onDomainEvent)
+                if (!ev.tenantId().equals(tenantId)) continue;
+                if (ev.requiresDvAccess() && !dvAccess) continue;
+                // Skip heartbeats — client doesn't need them replayed
+                if ("heartbeat".equals(ev.eventType())) continue;
+                missed.add(ev);
+            }
         }
+
+        if (!found) {
+            // lastEventId is too stale — send refresh event
+            try {
+                emitter.send(SseEmitter.event()
+                        .id(String.valueOf(eventIdCounter.incrementAndGet()))
+                        .name("refresh")
+                        .data("{\"reason\":\"event_buffer_expired\"}"));
+                meterRegistry.counter("sse.reconnections.total", "type", "stale").increment();
+            } catch (IOException e) {
+                log.debug("Failed to send refresh event on reconnect");
+            }
+            return;
+        }
+
+        // Replay missed events
+        for (BufferedEvent ev : missed) {
+            try {
+                emitter.send(SseEmitter.event()
+                        .id(String.valueOf(ev.id()))
+                        .name(ev.eventType())
+                        .data(ev.data()));
+            } catch (IOException e) {
+                log.debug("Failed to replay event {} on reconnect", ev.id());
+                break;
+            }
+        }
+        if (!missed.isEmpty()) {
+            meterRegistry.counter("sse.reconnections.total", "type", "replayed").increment();
+            log.debug("Replayed {} events after lastEventId {}", missed.size(), lastEventId);
+        } else {
+            meterRegistry.counter("sse.reconnections.total", "type", "no_gap").increment();
+        }
+    }
+
+    /**
+     * Add an event to the replay buffer. Evicts old entries by size and age.
+     */
+    private void bufferEvent(long id, String eventType, Object data, UUID tenantId, boolean requiresDvAccess) {
+        eventBuffer.addLast(new BufferedEvent(id, eventType, data, tenantId, requiresDvAccess, Instant.now()));
+        // Evict by size
+        while (eventBuffer.size() > MAX_BUFFER_SIZE) {
+            eventBuffer.pollFirst();
+        }
+        // Evict by age
+        Instant cutoff = Instant.now().minusMillis(MAX_BUFFER_AGE_MS);
+        while (!eventBuffer.isEmpty() && eventBuffer.peekFirst().timestamp().isBefore(cutoff)) {
+            eventBuffer.pollFirst();
+        }
+    }
+
+    /**
+     * Send an event to a specific emitter and buffer it for replay.
+     * The eventId is pre-assigned so it's consistent across the buffer and the stream.
+     */
+    private void sendEvent(EmitterEntry entry, String eventType, Map<String, Object> data, long eventId) {
+        eventDeliveryTimer.record(() -> {
+            try {
+                entry.emitter().send(
+                        SseEmitter.event()
+                                .id(String.valueOf(eventId))
+                                .name(eventType)
+                                .data(data)
+                );
+                eventsSentCounter(eventType).increment();
+            } catch (IOException e) {
+                sendFailuresCounter.increment();
+                log.debug("Failed to send SSE event to user {}, removing emitter", entry.userId());
+                entry.emitter().completeWithError(e);
+            } catch (IllegalStateException e) {
+                sendFailuresCounter.increment();
+                log.debug("SSE event skipped for user {} (emitter already completed)", entry.userId());
+                emitters.remove(entry.userId());
+            }
+        });
+    }
+
+    /**
+     * Allocate an event ID, buffer the event, then send to the target emitter.
+     */
+    private void sendAndBufferEvent(EmitterEntry entry, String eventType, Map<String, Object> data,
+                                     UUID tenantId, boolean requiresDvAccess) {
+        long eventId = eventIdCounter.incrementAndGet();
+        bufferEvent(eventId, eventType, data, tenantId, requiresDvAccess);
+        sendEvent(entry, eventType, data, eventId);
     }
 
     private Counter eventsSentCounter(String eventType) {
