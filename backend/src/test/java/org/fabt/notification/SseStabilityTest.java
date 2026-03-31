@@ -6,6 +6,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import org.fabt.BaseIntegrationTest;
 import org.fabt.TestAuthHelper;
 import org.fabt.notification.service.NotificationService;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,6 +24,12 @@ class SseStabilityTest extends BaseIntegrationTest {
 
     @Autowired
     private NotificationService notificationService;
+
+    @AfterEach
+    void cleanup() {
+        // Clean up all emitters to prevent interference with other test classes
+        notificationService.completeAll();
+    }
 
     @Test
     @DisplayName("SSE emitter with -1L timeout does not timeout after 10 seconds")
