@@ -5,6 +5,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.22.2] — 2026-03-30 — Nginx Dev Parity
+
+### Added
+- `--nginx` flag on `dev-start.sh`: serves frontend through the real nginx proxy (port 8081) instead of Vite dev server, catching proxy-specific bugs before they reach production
+- `--no-build` flag: restart nginx without rebuilding frontend (quick nginx.conf iteration)
+- `docker-compose.dev-nginx.yml`: dev override with volume-mounted nginx container using `host-gateway` for backend connectivity
+- Playwright `nginx` project: run full E2E suite through nginx (`NGINX=1 npx playwright test --project=nginx`)
+- SSE connectivity test (`sse-connectivity.spec.ts`): verifies notification stream stays connected 15+ seconds without reconnecting — would have caught the v0.22.1 SSE buffering bug
+- CORS auto-configuration: `--nginx` mode sets `FABT_CORS_ALLOWED_ORIGINS` to include both Vite (:5173) and nginx (:8081) origins
+- FOR-DEVELOPERS.md: "Testing with nginx proxy" section with usage guidance
+
+### Changed
+- `dev-start.sh stop` now also cleans up nginx dev container
+- Playwright config uses `NGINX=1` env var to opt-in to nginx project (keeps default runs on Vite only)
+
+---
+
 ## [v0.22.1] — 2026-03-30 — SSE Proxy Fix
 
 ### Fixed

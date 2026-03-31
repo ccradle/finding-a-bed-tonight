@@ -8,7 +8,13 @@
 #   ./dev-start.sh --observability        Full stack + Prometheus + Grafana + Jaeger + OTel Collector
 #   ./dev-start.sh backend --observability  Backend + observability (no frontend)
 #   ./dev-start.sh --fresh                 Reset seed data before loading (use when shelter structure changes)
+#   ./dev-start.sh --nginx                 Frontend via nginx proxy (port 8081) instead of Vite dev server
+#   ./dev-start.sh --nginx --no-build      Restart nginx without rebuilding frontend (quick nginx.conf iteration)
+#   ./dev-start.sh --nginx --observability Full stack with nginx proxy + observability
 #   ./dev-start.sh stop                   Stop all services including observability containers
+#
+# Note: --nginx mode is for integration testing, not active frontend development.
+#       Use the default Vite mode for HMR during frontend dev.
 #
 set -euo pipefail
 
@@ -31,6 +37,8 @@ BACKEND_ONLY=false
 OBSERVABILITY=false
 OAUTH2=false
 FRESH_SEED=false
+NGINX_MODE=false
+NO_BUILD=false
 
 for arg in "$@"; do
     case "$arg" in
@@ -39,6 +47,8 @@ for arg in "$@"; do
         --observability) OBSERVABILITY=true ;;
         --oauth2)    OAUTH2=true ;;
         --fresh)     FRESH_SEED=true ;;
+        --nginx)     NGINX_MODE=true ;;
+        --no-build)  NO_BUILD=true ;;
     esac
 done
 
@@ -103,8 +113,9 @@ if [[ "${1:-}" == "stop" ]]; then
         kill "$(cat .pid-frontend)" 2>/dev/null && log "Frontend stopped." || true
         rm -f .pid-frontend
     fi
-    # Tear down all containers including optional profiles
-    docker compose --profile observability --profile oauth2 down 2>/dev/null && log "All containers stopped." || true
+    # Tear down all containers including optional profiles (including nginx dev proxy)
+    docker compose -f docker-compose.yml -f docker-compose.dev-nginx.yml \
+        --profile observability --profile oauth2 --profile nginx down 2>/dev/null && log "All containers stopped." || true
     log "All services stopped."
     exit 0
 fi
@@ -203,6 +214,10 @@ fi
 # Activate 'dev' profile for dev-only features (e.g., test reset endpoint).
 # This profile does NOT exist in production deployments.
 export SPRING_PROFILES_ACTIVE=lite,dev
+# CORS: allow both Vite (:5173) and nginx (:8081) origins in dev
+if [[ "$NGINX_MODE" == true ]]; then
+    export FABT_CORS_ALLOWED_ORIGINS="http://localhost:5173,http://localhost:8081"
+fi
 # Create logs directory BEFORE starting backend (fresh clones don't have it)
 mkdir -p ../logs
 mvn spring-boot:run $SPRING_ARGS -q > ../logs/backend.log 2>&1 &
@@ -257,30 +272,73 @@ log "Demo activity data loaded."
 
 # --- Step 5: Start frontend (unless backend-only mode) ---
 if [[ "$BACKEND_ONLY" == false ]]; then
-    log "Starting frontend on http://localhost:5173 ..."
-    cd frontend
-    npm install --silent 2>/dev/null
-    npm run dev > ../logs/frontend.log 2>&1 &
-    FRONTEND_PID=$!
-    echo "$FRONTEND_PID" > ../.pid-frontend
-    cd ..
-
-    # Wait for frontend dev server
-    RETRIES=30
-    until curl -sf http://localhost:5173 >/dev/null 2>&1; do
-        if ! kill -0 "$FRONTEND_PID" 2>/dev/null; then
-            err "Frontend process died. Check logs/frontend.log"
-            tail -20 logs/frontend.log 2>/dev/null
+    if [[ "$NGINX_MODE" == true ]]; then
+        # --- Nginx mode: serve frontend through real nginx proxy ---
+        # Check Docker version >= 20.10 (required for host-gateway)
+        DOCKER_VERSION=$(docker version --format '{{.Server.Version}}' 2>/dev/null | cut -d. -f1-2)
+        DOCKER_MAJOR=$(echo "$DOCKER_VERSION" | cut -d. -f1)
+        DOCKER_MINOR=$(echo "$DOCKER_VERSION" | cut -d. -f2)
+        if [[ "$DOCKER_MAJOR" -lt 20 ]] || [[ "$DOCKER_MAJOR" -eq 20 && "$DOCKER_MINOR" -lt 10 ]]; then
+            err "Docker >= 20.10 required for --nginx mode (host-gateway). Found: $DOCKER_VERSION"
             exit 1
         fi
-        RETRIES=$((RETRIES - 1))
-        if [[ $RETRIES -le 0 ]]; then
-            warn "Frontend didn't respond in 30s — it may still be starting. Check http://localhost:5173"
-            break
+
+        if [[ "$NO_BUILD" == false ]]; then
+            log "Building frontend for nginx mode..."
+            cd frontend
+            npm install --silent 2>/dev/null
+            npm run build > ../logs/frontend-build.log 2>&1
+            cd ..
+            log "Frontend built."
+        else
+            log "Skipping frontend build (--no-build)"
+            if [[ ! -d frontend/dist ]]; then
+                err "frontend/dist does not exist. Run without --no-build first."
+                exit 1
+            fi
         fi
-        sleep 1
-    done
-    log "Frontend ready."
+
+        log "Starting frontend via nginx on http://localhost:8081 ..."
+        docker compose -f docker-compose.yml -f docker-compose.dev-nginx.yml \
+            --profile nginx up -d frontend-nginx > /dev/null 2>&1
+
+        RETRIES=15
+        until curl -sf http://localhost:8081 >/dev/null 2>&1; do
+            RETRIES=$((RETRIES - 1))
+            if [[ $RETRIES -le 0 ]]; then
+                warn "Nginx didn't respond in 15s. Check: docker logs fabt-frontend-nginx"
+                break
+            fi
+            sleep 1
+        done
+        log "Frontend (nginx) ready."
+    else
+        # --- Default: Vite dev server ---
+        log "Starting frontend on http://localhost:5173 ..."
+        cd frontend
+        npm install --silent 2>/dev/null
+        npm run dev > ../logs/frontend.log 2>&1 &
+        FRONTEND_PID=$!
+        echo "$FRONTEND_PID" > ../.pid-frontend
+        cd ..
+
+        # Wait for frontend dev server
+        RETRIES=30
+        until curl -sf http://localhost:5173 >/dev/null 2>&1; do
+            if ! kill -0 "$FRONTEND_PID" 2>/dev/null; then
+                err "Frontend process died. Check logs/frontend.log"
+                tail -20 logs/frontend.log 2>/dev/null
+                exit 1
+            fi
+            RETRIES=$((RETRIES - 1))
+            if [[ $RETRIES -le 0 ]]; then
+                warn "Frontend didn't respond in 30s — it may still be starting. Check http://localhost:5173"
+                break
+            fi
+            sleep 1
+        done
+        log "Frontend ready."
+    fi
 fi
 
 # --- Wait for observability stack if requested ---
@@ -328,7 +386,11 @@ echo ""
 info "Backend:  http://localhost:8080"
 info "Swagger:  http://localhost:8080/api/v1/docs"
 if [[ "$BACKEND_ONLY" == false ]]; then
-    info "Frontend: http://localhost:5173"
+    if [[ "$NGINX_MODE" == true ]]; then
+        info "Frontend: http://localhost:8081 (nginx proxy)"
+    else
+        info "Frontend: http://localhost:5173"
+    fi
 fi
 info "Health:   http://localhost:8080/actuator/health"
 if [[ "$OBSERVABILITY" == true ]]; then

@@ -35,7 +35,7 @@ Three deployment tiers allow the same codebase to serve communities of vastly di
 | Events | Spring Events (Lite) / Kafka (Full) |
 | Auth | JWT + OAuth2/OIDC + API Keys (hybrid) |
 | Frontend | React 19, Vite, TypeScript, Workbox PWA, react-intl (EN/ES), CSS custom properties design tokens |
-| Testing | JUnit 5, Testcontainers, ArchUnit (321 tests), Playwright (173 UI tests), Karate (26 API scenarios), Gatling (6 simulations) |
+| Testing | JUnit 5, Testcontainers, ArchUnit (321 tests), Playwright (175 UI tests), Karate (26 API scenarios), Gatling (6 simulations) |
 | Infra | Docker, GitHub Actions CI/CD + E2E pipeline, Terraform (3 tiers) |
 
 ---
@@ -317,9 +317,13 @@ cd backend
 mvn test
 
 # Run E2E tests (requires dev-start.sh stack running)
-cd ../e2e/playwright && npx playwright test    # 173 UI tests
+cd ../e2e/playwright && npx playwright test    # 175 UI tests
 cd ../e2e/karate && mvn test                   # 77 API tests (71 + 6 @observability)
 cd ../e2e/gatling && mvn gatling:test           # Gatling performance simulations
+
+# Run E2E tests through nginx proxy (catches proxy-specific bugs like SSE buffering)
+# Requires: ./dev-start.sh --nginx --observability
+cd ../e2e/playwright && npx playwright test --project=nginx
 
 # Run a specific test class
 mvn test -Dtest=ReservationIntegrationTest
@@ -329,6 +333,28 @@ mvn test -Dtest="AvailabilityIntegrationTest#test_createSnapshot_appendOnly_pres
 ```
 
 **Docker is required.** Tests use Testcontainers to start a PostgreSQL 16 container automatically.
+
+### Testing with nginx proxy
+
+The dev stack normally uses Vite's dev server (port 5173) which has a built-in proxy. Production uses an nginx container. Proxy behavior differs — SSE streaming, header handling, caching, and timeouts can behave differently through nginx. The v0.22.1 SSE buffering bug was invisible in dev because Vite handles streaming correctly.
+
+**When to use `--nginx` mode:**
+- Before any release — run Playwright through nginx to catch proxy-specific bugs
+- After any change to `infra/docker/nginx.conf` — verify behavior through the real proxy
+- When debugging SSE, WebSocket, or streaming behavior
+- When testing security headers (CSP, HSTS) that are set at the nginx layer
+
+**When NOT to use it:**
+- Active frontend development — use default Vite mode for hot module replacement
+
+**Commands:**
+```bash
+./dev-start.sh --nginx --observability    # Build frontend, start nginx on :8081
+./dev-start.sh --nginx --no-build         # Restart nginx without rebuilding
+npx playwright test --project=nginx       # Run E2E through nginx proxy
+```
+
+**Future:** Consider adding the nginx Playwright profile to CI as a weekly or pre-release job.
 
 ### Test Breakdown
 
@@ -362,7 +388,7 @@ mvn test -Dtest="AvailabilityIntegrationTest#test_createSnapshot_appendOnly_pres
 | `CsvSanitizerTest` | 18 | Parameterized injection prevention, edge cases |
 | **Backend Total** | **321** | |
 | | | |
-| **E2E: Playwright** | **173** | **UI tests (Chromium, data-testid locators)** |
+| **E2E: Playwright** | **175** | **UI tests (Chromium, data-testid locators)** |
 | `auth.spec.ts` | 4 | Login per role, failed login |
 | `outreach-search.spec.ts` | 9 | Results, filters, modal, hold/cancel, language, freshness |
 | `coordinator-dashboard.spec.ts` | 5 | Load, expand, update, save, hold indicator |
@@ -884,7 +910,7 @@ finding-a-bed-tonight/
 │           └── es.json                                # Spanish (100+ keys)
 │
 ├── e2e/                                               # End-to-end test suites
-│   ├── playwright/                                    # UI tests (173 tests, Chromium)
+│   ├── playwright/                                    # UI tests (175 tests, Chromium + nginx profile)
 │   │   ├── package.json                               # @playwright/test + TypeScript
 │   │   ├── playwright.config.ts                       # baseURL, workers, retries, HTML reporter
 │   │   ├── fixtures/auth.fixture.ts                   # Per-role storageState (admin, cocadmin, outreach)
