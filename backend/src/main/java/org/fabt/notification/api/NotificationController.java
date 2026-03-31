@@ -12,6 +12,7 @@ import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -31,12 +32,15 @@ public class NotificationController {
 
     @Operation(
             summary = "Subscribe to real-time notifications via SSE",
-            description = "Returns a Server-Sent Events stream. Token must be passed as query parameter "
-                    + "(?token=<jwt>) because EventSource API does not support custom headers. "
-                    + "Events: dv-referral.responded, dv-referral.requested, availability.updated."
+            description = "Returns a Server-Sent Events stream. Supports Authorization header (preferred) "
+                    + "or query parameter (?token=<jwt>) for legacy EventSource clients. "
+                    + "On reconnect, pass Last-Event-ID header to replay missed events. "
+                    + "Events: connected, heartbeat, refresh, dv-referral.responded, dv-referral.requested, availability.updated."
     )
     @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter stream(Authentication authentication) {
+    public SseEmitter stream(
+            Authentication authentication,
+            @RequestHeader(value = "Last-Event-ID", required = false) String lastEventIdHeader) {
         UUID userId = (UUID) authentication.getPrincipal();
         UUID tenantId = TenantContext.getTenantId();
         boolean dvAccess = TenantContext.getDvAccess();
@@ -45,7 +49,16 @@ public class NotificationController {
                 .map(a -> a.startsWith("ROLE_") ? a.substring(5) : a)
                 .toArray(String[]::new);
 
-        log.debug("SSE stream requested by user {} (tenant {})", userId, tenantId);
-        return notificationService.register(userId, tenantId, roles, dvAccess);
+        Long lastEventId = null;
+        if (lastEventIdHeader != null && !lastEventIdHeader.isBlank()) {
+            try {
+                lastEventId = Long.parseLong(lastEventIdHeader);
+            } catch (NumberFormatException e) {
+                log.debug("Invalid Last-Event-ID header: {}", lastEventIdHeader);
+            }
+        }
+
+        log.debug("SSE stream requested by user {} (tenant {}, lastEventId={})", userId, tenantId, lastEventId);
+        return notificationService.register(userId, tenantId, roles, dvAccess, lastEventId);
     }
 }
