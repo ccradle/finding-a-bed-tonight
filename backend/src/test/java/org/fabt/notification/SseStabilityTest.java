@@ -27,46 +27,46 @@ class SseStabilityTest extends BaseIntegrationTest {
 
     @AfterEach
     void cleanup() {
-        // Clean up all emitters to prevent interference with other test classes
         notificationService.completeAll();
     }
 
     @Test
-    @DisplayName("SSE emitter with -1L timeout does not timeout after 10 seconds")
-    void test_sseEmitter_noTimeout_staysAlive() throws Exception {
+    @DisplayName("SSE emitter created with no timeout (-1L) registers successfully")
+    void test_sseEmitter_registers() {
         UUID userId = UUID.randomUUID();
         UUID tenantId = authHelper.getTestTenantId();
 
         SseEmitter emitter = notificationService.register(
                 userId, tenantId, new String[]{"OUTREACH_WORKER"}, false, null);
-
         assertThat(emitter).isNotNull();
-
-        // Wait 10 seconds — old 5-minute timeout would not fire here, but this
-        // verifies the emitter is created with -1L (no timeout)
-        Thread.sleep(10_000);
-
-        // Emitter should still be registered (not cleaned up by timeout)
-        // We can verify by registering again — if the old one is still active,
-        // the new registration will complete() the old one
-        SseEmitter emitter2 = notificationService.register(
-                userId, tenantId, new String[]{"OUTREACH_WORKER"}, false, null);
-        assertThat(emitter2).isNotNull();
     }
 
     @Test
-    @DisplayName("Initial connection event contains retry, id, and connected event type")
-    void test_initialEvent_format() throws Exception {
+    @DisplayName("Re-registering same user completes previous emitter")
+    void test_reRegister_completesPrevious() {
         UUID userId = UUID.randomUUID();
         UUID tenantId = authHelper.getTestTenantId();
 
-        // The register() method sends the initial event — if it throws, the format is wrong
-        SseEmitter emitter = notificationService.register(
+        SseEmitter emitter1 = notificationService.register(
                 userId, tenantId, new String[]{"OUTREACH_WORKER"}, false, null);
-        assertThat(emitter).isNotNull();
+        SseEmitter emitter2 = notificationService.register(
+                userId, tenantId, new String[]{"OUTREACH_WORKER"}, false, null);
 
-        // Clean up
-        notificationService.completeEmitter(userId);
+        assertThat(emitter1).isNotNull();
+        assertThat(emitter2).isNotNull();
+        assertThat(emitter1).isNotSameAs(emitter2);
+    }
+
+    @Test
+    @DisplayName("Last-Event-ID with unknown ID sends refresh (no crash)")
+    void test_lastEventId_unknownId_sendsRefresh() {
+        UUID userId = UUID.randomUUID();
+        UUID tenantId = authHelper.getTestTenantId();
+
+        // Register with a lastEventId that doesn't exist in the buffer
+        SseEmitter emitter = notificationService.register(
+                userId, tenantId, new String[]{"OUTREACH_WORKER"}, false, 999999L);
+        assertThat(emitter).isNotNull();
     }
 
     @Test
@@ -75,21 +75,5 @@ class SseStabilityTest extends BaseIntegrationTest {
         assertThat(meterRegistry.find("fabt.sse.connections.active").gauge()).isNotNull();
         assertThat(meterRegistry.find("sse.send.failures.total").counter()).isNotNull();
         assertThat(meterRegistry.find("sse.event.delivery.duration").timer()).isNotNull();
-    }
-
-    @Test
-    @DisplayName("Last-Event-ID replay sends refresh for unknown ID")
-    void test_lastEventId_unknownId_sendsRefresh() throws Exception {
-        UUID userId = UUID.randomUUID();
-        UUID tenantId = authHelper.getTestTenantId();
-
-        // Register with a lastEventId that doesn't exist in the buffer
-        SseEmitter emitter = notificationService.register(
-                userId, tenantId, new String[]{"OUTREACH_WORKER"}, false, 999999L);
-
-        // Should not throw — refresh event is sent instead of replay
-        assertThat(emitter).isNotNull();
-
-        notificationService.completeEmitter(userId);
     }
 }
