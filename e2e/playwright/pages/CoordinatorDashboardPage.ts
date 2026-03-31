@@ -25,6 +25,13 @@ export class CoordinatorDashboardPage {
     await this.page.waitForTimeout(500);
   }
 
+  async expandShelterByName(name: string) {
+    const card = this.page.locator('main button', { hasText: name });
+    await card.waitFor({ state: 'visible', timeout: 10000 });
+    await card.click();
+    await this.page.waitForTimeout(500);
+  }
+
   async clickUpdateAvailability() {
     await this.page.locator('button', { hasText: /update availability/i }).first().click();
   }

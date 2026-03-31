@@ -36,31 +36,11 @@ test.describe('Offline Behavior', () => {
     await outreachPage.context().setOffline(false);
   });
 
-  test('queued availability update replays on reconnect', async ({ coordinatorPage }) => {
-    await coordinatorPage.goto('/coordinator');
-    await coordinatorPage.waitForSelector('main button[style*="text-align: left"]', { timeout: 10000 });
-
-    // Expand first shelter
-    await coordinatorPage.locator('main button[style*="text-align: left"]').first().click();
-    await coordinatorPage.waitForTimeout(500);
-
-    // Go offline
-    await coordinatorPage.context().setOffline(true);
-    await coordinatorPage.waitForTimeout(500);
-
-    // Try to submit availability update while offline
-    const updateBtn = coordinatorPage.locator('main button', { hasText: /update availability/i }).first();
-    if (await updateBtn.isVisible()) {
-      await updateBtn.click();
-      await coordinatorPage.waitForTimeout(1000);
-      // Should not crash — may show queued indicator or error, but page stays functional
-      await expect(coordinatorPage.locator('main')).not.toBeEmpty();
-    }
-
-    // Restore connectivity
-    await coordinatorPage.context().setOffline(false);
-    await coordinatorPage.waitForTimeout(2000);
-  });
+  // NOTE: The previous "queued availability update replays on reconnect" test was
+  // removed because it only asserted the page didn't crash — it made zero assertions
+  // about actual queue/replay behavior. Real offline queue tests will be added in
+  // the offline-honesty change when the queue is properly wired to holds/availability.
+  // See: openspec/changes/offline-honesty/
 
   /**
    * Hospital PWA test — service worker blocked by IT policy.

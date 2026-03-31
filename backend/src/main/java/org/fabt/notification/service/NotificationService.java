@@ -13,6 +13,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import org.fabt.shared.event.DomainEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,6 +44,8 @@ public class NotificationService {
     private final AtomicInteger activeConnections = new AtomicInteger(0);
     private final AtomicLong eventIdCounter = new AtomicLong(0);
     private final MeterRegistry meterRegistry;
+    private final Counter sendFailuresCounter;
+    private final Timer eventDeliveryTimer;
 
     /**
      * Buffered event for Last-Event-ID replay. Includes tenant/DV metadata for per-user filtering.
@@ -51,8 +54,14 @@ public class NotificationService {
 
     public NotificationService(MeterRegistry meterRegistry) {
         this.meterRegistry = meterRegistry;
-        // Register gauge for active SSE connections
         meterRegistry.gauge("fabt.sse.connections.active", activeConnections);
+        this.sendFailuresCounter = Counter.builder("sse.send.failures.total")
+                .description("SSE send failures (dead connection detection)")
+                .register(meterRegistry);
+        this.eventDeliveryTimer = Timer.builder("sse.event.delivery.duration")
+                .description("Time to deliver an event to all connected clients")
+                .publishPercentiles(0.5, 0.95, 0.99)
+                .register(meterRegistry);
     }
 
     /**
@@ -185,6 +194,7 @@ public class NotificationService {
                         .name("heartbeat")
                         .data("{}"));
             } catch (IOException e) {
+                sendFailuresCounter.increment();
                 log.debug("Heartbeat failed for user {}, removing emitter", userId);
                 entry.emitter().completeWithError(e);
             }
@@ -343,18 +353,21 @@ public class NotificationService {
      * The eventId is pre-assigned so it's consistent across the buffer and the stream.
      */
     private void sendEvent(EmitterEntry entry, String eventType, Map<String, Object> data, long eventId) {
-        try {
-            entry.emitter().send(
-                    SseEmitter.event()
-                            .id(String.valueOf(eventId))
-                            .name(eventType)
-                            .data(data)
-            );
-            eventsSentCounter(eventType).increment();
-        } catch (IOException e) {
-            log.debug("Failed to send SSE event to user {}, removing emitter", entry.userId());
-            entry.emitter().completeWithError(e);
-        }
+        eventDeliveryTimer.record(() -> {
+            try {
+                entry.emitter().send(
+                        SseEmitter.event()
+                                .id(String.valueOf(eventId))
+                                .name(eventType)
+                                .data(data)
+                );
+                eventsSentCounter(eventType).increment();
+            } catch (IOException e) {
+                sendFailuresCounter.increment();
+                log.debug("Failed to send SSE event to user {}, removing emitter", entry.userId());
+                entry.emitter().completeWithError(e);
+            }
+        });
     }
 
     /**

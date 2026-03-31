@@ -85,8 +85,8 @@ test.describe('Coordinator Availability Math', () => {
   test('INVARIANT CHECK: after changing total beds', async ({ coordinatorPage }) => {
     await coordinatorPage.goto('/coordinator');
     await coordinatorPage.waitForTimeout(2000);
-    const firstCard = coordinatorPage.locator('main button[style*="text-align: left"]').first();
-    await firstCard.click();
+    const targetCard = coordinatorPage.locator('main button', { hasText: 'Downtown Warming Station' });
+    await targetCard.click();
     await coordinatorPage.waitForTimeout(2000);
 
     const before = await readAvailabilityValues(coordinatorPage);
@@ -116,8 +116,8 @@ test.describe('Coordinator Availability Math', () => {
   test('INVARIANT CHECK: after changing occupied beds', async ({ coordinatorPage }) => {
     await coordinatorPage.goto('/coordinator');
     await coordinatorPage.waitForTimeout(2000);
-    const firstCard = coordinatorPage.locator('main button[style*="text-align: left"]').first();
-    await firstCard.click();
+    const targetCard = coordinatorPage.locator('main button', { hasText: 'Downtown Warming Station' });
+    await targetCard.click();
     await coordinatorPage.waitForTimeout(2000);
 
     const before = await readAvailabilityValues(coordinatorPage);
@@ -147,9 +147,9 @@ test.describe('Coordinator Availability Math', () => {
   test('INVARIANT CHECK: after save and reload', async ({ coordinatorPage }) => {
     await coordinatorPage.goto('/coordinator');
     await coordinatorPage.waitForTimeout(2000);
-    const firstCard = coordinatorPage.locator('main button[style*="text-align: left"]').first();
-    const shelterName = (await firstCard.textContent())?.substring(0, 30) || '';
-    await firstCard.click();
+    const targetCard = coordinatorPage.locator('main button', { hasText: 'Downtown Warming Station' });
+    const shelterName = 'Downtown Warming Station';
+    await targetCard.click();
     await coordinatorPage.waitForTimeout(2000);
 
     const before = await readAvailabilityValues(coordinatorPage);
