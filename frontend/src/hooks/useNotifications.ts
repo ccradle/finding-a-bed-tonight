@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { fetchEventSource } from '@microsoft/fetch-event-source';
 import { useAuth } from '../auth/useAuth';
 
 export interface Notification {
@@ -18,24 +19,28 @@ interface UseNotificationsReturn {
   connected: boolean;
 }
 
-const MAX_NOTIFICATIONS = 10;
+const MAX_NOTIFICATIONS = 50;
 
 /** Custom events dispatched on window for page-level refresh triggers */
 export const SSE_REFERRAL_UPDATE = 'fabt:referral-update';
 export const SSE_AVAILABILITY_UPDATE = 'fabt:availability-update';
 
 /**
- * Establishes EventSource to SSE endpoint and manages notification state.
- * Dispatches window custom events so pages can auto-refresh.
- * Reconnection: on error/reconnect, dispatches refresh events to catch up via REST.
+ * SSE notification stream using @microsoft/fetch-event-source.
+ *
+ * Improvements over native EventSource:
+ * - Auth via Authorization header (eliminates query-param token leak)
+ * - Exponential backoff with jitter on reconnect (prevents thundering herd)
+ * - Page Visibility: auto-close when tab hidden, reconnect on visible
+ * - No catchUp refetch storm — server replays via Last-Event-ID buffer
+ * - Only 'refresh' event triggers bulk refetch (when gap too large)
  */
 export function useNotifications(): UseNotificationsReturn {
   const { token, isAuthenticated } = useAuth();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [connected, setConnected] = useState(false);
-  const eventSourceRef = useRef<EventSource | null>(null);
-  const reconnectingRef = useRef(false);
-  const lastCatchUpRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
+  const retryCountRef = useRef(0);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
@@ -64,69 +69,98 @@ export function useNotifications(): UseNotificationsReturn {
     });
   }, []);
 
-  // REST catch-up on reconnection (debounced — max once per 30 seconds)
-  const catchUp = useCallback(() => {
-    if (reconnectingRef.current) return;
-    const now = Date.now();
-    if (now - lastCatchUpRef.current < 30_000) return;
-    lastCatchUpRef.current = now;
-    reconnectingRef.current = true;
-    try {
-      window.dispatchEvent(new Event(SSE_REFERRAL_UPDATE));
-      window.dispatchEvent(new Event(SSE_AVAILABILITY_UPDATE));
-    } finally {
-      reconnectingRef.current = false;
-    }
-  }, []);
-
   useEffect(() => {
     if (!isAuthenticated || !token) return;
 
+    const abortController = new AbortController();
+    abortRef.current = abortController;
+
     const baseUrl = import.meta.env.VITE_API_URL || '';
-    const url = `${baseUrl}/api/v1/notifications/stream?token=${encodeURIComponent(token)}`;
-    const es = new EventSource(url);
-    eventSourceRef.current = es;
+    const url = `${baseUrl}/api/v1/notifications/stream`;
 
-    es.onopen = () => {
-      setConnected(true);
-    };
+    fetchEventSource(url, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+      signal: abortController.signal,
+      openWhenHidden: false, // Auto-close when tab backgrounded, reconnect on visible
 
-    es.addEventListener('dv-referral.responded', (event: MessageEvent) => {
-      try {
-        const data = JSON.parse(event.data);
-        addNotification('dv-referral.responded', data, event.lastEventId);
-        window.dispatchEvent(new Event(SSE_REFERRAL_UPDATE));
-      } catch { /* malformed event */ }
+      async onopen(response) {
+        if (response.ok) {
+          setConnected(true);
+          retryCountRef.current = 0;
+        } else {
+          throw new Error(`SSE connection failed: ${response.status}`);
+        }
+      },
+
+      onmessage(ev) {
+        retryCountRef.current = 0; // Reset retry on any message
+
+        // Dispatch based on event type
+        switch (ev.event) {
+          case 'connected':
+            // Initial connection confirmation — no UI action needed
+            break;
+
+          case 'heartbeat':
+            // Keepalive — no UI action, but advances Last-Event-ID
+            break;
+
+          case 'refresh':
+            // Server says gap too large — do single bulk refetch
+            window.dispatchEvent(new Event(SSE_REFERRAL_UPDATE));
+            window.dispatchEvent(new Event(SSE_AVAILABILITY_UPDATE));
+            break;
+
+          case 'dv-referral.responded':
+          case 'dv-referral.requested':
+            try {
+              const referralData = JSON.parse(ev.data);
+              addNotification(ev.event, referralData, ev.id);
+              window.dispatchEvent(new Event(SSE_REFERRAL_UPDATE));
+            } catch { /* malformed event */ }
+            break;
+
+          case 'availability.updated':
+            try {
+              const availData = JSON.parse(ev.data);
+              addNotification(ev.event, availData, ev.id);
+              window.dispatchEvent(new Event(SSE_AVAILABILITY_UPDATE));
+            } catch { /* malformed event */ }
+            break;
+
+          default:
+            // Unknown event type — ignore
+            break;
+        }
+      },
+
+      onerror(err) {
+        setConnected(false);
+
+        // Exponential backoff with jitter: 1s, 2s, 4s, 8s, 16s, 30s max
+        retryCountRef.current++;
+        const baseDelay = Math.min(1000 * Math.pow(2, retryCountRef.current - 1), 30000);
+        const jitter = baseDelay * 0.3 * Math.random();
+        const delay = baseDelay + jitter;
+
+        // Return the delay in ms — fetch-event-source will retry after this
+        // Returning nothing would retry immediately; throwing would stop retrying
+        return delay;
+      },
+
+      onclose() {
+        setConnected(false);
+      },
     });
-
-    es.addEventListener('dv-referral.requested', (event: MessageEvent) => {
-      try {
-        const data = JSON.parse(event.data);
-        addNotification('dv-referral.requested', data, event.lastEventId);
-        window.dispatchEvent(new Event(SSE_REFERRAL_UPDATE));
-      } catch { /* malformed event */ }
-    });
-
-    es.addEventListener('availability.updated', (event: MessageEvent) => {
-      try {
-        const data = JSON.parse(event.data);
-        addNotification('availability.updated', data, event.lastEventId);
-        window.dispatchEvent(new Event(SSE_AVAILABILITY_UPDATE));
-      } catch { /* malformed event */ }
-    });
-
-    es.onerror = () => {
-      setConnected(false);
-      // EventSource auto-reconnects. On reconnect, catch up via REST.
-      catchUp();
-    };
 
     return () => {
-      es.close();
-      eventSourceRef.current = null;
+      abortController.abort();
+      abortRef.current = null;
       setConnected(false);
     };
-  }, [isAuthenticated, token, addNotification, catchUp]);
+  }, [isAuthenticated, token, addNotification]);
 
   return {
     notifications,
