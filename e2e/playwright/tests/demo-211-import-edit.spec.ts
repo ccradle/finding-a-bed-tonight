@@ -30,7 +30,7 @@ const HOPE_HARBOR = 'Hope Harbor Emergency Shelter';
 const SUNRISE_FAMILY = 'Sunrise Family Center';
 const SAFE_PASSAGE = 'Safe Passage House';
 
-test.describe('Demo: 211 Import → Edit Lifecycle', () => {
+test.describe.serial('Demo: 211 Import → Edit Lifecycle', () => {
   test.afterAll(async () => { await cleanupTestData(); });
 
   test('admin imports 211 CSV, preview shows mapping, shelters appear', async ({ adminPage }) => {

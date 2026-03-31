@@ -1,4 +1,5 @@
 import { test, expect } from '../fixtures/auth.fixture';
+import AxeBuilder from '@axe-core/playwright';
 
 /**
  * Color system and dark mode tests.
@@ -19,50 +20,22 @@ test.describe('Light Mode Regression Guard (T-22)', () => {
     await outreachPage.goto('/outreach');
     await outreachPage.waitForTimeout(2000);
 
-    // Run axe-core contrast check
-    const violations = await outreachPage.evaluate(async () => {
-      // Inject axe-core from CDN
-      const script = document.createElement('script');
-      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/axe-core/4.10.2/axe.min.js';
-      document.head.appendChild(script);
-      await new Promise(resolve => script.onload = resolve);
+    const results = await new AxeBuilder({ page: outreachPage })
+      .withRules(['color-contrast'])
+      .analyze();
 
-      const results = await (window as any).axe.run(document, {
-        runOnly: ['color-contrast'],
-      });
-      return results.violations.map((v: any) => ({
-        id: v.id,
-        impact: v.impact,
-        nodes: v.nodes.length,
-        description: v.description,
-      }));
-    });
-
-    expect(violations).toEqual([]);
+    expect(results.violations).toEqual([]);
   });
 
   test('light mode: no contrast violations on admin panel', async ({ adminPage }) => {
     await adminPage.goto('/admin');
     await adminPage.waitForTimeout(2000);
 
-    const violations = await adminPage.evaluate(async () => {
-      const script = document.createElement('script');
-      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/axe-core/4.10.2/axe.min.js';
-      document.head.appendChild(script);
-      await new Promise(resolve => script.onload = resolve);
+    const results = await new AxeBuilder({ page: adminPage })
+      .withRules(['color-contrast'])
+      .analyze();
 
-      const results = await (window as any).axe.run(document, {
-        runOnly: ['color-contrast'],
-      });
-      return results.violations.map((v: any) => ({
-        id: v.id,
-        impact: v.impact,
-        nodes: v.nodes.length,
-        description: v.description,
-      }));
-    });
-
-    expect(violations).toEqual([]);
+    expect(results.violations).toEqual([]);
   });
 });
 
@@ -154,42 +127,21 @@ test.describe('Dark Mode Accessibility (T-21)', () => {
     await page.goto('/outreach');
     await page.waitForTimeout(2000);
 
-    const violations = await page.evaluate(async () => {
-      const script = document.createElement('script');
-      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/axe-core/4.10.2/axe.min.js';
-      document.head.appendChild(script);
-      await new Promise(resolve => script.onload = resolve);
+    const results = await new AxeBuilder({ page })
+      .withRules(['color-contrast'])
+      .analyze();
 
-      const results = await (window as any).axe.run(document, {
-        runOnly: ['color-contrast'],
-      });
-      return results.violations.flatMap((v: any) =>
-        v.nodes.map((n: any) => ({
-          html: n.html?.substring(0, 120),
-          message: n.any?.[0]?.message || n.failureSummary?.substring(0, 150),
-        }))
-      );
-    });
-
-    if (violations.length > 0) {
-      console.log(`Dark mode contrast violations (${violations.length}):`);
-      // Show unique messages to identify patterns
-      const unique = new Map<string, number>();
-      for (const v of violations) {
-        const key = v.message?.substring(0, 80) || 'unknown';
-        unique.set(key, (unique.get(key) || 0) + 1);
-      }
-      for (const [msg, count] of unique) {
-        console.log(`  ${count}x: ${msg}`);
-      }
-      // Show first 5 specific nodes
-      for (const v of violations.slice(0, 5)) {
-        console.log(`  NODE: ${v.html}`);
-        console.log(`  MSG:  ${v.message}`);
+    if (results.violations.length > 0) {
+      console.log(`Dark mode contrast violations (${results.violations.length}):`);
+      for (const v of results.violations) {
+        console.log(`  ${v.nodes.length}x: ${v.description}`);
+        for (const n of v.nodes.slice(0, 5)) {
+          console.log(`  NODE: ${n.html?.substring(0, 120)}`);
+        }
       }
     }
 
-    expect(violations).toEqual([]);
+    expect(results.violations).toEqual([]);
 
     await context.close();
   });

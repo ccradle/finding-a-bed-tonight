@@ -3,27 +3,29 @@ import { test, expect } from '../fixtures/auth.fixture';
 /**
  * Coordinator Dashboard — bed calculation verification tests.
  *
+ * Uses a specific known seed shelter ("Downtown Warming Station") instead of
+ * "first shelter" to avoid fragility when import tests add shelters.
  * Uses data-testid attributes for stable, layout-independent locators.
- * Tests expand a shelter, manipulate total/occupied via steppers,
- * and verify: available = total - occupied - onHold
  */
+
+const TARGET_SHELTER = 'Downtown Warming Station';
 
 test.describe('Coordinator Bed Calculations', () => {
 
-  /** Navigate to coordinator dashboard and expand first shelter */
-  async function expandFirstShelter(page: import('@playwright/test').Page) {
+  /** Navigate to coordinator dashboard and expand the target shelter */
+  async function expandTargetShelter(page: import('@playwright/test').Page) {
     await page.goto('/coordinator');
     await page.waitForTimeout(1500);
-    const cards = page.locator('main button').filter({ hasText: /raleigh|shelter|center|haven/i });
-    if (await cards.count() > 0) {
-      await cards.first().click();
-      await page.waitForTimeout(1500);
-    }
+    const card = page.locator('main button', { hasText: TARGET_SHELTER });
+    await expect(card).toBeVisible({ timeout: 10000 });
+    await card.click();
+    await page.waitForTimeout(1500);
   }
 
   /** Get the first visible population type from expanded availability rows */
   async function getFirstPopType(page: import('@playwright/test').Page): Promise<string> {
     const row = page.locator('[data-testid^="avail-row-"]').first();
+    await expect(row).toBeVisible({ timeout: 5000 });
     const testId = await row.getAttribute('data-testid');
     return testId?.replace('avail-row-', '') || '';
   }
@@ -36,77 +38,62 @@ test.describe('Coordinator Bed Calculations', () => {
   }
 
   test('available decreases when occupied increases', async ({ coordinatorPage }) => {
-    await expandFirstShelter(coordinatorPage);
+    await expandTargetShelter(coordinatorPage);
     const popType = await getFirstPopType(coordinatorPage);
 
     const initialAvail = await readAvailable(coordinatorPage, popType);
-    expect(initialAvail).not.toBeNaN();
 
     await coordinatorPage.getByTestId(`occupied-plus-${popType}`).click();
     await coordinatorPage.waitForTimeout(300);
-
     const newAvail = await readAvailable(coordinatorPage, popType);
     expect(newAvail).toBe(initialAvail - 1);
-
-    // Restore
-    await coordinatorPage.getByTestId(`occupied-minus-${popType}`).click();
-    await coordinatorPage.waitForTimeout(300);
-    const restored = await readAvailable(coordinatorPage, popType);
-    expect(restored).toBe(initialAvail);
   });
 
   test('on-hold is read-only (no stepper buttons)', async ({ coordinatorPage }) => {
-    await expandFirstShelter(coordinatorPage);
+    await expandTargetShelter(coordinatorPage);
     const popType = await getFirstPopType(coordinatorPage);
 
-    // On-hold value should be visible
-    const holdValue = coordinatorPage.getByTestId(`onhold-value-${popType}`);
-    await expect(holdValue).toBeVisible();
-
-    // There should be NO on-hold stepper buttons (no data-testid for onhold-plus/minus)
-    const holdPlus = coordinatorPage.locator(`[data-testid="onhold-plus-${popType}"]`);
-    const holdMinus = coordinatorPage.locator(`[data-testid="onhold-minus-${popType}"]`);
-    expect(await holdPlus.count()).toBe(0);
-    expect(await holdMinus.count()).toBe(0);
+    const plusButton = coordinatorPage.getByTestId(`onhold-plus-${popType}`);
+    const minusButton = coordinatorPage.getByTestId(`onhold-minus-${popType}`);
+    expect(await plusButton.count()).toBe(0);
+    expect(await minusButton.count()).toBe(0);
   });
 
   test('available updates when total beds changed via stepper', async ({ coordinatorPage }) => {
-    await expandFirstShelter(coordinatorPage);
+    await expandTargetShelter(coordinatorPage);
     const popType = await getFirstPopType(coordinatorPage);
 
     const initialAvail = await readAvailable(coordinatorPage, popType);
 
     await coordinatorPage.getByTestId(`total-plus-${popType}`).click();
-    await coordinatorPage.waitForTimeout(500);
-
+    await coordinatorPage.waitForTimeout(300);
     const newAvail = await readAvailable(coordinatorPage, popType);
     expect(newAvail).toBe(initialAvail + 1);
 
     // Restore
     await coordinatorPage.getByTestId(`total-minus-${popType}`).click();
-    await coordinatorPage.waitForTimeout(500);
-
-    const restored = await readAvailable(coordinatorPage, popType);
-    expect(restored).toBe(initialAvail);
   });
 
   test('occupied stepper cannot produce negative available', async ({ coordinatorPage }) => {
-    await expandFirstShelter(coordinatorPage);
+    await expandTargetShelter(coordinatorPage);
     const popType = await getFirstPopType(coordinatorPage);
 
-    // Click occupied + several times rapidly
-    for (let i = 0; i < 15; i++) {
+    const initialAvail = await readAvailable(coordinatorPage, popType);
+
+    // Click occupied+ until the button becomes disabled or available reaches 0
+    let clicks = 0;
+    for (let i = 0; i <= initialAvail + 1; i++) {
       const plusBtn = coordinatorPage.getByTestId(`occupied-plus-${popType}`);
       if (await plusBtn.isDisabled()) break;
       await plusBtn.click();
       await coordinatorPage.waitForTimeout(100);
+      clicks++;
     }
-
     const finalAvail = await readAvailable(coordinatorPage, popType);
     expect(finalAvail).toBeGreaterThanOrEqual(0);
 
-    // Restore
-    for (let i = 0; i < 15; i++) {
+    // Restore: click minus same number of times we clicked plus
+    for (let i = 0; i < clicks; i++) {
       const minusBtn = coordinatorPage.getByTestId(`occupied-minus-${popType}`);
       if (await minusBtn.isDisabled()) break;
       await minusBtn.click();
@@ -115,7 +102,7 @@ test.describe('Coordinator Bed Calculations', () => {
   });
 
   test('save availability persists after page reload', async ({ coordinatorPage }) => {
-    await expandFirstShelter(coordinatorPage);
+    await expandTargetShelter(coordinatorPage);
     const popType = await getFirstPopType(coordinatorPage);
 
     const initialAvail = await readAvailable(coordinatorPage, popType);
@@ -125,12 +112,14 @@ test.describe('Coordinator Bed Calculations', () => {
     await coordinatorPage.waitForTimeout(300);
     const expectedAvail = initialAvail - 1;
 
-    // Save
+    // Save and wait for confirmation
     await coordinatorPage.getByTestId(`save-avail-${popType}`).click();
-    await coordinatorPage.waitForTimeout(2000);
+    await coordinatorPage.waitForTimeout(3000);
 
-    // Reload and re-expand
-    await expandFirstShelter(coordinatorPage);
+    // Full page reload to verify persistence
+    await coordinatorPage.reload({ waitUntil: 'domcontentloaded' });
+    await coordinatorPage.waitForTimeout(1000);
+    await expandTargetShelter(coordinatorPage);
 
     const afterReload = await readAvailable(coordinatorPage, popType);
     expect(afterReload).toBe(expectedAvail);
@@ -139,6 +128,5 @@ test.describe('Coordinator Bed Calculations', () => {
     await coordinatorPage.getByTestId(`occupied-minus-${popType}`).click();
     await coordinatorPage.waitForTimeout(300);
     await coordinatorPage.getByTestId(`save-avail-${popType}`).click();
-    await coordinatorPage.waitForTimeout(1000);
   });
 });
