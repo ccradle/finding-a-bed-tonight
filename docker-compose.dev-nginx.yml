@@ -1,0 +1,20 @@
+# Dev nginx override — run frontend through the real nginx proxy
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev-nginx.yml --profile nginx up -d frontend-nginx
+#
+# This replicates the production nginx proxy path in dev, catching
+# proxy-specific bugs (SSE buffering, header manipulation, caching)
+# that are invisible when using Vite's dev server.
+
+services:
+  frontend-nginx:
+    image: nginx:alpine
+    container_name: fabt-frontend-nginx
+    ports:
+      - "8081:80"
+    volumes:
+      - ./frontend/dist:/usr/share/nginx/html:ro
+      - ./infra/docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    extra_hosts:
+      - "backend:host-gateway"
+    profiles:
+      - nginx
