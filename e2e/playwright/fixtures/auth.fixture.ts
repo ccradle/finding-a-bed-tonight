@@ -23,6 +23,15 @@ function isAuthStateValid(stateFile: string): boolean {
   try {
     const state = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
     const origins = state.origins || [];
+
+    // Invalidate if the cached state is for a different origin (e.g., Vite :5173 vs nginx :8081).
+    // localStorage is origin-scoped — tokens saved for one origin don't work on another.
+    const currentBaseURL = process.env.BASE_URL || (process.env.NGINX === '1' ? 'http://localhost:8081' : 'http://localhost:5173');
+    const cachedOrigin = origins[0]?.origin;
+    if (cachedOrigin && !currentBaseURL.startsWith(cachedOrigin)) {
+      return false;
+    }
+
     for (const origin of origins) {
       for (const item of origin.localStorage || []) {
         if (item.name === 'fabt_access_token' && item.value) {
