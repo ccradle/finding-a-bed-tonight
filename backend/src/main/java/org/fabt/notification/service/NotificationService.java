@@ -152,17 +152,22 @@ public class NotificationService {
      */
     @PreDestroy
     public void completeAll() {
-        int count = emitters.size();
+        // Remove from map FIRST, then complete — prevents heartbeat scheduler
+        // from seeing completed emitters during the cleanup window
+        var snapshot = new java.util.ArrayList<>(emitters.values());
+        int count = snapshot.size();
+        emitters.clear();
+        activeConnections.set(0);
         if (count > 0) {
             log.info("Closing {} SSE connections for graceful shutdown", count);
         }
-        emitters.forEach((userId, entry) -> {
+        for (var entry : snapshot) {
             try {
                 entry.emitter().complete();
             } catch (Exception e) {
-                log.debug("Error completing emitter for user {}: {}", userId, e.getMessage());
+                log.debug("Error completing emitter for user {}: {}", entry.userId(), e.getMessage());
             }
-        });
+        }
     }
 
     /**
@@ -197,6 +202,11 @@ public class NotificationService {
                 sendFailuresCounter.increment();
                 log.debug("Heartbeat failed for user {}, removing emitter", userId);
                 entry.emitter().completeWithError(e);
+            } catch (IllegalStateException e) {
+                // Emitter already completed (client disconnect raced with heartbeat tick)
+                sendFailuresCounter.increment();
+                log.debug("Heartbeat skipped for user {} (emitter already completed)", userId);
+                emitters.remove(userId);
             }
         });
     }
@@ -366,6 +376,10 @@ public class NotificationService {
                 sendFailuresCounter.increment();
                 log.debug("Failed to send SSE event to user {}, removing emitter", entry.userId());
                 entry.emitter().completeWithError(e);
+            } catch (IllegalStateException e) {
+                sendFailuresCounter.increment();
+                log.debug("SSE event skipped for user {} (emitter already completed)", entry.userId());
+                emitters.remove(entry.userId());
             }
         });
     }
