@@ -136,7 +136,7 @@ export function useNotifications(): UseNotificationsReturn {
         }
       },
 
-      onerror(err) {
+      onerror() {
         setConnected(false);
 
         // Exponential backoff with jitter: 1s, 2s, 4s, 8s, 16s, 30s max
