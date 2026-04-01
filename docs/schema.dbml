@@ -334,6 +334,7 @@ Table reservation {
   cancelled_at    timestamptz [note: 'Set when status transitions to CANCELLED or EXPIRED']
   created_at      timestamptz [not null, default: `now()`]
   notes           varchar(500) [note: 'Free-text note from outreach worker']
+  idempotency_key varchar(36)  [note: 'UUID for offline queue replay dedup — nullable, requests without key behave as before (V30)']
 
   indexes {
     (tenant_id, user_id, status) [name: 'idx_reservation_user_status']

@@ -38,7 +38,10 @@ public class ReservationController {
                     "auto-expires if not confirmed. Creating a hold increments beds_on_hold in a new " +
                     "availability snapshot, reducing beds_available for other searchers. Returns the " +
                     "reservation with expires_at for countdown display. Returns 409 if no beds are " +
-                    "available. Requires OUTREACH_WORKER, COORDINATOR, COC_ADMIN, or PLATFORM_ADMIN role."
+                    "available. Supports optional X-Idempotency-Key header (UUID) for offline queue " +
+                    "replay deduplication: if a HELD reservation exists with the same user and key, " +
+                    "returns 200 with the existing reservation instead of creating a duplicate (201). " +
+                    "Requires OUTREACH_WORKER, COORDINATOR, COC_ADMIN, or PLATFORM_ADMIN role."
     )
     @PostMapping
     @PreAuthorize("hasAnyRole('OUTREACH_WORKER', 'COORDINATOR', 'COC_ADMIN', 'PLATFORM_ADMIN')")

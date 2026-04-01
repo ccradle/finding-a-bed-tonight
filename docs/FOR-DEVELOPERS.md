@@ -30,12 +30,12 @@ Three deployment tiers allow the same codebase to serve communities of vastly di
 | Layer | Technology |
 |---|---|
 | Backend | Java 25, Spring Boot 4.0, Spring MVC, Spring Data JDBC, Virtual Threads |
-| Database | PostgreSQL 16, Flyway (26 migrations), Row Level Security (DV shelters) |
+| Database | PostgreSQL 16, Flyway (30 migrations), Row Level Security (DV shelters) |
 | Cache | Caffeine L1 / + Redis L2 (Standard/Full) |
 | Events | Spring Events (Lite) / Kafka (Full) |
 | Auth | JWT + OAuth2/OIDC + API Keys (hybrid) |
-| Frontend | React 19, Vite, TypeScript, Workbox PWA, react-intl (EN/ES), CSS custom properties design tokens |
-| Testing | JUnit 5, Testcontainers, ArchUnit (325 tests), Playwright (174 UI tests), Karate (26 API scenarios), Gatling (6 simulations) |
+| Frontend | React 19, Vite, TypeScript, Workbox PWA (injectManifest), react-intl (EN/ES), CSS custom properties design tokens |
+| Testing | JUnit 5, Testcontainers, ArchUnit (328 tests), Playwright (188 UI tests), Vitest (15 unit tests), Karate (26 API scenarios), Gatling (7 simulations) |
 | Infra | Docker, GitHub Actions CI/CD + E2E pipeline, Terraform (3 tiers) |
 
 ---
@@ -118,6 +118,7 @@ Phase 2 will add an MCP server as a thin wrapper around the REST API, enabling n
 | V27 | `password_changed_at` column on `app_user` — tracks last password change for JWT invalidation |
 | V28 | `status` + `token_version` columns on `app_user` — user deactivation and JWT invalidation |
 | V29 | `audit_events` — audit trail for admin actions (user management, shelter DV changes) |
+| V30 | `idempotency_key` on `reservation` — deduplication for offline queue replay (nullable VARCHAR(36)) |
 
 ### Entity Relationship Diagram
 
@@ -421,7 +422,7 @@ Real-time notifications use Server-Sent Events (SSE) via Spring Boot `SseEmitter
 | `oauth2-login.spec.ts` | 3 | SSO buttons, provider-driven login |
 | `oauth2-providers.spec.ts` | 2 | Admin OAuth2 provider management |
 | `observability.spec.ts` | 4 | Admin observability tab, config toggles |
-| `offline-behavior.spec.ts` | 4 | Offline banner, stale cache, queue replay |
+| `offline-behavior.spec.ts` | 14 | Offline banner, stale cache, hold/avail queue+replay, expiry, conflict, queue badge, double-event guard, try/catch fallback, multi-action order, FAILED state, toast, hospital SW-blocked |
 | `dv-referral.spec.ts` | 7 | DV referral request, screening, accept, reject, warm handoff |
 | `hmis-export.spec.ts` | 5 | HMIS Export admin tab, preview, history, push |
 | `analytics.spec.ts` | 7 | Analytics dashboard, utilization, demand, batch jobs, HIC/PIT |

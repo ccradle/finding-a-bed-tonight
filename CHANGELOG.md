@@ -5,6 +5,39 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.24.0] — 2026-04-01 — Offline Honesty
+
+### Fixed
+- **Offline banner lied**: "Actions will sync when connection returns" was false — only shelter creation queued offline. Bed holds and availability updates silently failed. Replaced with honest copy: "Bed holds and updates will be queued and sent when you reconnect."
+- **`replayQueue()` never called**: The offline queue existed but nothing triggered replay on reconnect. Now wired to the `online` DOM event with jittered delay.
+- **Misleading Playwright offline tests**: Tests used `context.setOffline()` which does NOT fire DOM events or change `navigator.onLine`. All tests now explicitly dispatch `online`/`offline` events.
+- **React hook ordering crash in production build**: `fetchReservations` referenced before initialization in minified bundle. Found via Playwright trace analysis — invisible in Vite dev mode.
+- **nginx missing CORP header**: Static assets lacked `Cross-Origin-Resource-Policy: same-origin`, breaking the app when `Cross-Origin-Embedder-Policy: require-corp` was set. Found via nginx E2E testing.
+
+### Added
+- **Offline queue wired to bed holds and availability updates**: Darius's test ("hold a bed, lose signal, come back online — what happened to my hold?") now passes. Actions enqueue to IndexedDB when offline or when online requests fail (try/catch fallback for `navigator.onLine` lies).
+- **Single-queue architecture**: Removed Workbox BackgroundSyncPlugin. App-level IndexedDB queue is the sole retry mechanism — fully testable, works on all browsers including hospital locked-down Chrome. See design.md for rationale.
+- **Idempotency key deduplication**: `X-Idempotency-Key` header on POST /reservations. Backend returns existing hold (200) instead of creating duplicate (201). Flyway V30 adds `idempotency_key` column.
+- **Queue status indicator**: Badge in header shows pending queued action count. Click to see details. Disappears after replay.
+- **6-state UI for queued actions**: QUEUED (amber clock), SENDING (spinner), CONFIRMED (transitions to countdown), CONFLICTED (red "bed taken"), EXPIRED (gray), FAILED (amber retry).
+- **Reconnect jitter**: 0-2 second random delay before replay to prevent thundering herd when shelter WiFi reconnects.
+- **Concurrent replay guard**: Module-level lock + synchronous Layout guard prevent duplicate replay from rapid `online` events.
+- **Persistent storage request**: `navigator.storage.persist()` at startup protects IndexedDB from browser eviction.
+- **Custom service worker**: Switched from `generateSW` to `injectManifest`. SW handles precaching and NetworkFirst GET caching only (no BackgroundSync).
+- **15 Vitest unit tests** for offlineQueue.ts: expiry boundaries, conflict handling, concurrent guard, idempotency key uniqueness.
+- **14 Playwright E2E tests through nginx**: offline banner, queue/replay, hold flow, expiry, conflict, double-event guard, try/catch fallback, multi-action order, FAILED state, toast notification, hospital SW-blocked.
+- **5 Gatling performance scenarios**: concurrent replay (p95=260ms), idempotent dedup (p95=55ms), mixed storm (0% errors), shelter WiFi outage 10 users (p95=304ms), citywide ISP outage 20 users (p95=298ms).
+
+### Changed
+- Backend version: 0.23.0 → 0.24.0
+- Flyway migrations: 29 → 30 (V30: `idempotency_key` on `reservation`)
+- Test counts: 328 backend (+3 idempotency), 188 Playwright (+14 offline, -4 old), 15 Vitest unit (new), 7 Gatling simulations (+1)
+- vite-plugin-pwa strategy: `generateSW` → `injectManifest`
+- FOR-COORDINATORS.md: honest offline claims
+- nginx.conf: added `Cross-Origin-Resource-Policy: same-origin` on static assets
+
+---
+
 ## [v0.23.0] — 2026-03-31 — SSE Stability & Cache Fix
 
 ### Fixed
