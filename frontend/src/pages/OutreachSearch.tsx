@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import { api } from '../services/api';
+import { enqueueAction, type ReplayResult } from '../services/offlineQueue';
 import { DataAge } from '../components/DataAge';
 import { text, weight, leading } from '../theme/typography';
 import { color } from '../theme/colors';
@@ -156,6 +157,16 @@ export function OutreachSearch() {
   const [showReservations, setShowReservations] = useState(false);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Queued holds state (offline)
+  interface QueuedHold {
+    shelterId: string;
+    populationType: string;
+    idempotencyKey: string;
+    timestamp: number;
+    status: 'QUEUED' | 'SENDING' | 'CONFIRMED' | 'CONFLICTED' | 'EXPIRED' | 'FAILED';
+  }
+  const [queuedHolds, setQueuedHolds] = useState<QueuedHold[]>([]);
+
   // DV referral state
   const [referralModal, setReferralModal] = useState<{ shelterId: string; popType: string } | null>(null);
   const [referralForm, setReferralForm] = useState({ householdSize: 1, urgency: 'STANDARD', specialNeeds: '', callbackNumber: '' });
@@ -193,6 +204,64 @@ export function OutreachSearch() {
   }, []);
 
   useEffect(() => { fetchReservations(); }, [fetchReservations]);
+
+  // Listen for replay lifecycle events from Layout
+  useEffect(() => {
+    const handleReplaying = () => {
+      setQueuedHolds((prev) => prev.map((h) =>
+        h.status === 'QUEUED' ? { ...h, status: 'SENDING' as const } : h
+      ));
+    };
+    window.addEventListener('fabt-queue-replaying', handleReplaying);
+    return () => window.removeEventListener('fabt-queue-replaying', handleReplaying);
+  }, []);
+
+  useEffect(() => {
+    const handleReplay = (e: Event) => {
+      const result = (e as CustomEvent<ReplayResult>).detail;
+
+      setQueuedHolds((prev) => {
+        let updated = [...prev];
+
+        for (const action of result.succeededActions) {
+          if (action.type === 'HOLD_BED') {
+            updated = updated.map((h) =>
+              h.idempotencyKey === action.idempotencyKey ? { ...h, status: 'CONFIRMED' as const } : h
+            );
+          }
+        }
+        for (const action of result.expired) {
+          if (action.type === 'HOLD_BED') {
+            updated = updated.map((h) =>
+              h.idempotencyKey === action.idempotencyKey ? { ...h, status: 'EXPIRED' as const } : h
+            );
+          }
+        }
+        for (const action of result.conflicts) {
+          if (action.type === 'HOLD_BED') {
+            updated = updated.map((h) =>
+              h.idempotencyKey === action.idempotencyKey ? { ...h, status: 'CONFLICTED' as const } : h
+            );
+          }
+        }
+        for (const action of result.failedActions) {
+          if (action.type === 'HOLD_BED') {
+            updated = updated.map((h) =>
+              h.idempotencyKey === action.idempotencyKey ? { ...h, status: 'FAILED' as const } : h
+            );
+          }
+        }
+
+        return updated.filter((h) => h.status !== 'CONFIRMED');
+      });
+
+      fetchReservations();
+      fetchBeds();
+    };
+
+    window.addEventListener('fabt-queue-replayed', handleReplay);
+    return () => window.removeEventListener('fabt-queue-replayed', handleReplay);
+  }, [fetchReservations, fetchBeds]);
 
   // Fetch DV referrals
   const fetchReferrals = useCallback(async () => {
@@ -267,6 +336,21 @@ export function OutreachSearch() {
     setHoldingShelterId(shelterId);
     setHoldPopType(popType);
     try {
+      if (!navigator.onLine) {
+        const key = await enqueueAction('HOLD_BED', '/api/v1/reservations', 'POST', {
+          shelterId,
+          populationType: popType,
+        });
+        setQueuedHolds(prev => [...prev, {
+          shelterId,
+          populationType: popType,
+          idempotencyKey: key,
+          timestamp: Date.now(),
+          status: 'QUEUED',
+        }]);
+        setShowReservations(true);
+        return;
+      }
       await api.post('/api/v1/reservations', {
         shelterId,
         populationType: popType,
@@ -275,7 +359,25 @@ export function OutreachSearch() {
       await fetchBeds();
       setShowReservations(true);
     } catch {
-      setError(intl.formatMessage({ id: 'search.holdFailed' }));
+      // Online but request failed (navigator.onLine lied, or network is flaky).
+      // Enqueue as fallback rather than showing error — replay will handle it.
+      try {
+        const key = await enqueueAction('HOLD_BED', '/api/v1/reservations', 'POST', {
+          shelterId,
+          populationType: popType,
+        });
+        setQueuedHolds(prev => [...prev, {
+          shelterId,
+          populationType: popType,
+          idempotencyKey: key,
+          timestamp: Date.now(),
+          status: 'QUEUED',
+        }]);
+        setShowReservations(true);
+      } catch {
+        // IndexedDB also failed — show error as last resort
+        setError(intl.formatMessage({ id: 'search.holdFailed' }));
+      }
     } finally {
       setHoldingShelterId(null);
       setHoldPopType(null);
@@ -435,7 +537,7 @@ export function OutreachSearch() {
       {loading && <Spinner />}
 
       {/* Active Reservations Panel */}
-      {reservations.filter(r => r.status === 'HELD').length > 0 && (
+      {(reservations.filter(r => r.status === 'HELD').length > 0 || queuedHolds.length > 0) && (
         <div style={{ marginBottom: 16 }}>
           <button
             onClick={() => setShowReservations(!showReservations)}
@@ -446,11 +548,72 @@ export function OutreachSearch() {
               display: 'flex', justifyContent: 'space-between', alignItems: 'center',
             }}
           >
-            <span><FormattedMessage id="reservations.title" /> ({reservations.filter(r => r.status === 'HELD').length})</span>
+            <span><FormattedMessage id="reservations.title" /> ({reservations.filter(r => r.status === 'HELD').length + queuedHolds.length})</span>
             <span>{showReservations ? '▲' : '▼'}</span>
           </button>
           {showReservations && (
             <div style={{ border: `2px solid ${color.border}`, borderTop: 'none', borderRadius: '0 0 12px 12px', padding: '12px 16px' }}>
+              {/* Queued holds (offline) */}
+              {queuedHolds.map((qh) => {
+                const shelterResult = results.find(r => r.shelterId === qh.shelterId);
+                const minutesAgo = Math.floor((Date.now() - qh.timestamp) / 60000);
+                return (
+                  <div key={qh.idempotencyKey} data-testid={`queued-hold-${qh.shelterId}`} style={{
+                    padding: '12px 0', borderBottom: `1px solid ${color.borderLight}`,
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8,
+                  }}>
+                    <div>
+                      <div style={{ fontWeight: weight.bold, fontSize: text.base, color: color.text }}>
+                        {shelterResult?.shelterName || qh.shelterId.substring(0, 8)}
+                      </div>
+                      <div style={{ fontSize: text.xs, color: color.textTertiary }}>
+                        {getPopulationTypeLabel(qh.populationType, intl)}
+                      </div>
+                      <div aria-live="polite" style={{ fontSize: text.sm, fontWeight: weight.bold, marginTop: 4 }}>
+                        {qh.status === 'QUEUED' && (
+                          <span style={{ color: color.warning }}>
+                            &#128336; <FormattedMessage id="search.holdQueued" />
+                          </span>
+                        )}
+                        {qh.status === 'SENDING' && (
+                          <span style={{ color: color.primary }}>
+                            &#8635; Syncing...
+                          </span>
+                        )}
+                        {qh.status === 'CONFLICTED' && (
+                          <span style={{ color: color.error }}>
+                            <FormattedMessage id="search.holdConflict" />
+                          </span>
+                        )}
+                        {qh.status === 'EXPIRED' && (
+                          <span style={{ color: color.textMuted }}>
+                            <FormattedMessage id="search.holdExpired" values={{ minutes: minutesAgo }} />
+                          </span>
+                        )}
+                        {qh.status === 'FAILED' && (
+                          <span style={{ color: color.warning }}>
+                            &#8635; <FormattedMessage id="search.holdFailed.retry" defaultMessage="Could not reach server. Will retry automatically." />
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    {(qh.status === 'CONFLICTED' || qh.status === 'EXPIRED') && (
+                      <button
+                        onClick={() => {
+                          setQueuedHolds(prev => prev.filter(h => h.idempotencyKey !== qh.idempotencyKey));
+                          window.scrollTo({ top: 0, behavior: 'smooth' });
+                        }}
+                        style={{
+                          padding: '8px 14px', borderRadius: 8, border: `2px solid ${color.border}`,
+                          backgroundColor: color.bg, color: color.primaryText, fontSize: text.sm, fontWeight: weight.bold, cursor: 'pointer',
+                        }}
+                      >
+                        <FormattedMessage id="search.title" />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
               {reservations.filter(r => r.status === 'HELD').map((res) => {
                 const mins = Math.floor(res.remainingSeconds / 60);
                 const secs = res.remainingSeconds % 60;

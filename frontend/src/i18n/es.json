@@ -18,7 +18,7 @@
   "nav.search": "Buscar Camas",
   "nav.admin": "Administración",
   "nav.logout": "Cerrar Sesión",
-  "offline.banner": "Sin conexión — tu última búsqueda sigue disponible. Las acciones se sincronizarán cuando se restablezca la conexión.",
+  "offline.banner": "Estás sin conexión. Las búsquedas guardadas siguen visibles. Las reservas y actualizaciones se pondrán en cola y se enviarán cuando te reconectes.",
   "data.age.fresh": "Reciente",
   "data.age.aging": "Envejeciendo",
   "data.age.stale": "Desactualizado",
@@ -345,5 +345,18 @@
   "notifications.referralRejected": "Un refugio rechazó su referencia",
   "notifications.unknown": "Notificación",
   "notifications.reconnecting": "Reconectando a actualizaciones en vivo…",
-  "notifications.reconnected": "Reconectado"
+  "notifications.reconnected": "Reconectado",
+
+  "queue.pending": "{count, plural, one {# acción pendiente} other {# acciones pendientes}}",
+  "queue.title": "Acciones en Cola",
+  "queue.empty": "No hay acciones en cola",
+  "queue.holdBed": "Reservar cama",
+  "queue.updateAvailability": "Actualizar disponibilidad",
+  "queue.unknownAction": "Acción en cola",
+  "queue.queuedAgo": "En cola hace {minutes}m",
+  "search.holdQueued": "Reserva en cola — se enviará cuando estés en línea",
+  "search.holdExpired": "La reserva expiró (en cola hace {minutes} min). ¿Buscar de nuevo?",
+  "search.holdConflict": "La cama fue ocupada mientras estabas sin conexión. ¿Buscar de nuevo?",
+  "search.holdFailed.retry": "No se pudo conectar al servidor. Se reintentará automáticamente.",
+  "coord.updateQueued": "Actualización en cola — se enviará cuando estés en línea"
 }

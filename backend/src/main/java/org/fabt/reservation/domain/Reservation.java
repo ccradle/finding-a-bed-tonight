@@ -16,6 +16,10 @@ public class Reservation {
     private Instant cancelledAt;
     private Instant createdAt;
     private String notes;
+    private String idempotencyKey;
+
+    /** Transient flag — true when returned from an idempotent key match (not persisted). */
+    private transient boolean idempotentMatch;
 
     public Reservation() {
     }
@@ -73,4 +77,10 @@ public class Reservation {
 
     public String getNotes() { return notes; }
     public void setNotes(String notes) { this.notes = notes; }
+
+    public String getIdempotencyKey() { return idempotencyKey; }
+    public void setIdempotencyKey(String idempotencyKey) { this.idempotencyKey = idempotencyKey; }
+
+    public boolean isIdempotentMatch() { return idempotentMatch; }
+    public void setIdempotentMatch(boolean idempotentMatch) { this.idempotentMatch = idempotentMatch; }
 }

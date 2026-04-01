@@ -33,6 +33,7 @@ public class ReservationRepository {
         Timestamp createdAt = rs.getTimestamp("created_at");
         r.setCreatedAt(createdAt != null ? createdAt.toInstant() : null);
         r.setNotes(rs.getString("notes"));
+        r.setIdempotencyKey(rs.getString("idempotency_key"));
         return r;
     };
 
@@ -43,8 +44,8 @@ public class ReservationRepository {
     public Reservation insert(Reservation reservation) {
         List<Reservation> results = jdbcTemplate.query(
                 """
-                INSERT INTO reservation (shelter_id, tenant_id, population_type, user_id, status, expires_at, notes)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO reservation (shelter_id, tenant_id, population_type, user_id, status, expires_at, notes, idempotency_key)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 RETURNING *
                 """,
                 ROW_MAPPER,
@@ -54,9 +55,19 @@ public class ReservationRepository {
                 reservation.getUserId(),
                 reservation.getStatus().name(),
                 Timestamp.from(reservation.getExpiresAt()),
-                reservation.getNotes()
+                reservation.getNotes(),
+                reservation.getIdempotencyKey()
         );
         return results.isEmpty() ? reservation : results.get(0);
+    }
+
+    public Optional<Reservation> findActiveByUserIdAndIdempotencyKey(UUID userId, String idempotencyKey) {
+        List<Reservation> results = jdbcTemplate.query(
+                "SELECT * FROM reservation WHERE user_id = ? AND idempotency_key = ? AND status = 'HELD'",
+                ROW_MAPPER,
+                userId, idempotencyKey
+        );
+        return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
     }
 
     public Optional<Reservation> findByIdAndTenantId(UUID id, UUID tenantId) {

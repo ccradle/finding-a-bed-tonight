@@ -6,7 +6,11 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
       registerType: 'autoUpdate',
+      injectRegister: 'auto',
       manifest: {
         name: 'Finding A Bed Tonight',
         short_name: 'FABT',
@@ -19,20 +23,9 @@ export default defineConfig({
           { src: '/icon-512.png', sizes: '512x512', type: 'image/png' }
         ]
       },
-      workbox: {
+      injectManifest: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
-        runtimeCaching: [
-          {
-            urlPattern: /^https?:\/\/.*\/api\/v1\/.*/,
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'api-cache',
-              networkTimeoutSeconds: 5,
-              expiration: { maxEntries: 100, maxAgeSeconds: 300 }
-            }
-          }
-        ]
-      }
+      },
     })
   ],
   server: {

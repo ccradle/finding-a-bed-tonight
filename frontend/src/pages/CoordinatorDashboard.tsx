@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import { api } from '../services/api';
+import { enqueueAction } from '../services/offlineQueue';
 import { DataAge } from '../components/DataAge';
 import { text, weight, leading } from '../theme/typography';
 import { color } from '../theme/colors';
@@ -195,21 +196,38 @@ export function CoordinatorDashboard() {
     if (!avail) return;
     setAvailSaving(popType);
     setError(null);
+    const payload = {
+      populationType: popType,
+      bedsTotal: avail.bedsTotal,
+      bedsOccupied: avail.bedsOccupied,
+      bedsOnHold: avail.bedsOnHold,
+      acceptingNewGuests: true,
+      overflowBeds: avail.overflowBeds,
+    };
     try {
-      await api.patch(`/api/v1/shelters/${shelterId}/availability`, {
-        populationType: popType,
-        bedsTotal: avail.bedsTotal,
-        bedsOccupied: avail.bedsOccupied,
-        bedsOnHold: avail.bedsOnHold,
-        acceptingNewGuests: true,
-        overflowBeds: avail.overflowBeds,
-      });
+      if (!navigator.onLine) {
+        await enqueueAction('UPDATE_AVAILABILITY', `/api/v1/shelters/${shelterId}/availability`, 'PATCH', payload);
+        setAvailSaved(popType);
+        setError(intl.formatMessage({ id: 'coord.updateQueued', defaultMessage: 'Update queued — will send when online' }));
+        setTimeout(() => setAvailSaved(null), 1500);
+        return;
+      }
+      await api.patch(`/api/v1/shelters/${shelterId}/availability`, payload);
       setAvailSaved(popType);
       // Refresh shelter list for updated summary
       fetchShelters();
       setTimeout(() => setAvailSaved(null), 1500);
     } catch {
-      setError(intl.formatMessage({ id: 'coord.error' }));
+      // Online but request failed — enqueue as fallback
+      try {
+        await enqueueAction('UPDATE_AVAILABILITY', `/api/v1/shelters/${shelterId}/availability`, 'PATCH', payload);
+        setAvailSaved(popType);
+        setError(intl.formatMessage({ id: 'coord.updateQueued', defaultMessage: 'Update queued — will send when online' }));
+        setTimeout(() => setAvailSaved(null), 1500);
+      } catch {
+        // IndexedDB also failed — show error as last resort
+        setError(intl.formatMessage({ id: 'coord.error' }));
+      }
     } finally {
       setAvailSaving(null);
     }

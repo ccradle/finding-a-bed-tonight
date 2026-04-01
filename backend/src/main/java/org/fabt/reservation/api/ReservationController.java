@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -43,11 +44,13 @@ public class ReservationController {
     @PreAuthorize("hasAnyRole('OUTREACH_WORKER', 'COORDINATOR', 'COC_ADMIN', 'PLATFORM_ADMIN')")
     public ResponseEntity<ReservationResponse> create(
             @Valid @RequestBody CreateReservationRequest request,
+            @RequestHeader(value = "X-Idempotency-Key", required = false) String idempotencyKey,
             Authentication authentication) {
         UUID userId = UUID.fromString(authentication.getName());
         Reservation reservation = reservationService.createReservation(
-                request.shelterId(), request.populationType(), request.notes(), userId);
-        return ResponseEntity.status(HttpStatus.CREATED).body(ReservationResponse.from(reservation));
+                request.shelterId(), request.populationType(), request.notes(), userId, idempotencyKey);
+        HttpStatus status = reservation.isIdempotentMatch() ? HttpStatus.OK : HttpStatus.CREATED;
+        return ResponseEntity.status(status).body(ReservationResponse.from(reservation));
     }
 
     @Operation(

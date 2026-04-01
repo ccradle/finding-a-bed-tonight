@@ -18,7 +18,7 @@
   "nav.search": "Search Beds",
   "nav.admin": "Administration",
   "nav.logout": "Sign Out",
-  "offline.banner": "You are offline — your last search is still available. Actions will sync when connection returns.",
+  "offline.banner": "You are offline. Cached searches are still visible. Bed holds and updates will be queued and sent when you reconnect.",
   "data.age.fresh": "Fresh",
   "data.age.aging": "Aging",
   "data.age.stale": "Stale",
@@ -345,5 +345,18 @@
   "notifications.referralRejected": "A shelter rejected your referral",
   "notifications.unknown": "Notification",
   "notifications.reconnecting": "Reconnecting to live updates…",
-  "notifications.reconnected": "Reconnected"
+  "notifications.reconnected": "Reconnected",
+
+  "queue.pending": "{count, plural, one {# pending action} other {# pending actions}}",
+  "queue.title": "Queued Actions",
+  "queue.empty": "No queued actions",
+  "queue.holdBed": "Hold bed",
+  "queue.updateAvailability": "Update availability",
+  "queue.unknownAction": "Queued action",
+  "queue.queuedAgo": "Queued {minutes}m ago",
+  "search.holdQueued": "Hold queued — will send when online",
+  "search.holdExpired": "Hold request expired (queued {minutes} min ago). Search again?",
+  "search.holdConflict": "Bed was taken while offline. Search again?",
+  "search.holdFailed.retry": "Could not reach server. Will retry automatically.",
+  "coord.updateQueued": "Update queued — will send when online"
 }
