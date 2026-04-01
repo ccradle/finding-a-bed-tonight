@@ -19,6 +19,7 @@ public record ShelterDetailResponse(
             int bedsOnHold,
             int bedsAvailable,
             boolean acceptingNewGuests,
+            int overflowBeds,
             Instant snapshotTs,
             Long dataAgeSeconds,
             String dataFreshness

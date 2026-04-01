@@ -33,6 +33,7 @@ public class AvailabilityService {
             int bedsOnHold,
             int bedsAvailable,
             boolean acceptingNewGuests,
+            int overflowBeds,
             Instant snapshotTs,
             long dataAgeSeconds,
             String dataFreshness,
@@ -47,6 +48,7 @@ public class AvailabilityService {
                     ba.getId(), ba.getShelterId(), ba.getPopulationType(),
                     ba.getBedsTotal(), ba.getBedsOccupied(), ba.getBedsOnHold(),
                     ba.getBedsAvailable(), ba.isAcceptingNewGuests(),
+                    ba.getOverflowBeds() != null ? ba.getOverflowBeds() : 0,
                     ba.getSnapshotTs(), ageSeconds,
                     DataFreshness.fromAgeSeconds(ageSeconds).name(),
                     ba.getUpdatedBy(), ba.getNotes()
@@ -107,10 +109,10 @@ public class AvailabilityService {
             throw new AvailabilityInvariantViolation(
                     "beds_occupied (" + bedsOccupied + ") cannot exceed beds_total (" + bedsTotal + ") (INV-2)");
         }
-        if (bedsOccupied + bedsOnHold > bedsTotal) {
+        if (bedsOccupied + bedsOnHold > bedsTotal + overflowBeds) {
             throw new AvailabilityInvariantViolation(
                     "beds_occupied (" + bedsOccupied + ") + beds_on_hold (" + bedsOnHold
-                            + ") cannot exceed beds_total (" + bedsTotal + ") (INV-5)");
+                            + ") cannot exceed beds_total (" + bedsTotal + ") + overflow (" + overflowBeds + ") (INV-5)");
         }
 
         // Get current latest BEFORE inserting the new one (for event payload delta)

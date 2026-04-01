@@ -99,7 +99,10 @@ public class ReservationService implements HeldReservationCleaner {
                 .orElse(null);
 
         int bedsAvailable = current != null ? current.getBedsAvailable() : 0;
-        if (bedsAvailable <= 0) {
+        int overflow = current != null && current.getOverflowBeds() != null
+                ? current.getOverflowBeds() : 0;
+        int effectiveAvailable = bedsAvailable + overflow;
+        if (effectiveAvailable <= 0) {
             throw new IllegalStateException("No beds available for population type: " + populationType);
         }
 
@@ -123,10 +126,13 @@ public class ReservationService implements HeldReservationCleaner {
         int bedsTotal = freshState != null ? freshState.getBedsTotal() : 0;
         int bedsOccupied = freshState != null ? freshState.getBedsOccupied() : 0;
         int currentHold = freshState != null ? freshState.getBedsOnHold() : 0;
+        int freshOverflow = freshState != null && freshState.getOverflowBeds() != null
+                ? freshState.getOverflowBeds() : 0;
         int newBedsOnHold = currentHold + 1;
 
-        // Verify invariant (INV-5: occupied + hold <= total)
-        if (bedsOccupied + newBedsOnHold > bedsTotal) {
+        // Verify invariant (INV-5: occupied + hold <= total + overflow)
+        // Overflow beds are temporary capacity that can absorb holds
+        if (bedsOccupied + newBedsOnHold > bedsTotal + freshOverflow) {
             // Race condition lost or beds became unavailable — cancel the reservation
             reservationRepository.updateStatus(saved.getId(), ReservationStatus.CANCELLED);
             throw new IllegalStateException("No beds available for population type: " + populationType);
@@ -137,7 +143,8 @@ public class ReservationService implements HeldReservationCleaner {
                 bedsTotal, bedsOccupied, newBedsOnHold,
                 freshState != null ? freshState.isAcceptingNewGuests() : true,
                 "reservation:create",
-                "system:reservation"
+                "system:reservation",
+                freshOverflow
         );
 
         // Publish event
@@ -280,10 +287,13 @@ public class ReservationService implements HeldReservationCleaner {
         int bedsOccupied = (current != null ? current.getBedsOccupied() : 0) + occupiedDelta;
         int bedsOnHold = Math.max(0, (current != null ? current.getBedsOnHold() : 0) + holdDelta);
         boolean accepting = current != null ? current.isAcceptingNewGuests() : true;
+        int currentOverflow = current != null && current.getOverflowBeds() != null
+                ? current.getOverflowBeds() : 0;
 
         availabilityService.createSnapshot(
                 reservation.getShelterId(), reservation.getPopulationType(),
-                bedsTotal, bedsOccupied, bedsOnHold, accepting, actor, "system:reservation"
+                bedsTotal, bedsOccupied, bedsOnHold, accepting, actor, "system:reservation",
+                currentOverflow
         );
     }
 

@@ -66,6 +66,7 @@ interface AvailabilityDto {
   bedsOnHold: number;
   bedsAvailable: number;
   acceptingNewGuests: boolean;
+  overflowBeds: number;
   snapshotTs: string;
   dataAgeSeconds: number;
   dataFreshness: string;
@@ -92,6 +93,7 @@ export function CoordinatorDashboard() {
   const [pendingReferrals, setPendingReferrals] = useState<PendingReferral[]>([]);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('');
+  const [surgeActive, setSurgeActive] = useState(false);
 
   const fetchShelters = useCallback(async () => {
     setLoading(true);
@@ -107,6 +109,12 @@ export function CoordinatorDashboard() {
   }, [intl]);
 
   useEffect(() => { fetchShelters(); }, [fetchShelters]);
+
+  useEffect(() => {
+    api.get<{ id: string; status: string }[]>('/api/v1/surge-events')
+      .then(surges => setSurgeActive((surges || []).some(s => s.status === 'ACTIVE')))
+      .catch(() => {});
+  }, []);
 
   const fmtAddr = (s: Shelter) =>
     [s.addressStreet, s.addressCity, s.addressState, s.addressZip].filter(Boolean).join(', ');
@@ -130,7 +138,7 @@ export function CoordinatorDashboard() {
           bedsTotal: a?.bedsTotal ?? 0,
           bedsOccupied: a?.bedsOccupied ?? 0,
           bedsOnHold: a?.bedsOnHold ?? 0,
-          overflowBeds: 0,
+          overflowBeds: a?.overflowBeds ?? 0,
         };
       });
       setEditAvailability(availEdit);
@@ -167,6 +175,12 @@ export function CoordinatorDashboard() {
     } catch {
       setError(intl.formatMessage({ id: 'coord.error' }));
     }
+  };
+
+  const updateOverflow = (popType: string, delta: number) => {
+    setEditAvailability(prev =>
+      prev.map(a => a.populationType !== popType ? a : { ...a, overflowBeds: Math.max(0, a.overflowBeds + delta) })
+    );
   };
 
   const updateAvailField = (popType: string, field: 'bedsTotal' | 'bedsOccupied' | 'bedsOnHold', delta: number) => {
@@ -423,6 +437,22 @@ export function CoordinatorDashboard() {
                             <span style={{ fontSize: text['2xs'], color: color.textMuted }}>(system)</span>
                           )}
                         </div>
+                        {/* Overflow / temporary beds stepper — only during active surge */}
+                        {surgeActive && (
+                          <div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <span style={{ fontSize: text.xs, color: color.textTertiary, fontWeight: weight.semibold, minWidth: 70 }}>
+                                <FormattedMessage id="surge.overflowBeds" />
+                              </span>
+                              <StepperButton label="−" data-testid={`overflow-minus-${avail.populationType}`} onClick={() => updateOverflow(avail.populationType, -1)} disabled={avail.overflowBeds <= 0} />
+                              <span data-testid={`overflow-value-${avail.populationType}`} aria-label={intl.formatMessage({ id: 'surge.overflowBeds' }) + ': ' + avail.overflowBeds} style={{ fontSize: text.lg, fontWeight: weight.extrabold, minWidth: 32, textAlign: 'center' }}>{avail.overflowBeds}</span>
+                              <StepperButton label="+" data-testid={`overflow-plus-${avail.populationType}`} onClick={() => updateOverflow(avail.populationType, 1)} />
+                            </div>
+                            <div style={{ fontSize: text['2xs'], color: color.textMuted, marginTop: 2 }}>
+                              <FormattedMessage id="surge.overflowHint" />
+                            </div>
+                          </div>
+                        )}
                       </div>
                       <button
                         data-testid={`save-avail-${avail.populationType}`}
