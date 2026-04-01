@@ -128,8 +128,8 @@
   "surge.activated": "¡Emergencia activada!",
   "surge.deactivated": "Emergencia terminada",
   "surge.alreadyActive": "Ya hay una emergencia activa",
-  "surge.overflowBeds": "Camas de Desbordamiento",
-  "surge.overflowHint": "Capacidad temporal (catres, colchonetas) durante emergencia",
+  "surge.overflowBeds": "Camas Temporales",
+  "surge.overflowHint": "Catres, colchonetas y espacio de emergencia durante emergencia",
   "surge.noActiveSurge": "Sin emergencia activa",
 
   "search.dvAddressHidden": "Dirección oculta por seguridad — compartida verbalmente después de aceptar la referencia",
@@ -144,6 +144,7 @@
   "referral.cancel": "Cancelar",
   "referral.submit": "Enviar Referencia",
   "referral.networkError": "No se pudo conectar al servidor. Verifique su conexión e intente de nuevo.",
+  "search.includesTemporary": "(incluye {count} camas temporales)",
   "search.referralOffline": "Las solicitudes de referencia necesitan conexión. Llame al {phone} para solicitar una referencia por teléfono.",
   "search.referralOfflineNoPhone": "Las solicitudes de referencia necesitan conexión. Muévase a un área con señal e intente de nuevo.",
   "referral.myReferrals": "Mis Referencias de VD",

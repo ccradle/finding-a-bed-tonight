@@ -732,18 +732,24 @@ export function OutreachSearch() {
             {/* Per-population availability pills with hold buttons */}
             {r.availability.length > 0 && (
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10, alignItems: 'center' }}>
-                {r.availability.map((a) => (
+                {r.availability.map((a) => {
+                  const effectiveAvail = activeSurge ? a.bedsAvailable + a.overflowBeds : a.bedsAvailable;
+                  return (
                   <div key={a.populationType} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                     <span style={{
                       padding: '3px 8px', borderRadius: 6, fontSize: text['2xs'], fontWeight: weight.semibold,
-                      backgroundColor: a.bedsAvailable > 0 ? color.successBg : color.errorBg,
-                      color: a.bedsAvailable > 0 ? color.success : color.error,
+                      backgroundColor: effectiveAvail > 0 ? color.successBg : color.errorBg,
+                      color: effectiveAvail > 0 ? color.success : color.error,
                     }}>
-                      {getPopulationTypeLabel(a.populationType, intl)}: {a.bedsAvailable}
+                      {getPopulationTypeLabel(a.populationType, intl)}: {effectiveAvail}
                       {a.bedsOnHold > 0 && <span style={{ color: color.warning }}> ({a.bedsOnHold} held)</span>}
-                      {a.overflowBeds > 0 && <span style={{ color: color.errorMid }}> +{a.overflowBeds} overflow</span>}
+                      {activeSurge && a.overflowBeds > 0 && (
+                        <span style={{ color: color.textTertiary, fontWeight: weight.normal }}>
+                          {' '}<FormattedMessage id="search.includesTemporary" values={{ count: a.overflowBeds }} />
+                        </span>
+                      )}
                     </span>
-                    {a.bedsAvailable > 0 && !r.dvShelter && (
+                    {effectiveAvail > 0 && !r.dvShelter && (
                       <button
                         data-testid={`hold-bed-${r.shelterId}-${a.populationType}`}
                         onClick={(e) => { e.stopPropagation(); holdBed(r.shelterId, a.populationType); }}
@@ -759,7 +765,7 @@ export function OutreachSearch() {
                           : intl.formatMessage({ id: 'search.holdBed' })}
                       </button>
                     )}
-                    {a.bedsAvailable > 0 && r.dvShelter && (
+                    {effectiveAvail > 0 && r.dvShelter && (
                       <button
                         data-testid={`request-referral-${r.shelterId}-${a.populationType}`}
                         aria-disabled={!isOnline}
@@ -784,7 +790,8 @@ export function OutreachSearch() {
                       </button>
                     )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
             {offlineReferralShelterId === r.shelterId && !isOnline && (

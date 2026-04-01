@@ -81,6 +81,22 @@ If your shelter has no internet at all, talk to your CoC administrator. The syst
 
 ---
 
+## What About White Flag Nights and Emergency Capacity?
+
+During an active surge event (White Flag night, cold weather emergency), you can report **temporary beds** — cots, mats, and emergency floor space — through your coordinator dashboard.
+
+**How it works:**
+1. Your CoC administrator activates a surge event when conditions warrant
+2. A "Temporary Beds" stepper appears in your dashboard next to each population type
+3. Set the number of temporary beds you've deployed (e.g., 20 cots)
+4. Save — outreach workers immediately see the combined total available beds
+
+**What outreach workers see:** A single available count that includes both your permanent beds and temporary beds. For example, if you have 5 permanent beds open and 20 cots, workers see "25 available (includes 20 temporary beds)." Workers can hold any available bed, whether permanent or temporary.
+
+**When the surge ends:** The temporary beds stepper disappears from your dashboard. The next time you update availability, the temporary bed count resets to zero automatically.
+
+---
+
 ## Can We Participate Without Using Reservations?
 
 Yes. Your shelter can participate at whatever level makes sense. Some shelters only share bed count updates. Others allow bed holds and reservations. Others are view-only. See the [Partial Participation Guide](partial-participation-guide.md) for details.

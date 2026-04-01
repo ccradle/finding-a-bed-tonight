@@ -201,8 +201,8 @@ public class ShelterController {
         List<ShelterDetailResponse.AvailabilityDto> availDtos = snapshots.stream()
                 .map(s -> new ShelterDetailResponse.AvailabilityDto(
                         s.populationType(), s.bedsTotal(), s.bedsOccupied(), s.bedsOnHold(),
-                        s.bedsAvailable(), s.acceptingNewGuests(), s.snapshotTs(),
-                        s.dataAgeSeconds(), s.dataFreshness()
+                        s.bedsAvailable(), s.acceptingNewGuests(), s.overflowBeds(),
+                        s.snapshotTs(), s.dataAgeSeconds(), s.dataFreshness()
                 ))
                 .toList();
         ShelterDetail enriched = new ShelterDetail(

@@ -219,15 +219,18 @@ public class BedSearchService {
             ));
         }
 
-        // Rank: (1) beds_available > 0 first, (2) fewer barriers, (3) beds_available DESC
+        // Rank: (1) effective_available > 0 first, (2) fewer barriers, (3) effective_available DESC
+        // During active surge, effective = bedsAvailable + overflowBeds (temporary capacity counts)
         results.sort(Comparator
                 .<BedSearchResult, Integer>comparing(r -> {
-                    int totalAvail = r.availability().stream().mapToInt(PopulationAvailability::bedsAvailable).sum();
+                    int totalAvail = r.availability().stream()
+                            .mapToInt(a -> a.bedsAvailable() + (surgeActive ? a.overflowBeds() : 0)).sum();
                     return totalAvail > 0 ? 0 : 1; // available first
                 })
                 .thenComparing(r -> r.constraints().barrierCount())
                 .thenComparing(r -> {
-                    int totalAvail = r.availability().stream().mapToInt(PopulationAvailability::bedsAvailable).sum();
+                    int totalAvail = r.availability().stream()
+                            .mapToInt(a -> a.bedsAvailable() + (surgeActive ? a.overflowBeds() : 0)).sum();
                     return -totalAvail; // descending
                 }));
 
