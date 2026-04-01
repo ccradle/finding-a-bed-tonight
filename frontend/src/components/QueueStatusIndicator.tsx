@@ -17,6 +17,7 @@ export function QueueStatusIndicator({ count }: QueueStatusIndicatorProps) {
   const intl = useIntl();
   const [open, setOpen] = useState(false);
   const [actions, setActions] = useState<QueuedAction[]>([]);
+  const [renderTime, setRenderTime] = useState(Date.now);
 
   if (count === 0) return null;
 
@@ -24,6 +25,7 @@ export function QueueStatusIndicator({ count }: QueueStatusIndicatorProps) {
     if (!open) {
       const items = await getQueuedActions();
       setActions(items);
+      setRenderTime(Date.now());
     }
     setOpen(!open);
   };
@@ -84,7 +86,7 @@ export function QueueStatusIndicator({ count }: QueueStatusIndicatorProps) {
             </div>
           ) : (
             actions.map((action) => {
-              const minutesAgo = Math.floor((Date.now() - action.timestamp) / 60000);
+              const minutesAgo = Math.floor((renderTime - action.timestamp) / 60000);
               const labelKey = ACTION_LABEL_KEYS[action.type] || 'queue.unknownAction';
               return (
                 <div

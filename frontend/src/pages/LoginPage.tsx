@@ -29,6 +29,13 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [oauthProviders, setOauthProviders] = useState<OAuth2Provider[]>([]);
+  const [appVersion, setAppVersion] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.get<{ version: string }>('/api/v1/version')
+      .then(res => setAppVersion(res.version))
+      .catch(() => {});
+  }, []);
 
   // Handle OAuth2 callback: tokens or error in URL params
   useEffect(() => {
@@ -331,6 +338,21 @@ export function LoginPage() {
                 </button>
               );
             })}
+          </div>
+        )}
+        {appVersion && (
+          <div
+            data-testid="app-version"
+            style={{
+              marginTop: '24px',
+              paddingTop: '16px',
+              borderTop: `1px solid ${color.border}`,
+              fontSize: text.xs,
+              color: color.textMuted,
+              textAlign: 'center',
+            }}
+          >
+            v{appVersion}
           </div>
         )}
       </div>

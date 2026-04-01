@@ -59,7 +59,7 @@ Full setup guide: [For Developers](docs/FOR-DEVELOPERS.md#prerequisites)
 | Backend | Java 25, Spring Boot 4.0, Spring MVC, Spring Data JDBC, Virtual Threads |
 | Database | PostgreSQL 16, Flyway (30 migrations), Row Level Security (DV shelters) |
 | Frontend | React 19, Vite, TypeScript, Workbox PWA (injectManifest), react-intl (EN/ES), CSS custom properties design tokens |
-| Testing | JUnit 5, Testcontainers, ArchUnit (328 tests), Playwright (188 UI tests), Vitest (15 unit tests), Karate (26 API scenarios), Gatling (7 simulations) |
+| Testing | JUnit 5, Testcontainers, ArchUnit (332 tests), Playwright (193 UI tests), Vitest (15 unit tests), Karate (26 API scenarios), Gatling (7 simulations) |
 | Infra | Docker, GitHub Actions CI/CD + E2E pipeline, Terraform (3 tiers) |
 
 ---
