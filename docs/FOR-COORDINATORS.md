@@ -62,7 +62,20 @@ Structural details like your shelter's name, address, and DV status are managed 
 
 ## What If My Shelter Does Not Have WiFi?
 
-The platform is built as a Progressive Web App (PWA). When you lose connectivity, bed holds and availability updates are queued locally. When you reconnect, the app sends them automatically. If a bed was taken while you were offline, you'll see a notification. Check the queue indicator in the header to see pending actions. You can also update from a phone using mobile data if your desktop is offline.
+The platform is built as a Progressive Web App (PWA). Some features work offline, others require a connection:
+
+**Works offline (queued and sent when you reconnect):**
+- Search for beds (cached results stay visible)
+- Hold a bed for a client
+- Update bed availability counts
+
+**Requires a connection:**
+- DV shelter referral requests (for safety — referral data is not stored on your device)
+- Viewing real-time availability updates from other shelters
+
+When you reconnect, queued actions send automatically. If a bed was taken while you were offline, you'll see a notification. Check the queue indicator in the header to see pending actions.
+
+**If you need to request a DV referral while offline:** The app will show the shelter's phone number so you can call and request a referral directly. This is a safety decision — referral data (callback numbers, household details) is never stored on your device.
 
 If your shelter has no internet at all, talk to your CoC administrator. The system can still list your shelter with a phone number so outreach workers know to call you directly.
 

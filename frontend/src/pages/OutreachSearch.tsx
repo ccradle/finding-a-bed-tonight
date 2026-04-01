@@ -7,6 +7,7 @@ import { text, weight, leading } from '../theme/typography';
 import { color } from '../theme/colors';
 import { getPopulationTypeLabel } from '../utils/populationTypeLabels';
 import { SSE_REFERRAL_UPDATE, SSE_AVAILABILITY_UPDATE } from '../hooks/useNotifications';
+import { useOnlineStatus } from '../hooks/useOnlineStatus';
 
 const POPULATION_TYPES = [
   { value: '', labelId: 'search.allTypes' },
@@ -141,6 +142,7 @@ interface ReservationResponse {
 
 export function OutreachSearch() {
   const intl = useIntl();
+  const { isOnline } = useOnlineStatus();
   const [results, setResults] = useState<BedSearchResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -173,6 +175,8 @@ export function OutreachSearch() {
   const [referralSubmitting, setReferralSubmitting] = useState(false);
   const [myReferrals, setMyReferrals] = useState<ReferralToken[]>([]);
   const [showReferrals, setShowReferrals] = useState(false);
+  const [offlineReferralShelterId, setOfflineReferralShelterId] = useState<string | null>(null);
+  const [referralError, setReferralError] = useState<string | null>(null);
 
   const fetchBeds = useCallback(async () => {
     setLoading(true);
@@ -276,6 +280,7 @@ export function OutreachSearch() {
   const submitReferral = async () => {
     if (!referralModal) return;
     setReferralSubmitting(true);
+    setReferralError(null);
     try {
       await api.post('/api/v1/dv-referrals', {
         shelterId: referralModal.shelterId,
@@ -288,12 +293,25 @@ export function OutreachSearch() {
       setReferralModal(null);
       setReferralForm({ householdSize: 1, urgency: 'STANDARD', specialNeeds: '', callbackNumber: '' });
       fetchReferrals();
-    } catch {
-      setError(intl.formatMessage({ id: 'search.error' }));
+    } catch (err) {
+      if (err instanceof TypeError) {
+        // Network error (offline, captive portal, DNS failure) — show inside modal
+        setReferralError(intl.formatMessage({ id: 'referral.networkError' }));
+      } else {
+        // API error (server-side) — show inside modal too, not behind it
+        setReferralError(intl.formatMessage({ id: 'search.error' }));
+      }
     } finally {
       setReferralSubmitting(false);
     }
   };
+
+  // Clear offline referral message when connectivity returns
+  useEffect(() => {
+    if (isOnline) {
+      setOfflineReferralShelterId(null);
+    }
+  }, [isOnline]);
 
   // Fetch active surge
   useEffect(() => {
@@ -744,11 +762,22 @@ export function OutreachSearch() {
                     {a.bedsAvailable > 0 && r.dvShelter && (
                       <button
                         data-testid={`request-referral-${r.shelterId}-${a.populationType}`}
-                        onClick={(e) => { e.stopPropagation(); setReferralModal({ shelterId: r.shelterId, popType: a.populationType }); }}
+                        aria-disabled={!isOnline}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (!isOnline) {
+                            setOfflineReferralShelterId(r.shelterId);
+                            return;
+                          }
+                          setOfflineReferralShelterId(null);
+                          setReferralError(null);
+                          setReferralModal({ shelterId: r.shelterId, popType: a.populationType });
+                        }}
                         style={{
                           padding: '6px 12px', borderRadius: 6, border: 'none',
                           backgroundColor: color.dv, color: color.textInverse, fontSize: text.xs, fontWeight: weight.bold,
-                          cursor: 'pointer', minHeight: 44, minWidth: 44,
+                          cursor: isOnline ? 'pointer' : 'default', minHeight: 44, minWidth: 44,
+                          opacity: isOnline ? 1 : 0.5,
                         }}
                       >
                         <FormattedMessage id="search.requestReferral" />
@@ -756,6 +785,29 @@ export function OutreachSearch() {
                     )}
                   </div>
                 ))}
+              </div>
+            )}
+            {offlineReferralShelterId === r.shelterId && !isOnline && (
+              <div
+                data-testid={`offline-referral-msg-${r.shelterId}`}
+                role="alert"
+                aria-live="polite"
+                style={{
+                  marginTop: 8, padding: '10px 14px', borderRadius: 8,
+                  backgroundColor: color.warningBg, color: color.warning,
+                  fontSize: text.xs, fontWeight: weight.medium,
+                }}
+              >
+                {r.phone ? (
+                  <FormattedMessage
+                    id="search.referralOffline"
+                    values={{
+                      phone: <a href={`tel:${r.phone}`} style={{ color: color.warning, fontWeight: weight.bold }}>{r.phone}</a>,
+                    }}
+                  />
+                ) : (
+                  <FormattedMessage id="search.referralOfflineNoPhone" />
+                )}
               </div>
             )}
           </div>
@@ -972,8 +1024,18 @@ export function OutreachSearch() {
               placeholder="919-555-0000"
               style={{ width: '100%', padding: 10, borderRadius: 8, border: `2px solid ${color.border}`, fontSize: text.base, marginBottom: 16 }} />
 
+            {referralError && (
+              <div data-testid="referral-error" role="alert" style={{
+                padding: '10px 14px', borderRadius: 8, marginBottom: 12,
+                backgroundColor: color.errorBg, color: color.error,
+                fontSize: text.xs, fontWeight: weight.medium,
+              }}>
+                {referralError}
+              </div>
+            )}
+
             <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={() => setReferralModal(null)}
+              <button onClick={() => { setReferralModal(null); setReferralError(null); }}
                 style={{ flex: 1, padding: 12, borderRadius: 10, border: `2px solid ${color.border}`, backgroundColor: color.bg, color: color.textTertiary, fontSize: text.base, fontWeight: weight.semibold, cursor: 'pointer' }}>
                 <FormattedMessage id="referral.cancel" />
               </button>
