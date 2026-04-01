@@ -195,7 +195,10 @@ log "Building backend (first run may take a few minutes)..."
 cd backend
 
 # Compile first (fast feedback if there's a build error)
-mvn compile -q 2>&1 || {
+# spring-boot:build-info generates META-INF/build-info.properties so the
+# /api/v1/version endpoint registers (BuildProperties bean requires it).
+# The build-info goal binds to generate-resources which spring-boot:run skips.
+mvn spring-boot:build-info compile -q 2>&1 || {
     err "Backend build failed. Check the output above."
     exit 1
 }
@@ -264,7 +267,7 @@ if [[ "$FRESH_SEED" == true ]]; then
 fi
 log "Loading seed data..."
 docker compose exec -T postgres psql -U fabt -d fabt < infra/scripts/seed-data.sql >/dev/null 2>&1
-log "Seed data loaded (13 shelters, 3 users, 1 tenant)."
+log "Seed data loaded (13 shelters, 4 users, 1 tenant)."
 
 log "Loading demo activity data (28 days of snapshots, searches, reservations)..."
 docker compose exec -T postgres psql -U fabt -d fabt < infra/scripts/demo-activity-seed.sql >/dev/null 2>&1
@@ -406,6 +409,7 @@ info "Login credentials (tenant slug: dev-coc):"
 echo -e "  ${YELLOW}Admin:${NC}     admin@dev.fabt.org    / admin123"
 echo -e "  ${YELLOW}CoC Admin:${NC} cocadmin@dev.fabt.org / admin123"
 echo -e "  ${YELLOW}Outreach:${NC}  outreach@dev.fabt.org / admin123"
+echo -e "  ${YELLOW}DV Outreach:${NC} dv-outreach@dev.fabt.org / admin123"
 echo ""
 info "Logs:     logs/backend.log, logs/frontend.log"
 info "Stop:     ./dev-start.sh stop"

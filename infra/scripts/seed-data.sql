@@ -51,6 +51,20 @@ VALUES (
     NOW(), NOW()
 ) ON CONFLICT (tenant_id, email) DO NOTHING;
 
+-- DV outreach worker (dvAccess=true, password: admin123)
+-- Persona: DV-certified outreach worker who can see DV shelters with redacted addresses
+INSERT INTO app_user (id, tenant_id, email, password_hash, display_name, roles, dv_access, created_at, updated_at)
+VALUES (
+    'b0000000-0000-0000-0000-000000000005',
+    'a0000000-0000-0000-0000-000000000001',
+    'dv-outreach@dev.fabt.org',
+    '$2b$10$D0ZKzFrhx0qdM0mQy9iZQeLYJPX8/eeEfrJi4TsO5D2o62Q/Fwhva',
+    'DV Outreach Worker',
+    ARRAY['OUTREACH_WORKER'],
+    true,
+    NOW(), NOW()
+) ON CONFLICT (tenant_id, email) DO NOTHING;
+
 -- Deactivated user (for admin panel screenshots and testing)
 INSERT INTO app_user (id, tenant_id, email, password_hash, display_name, roles, dv_access, status, created_at, updated_at)
 VALUES (

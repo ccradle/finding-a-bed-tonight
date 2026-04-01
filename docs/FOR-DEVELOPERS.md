@@ -252,6 +252,7 @@ Use one of the seed data accounts:
 | **Platform Admin** | `admin@dev.fabt.org` | `admin123` | Admin panel (tenant/user management) |
 | **CoC Admin** | `cocadmin@dev.fabt.org` | `admin123` | Coordinator dashboard (5 assigned shelters) |
 | **Outreach Worker** | `outreach@dev.fabt.org` | `admin123` | Bed search with live availability |
+| **DV Outreach Worker** | `dv-outreach@dev.fabt.org` | `admin123` | Bed search with DV shelters visible (addresses redacted) |
 
 **Tenant slug:** `dev-coc`
 

@@ -9,6 +9,7 @@ const USERS = {
   admin: { email: 'admin@dev.fabt.org', password: 'admin123' },
   cocadmin: { email: 'cocadmin@dev.fabt.org', password: 'admin123' },
   outreach: { email: 'outreach@dev.fabt.org', password: 'admin123' },
+  dvOutreach: { email: 'dv-outreach@dev.fabt.org', password: 'admin123' },
 };
 
 type Role = keyof typeof USERS;
@@ -87,6 +88,7 @@ export const test = base.extend<{
   outreachPage: Page;
   coordinatorPage: Page;
   adminPage: Page;
+  dvOutreachPage: Page;
 }>({
   outreachPage: async ({ browser }, use) => {
     const stateFile = path.join(__dirname, '..', 'auth', 'outreach.json');
@@ -120,6 +122,19 @@ export const test = base.extend<{
       const setupContext = await browser.newContext();
       const setupPage = await setupContext.newPage();
       await loginAndSaveState(setupPage, 'admin');
+      await setupContext.close();
+    }
+    const context = await browser.newContext({ storageState: stateFile });
+    const page = await context.newPage();
+    await use(page);
+    await context.close();
+  },
+  dvOutreachPage: async ({ browser }, use) => {
+    const stateFile = path.join(__dirname, '..', 'auth', 'dvOutreach.json');
+    if (!isAuthStateValid(stateFile)) {
+      const setupContext = await browser.newContext();
+      const setupPage = await setupContext.newPage();
+      await loginAndSaveState(setupPage, 'dvOutreach');
       await setupContext.close();
     }
     const context = await browser.newContext({ storageState: stateFile });

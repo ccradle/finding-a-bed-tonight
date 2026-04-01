@@ -12,6 +12,7 @@ import { SessionTimeoutWarning } from './SessionTimeoutWarning';
 import { ChangePasswordModal } from './ChangePasswordModal';
 import { useNotifications } from '../hooks/useNotifications';
 import { replayQueue, getQueueSize, isReplaying, type ReplayResult } from '../services/offlineQueue';
+import { api } from '../services/api';
 import { text, weight } from '../theme/typography';
 import { color } from '../theme/colors';
 
@@ -77,6 +78,13 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const { notifications, unreadCount, markRead, markAllRead, dismiss, connected } = useNotifications();
   const [queueSize, setQueueSize] = useState(0);
+  const [appVersion, setAppVersion] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.get<{ version: string }>('/api/v1/version')
+      .then(res => setAppVersion(res.version))
+      .catch(() => {});
+  }, []);
 
   const refreshQueueSize = useCallback(async () => {
     try {
@@ -173,7 +181,6 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
       '/admin': 'Administration',
     };
     const title = titleMap[location.pathname] || 'Finding A Bed Tonight';
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- Route change announcement requires setState; this is the recommended a11y pattern
     setRouteAnnouncement(`Navigated to ${title}`);
 
     // Move focus to main content on route change
@@ -359,6 +366,21 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
           }}
         >
           {children}
+          {appVersion && (
+            <footer
+              data-testid="app-version"
+              style={{
+                marginTop: '32px',
+                paddingTop: '12px',
+                borderTop: `1px solid ${color.border}`,
+                fontSize: text.xs,
+                color: color.textTertiary,
+                textAlign: 'center',
+              }}
+            >
+              Finding A Bed Tonight v{appVersion}
+            </footer>
+          )}
         </main>
       </div>
 

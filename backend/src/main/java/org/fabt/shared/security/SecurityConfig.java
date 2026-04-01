@@ -103,6 +103,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/docs/**").permitAll()
                         .requestMatchers("/swagger-ui/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/tenants/*/oauth2-providers/public").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/version").permitAll()
 
                         // OAuth2 provider management — COC_ADMIN or PLATFORM_ADMIN
                         // Must be BEFORE the general /api/v1/tenants/** matcher
