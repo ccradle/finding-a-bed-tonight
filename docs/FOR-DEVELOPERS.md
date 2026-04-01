@@ -35,7 +35,7 @@ Three deployment tiers allow the same codebase to serve communities of vastly di
 | Events | Spring Events (Lite) / Kafka (Full) |
 | Auth | JWT + OAuth2/OIDC + API Keys (hybrid) |
 | Frontend | React 19, Vite, TypeScript, Workbox PWA (injectManifest), react-intl (EN/ES), CSS custom properties design tokens |
-| Testing | JUnit 5, Testcontainers, ArchUnit (328 tests), Playwright (188 UI tests), Vitest (15 unit tests), Karate (26 API scenarios), Gatling (7 simulations) |
+| Testing | JUnit 5, Testcontainers, ArchUnit (332 tests), Playwright (193 UI tests), Vitest (15 unit tests), Karate (26 API scenarios), Gatling (7 simulations) |
 | Infra | Docker, GitHub Actions CI/CD + E2E pipeline, Terraform (3 tiers) |
 
 ---
@@ -411,9 +411,9 @@ Real-time notifications use Server-Sent Events (SSE) via Spring Boot `SseEmitter
 | `AnalyticsIntegrationTest` | 13 | Utilization, demand, HIC/PIT export, batch jobs, security |
 | `CsvSanitizerTest` | 18 | Parameterized injection prevention, edge cases |
 | `SseStabilityTest` | 4 | Timeout behavior, initial event, Last-Event-ID, metrics |
-| **Backend Total** | **325** | |
+| **Backend Total** | **332** | |
 | | | |
-| **E2E: Playwright** | **174** | **UI tests (Chromium, data-testid locators)** |
+| **E2E: Playwright** | **193** | **UI tests (Chromium, data-testid locators)** |
 | `auth.spec.ts` | 4 | Login per role, failed login |
 | `outreach-search.spec.ts` | 9 | Results, filters, modal, hold/cancel, language, freshness |
 | `coordinator-dashboard.spec.ts` | 5 | Load, expand, update, save, hold indicator |
@@ -895,7 +895,7 @@ finding-a-bed-tonight/
 │       │   ├── db/migration/                          # 26 Flyway migrations (V1–V25 + V8.1)
 │       │   ├── logback-spring.xml                     # Structured JSON logging (Logstash encoder)
 │       │   └── messages/                              # i18n error messages (EN, ES)
-│       └── test/java/org/fabt/                        # 325 tests (unit + integration)
+│       └── test/java/org/fabt/                        # 332 tests (unit + integration)
 │           ├── BaseIntegrationTest.java               # Singleton Testcontainers PostgreSQL
 │           ├── TestAuthHelper.java                    # Per-role JWT helper for tests
 │           ├── ArchitectureTest.java                  # 21 ArchUnit module boundary rules
@@ -935,7 +935,7 @@ finding-a-bed-tonight/
 │           └── es.json                                # Spanish (100+ keys)
 │
 ├── e2e/                                               # End-to-end test suites
-│   ├── playwright/                                    # UI tests (174 tests, Chromium + nginx profile)
+│   ├── playwright/                                    # UI tests (193 tests, Chromium + nginx profile)
 │   │   ├── package.json                               # @playwright/test + TypeScript
 │   │   ├── playwright.config.ts                       # baseURL, workers, retries, HTML reporter
 │   │   ├── fixtures/auth.fixture.ts                   # Per-role storageState (admin, cocadmin, outreach)

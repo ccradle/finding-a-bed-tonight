@@ -5,6 +5,38 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.25.0] — 2026-04-01 — Sprint 2 Quick Wins
+
+### Added
+- **DV outreach worker seed user**: `dv-outreach@dev.fabt.org` (OUTREACH_WORKER, dvAccess=true) — the missing test persona for DV-certified field workers who need DV shelter visibility with address redaction
+- **5 Playwright E2E tests for DV outreach worker**: DV shelter visibility, address redaction ("Address withheld for safety"), Request Referral button (not Hold This Bed), referral modal submit, non-DV shelters show full address and Hold This Bed
+- **`dvOutreachPage` Playwright auth fixture**: reusable across future DV outreach test scenarios
+- **Backend integration test**: DV outreach worker bed search API contract (3 tests)
+- **App version endpoint**: `GET /api/v1/version` returns `{"version":"X.Y"}` (major.minor only, `@ConditionalOnResource` for dev-mode graceful degradation)
+- **Nginx rate limiting**: `00-rate-limit.conf` defines `limit_req_zone` for public API endpoints (10 req/min/IP, burst=5, HTTP 429 on excess) — reusable zone for future public endpoints
+- **Version footer on login page**: inside card with separator line, `data-testid="app-version"`
+- **Version footer in Layout**: "Finding A Bed Tonight vX.Y" at bottom of authenticated pages
+- **2 Playwright tests for version display**: login page + admin panel
+
+### Fixed
+- **QueueStatusIndicator React purity violation**: `Date.now()` called during render — captured in state on panel open instead
+- **Layout.tsx stale eslint-disable directive**: rule no longer reports, directive was dead code
+
+### Changed
+- Backend version: 0.24.0 → 0.25.0
+- Test counts: 332 backend (+4), 193 Playwright (+5 DV outreach, +2 version, -2 removed), 15 Vitest, 26 Karate, 7 Gatling
+- SecurityConfig: `GET /api/v1/version` added to permitAll
+- Dockerfile.frontend: copies `00-rate-limit.conf` for nginx rate limiting
+- dev-start.sh: runs `spring-boot:build-info` during compile so version endpoint works in dev mode; updated seed data count to 4 users; DV outreach worker in credentials printout
+- FOR-DEVELOPERS.md: DV outreach worker row in demo credentials table
+
+### Security
+- Version endpoint returns major.minor only (OWASP WSTG-INFO-02 mitigation — reduces CVE fingerprinting value)
+- Nginx rate limiting on `/api/v1/version` prevents abuse of unauthenticated endpoint
+- Rate limit zone (`public_api`) is reusable for future public endpoints (e.g., health, OAuth discovery)
+
+---
+
 ## [v0.24.0] — 2026-04-01 — Offline Honesty
 
 ### Fixed
