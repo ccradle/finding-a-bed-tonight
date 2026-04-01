@@ -1,7 +1,7 @@
 // ============================================================================
 // Finding A Bed Tonight (FABT) — Database Schema
-// Source: Flyway migrations V1–V24 + V8.1
-// Generated: 2026-03-25
+// Source: Flyway migrations V1–V30 + V8.1
+// Last synced: 2026-04-01
 // ============================================================================
 
 Project fabt {
@@ -277,6 +277,7 @@ Table bed_availability {
   beds_total           integer     [not null, note: 'CHECK >= 0']
   beds_occupied        integer     [not null, default: 0, note: 'CHECK >= 0']
   beds_on_hold         integer     [not null, default: 0, note: 'CHECK >= 0']
+  overflow_beds        integer     [not null, default: 0, note: 'V18 — surge overflow capacity beyond beds_total']
   accepting_new_guests boolean     [not null, default: true]
   snapshot_ts          timestamptz [not null, default: `now()`, note: 'When coordinator confirmed this data']
   updated_by           varchar(255) [note: 'User ID or identity of the updater']
@@ -286,6 +287,7 @@ Table bed_availability {
     (shelter_id, population_type, snapshot_ts) [unique, name: 'uq_bed_avail_shelter_pop_ts', note: 'ON CONFLICT DO NOTHING for concurrent inserts']
     (shelter_id, population_type, snapshot_ts) [name: 'idx_bed_avail_latest', note: 'DESC on snapshot_ts — supports DISTINCT ON latest-snapshot queries']
     (tenant_id, snapshot_ts) [name: 'idx_bed_avail_tenant', note: 'DESC on snapshot_ts']
+    (tenant_id, shelter_id, population_type, snapshot_ts) [name: 'idx_bed_avail_tenant_latest', note: 'V25 — composite index for tenant-scoped latest-snapshot queries']
   }
 
   Note: '''
@@ -431,7 +433,7 @@ Table referral_token {
   shelter_id          uuid        [not null, ref: > shelter.id, note: 'ON DELETE CASCADE']
   tenant_id           uuid        [not null, ref: > tenant.id]
   referring_user_id   uuid        [not null, ref: > app_user.id]
-  household_size      integer     [not null, note: 'CHECK 1-20']
+  household_size      integer     [not null, default: 1, note: 'CHECK BETWEEN 1 AND 20']
   population_type     varchar     [not null, note: 'PopulationType enum']
   urgency             varchar     [not null, note: 'STANDARD, URGENT, EMERGENCY']
   special_needs       varchar     [note: 'Free text — no client PII']

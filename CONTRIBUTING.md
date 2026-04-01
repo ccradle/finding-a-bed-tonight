@@ -58,10 +58,18 @@ The backend is a **modular monolith** built with Spring Boot 4.0 and Java 25 (vi
 |--------|---------|---------------|
 | tenant | `org.fabt.tenant` | CoC tenant management, configuration |
 | auth | `org.fabt.auth` | JWT, API keys, OAuth2, user management |
-| shelter | `org.fabt.shelter` | Shelter profiles, constraints, HSDS export |
-| dataimport | `org.fabt.dataimport` | HSDS/211 data import pipelines |
-| observability | `org.fabt.observability` | Logging, metrics, health, data freshness |
-| shared | `org.fabt.shared` | Cache, events, security, web utilities |
+| shelter | `org.fabt.shelter` | Shelter profiles, constraints, HSDS export, coordinator assignments |
+| availability | `org.fabt.availability` | Bed availability snapshots, bed search queries, data freshness |
+| reservation | `org.fabt.reservation` | Soft-hold bed reservations: create, confirm, cancel, auto-expire |
+| surge | `org.fabt.surge` | White Flag / emergency surge events, overflow capacity |
+| dataimport | `org.fabt.dataimport` | HSDS/211 data import, CSV sanitizer, MIME validation |
+| observability | `org.fabt.observability` | Logging, metrics, health, data freshness, DV canary |
+| subscription | `org.fabt.subscription` | Webhook subscriptions, HMAC-SHA256 event delivery |
+| referral | `org.fabt.referral` | DV opaque referral tokens: create, accept, reject, expire |
+| hmis | `org.fabt.hmis` | HMIS bridge: async push to vendors, DV aggregation, outbox |
+| analytics | `org.fabt.analytics` | CoC analytics: utilization, demand, HIC/PIT export, batch jobs |
+| notification | `org.fabt.notification` | SSE real-time notifications to connected clients |
+| shared | `org.fabt.shared` | Cache, events, security, web utilities (kernel) |
 
 **Module boundaries are enforced by ArchUnit tests.** Modules communicate through published service interfaces — never by accessing another module's repository or domain entities directly.
 

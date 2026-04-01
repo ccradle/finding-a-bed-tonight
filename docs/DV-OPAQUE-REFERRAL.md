@@ -229,3 +229,13 @@ DV shelter protection is enforced at **two independent layers**:
 2. **Service layer**: `ReferralTokenService.createToken()` explicitly checks `TenantContext.getDvAccess()` and throws `AccessDeniedException` if false. This check is independent of RLS — even if the database role were misconfigured, the service layer blocks the request.
 
 **Why both?** During development, we discovered that PostgreSQL superusers (including the user created by Testcontainers in CI) bypass RLS entirely, even with `FORCE ROW LEVEL SECURITY`. The `SET ROLE` fix ensures RLS applies in all environments. The service-layer check ensures protection even if the database configuration is wrong. Neither layer alone is sufficient — together they provide the zero-tolerance protection required by VAWA.
+
+### Offline Behavior (v0.25.1)
+
+DV referral requests are **intentionally NOT queued offline**. This is a security decision:
+
+- **What happens offline:** The "Request Referral" button becomes visually muted (`aria-disabled`) and does not open the referral modal. An inline message shows the shelter's phone number as a clickable `tel:` link: "Referral requests need a connection. Call [phone] to request a referral by phone."
+- **Why not queue?** DV referrals contain sensitive operational data (callback number, household size, special needs, urgency). Storing this in browser IndexedDB on a worker's device creates a risk: a lost, seized, or shared device could expose information that helps an abuser identify a survivor's situation. The zero-PII design depends on referral data living on the server briefly and being hard-deleted within 24 hours — persisting on-device undermines this.
+- **Sector precedent:** No DV service platform has a documented offline referral workflow (confirmed by NNEDV Safety Net review, 2026). HMIS systems and 211 platforms are entirely server-dependent with no offline referral capability.
+- **Fallback:** Workers call the DV shelter directly. The phone number is included in search results (not redacted — only the address is).
+- **Second line of defense:** If `navigator.onLine` lies (captive portals), the referral modal opens but submit fails with an error rendered inside the modal (not behind it). The worker sees "Could not reach the server. Check your connection and try again."

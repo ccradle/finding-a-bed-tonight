@@ -97,6 +97,12 @@ DV shelters are invisible in public search results. An outreach worker cannot se
 
 Referral tokens are hard-deleted within 24 hours. Not archived. Not soft-deleted. Permanently destroyed. After 24 hours, there is no record in the system that a referral was ever requested.
 
+### Offline behavior for referrals
+
+DV referral requests require a connection. They are intentionally **not** queued offline because referral data (callback numbers, household details) should never be stored on a worker's device. If an outreach worker loses signal, the app shows the shelter's phone number so they can call and request a referral directly. This is a safety decision, not a limitation.
+
+Bed holds and availability updates DO work offline — they queue locally and send when the worker reconnects.
+
 ### Legal framing
 
 The DV protection architecture is designed to support VAWA and FVPSA requirements. It has not been independently certified as compliant. The zero-PII, zero-address, 24-hour hard-delete design means there is effectively nothing to subpoena -- the data does not exist.
