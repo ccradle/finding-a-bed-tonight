@@ -334,6 +334,67 @@ class ReservationIntegrationTest extends BaseIntegrationTest {
     }
 
     // -------------------------------------------------------------------------
+    // 9.11: Idempotency key — first creates, second returns existing
+    // -------------------------------------------------------------------------
+
+    @Test
+    void test_holdWithIdempotencyKey_createOnFirst_returnExistingOnSecond() {
+        HttpHeaders headers = authHelper.outreachWorkerHeaders();
+        String idempotencyKey = UUID.randomUUID().toString();
+        headers.set("X-Idempotency-Key", idempotencyKey);
+
+        // First request — creates a new hold
+        ResponseEntity<Map<String, Object>> first = createReservation(shelterId, headers, "SINGLE_ADULT");
+        assertThat(first.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        String firstId = (String) first.getBody().get("id");
+
+        // Second request with same key — should return existing hold, not create new
+        ResponseEntity<Map<String, Object>> second = createReservation(shelterId, headers, "SINGLE_ADULT");
+        assertThat(second.getStatusCode()).isEqualTo(HttpStatus.OK);
+        String secondId = (String) second.getBody().get("id");
+
+        assertThat(secondId).isEqualTo(firstId);
+    }
+
+    // -------------------------------------------------------------------------
+    // 9.12: Without idempotency key — creates normally (no regression)
+    // -------------------------------------------------------------------------
+
+    @Test
+    void test_holdWithoutIdempotencyKey_createsNormally() {
+        HttpHeaders headers = authHelper.outreachWorkerHeaders();
+
+        ResponseEntity<Map<String, Object>> response = createReservation(shelterId, headers, "SINGLE_ADULT");
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(response.getBody().get("status")).isEqualTo("HELD");
+    }
+
+    // -------------------------------------------------------------------------
+    // 9.13: Same idempotency key, different user — creates separately
+    // -------------------------------------------------------------------------
+
+    @Test
+    void test_holdWithIdempotencyKey_differentUser_createsSeparately() {
+        String idempotencyKey = UUID.randomUUID().toString();
+
+        // First user creates hold
+        HttpHeaders outreachHeaders = authHelper.outreachWorkerHeaders();
+        outreachHeaders.set("X-Idempotency-Key", idempotencyKey);
+        ResponseEntity<Map<String, Object>> first = createReservation(shelterId, outreachHeaders, "SINGLE_ADULT");
+        assertThat(first.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        String firstId = (String) first.getBody().get("id");
+
+        // Different user (cocAdmin) creates hold with same key — should be a new hold
+        HttpHeaders adminHeaders = authHelper.cocAdminHeaders();
+        adminHeaders.set("X-Idempotency-Key", idempotencyKey);
+        ResponseEntity<Map<String, Object>> second = createReservation(shelterId, adminHeaders, "SINGLE_ADULT");
+        assertThat(second.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        String secondId = (String) second.getBody().get("id");
+
+        assertThat(secondId).isNotEqualTo(firstId);
+    }
+
+    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
 

@@ -6,6 +6,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Optional;
 import java.util.UUID;
 
 import tools.jackson.databind.JsonNode;
@@ -63,7 +64,24 @@ public class ReservationService implements HeldReservationCleaner {
 
     @Transactional
     public Reservation createReservation(UUID shelterId, String populationType, String notes, UUID userId) {
+        return createReservation(shelterId, populationType, notes, userId, null);
+    }
+
+    @Transactional
+    public Reservation createReservation(UUID shelterId, String populationType, String notes, UUID userId, String idempotencyKey) {
         UUID tenantId = TenantContext.getTenantId();
+
+        // Idempotency check: if key provided, return existing active hold instead of creating duplicate
+        if (idempotencyKey != null && !idempotencyKey.isBlank()) {
+            Optional<Reservation> existing = reservationRepository.findActiveByUserIdAndIdempotencyKey(userId, idempotencyKey);
+            if (existing.isPresent()) {
+                log.info("Idempotent hold replay: returning existing reservation {} for key {}",
+                        existing.get().getId(), idempotencyKey);
+                Reservation existingRes = existing.get();
+                existingRes.setIdempotentMatch(true);
+                return existingRes;
+            }
+        }
 
         // Acquire advisory lock to prevent concurrent double-hold (TC-3.2).
         // Only one transaction can hold this lock per shelter+populationType at a time.
@@ -91,6 +109,7 @@ public class ReservationService implements HeldReservationCleaner {
 
         // Create reservation
         Reservation reservation = new Reservation(shelterId, tenantId, populationType, userId, expiresAt, notes);
+        reservation.setIdempotencyKey(idempotencyKey);
         Reservation saved = reservationRepository.insert(reservation);
 
         // Re-read latest snapshot to get the most current state (concurrent hold protection).

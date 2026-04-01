@@ -1,15 +1,17 @@
-import { type ReactNode, useState, useEffect, useRef } from 'react';
+import { type ReactNode, useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { FormattedMessage, useIntl } from 'react-intl';
 import { useAuth } from '../auth/useAuth';
 import { getDefaultRouteForRoles } from '../auth/AuthGuard';
 import { LocaleSelector } from './LocaleSelector';
 import { NotificationBell } from './NotificationBell';
+import { QueueStatusIndicator } from './QueueStatusIndicator';
 import { ConnectionStatusBanner } from './ConnectionStatusBanner';
 import { OfflineBanner } from './OfflineBanner';
 import { SessionTimeoutWarning } from './SessionTimeoutWarning';
 import { ChangePasswordModal } from './ChangePasswordModal';
 import { useNotifications } from '../hooks/useNotifications';
+import { replayQueue, getQueueSize, isReplaying, type ReplayResult } from '../services/offlineQueue';
 import { text, weight } from '../theme/typography';
 import { color } from '../theme/colors';
 
@@ -74,6 +76,76 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
   const intl = useIntl();
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const { notifications, unreadCount, markRead, markAllRead, dismiss, connected } = useNotifications();
+  const [queueSize, setQueueSize] = useState(0);
+
+  const refreshQueueSize = useCallback(async () => {
+    try {
+      const size = await getQueueSize();
+      setQueueSize(size);
+    } catch { /* IndexedDB unavailable */ }
+  }, []);
+
+  // Poll queue size every 2 seconds
+  useEffect(() => {
+    refreshQueueSize();
+    const interval = setInterval(refreshQueueSize, 2000);
+    return () => clearInterval(interval);
+  }, [refreshQueueSize]);
+
+  // Replay queued actions on reconnect
+  useEffect(() => {
+    let replayScheduled = false;
+
+    const handleOnline = async () => {
+      // Synchronous guard: prevent multiple online events from scheduling parallel replays
+      if (replayScheduled) return;
+      replayScheduled = true;
+
+      try {
+        // Jittered delay to prevent thundering herd when multiple coordinators
+        // reconnect simultaneously after a WiFi outage (0-2 seconds)
+        const jitterMs = Math.floor(Math.random() * 2000);
+        await new Promise(r => setTimeout(r, jitterMs));
+
+        // Double-check: if another mechanism already started replay, skip
+        if (isReplaying()) { replayScheduled = false; return; }
+
+        // Signal that replay is starting so components can show SENDING state
+        window.dispatchEvent(new CustomEvent('fabt-queue-replaying'));
+
+        const result = await replayQueue();
+        refreshQueueSize();
+
+        // Notify components (e.g., OutreachSearch) of replay outcomes
+        window.dispatchEvent(new CustomEvent<ReplayResult>('fabt-queue-replayed', { detail: result }));
+
+        const messages: string[] = [];
+        if (result.succeeded > 0) {
+          messages.push(`${result.succeeded} queued action${result.succeeded > 1 ? 's' : ''} sent`);
+        }
+        if (result.expired.length > 0) {
+          messages.push(`${result.expired.length} hold${result.expired.length > 1 ? 's' : ''} expired while offline`);
+        }
+        if (result.conflicts.length > 0) {
+          messages.push(`${result.conflicts.length} bed${result.conflicts.length > 1 ? 's were' : ' was'} taken while offline`);
+        }
+        if (result.failed > 0) {
+          messages.push(`${result.failed} action${result.failed > 1 ? 's' : ''} failed — will retry`);
+        }
+        // Show summary as a brief notification if anything happened
+        if (messages.length > 0) {
+          setReplayMessage(messages.join('. ') + '.');
+          setTimeout(() => setReplayMessage(null), 6000);
+        }
+      } catch { /* replay failed, actions remain in queue for next attempt */ }
+      finally { replayScheduled = false; }
+    };
+
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
+  }, [refreshQueueSize]);
+
+  const [replayMessage, setReplayMessage] = useState<string | null>(null);
 
   const handleLogout = () => {
     logout();
@@ -138,6 +210,23 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
       </div>
 
       <OfflineBanner />
+      {replayMessage && (
+        <div
+          role="status"
+          aria-live="polite"
+          style={{
+            padding: '10px 20px',
+            backgroundColor: color.bgHighlight,
+            color: color.primaryText,
+            fontSize: text.sm,
+            fontWeight: weight.medium,
+            textAlign: 'center',
+            borderBottom: `1px solid ${color.primaryLight}`,
+          }}
+        >
+          {replayMessage}
+        </div>
+      )}
       <SessionTimeoutWarning expiresIn={expiresIn} onLogout={handleLogout} />
       <ChangePasswordModal
         open={changePasswordOpen}
@@ -174,6 +263,7 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
             </span>
           )}
           <LocaleSelector locale={locale} onLocaleChange={onLocaleChange} />
+          <QueueStatusIndicator count={queueSize} />
           <NotificationBell
             notifications={notifications}
             unreadCount={unreadCount}

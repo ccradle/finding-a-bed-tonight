@@ -62,7 +62,7 @@ Structural details like your shelter's name, address, and DV status are managed 
 
 ## What If My Shelter Does Not Have WiFi?
 
-The platform is built as a Progressive Web App (PWA). If you lose your internet connection while updating, the app saves your work locally and sends it when you reconnect. You can also update from a phone using mobile data if your desktop is offline.
+The platform is built as a Progressive Web App (PWA). When you lose connectivity, bed holds and availability updates are queued locally. When you reconnect, the app sends them automatically. If a bed was taken while you were offline, you'll see a notification. Check the queue indicator in the header to see pending actions. You can also update from a phone using mobile data if your desktop is offline.
 
 If your shelter has no internet at all, talk to your CoC administrator. The system can still list your shelter with a phone number so outreach workers know to call you directly.
 
@@ -108,7 +108,7 @@ For broader issues, the project maintains community support through GitHub. See 
 | What does it cost me? | Nothing. Hosting is covered by your CoC or agency. |
 | How many taps to update beds? | Three. |
 | How long does a bed hold last? | 90 minutes by default (configurable by your CoC admin). |
-| What if I lose internet mid-update? | The app saves locally and syncs when you reconnect. |
+| What if I lose internet mid-update? | Updates are queued locally and sent when you reconnect. Check the queue indicator in the header. |
 | Who sets up my shelter? | Your CoC administrator. |
 | Can I just share bed counts, no reservations? | Yes. |
 
