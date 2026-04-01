@@ -5,6 +5,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.25.1] — 2026-04-01 — DV Referral Offline Guard
+
+### Fixed
+- **DV referral silent failure offline**: Request Referral button stayed enabled offline, modal opened, submit failed with error hidden behind modal. Now: button is `aria-disabled` when offline, modal blocked, inline message shows shelter phone as clickable `tel:` link.
+- **Captive portal z-index bug**: When `navigator.onLine` lies (captive portals, broken WiFi), `submitReferral()` network errors now render inside the modal, not behind it.
+
+### Added
+- **Inline offline referral message**: "Referral requests need a connection. Call [phone] to request a referral by phone." — action-oriented per crisis UX research, shelter phone is a clickable `tel:` link.
+- **16 Playwright E2E tests**: 8 positive (aria-disabled, inline message, tel: link, modal blocked, captive portal, banner copy, connectivity restore) + 8 regression (online flow, hold buttons unaffected, rapid toggle)
+- **FOR-COORDINATORS.md**: "What works offline" green/red checklist with phone fallback for DV referrals
+
+### Changed
+- Offline banner: "DV referral requests require a connection" appended (EN + ES)
+- Test counts: 209 Playwright (+16 offline guard)
+
+### Security
+- DV referral data (callback number, household size) intentionally NOT queued in IndexedDB — zero-PII threat model requires server-only storage with 24-hour hard delete (VAWA/FVPSA spirit, NNEDV Safety Net confirms no sector precedent for offline DV referral)
+- `aria-disabled="true"` instead of `disabled` attribute — preserves keyboard focus per WCAG (Adrian Roselli guidance)
+
+---
+
 ## [v0.25.0] — 2026-04-01 — Sprint 2 Quick Wins
 
 ### Added
