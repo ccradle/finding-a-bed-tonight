@@ -5,6 +5,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.26.0] — 2026-04-01 — Overflow Beds Management
+
+### Fixed
+- **Holds rejected at overflow-only shelters**: A shelter with 0 permanent beds available but 20 temporary cots showed "no beds available" and rejected hold requests. `ReservationService` now uses `effectiveAvailable = bedsAvailable + overflowBeds`. Three code paths updated (initial check, post-hold INV-5 verification, snapshot preservation).
+- **INV-5 invariant too restrictive**: `occupied + on_hold <= total` did not account for overflow capacity. Updated to `occupied + on_hold <= total + overflow` in both `AvailabilityService` and `ReservationService`.
+- **Overflow wiped on hold/confirm/cancel**: `createSnapshot` calls in `ReservationService` passed `overflowBeds=0`, erasing coordinator's reported temporary capacity. Now preserves overflow from the latest snapshot.
+- **Shelter detail API missing overflow**: `ShelterDetailResponse.AvailabilityDto` and `AvailabilitySnapshot` record did not include `overflowBeds`. Coordinator dashboard couldn't pre-populate the value.
+
+### Added
+- **Coordinator overflow stepper**: "Temporary Beds" input visible only during active surge events. Uses existing `StepperButton` pattern (44px, ±). Pre-populated from latest snapshot. Hint: "Cots, mats, and emergency space during surge."
+- **Combined outreach display**: During active surge, outreach workers see one number: `effectiveAvailable = bedsAvailable + overflowBeds`. Transparency note "(includes N temporary beds)" in muted text. No red "+N overflow" jargon.
+- **Hold/Referral buttons use effective availability**: A shelter with 0 regular + 10 overflow shows "Hold This Bed" during surge (previously hidden).
+- **Search ranking includes overflow during surge**: Shelters with temporary capacity rank higher than empty shelters.
+- **9 backend integration tests**: Hold with overflow (positive/negative), search ranking, INV-5 preservation, 3 concurrency tests (last-overflow-bed race, concurrent update+hold, surge deactivation during hold).
+- **7 Playwright E2E tests**: Coordinator stepper visibility/persistence, combined outreach display, Hold button on overflow-only, regression (no surge = no stepper/no temporary text).
+- **FOR-COORDINATORS.md**: "White Flag Nights and Emergency Capacity" section with step-by-step instructions.
+
+### Changed
+- Backend version: 0.25.1 → 0.26.0
+- Language: "Temporary Beds" replaces "Overflow Beds" in all user-facing copy (Simone/Keisha: human, not jargon)
+- i18n: `surge.overflowBeds` → "Temporary Beds" / "Camas Temporales", new `search.includesTemporary` key (EN + ES)
+- Test counts: 341 backend (+9), 207 Playwright (+6), 73 Karate, 15 Vitest, 7 Gatling
+- Accessibility: `color.textTertiary` for transparency note (WCAG AA contrast on `successBg` in both modes), aria-labels on stepper
+
+### Architecture
+- No cross-module dependencies added. `BedAvailability.getOverflowBeds()` was already on the domain object that `ReservationService` reads via `availability.repository`. No ArchUnit violations.
+- `beds_total` stays pure (permanent capacity). `overflow_beds` is additive at the consumption layer only. HIC/PIT export accuracy preserved (Dr. Kenji).
+- Cache key unchanged — availability data cached per tenant, ranking computed per-request from `surgeActive` parameter.
+
+---
+
 ## [v0.25.1] — 2026-04-01 — DV Referral Offline Guard
 
 ### Fixed
