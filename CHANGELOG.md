@@ -18,7 +18,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 - Offline banner: "DV referral requests require a connection" appended (EN + ES)
-- Test counts: 209 Playwright (+16 offline guard)
+- Test counts: 201 Playwright, 73 Karate (corrected from stale counts)
+- Documentation sync: DBML (overflow_beds, V25 index, header V30), AsyncAPI (4 user lifecycle channels), ERD (SVG from DBML), CONTRIBUTING (6→14 modules), DV-OPAQUE-REFERRAL + FOR-COC-ADMINS (offline rationale)
 
 ### Security
 - DV referral data (callback number, household size) intentionally NOT queued in IndexedDB — zero-PII threat model requires server-only storage with 24-hour hard delete (VAWA/FVPSA spirit, NNEDV Safety Net confirms no sector precedent for offline DV referral)
