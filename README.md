@@ -59,7 +59,7 @@ Full setup guide: [For Developers](docs/FOR-DEVELOPERS.md#prerequisites)
 | Backend | Java 25, Spring Boot 4.0, Spring MVC, Spring Data JDBC, Virtual Threads |
 | Database | PostgreSQL 16, Flyway (30 migrations), Row Level Security (DV shelters) |
 | Frontend | React 19, Vite, TypeScript, Workbox PWA (injectManifest), react-intl (EN/ES), CSS custom properties design tokens |
-| Testing | JUnit 5, Testcontainers, ArchUnit (332 tests), Playwright (209 UI tests), Vitest (15 unit tests), Karate (26 API scenarios), Gatling (7 simulations) |
+| Testing | JUnit 5, Testcontainers, ArchUnit (332 tests), Playwright (201 UI tests), Vitest (15 unit tests), Karate (73 API scenarios), Gatling (7 simulations) |
 | Infra | Docker, GitHub Actions CI/CD + E2E pipeline, Terraform (3 tiers) |
 
 ---
@@ -82,7 +82,8 @@ Full setup guide: [For Developers](docs/FOR-DEVELOPERS.md#prerequisites)
 - Admin user management: edit drawer, deactivation/reactivation, JWT token versioning, audit trail
 - Shelter edit: admin and coordinator edit paths, DV safeguards (role-gated, confirmation dialog, audit-logged), 211 CSV import with preview
 - Import/export hardening: Apache Commons CSV parser, file size limits, CSV injection protection, UTF-8 BOM handling
-- Offline resilience: bed holds and availability updates queue locally when offline or network fails, replay on reconnect with idempotency dedup, expiry validation, honest UI states (queued/sending/conflicted/expired/failed)
+- Offline resilience: bed holds and availability updates queue locally when offline or network fails, replay on reconnect with idempotency dedup, expiry validation, honest UI states (queued/sending/conflicted/expired/failed). DV referrals blocked offline with phone fallback (VAWA/FVPSA safety rationale).
+- App version display: public `GET /api/v1/version` (major.minor, rate-limited), login page and layout footers
 - Dignity-centered copy: "Safety Shelter" label, i18n freshness badges, human error messages
 
 Full feature details: [For Developers — Project Status](docs/FOR-DEVELOPERS.md#project-status)

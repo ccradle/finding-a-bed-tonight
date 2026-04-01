@@ -178,6 +178,54 @@ channels:
       dvReferralRespondedMessage:
         $ref: '#/components/messages/DvReferralEventMessage'
 
+  # -----------------------------------------------------------------------
+  # User lifecycle events (v0.19.0 — admin-user-management)
+  # -----------------------------------------------------------------------
+
+  userDeactivated:
+    address: user.deactivated
+    title: User Deactivated
+    description: |
+      Published when an admin deactivates a user account. Consumed by
+      NotificationService (SSE disconnect) and AuditEventService.
+    messages:
+      userDeactivatedMessage:
+        $ref: '#/components/messages/UserLifecycleMessage'
+
+  userReactivated:
+    address: user.reactivated
+    title: User Reactivated
+    description: |
+      Published when an admin reactivates a previously deactivated user.
+    messages:
+      userReactivatedMessage:
+        $ref: '#/components/messages/UserLifecycleMessage'
+
+  userRoleChanged:
+    address: user.role-changed
+    title: User Role Changed
+    description: |
+      Published when an admin changes a user's roles. Payload details
+      contain old_roles and new_roles arrays.
+    messages:
+      userRoleChangedMessage:
+        $ref: '#/components/messages/UserLifecycleMessage'
+
+  userDvAccessChanged:
+    address: user.dv-access-changed
+    title: User DV Access Changed
+    description: |
+      Published when an admin grants or revokes DV access for a user.
+      This is a security-sensitive action — toggling DV access controls
+      whether the user can see DV shelters via RLS and request referrals.
+    x-security:
+      dv-access-control: |
+        Changing DV access is an auditable event. The old and new values
+        are recorded in the audit_events table.
+    messages:
+      userDvAccessChangedMessage:
+        $ref: '#/components/messages/UserLifecycleMessage'
+
 # ---------------------------------------------------------------------------
 # Operations
 # ---------------------------------------------------------------------------
@@ -255,6 +303,38 @@ operations:
     messages:
       - $ref: '#/channels/dvReferralResponded/messages/dvReferralRespondedMessage'
 
+  onUserDeactivated:
+    action: receive
+    channel:
+      $ref: '#/channels/userDeactivated'
+    summary: Receive user deactivation events (admin audit trail)
+    messages:
+      - $ref: '#/channels/userDeactivated/messages/userDeactivatedMessage'
+
+  onUserReactivated:
+    action: receive
+    channel:
+      $ref: '#/channels/userReactivated'
+    summary: Receive user reactivation events (admin audit trail)
+    messages:
+      - $ref: '#/channels/userReactivated/messages/userReactivatedMessage'
+
+  onUserRoleChanged:
+    action: receive
+    channel:
+      $ref: '#/channels/userRoleChanged'
+    summary: Receive user role change events (admin audit trail)
+    messages:
+      - $ref: '#/channels/userRoleChanged/messages/userRoleChangedMessage'
+
+  onUserDvAccessChanged:
+    action: receive
+    channel:
+      $ref: '#/channels/userDvAccessChanged'
+    summary: Receive DV access change events (security-sensitive, audit trail)
+    messages:
+      - $ref: '#/channels/userDvAccessChanged/messages/userDvAccessChangedMessage'
+
 # ---------------------------------------------------------------------------
 # Components
 # ---------------------------------------------------------------------------
@@ -304,6 +384,17 @@ components:
       contentType: application/json
       payload:
         $ref: '#/components/schemas/DvReferralEvent'
+
+    UserLifecycleMessage:
+      name: UserLifecycleMessage
+      title: User Lifecycle Event
+      summary: |
+        Published on user.deactivated, user.reactivated, user.role-changed,
+        and user.dv-access-changed channels. Contains admin action details
+        for audit trail and SSE session management.
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/UserLifecyclePayload'
 
   # -------------------------------------------------------------------------
   # Schemas

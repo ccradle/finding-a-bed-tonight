@@ -35,7 +35,7 @@ Three deployment tiers allow the same codebase to serve communities of vastly di
 | Events | Spring Events (Lite) / Kafka (Full) |
 | Auth | JWT + OAuth2/OIDC + API Keys (hybrid) |
 | Frontend | React 19, Vite, TypeScript, Workbox PWA (injectManifest), react-intl (EN/ES), CSS custom properties design tokens |
-| Testing | JUnit 5, Testcontainers, ArchUnit (332 tests), Playwright (209 UI tests), Vitest (15 unit tests), Karate (26 API scenarios), Gatling (7 simulations) |
+| Testing | JUnit 5, Testcontainers, ArchUnit (332 tests), Playwright (201 UI tests), Vitest (15 unit tests), Karate (73 API scenarios), Gatling (7 simulations) |
 | Infra | Docker, GitHub Actions CI/CD + E2E pipeline, Terraform (3 tiers) |
 
 ---
@@ -122,14 +122,14 @@ Phase 2 will add an MCP server as a thin wrapper around the REST API, enabling n
 
 ### Entity Relationship Diagram
 
-![ERD](docs/erd.png)
+![ERD](docs/erd.svg)
 
 ### Documentation
 
 | Document | Description |
 |---|---|
 | [docs/schema.dbml](docs/schema.dbml) | DBML source — paste into [dbdiagram.io](https://dbdiagram.io) to edit |
-| [docs/erd.png](docs/erd.png) | ERD image (above) exported from dbdiagram.io |
+| [docs/erd.svg](docs/erd.svg) | ERD diagram generated from schema.dbml via @softwaretechnik/dbml-renderer |
 | [docs/asyncapi.yaml](docs/asyncapi.yaml) | AsyncAPI 3.0 spec — EventBus contract for all 3 deployment tiers |
 | [docs/architecture.drawio](docs/architecture.drawio) | Architecture diagram — includes observability stack, NOAA API. Open in [draw.io](https://app.diagrams.net) |
 | [docs/runbook.md](docs/runbook.md) | Operational runbook — monitor investigation, Grafana panels, Prometheus queries, management port production security |
@@ -413,7 +413,7 @@ Real-time notifications use Server-Sent Events (SSE) via Spring Boot `SseEmitter
 | `SseStabilityTest` | 4 | Timeout behavior, initial event, Last-Event-ID, metrics |
 | **Backend Total** | **332** | |
 | | | |
-| **E2E: Playwright** | **209** | **UI tests (Chromium, data-testid locators)** |
+| **E2E: Playwright** | **201** | **UI tests (Chromium, data-testid locators)** |
 | `auth.spec.ts` | 4 | Login per role, failed login |
 | `outreach-search.spec.ts` | 9 | Results, filters, modal, hold/cancel, language, freshness |
 | `coordinator-dashboard.spec.ts` | 5 | Load, expand, update, save, hold indicator |
@@ -935,7 +935,7 @@ finding-a-bed-tonight/
 │           └── es.json                                # Spanish (100+ keys)
 │
 ├── e2e/                                               # End-to-end test suites
-│   ├── playwright/                                    # UI tests (209 tests, Chromium + nginx profile)
+│   ├── playwright/                                    # UI tests (201 tests, Chromium + nginx profile)
 │   │   ├── package.json                               # @playwright/test + TypeScript
 │   │   ├── playwright.config.ts                       # baseURL, workers, retries, HTML reporter
 │   │   ├── fixtures/auth.fixture.ts                   # Per-role storageState (admin, cocadmin, outreach)
@@ -992,7 +992,7 @@ finding-a-bed-tonight/
 │
 ├── docs/
 │   ├── schema.dbml                                    # Database schema (V1–V24, DBML format)
-│   ├── erd.png                                        # Entity relationship diagram (from dbdiagram.io)
+│   ├── erd.svg                                        # Entity relationship diagram (generated from schema.dbml)
 │   ├── asyncapi.yaml                                  # EventBus contract (AsyncAPI 3.0, x-security)
 │   ├── architecture.drawio                            # Architecture diagram (draw.io) — includes observability stack
 │   └── runbook.md                                     # Operational runbook (monitors, thresholds, Grafana, security)
