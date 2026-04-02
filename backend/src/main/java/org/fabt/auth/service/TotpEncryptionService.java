@@ -34,6 +34,7 @@ public class TotpEncryptionService {
     private static final int GCM_TAG_LENGTH = 128;
 
     private final SecretKey secretKey;
+    private final SecureRandom secureRandom = new SecureRandom();
 
     // The dev-start.sh key — committed to the public repo, MUST NOT be used in production
     private static final String DEV_KEY = "s4FgjCrVQONb65lQmfYHyuvC7AL2VnkVufwB9ZihvlA=";
@@ -70,7 +71,7 @@ public class TotpEncryptionService {
         requireKey();
         try {
             byte[] iv = new byte[GCM_IV_LENGTH];
-            new SecureRandom().nextBytes(iv);
+            secureRandom.nextBytes(iv);
 
             Cipher cipher = Cipher.getInstance(ALGORITHM);
             cipher.init(Cipher.ENCRYPT_MODE, secretKey, new GCMParameterSpec(GCM_TAG_LENGTH, iv));

@@ -258,7 +258,7 @@ public class HicPitExportService {
      */
     private String generateInventoryId(UUID shelterId, String populationType) {
         return UUID.nameUUIDFromBytes(
-                (shelterId.toString() + ":" + populationType).getBytes()
+                (shelterId.toString() + ":" + populationType).getBytes(java.nio.charset.StandardCharsets.UTF_8)
         ).toString();
     }
 
