@@ -86,6 +86,23 @@ docker compose \
 
 Flyway V31-V32 run automatically on backend startup.
 
+### Post-Deploy Cleanup
+
+Remove stale build artifacts and Docker images to prevent disk bloat on Always Free tier:
+
+```bash
+# Remove old JARs (keep only current version)
+cd ~/finding-a-bed-tonight/backend/target
+ls *.jar | grep -v '0.27.0' | xargs rm -v
+
+# Remove old Docker images (list first, then remove)
+docker images fabt-backend --format '{{.Tag}}' | grep -v latest | xargs -I{} docker rmi fabt-backend:{}
+docker images fabt-frontend --format '{{.Tag}}' | grep -v latest | xargs -I{} docker rmi fabt-frontend:{}
+
+# Prune any dangling images
+docker image prune -f
+```
+
 ---
 
 ## Post-Update Verification
