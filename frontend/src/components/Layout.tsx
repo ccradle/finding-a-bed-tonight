@@ -297,6 +297,23 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
             <FormattedMessage id="password.change.button" />
           </button>
           <button
+            onClick={() => navigate('/settings/totp')}
+            data-testid="totp-settings-button"
+            style={{
+              padding: '8px 16px',
+              backgroundColor: 'transparent',
+              color: color.headerText,
+              border: '1px solid rgba(255,255,255,0.3)',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: text.base,
+              minHeight: '44px',
+              minWidth: '44px',
+            }}
+          >
+            <FormattedMessage id="totp.settingsButton" defaultMessage="Security" />
+          </button>
+          <button
             onClick={handleLogout}
             style={{
               padding: '8px 16px',

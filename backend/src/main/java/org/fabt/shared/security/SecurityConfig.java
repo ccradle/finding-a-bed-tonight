@@ -37,6 +37,7 @@ public class SecurityConfig {
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final ApiKeyAuthenticationFilter apiKeyAuthenticationFilter;
     private final SseTokenFilter sseTokenFilter;
+    private final PasswordChangeRequiredFilter passwordChangeRequiredFilter;
 
     /**
      * Comma-separated list of allowed CORS origins.
@@ -49,10 +50,12 @@ public class SecurityConfig {
 
     public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter,
                           ApiKeyAuthenticationFilter apiKeyAuthenticationFilter,
-                          SseTokenFilter sseTokenFilter) {
+                          SseTokenFilter sseTokenFilter,
+                          PasswordChangeRequiredFilter passwordChangeRequiredFilter) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
         this.apiKeyAuthenticationFilter = apiKeyAuthenticationFilter;
         this.sseTokenFilter = sseTokenFilter;
+        this.passwordChangeRequiredFilter = passwordChangeRequiredFilter;
     }
 
     /**
@@ -96,6 +99,17 @@ public class SecurityConfig {
                         // /error: server.error.include-stacktrace=never, no implementation details.
                         // Password change requires authentication (must be before auth/** permitAll)
                         .requestMatchers(HttpMethod.PUT, "/api/v1/auth/password").authenticated()
+                        // TOTP enrollment/management requires authentication
+                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/enroll-totp").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/confirm-totp-enrollment").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/regenerate-recovery-codes").authenticated()
+                        // TOTP admin operations require COC_ADMIN+
+                        // Public auth endpoints covered by auth/** wildcard below:
+                        // POST /auth/login, /auth/refresh, /auth/access-code, /auth/verify-totp,
+                        // POST /auth/forgot-password, /auth/reset-password, GET /auth/capabilities
+                        // TOTP admin operations require COC_ADMIN+
+                        .requestMatchers(HttpMethod.DELETE, "/api/v1/auth/totp/*").hasAnyRole("COC_ADMIN", "PLATFORM_ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/totp/*/regenerate-recovery-codes").hasAnyRole("COC_ADMIN", "PLATFORM_ADMIN")
                         .requestMatchers("/api/v1/auth/**").permitAll()
                         .requestMatchers("/oauth2/**", "/login/oauth2/**").permitAll()
                         .requestMatchers("/actuator/health/**").permitAll()
@@ -179,7 +193,8 @@ public class SecurityConfig {
                         }))
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterAfter(sseTokenFilter, JwtAuthenticationFilter.class)
-                .addFilterAfter(apiKeyAuthenticationFilter, SseTokenFilter.class);
+                .addFilterAfter(passwordChangeRequiredFilter, SseTokenFilter.class)
+                .addFilterAfter(apiKeyAuthenticationFilter, PasswordChangeRequiredFilter.class);
 
         return http.build();
     }

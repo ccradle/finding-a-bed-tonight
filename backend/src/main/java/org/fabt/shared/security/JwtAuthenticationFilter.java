@@ -54,6 +54,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         try {
             JwtService.JwtClaims claims = jwtService.validateToken(token);
 
+            // Skip mfa tokens — they are NOT access tokens (D9: filter chain separation)
+            if ("mfa".equals(claims.type())) {
+                filterChain.doFilter(request, response);
+                return;
+            }
+
             List<SimpleGrantedAuthority> authorities = List.of();
             if (claims.roles() != null) {
                 authorities = Arrays.stream(claims.roles())

@@ -14,6 +14,9 @@ import { ShelterForm } from './pages/ShelterForm';
 import { ShelterEditPage } from './pages/ShelterEditPage';
 import { HsdsImportPage } from './pages/HsdsImportPage';
 import { TwoOneOneImportPage } from './pages/TwoOneOneImportPage';
+import { TotpEnrollmentPage } from './pages/TotpEnrollmentPage';
+import { AccessCodeLoginPage } from './pages/AccessCodeLoginPage';
+import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
 import enMessages from './i18n/en.json';
 import esMessages from './i18n/es.json';
 
@@ -34,6 +37,15 @@ function AppRoutes({ locale, onLocaleChange }: { locale: string; onLocaleChange:
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/login/access-code" element={<AccessCodeLoginPage />} />
+      <Route path="/login/forgot-password" element={<ForgotPasswordPage />} />
+      <Route path="/settings/totp" element={
+        <AuthGuard allowedRoles={['OUTREACH_WORKER', 'COORDINATOR', 'COC_ADMIN', 'PLATFORM_ADMIN']}>
+          <Layout locale={locale} onLocaleChange={onLocaleChange}>
+            <TotpEnrollmentPage />
+          </Layout>
+        </AuthGuard>
+      } />
       <Route
         path="/coordinator/*"
         element={

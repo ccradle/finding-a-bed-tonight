@@ -1,6 +1,6 @@
 // ============================================================================
 // Finding A Bed Tonight (FABT) — Database Schema
-// Source: Flyway migrations V1–V30 + V8.1
+// Source: Flyway migrations V1–V32 + V8.1
 // Last synced: 2026-04-01
 // ============================================================================
 
@@ -82,11 +82,32 @@ Table app_user {
   status        varchar(20) [not null, default: 'ACTIVE', note: 'ACTIVE or DEACTIVATED']
   token_version integer     [not null, default: 0, note: 'Incremented on role/dvAccess/status change to invalidate JWTs']
   password_changed_at timestamptz [note: 'V27 — set on password change, JWTs issued before this are rejected']
+  totp_secret_encrypted varchar(255) [note: 'V31 — AES-256-GCM encrypted TOTP base32 secret. Never stored plaintext.']
+  totp_enabled  boolean     [not null, default: false, note: 'V31 — whether 2FA is active for this user']
+  recovery_codes text       [note: 'V31 — JSON array of bcrypt-hashed single-use backup codes']
   created_at    timestamptz [not null, default: `now()`]
   updated_at    timestamptz [not null, default: `now()`]
 
   indexes {
     (tenant_id, email) [unique, name: 'uq_app_user_tenant_email']
+  }
+}
+
+// One-time access codes for password recovery (V32)
+// Admin-generated, 15-min expiry, single-use. Primary recovery path for field workers.
+Table one_time_access_code {
+  id          uuid        [pk, note: 'gen_random_uuid()']
+  user_id     uuid        [not null, ref: > app_user.id, note: 'ON DELETE CASCADE']
+  tenant_id   uuid        [not null, ref: > tenant.id]
+  code_hash   varchar(255) [not null, note: 'BCrypt-hashed access code']
+  expires_at  timestamptz [not null, note: '15-minute expiry from creation']
+  used        boolean     [not null, default: false, note: 'Single-use — marked true after successful login']
+  created_at  timestamptz [not null, default: `now()`]
+  created_by  uuid        [not null, ref: > app_user.id, note: 'Admin who generated the code']
+
+  indexes {
+    (user_id) [name: 'idx_ott_user_id']
+    (expires_at) [name: 'idx_ott_expires']
   }
 }
 

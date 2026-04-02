@@ -20,6 +20,9 @@ public class User {
     private String status = "ACTIVE";
     private int tokenVersion;
     private Instant passwordChangedAt;
+    private String totpSecretEncrypted;
+    private boolean totpEnabled;
+    private String recoveryCodes;
     private Instant createdAt;
     private Instant updatedAt;
 
@@ -138,5 +141,29 @@ public class User {
 
     public void setUpdatedAt(Instant updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public String getTotpSecretEncrypted() {
+        return totpSecretEncrypted;
+    }
+
+    public void setTotpSecretEncrypted(String totpSecretEncrypted) {
+        this.totpSecretEncrypted = totpSecretEncrypted;
+    }
+
+    public boolean isTotpEnabled() {
+        return totpEnabled;
+    }
+
+    public void setTotpEnabled(boolean totpEnabled) {
+        this.totpEnabled = totpEnabled;
+    }
+
+    public String getRecoveryCodes() {
+        return recoveryCodes;
+    }
+
+    public void setRecoveryCodes(String recoveryCodes) {
+        this.recoveryCodes = recoveryCodes;
     }
 }
