@@ -5,6 +5,45 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.27.0] — 2026-04-01 — Password Recovery + TOTP 2FA
+
+### Added
+- **TOTP two-factor authentication**: "Sign-in verification" via Google Authenticator / Authy. Two-phase login: password → mfaRequired → 6-digit TOTP code → JWTs. TOTP secrets AES-256-GCM encrypted at rest with key from env var (never in DB). 8 single-use backup codes (bcrypt-hashed, displayed once). mfaToken single-use (jti blocklist) with 5-attempt rate limit. Clock drift ±1 step tolerance (RFC 6238).
+- **Admin-generated one-time access codes**: 15-minute expiry, single-use, bcrypt-hashed. Primary recovery path for locked-out field workers. DV safeguard: generating code for dvAccess user requires dvAccess admin.
+- **PasswordChangeRequiredFilter**: After access-code login, blocks all API calls except password change with 403 `password_change_required`.
+- **Auth capabilities endpoint**: `GET /api/v1/auth/capabilities` returns `{emailResetAvailable, totpAvailable, accessCodeAvailable}` — frontend adapts UI based on server config.
+- **Frontend**: TotpEnrollmentPage (client-side QR via `qrcode` npm — secret never leaves browser), two-phase login screen in LoginPage, AccessCodeLoginPage, ForgotPasswordPage, admin "Access Code" button + modal, "Security" button in Layout header.
+- **10 backend integration tests**: Enrollment, two-phase login, backup codes, access code, DV safeguard, mfaToken single-use, rate limiting, PasswordChangeRequiredFilter, auth capabilities.
+- **6 full-flow Playwright E2E tests**: TOTP enrollment (QR → code → backup codes), two-phase login (password → TOTP → logged in), access code (admin generates → worker enters → mustChangePassword).
+- **7 Playwright page-render tests**: Enrollment page, login UI, forgot password, access code form, capabilities, security button.
+- **Gatling simulation**: TotpVerificationSimulation — 100 concurrent TOTP verifications.
+- **Documentation**: FOR-COORDINATORS sign-in verification guide, FOR-CITIES CJIS AAL2 note, government adoption guide MFA details, Oracle update notes with one-time encryption key step.
+
+### Changed
+- Backend version: 0.26.0 → 0.27.0
+- Flyway migrations: 30 → 32 (V31: TOTP columns, V32: one_time_access_code table)
+- Language: "Sign-in verification" not "2FA" in all user-facing copy (D15: Simone/Devon)
+- Test counts: 351 backend (+10), 217 Playwright (+10), 73 Karate, 15 Vitest, 8 Gatling (+1)
+- Rate limiting: added forgot-password (3/60min) and verify-totp (20/15min) bucket4j rules
+- SecurityConfig: 7 new auth endpoint matchers (TOTP enrollment/admin authenticated, admin TOTP role-gated)
+- Filter chain: PasswordChangeRequiredFilter after SseTokenFilter, before ApiKeyAuthenticationFilter
+- AsyncAPI: 4 new auth event channels (totp-enabled, totp-disabled, access-code-generated, access-code-used)
+
+### Security
+- TOTP secrets AES-256-GCM encrypted at rest. Encryption key from `FABT_TOTP_ENCRYPTION_KEY` env var — MUST be configured before deploy.
+- mfaToken is NOT an access token — JwtAuthenticationFilter skips tokens with `purpose: "mfa"` (D9)
+- External QR code service removed — QR rendered client-side via `qrcode` npm, TOTP secret never leaves browser
+- OWASP ZAP scan: 116 PASS, 0 FAIL, 2 WARN (unchanged from baseline)
+- Designed to support NIST 800-63B AAL2 and CJIS Security Policy MFA requirements
+
+### Issues Found During Implementation
+- Jackson 3.x namespace (`tools.jackson.*` not `com.fasterxml.jackson.*`) — broke entire Spring context
+- `@Transactional` + synchronous `@EventListener` — audit event marked transaction rollback-only even when caught
+- JCache cache definitions required for new bucket4j rate limit rules
+- TOTP encryption key gap: ALL TOTP tests silently skipped without key — found by Riley's verify, fixed with D16/D17
+
+---
+
 ## [v0.26.0] — 2026-04-01 — Overflow Beds Management
 
 ### Fixed

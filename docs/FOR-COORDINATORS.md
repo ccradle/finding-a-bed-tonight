@@ -97,6 +97,28 @@ During an active surge event (White Flag night, cold weather emergency), you can
 
 ---
 
+## How Do I Set Up Sign-In Verification?
+
+Sign-in verification (two-factor authentication) adds an extra security step when you log in. After entering your password, you'll be asked for a 6-digit code from your phone.
+
+**Setting it up:**
+1. Download **Google Authenticator** or **Authy** on your phone (free from App Store or Google Play)
+2. Log into the platform, click **Security** in the top menu
+3. Click **Set Up Sign-In Verification**
+4. Scan the QR code with your authenticator app
+5. Enter the 6-digit code shown in the app to confirm
+6. **Save your backup codes** — print them, seal in an envelope, store in a locked drawer. Each code can only be used once if you lose your phone.
+
+**If you lose your phone or authenticator app:**
+- Use one of your 8 backup codes to log in
+- Or ask your administrator to generate a temporary access code
+- Or ask your administrator to disable sign-in verification so you can re-enroll
+
+**If a worker is locked out at night:**
+Your CoC administrator can generate a one-time access code from the admin panel. The worker enters the code on the login screen to regain access and set a new password. The code expires in 15 minutes.
+
+---
+
 ## Can We Participate Without Using Reservations?
 
 Yes. Your shelter can participate at whatever level makes sense. Some shelters only share bed count updates. Others allow bed holds and reservations. Others are view-only. See the [Partial Participation Guide](partial-participation-guide.md) for details.

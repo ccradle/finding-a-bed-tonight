@@ -13,9 +13,12 @@ interface OAuth2Provider {
 }
 
 interface LoginResponse {
-  accessToken: string;
-  refreshToken: string;
-  expiresIn: number;
+  accessToken?: string;
+  refreshToken?: string;
+  expiresIn?: number;
+  mfaRequired?: boolean;
+  mfaToken?: string;
+  mustChangePassword?: boolean;
 }
 
 export function LoginPage() {
@@ -30,6 +33,11 @@ export function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [oauthProviders, setOauthProviders] = useState<OAuth2Provider[]>([]);
   const [appVersion, setAppVersion] = useState<string | null>(null);
+
+  // Two-phase TOTP login state
+  const [mfaToken, setMfaToken] = useState<string | null>(null);
+  const [totpCode, setTotpCode] = useState('');
+  const [showBackupInput, setShowBackupInput] = useState(false);
 
   useEffect(() => {
     api.get<{ version: string }>('/api/v1/version')
@@ -101,13 +109,44 @@ export function LoginPage() {
         password,
       });
 
-      login(response.accessToken, response.refreshToken, response.expiresIn);
+      if (response.mfaRequired && response.mfaToken) {
+        // Two-phase login: password correct, TOTP required
+        setMfaToken(response.mfaToken);
+        setTotpCode('');
+        setError(null);
+      } else if (response.accessToken && response.refreshToken) {
+        login(response.accessToken, response.refreshToken, response.expiresIn);
+      }
     } catch (err) {
       if (err instanceof ApiError) {
         setError(err.message);
       } else {
         setError(intl.formatMessage({ id: 'login.error' }));
       }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleTotpVerify = async () => {
+    if (!mfaToken || totpCode.length < 6) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await api.post<LoginResponse>('/api/v1/auth/verify-totp', {
+        mfaToken,
+        code: totpCode,
+      });
+      if (response.accessToken && response.refreshToken) {
+        login(response.accessToken, response.refreshToken, response.expiresIn);
+      }
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setError(err.message);
+      } else {
+        setError(intl.formatMessage({ id: 'login.error' }));
+      }
+      setTotpCode('');
     } finally {
       setLoading(false);
     }
@@ -189,6 +228,63 @@ export function LoginPage() {
           </div>
         )}
 
+        {mfaToken ? (
+          /* Two-phase TOTP verification screen */
+          <div data-testid="totp-verify-screen">
+            <p style={{ fontSize: text.sm, color: color.textTertiary, textAlign: 'center', marginBottom: 16 }}>
+              <FormattedMessage id="totp.loginPrompt" />
+            </p>
+            <input
+              data-testid="totp-login-input"
+              type="text"
+              inputMode="numeric"
+              maxLength={showBackupInput ? 8 : 6}
+              value={totpCode}
+              onChange={(e) => {
+                const v = showBackupInput ? e.target.value.toUpperCase() : e.target.value.replace(/\D/g, '');
+                setTotpCode(v);
+                // Auto-submit on 6 digits (TOTP)
+                if (!showBackupInput && v.length === 6) {
+                  setTimeout(() => handleTotpVerify(), 100);
+                }
+              }}
+              autoFocus
+              placeholder={showBackupInput ? 'XXXXXXXX' : '000000'}
+              style={{
+                width: '100%', padding: 14, borderRadius: 8, border: `2px solid ${color.border}`,
+                fontSize: text.xl, fontFamily: 'monospace', textAlign: 'center', letterSpacing: '0.3em',
+                marginBottom: 12,
+              }}
+            />
+            <button
+              data-testid="totp-login-submit"
+              onClick={handleTotpVerify}
+              disabled={loading || totpCode.length < 6}
+              style={{
+                width: '100%', padding: 12, borderRadius: 10, border: 'none',
+                backgroundColor: color.primary, color: color.textInverse,
+                fontSize: text.base, fontWeight: weight.bold, cursor: 'pointer', minHeight: 44,
+                marginBottom: 12,
+              }}
+            >
+              {loading ? '...' : intl.formatMessage({ id: 'totp.verifyButton' })}
+            </button>
+            <div style={{ textAlign: 'center' }}>
+              <button
+                data-testid="totp-use-backup"
+                onClick={() => { setShowBackupInput(!showBackupInput); setTotpCode(''); }}
+                style={{
+                  background: 'none', border: 'none', color: color.primaryText,
+                  fontSize: text.xs, cursor: 'pointer', textDecoration: 'underline',
+                }}
+              >
+                {showBackupInput
+                  ? intl.formatMessage({ id: 'totp.useAuthenticator' })
+                  : intl.formatMessage({ id: 'totp.useBackupCode' })}
+              </button>
+            </div>
+          </div>
+        ) : (
         <form onSubmit={handleSubmit}>
           <div style={{ marginBottom: '16px' }}>
             <label
@@ -288,8 +384,19 @@ export function LoginPage() {
             <FormattedMessage id="login.submit" />
           </button>
         </form>
+        )}
 
-        {oauthProviders.length > 0 && (
+        {!mfaToken && (
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginTop: 12 }}>
+            <a href="/login/access-code" data-testid="login-access-code-link" style={{
+              fontSize: text.xs, color: color.primaryText, textDecoration: 'none',
+            }}>
+              <FormattedMessage id="login.useAccessCode" />
+            </a>
+          </div>
+        )}
+
+        {oauthProviders.length > 0 && !mfaToken && (
           <div style={{ marginTop: '24px' }}>
             <div
               style={{

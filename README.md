@@ -59,14 +59,14 @@ Full setup guide: [For Developers](docs/FOR-DEVELOPERS.md#prerequisites)
 | Backend | Java 25, Spring Boot 4.0, Spring MVC, Spring Data JDBC, Virtual Threads |
 | Database | PostgreSQL 16, Flyway (30 migrations), Row Level Security (DV shelters) |
 | Frontend | React 19, Vite, TypeScript, Workbox PWA (injectManifest), react-intl (EN/ES), CSS custom properties design tokens |
-| Testing | JUnit 5, Testcontainers, ArchUnit (341 tests), Playwright (207 UI tests), Vitest (15 unit tests), Karate (73 API scenarios), Gatling (7 simulations) |
+| Testing | JUnit 5, Testcontainers, ArchUnit (351 tests), Playwright (217 UI tests), Vitest (15 unit tests), Karate (73 API scenarios), Gatling (8 simulations) |
 | Infra | Docker, GitHub Actions CI/CD + E2E pipeline, Terraform (3 tiers) |
 
 ---
 
 ## What's Complete
 
-**Current version: v0.26.0** — 37 archived OpenSpec changes, 86 specs, 13 modules.
+**Current version: v0.27.0** — 38 archived OpenSpec changes, 88 specs, 13 modules.
 
 - Real-time bed search with freshness indicators and constraint filters
 - Soft-hold reservations with configurable hold duration (default 90 min)
@@ -85,7 +85,8 @@ Full setup guide: [For Developers](docs/FOR-DEVELOPERS.md#prerequisites)
 - Offline resilience: bed holds and availability updates queue locally when offline or network fails, replay on reconnect with idempotency dedup, expiry validation, honest UI states (queued/sending/conflicted/expired/failed). DV referrals blocked offline with phone fallback (VAWA/FVPSA safety rationale).
 - App version display: public `GET /api/v1/version` (major.minor, rate-limited), login page and layout footers
 - Overflow beds management: surge-gated "Temporary Beds" stepper for coordinators, combined display for outreach workers during White Flag nights, holds succeed on overflow-only capacity
-- Dignity-centered copy: "Temporary beds" not "overflow," "Safety Shelter" label, i18n freshness badges, human error messages
+- Password recovery + TOTP 2FA: sign-in verification via authenticator apps, admin-generated one-time access codes, backup codes, designed to support NIST 800-63B AAL2 and CJIS MFA requirements
+- Dignity-centered copy: "Temporary beds" not "overflow," "sign-in verification" not "2FA," "Safety Shelter" label, i18n freshness badges, human error messages
 
 Full feature details: [For Developers — Project Status](docs/FOR-DEVELOPERS.md#project-status)
 

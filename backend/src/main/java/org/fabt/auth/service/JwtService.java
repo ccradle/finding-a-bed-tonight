@@ -117,6 +117,29 @@ public class JwtService {
         return buildToken(payload);
     }
 
+    /**
+     * Generate an access token with mustChangePassword=true claim.
+     * Used after access-code login — user must set new password before accessing other endpoints.
+     */
+    public String generateAccessTokenWithPasswordChange(User user) {
+        Instant now = Instant.now();
+        Instant exp = now.plusSeconds(accessTokenExpiryMinutes * 60);
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("sub", user.getId().toString());
+        payload.put("tenantId", user.getTenantId().toString());
+        payload.put("displayName", user.getDisplayName());
+        payload.put("roles", user.getRoles());
+        payload.put("dvAccess", user.isDvAccess());
+        payload.put("ver", user.getTokenVersion());
+        payload.put("type", "access");
+        payload.put("mustChangePassword", true);
+        payload.put("iat", now.getEpochSecond());
+        payload.put("exp", exp.getEpochSecond());
+
+        return buildToken(payload);
+    }
+
     public String generateRefreshToken(User user) {
         Instant now = Instant.now();
         Instant exp = now.plusSeconds(refreshTokenExpiryDays * 86400);
@@ -124,6 +147,25 @@ public class JwtService {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("sub", user.getId().toString());
         payload.put("type", "refresh");
+        payload.put("iat", now.getEpochSecond());
+        payload.put("exp", exp.getEpochSecond());
+
+        return buildToken(payload);
+    }
+
+    /**
+     * Generate a short-lived mfaToken proving password was correct.
+     * Contains purpose="mfa" and a unique jti for single-use enforcement.
+     * Not a regular access token — JwtAuthenticationFilter must skip it.
+     */
+    public String generateMfaToken(User user) {
+        Instant now = Instant.now();
+        Instant exp = now.plusSeconds(300); // 5 minutes
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("sub", user.getId().toString());
+        payload.put("type", "mfa");
+        payload.put("jti", UUID.randomUUID().toString());
         payload.put("iat", now.getEpochSecond());
         payload.put("exp", exp.getEpochSecond());
 
@@ -216,7 +258,10 @@ public class JwtService {
         long ttlSeconds = Duration.between(Instant.now(), expInstant).getSeconds() - 30;
         long remainingNanos = ttlSeconds > 0 ? Duration.ofSeconds(ttlSeconds).toNanos() : 0;
 
-        JwtClaims claims = new JwtClaims(userId, tenantId, roles, dvAccess, type, issuedAt, tokenVersion, remainingNanos);
+        String jti = payload.containsKey("jti") ? String.valueOf(payload.get("jti")) : null;
+        boolean mustChangePassword = payload.containsKey("mustChangePassword")
+                && Boolean.TRUE.equals(payload.get("mustChangePassword"));
+        JwtClaims claims = new JwtClaims(userId, tenantId, roles, dvAccess, type, issuedAt, tokenVersion, remainingNanos, jti, mustChangePassword);
 
         if (ttlSeconds > 0) {
             claimsCache.put(cacheKey, claims);
@@ -278,6 +323,7 @@ public class JwtService {
     }
 
     public record JwtClaims(UUID userId, UUID tenantId, String[] roles, boolean dvAccess, String type,
-                            Instant issuedAt, int tokenVersion, long remainingNanos) {
+                            Instant issuedAt, int tokenVersion, long remainingNanos, String jti,
+                            boolean mustChangePassword) {
     }
 }

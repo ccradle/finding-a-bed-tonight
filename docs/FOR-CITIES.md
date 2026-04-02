@@ -48,9 +48,10 @@ The platform implements defense-in-depth security practices:
 - **Restricted database role** -- the application connects as a non-superuser role (`fabt_app`) with DML-only permissions
 - **CSV injection prevention (CWE-1236)** -- all imported data is sanitized to prevent formula injection when exported to spreadsheets
 - **JWT authentication** -- stateless authentication with configurable secret strength
+- **Multi-factor authentication (TOTP)** -- NIST 800-63B AAL2 designed: time-based one-time passwords via authenticator apps (Google Authenticator, Authy). TOTP secrets encrypted at rest with AES-256-GCM. 8 single-use backup codes. Admin-generated one-time access codes for field worker recovery. Designed to support CJIS Security Policy MFA requirements (effective Oct 2024 for organizational users).
 - **Multi-tenant isolation** -- each CoC's data is isolated by tenant at every layer
 
-**What this means:** The project follows industry-standard security practices and maintains automated security gates in its build pipeline. It has not undergone a formal third-party penetration test. The security posture is designed to support municipal security requirements, not certified against a specific compliance framework.
+**What this means:** The project follows industry-standard security practices and maintains automated security gates in its build pipeline. It has not undergone a formal third-party penetration test. The security posture is designed to support municipal security requirements, not certified against a specific compliance framework. The MFA implementation is designed to support CJIS AAL2 requirements — it has not been independently certified as CJIS compliant.
 
 For details, see the [security documentation](security/).
 

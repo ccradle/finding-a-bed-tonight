@@ -366,6 +366,9 @@ function UsersTab() {
   const [editUser, setEditUser] = useState<User | null>(null);
   const [resetUser, setResetUser] = useState<User | null>(null);
   const [resetPassword, setResetPassword] = useState('');
+  const [accessCodeUser, setAccessCodeUser] = useState<{ id: string; email: string } | null>(null);
+  const [generatedCode, setGeneratedCode] = useState<string | null>(null);
+  const [accessCodeLoading, setAccessCodeLoading] = useState(false);
   const [resetConfirm, setResetConfirm] = useState('');
   const [resetError, setResetError] = useState<string | null>(null);
   const [resetSubmitting, setResetSubmitting] = useState(false);
@@ -600,6 +603,36 @@ function UsersTab() {
                     >
                       <FormattedMessage id="password.reset.button" />
                     </button>
+                    <button
+                      onClick={async () => {
+                        setAccessCodeUser(u);
+                        setGeneratedCode(null);
+                        setAccessCodeLoading(true);
+                        try {
+                          const res = await api.post<{ code: string }>(`/api/v1/users/${u.id}/generate-access-code`, {});
+                          setGeneratedCode(res.code);
+                        } catch {
+                          setGeneratedCode(null);
+                        } finally {
+                          setAccessCodeLoading(false);
+                        }
+                      }}
+                      data-testid={`generate-access-code-${u.email}`}
+                      style={{
+                        padding: '6px 12px',
+                        backgroundColor: 'transparent',
+                        color: color.warning,
+                        border: `1px solid ${color.warning}`,
+                        borderRadius: 6,
+                        fontSize: text.xs,
+                        fontWeight: weight.semibold,
+                        cursor: 'pointer',
+                        minHeight: 32,
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      Access Code
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -665,6 +698,45 @@ function UsersTab() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Access Code Modal */}
+      {accessCodeUser && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 1002,
+          backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }} onClick={() => setAccessCodeUser(null)}>
+          <div data-testid="access-code-modal" style={{
+            backgroundColor: color.bg, borderRadius: 16, padding: 32, maxWidth: 400, width: '90%',
+          }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 12px', fontSize: text.lg, fontWeight: weight.bold, color: color.text }}>
+              Access Code for {accessCodeUser.email}
+            </h3>
+            {accessCodeLoading && <p style={{ color: color.textMuted }}>Generating...</p>}
+            {generatedCode && (
+              <div>
+                <div data-testid="generated-access-code" style={{
+                  padding: 16, borderRadius: 12, backgroundColor: color.bgTertiary,
+                  fontFamily: 'monospace', fontSize: text['2xl'], fontWeight: weight.extrabold,
+                  textAlign: 'center', letterSpacing: '0.2em', color: color.text, marginBottom: 16,
+                }}>
+                  {generatedCode}
+                </div>
+                <p style={{ fontSize: text.xs, color: color.warning, fontWeight: weight.semibold, marginBottom: 12 }}>
+                  This code expires in 15 minutes and can only be used once.
+                  Communicate it verbally or by phone — do not send via email.
+                </p>
+              </div>
+            )}
+            <button onClick={() => setAccessCodeUser(null)} style={{
+              width: '100%', padding: 10, borderRadius: 8, border: `2px solid ${color.border}`,
+              backgroundColor: color.bg, color: color.text, fontSize: text.sm, fontWeight: weight.semibold,
+              cursor: 'pointer', minHeight: 44,
+            }}>
+              Close
+            </button>
           </div>
         </div>
       )}

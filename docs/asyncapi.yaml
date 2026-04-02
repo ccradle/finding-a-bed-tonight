@@ -226,6 +226,50 @@ channels:
       userDvAccessChangedMessage:
         $ref: '#/components/messages/UserLifecycleMessage'
 
+  # -----------------------------------------------------------------------
+  # Authentication events (v0.27.0 — password-recovery-2fa)
+  # -----------------------------------------------------------------------
+
+  totpEnabled:
+    address: auth.totp-enabled
+    title: TOTP Enabled
+    description: |
+      Published when a user completes TOTP 2FA enrollment.
+      Consumed by AuditEventService for persistence to audit_events table.
+    messages:
+      totpEnabledMessage:
+        $ref: '#/components/messages/UserLifecycleMessage'
+
+  totpDisabled:
+    address: auth.totp-disabled
+    title: TOTP Disabled by Admin
+    description: |
+      Published when an admin disables TOTP for a user (e.g., lost device).
+      Security-sensitive: audit trail required.
+    messages:
+      totpDisabledMessage:
+        $ref: '#/components/messages/UserLifecycleMessage'
+
+  accessCodeGenerated:
+    address: auth.access-code-generated
+    title: Access Code Generated
+    description: |
+      Published when an admin generates a one-time access code for a locked-out user.
+      Includes DV safeguard context (DV-authorized admins only for DV users).
+    messages:
+      accessCodeGeneratedMessage:
+        $ref: '#/components/messages/UserLifecycleMessage'
+
+  accessCodeUsed:
+    address: auth.access-code-used
+    title: Access Code Used
+    description: |
+      Published when a user successfully logs in with an access code.
+      The user must change their password before accessing other functionality.
+    messages:
+      accessCodeUsedMessage:
+        $ref: '#/components/messages/UserLifecycleMessage'
+
 # ---------------------------------------------------------------------------
 # Operations
 # ---------------------------------------------------------------------------
@@ -334,6 +378,38 @@ operations:
     summary: Receive DV access change events (security-sensitive, audit trail)
     messages:
       - $ref: '#/channels/userDvAccessChanged/messages/userDvAccessChangedMessage'
+
+  onTotpEnabled:
+    action: receive
+    channel:
+      $ref: '#/channels/totpEnabled'
+    summary: Receive TOTP enrollment completion events (audit trail)
+    messages:
+      - $ref: '#/channels/totpEnabled/messages/totpEnabledMessage'
+
+  onTotpDisabled:
+    action: receive
+    channel:
+      $ref: '#/channels/totpDisabled'
+    summary: Receive TOTP disable events (admin action, audit trail)
+    messages:
+      - $ref: '#/channels/totpDisabled/messages/totpDisabledMessage'
+
+  onAccessCodeGenerated:
+    action: receive
+    channel:
+      $ref: '#/channels/accessCodeGenerated'
+    summary: Receive access code generation events (admin action, audit trail)
+    messages:
+      - $ref: '#/channels/accessCodeGenerated/messages/accessCodeGeneratedMessage'
+
+  onAccessCodeUsed:
+    action: receive
+    channel:
+      $ref: '#/channels/accessCodeUsed'
+    summary: Receive access code login events (audit trail)
+    messages:
+      - $ref: '#/channels/accessCodeUsed/messages/accessCodeUsedMessage'
 
 # ---------------------------------------------------------------------------
 # Components
