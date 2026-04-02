@@ -217,8 +217,16 @@ fi
 # Activate 'dev' profile for dev-only features (e.g., test reset endpoint).
 # This profile does NOT exist in production deployments.
 export SPRING_PROFILES_ACTIVE=lite,dev
-# TOTP 2FA encryption key for dev (D16 — enables local TOTP testing).
-# This is a dev-only key. Production uses a different key in .env.prod.
+# TOTP 2FA encryption key for LOCAL DEVELOPMENT ONLY (D16).
+# ┌─────────────────────────────────────────────────────────────────┐
+# │  WARNING: This key is committed to the public repo.            │
+# │  NEVER use this key in production. A production deployment     │
+# │  with this key means every TOTP secret is encrypted with a     │
+# │  publicly known key — equivalent to no encryption at all.      │
+# │                                                                │
+# │  Production: generate a unique key with `openssl rand -base64 32` │
+# │  and store it in ~/fabt-secrets/.env.prod (never in Git).      │
+# └─────────────────────────────────────────────────────────────────┘
 export FABT_TOTP_ENCRYPTION_KEY="s4FgjCrVQONb65lQmfYHyuvC7AL2VnkVufwB9ZihvlA="
 # CORS: allow both Vite (:5173) and nginx (:8081) origins in dev
 if [[ "$NGINX_MODE" == true ]]; then

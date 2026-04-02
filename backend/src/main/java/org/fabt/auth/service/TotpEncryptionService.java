@@ -35,13 +35,24 @@ public class TotpEncryptionService {
 
     private final SecretKey secretKey;
 
+    // The dev-start.sh key — committed to the public repo, MUST NOT be used in production
+    private static final String DEV_KEY = "s4FgjCrVQONb65lQmfYHyuvC7AL2VnkVufwB9ZihvlA=";
+
     public TotpEncryptionService(
-            @Value("${fabt.totp.encryption-key:}") String base64Key) {
+            @Value("${fabt.totp.encryption-key:}") String base64Key,
+            org.springframework.core.env.Environment environment) {
         if (base64Key == null || base64Key.isBlank()) {
             // Allow startup without key in dev (TOTP enrollment will fail gracefully)
             log.warn("FABT_TOTP_ENCRYPTION_KEY not configured — TOTP enrollment will be unavailable");
             this.secretKey = null;
         } else {
+            // Reject the dev key in production — it's committed to the public repo
+            java.util.Set<String> profiles = java.util.Set.of(environment.getActiveProfiles());
+            if (DEV_KEY.equals(base64Key) && profiles.contains("prod")) {
+                throw new IllegalStateException(
+                        "FABT_TOTP_ENCRYPTION_KEY must not use the dev-start.sh key in production. "
+                        + "Generate a unique key with: openssl rand -base64 32");
+            }
             byte[] keyBytes = Base64.getDecoder().decode(base64Key);
             if (keyBytes.length != 32) {
                 throw new IllegalArgumentException(

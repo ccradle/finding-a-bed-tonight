@@ -45,6 +45,8 @@
 ssh -i ~/.ssh/fabt-oracle ubuntu@150.136.221.232
 
 # Generate and add encryption key
+# IMPORTANT: Generate a UNIQUE key. Do NOT copy the key from dev-start.sh —
+# that key is committed to the public repo and using it means no real encryption.
 echo "FABT_TOTP_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> ~/fabt-secrets/.env.prod
 
 # Verify it was added
