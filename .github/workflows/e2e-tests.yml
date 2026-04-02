@@ -286,7 +286,7 @@ jobs:
       - name: Build and start backend
         run: |
           mkdir -p logs
-          cd backend && mvn compile -q --batch-mode --no-transfer-progress
+          cd backend && mvn spring-boot:build-info compile -q --batch-mode --no-transfer-progress
           mvn spring-boot:run -q > ../logs/backend.log 2>&1 &
         env:
           SPRING_PROFILES_ACTIVE: lite,dev
@@ -296,6 +296,8 @@ jobs:
           FABT_DB_URL: jdbc:postgresql://localhost:5432/fabt
           FABT_DB_OWNER_USER: fabt
           FABT_DB_OWNER_PASSWORD: fabt
+          # Test-only TOTP encryption key (NOT the dev-start.sh key, NOT the production key)
+          FABT_TOTP_ENCRYPTION_KEY: dGVzdC1vbmx5LXRvdHAtZW5jcnlwdGlvbi1rZXktMzI=
 
       - name: Wait for backend readiness
         run: |
