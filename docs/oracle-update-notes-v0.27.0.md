@@ -109,11 +109,11 @@ docker image prune -f
 
 ```bash
 # Version
-curl -s https://YOUR_IP.nip.io/api/v1/version
+curl -s https://findabed.org/api/v1/version
 # Expected: {"version":"0.27"}
 
 # Auth capabilities (TOTP available)
-curl -s https://YOUR_IP.nip.io/api/v1/auth/capabilities
+curl -s https://findabed.org/api/v1/auth/capabilities
 # Expected: {"emailResetAvailable":false,"totpAvailable":true,"accessCodeAvailable":true}
 
 # Health
@@ -140,7 +140,7 @@ curl -sf http://localhost:9091/actuator/health/liveness
 # 1. Login as admin → Administration → Users tab
 # 2. (Future: "Disable 2FA" button per user row)
 # 3. Or via API:
-curl -X DELETE https://YOUR_IP.nip.io/api/v1/auth/totp/{userId} \
+curl -X DELETE https://findabed.org/api/v1/auth/totp/{userId} \
   -H "Authorization: Bearer $ADMIN_TOKEN"
 ```
 
