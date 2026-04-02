@@ -29,6 +29,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Filter chain: PasswordChangeRequiredFilter after SseTokenFilter, before ApiKeyAuthenticationFilter
 - AsyncAPI: 4 new auth event channels (totp-enabled, totp-disabled, access-code-generated, access-code-used)
 
+### Fixed
+- **SpotBugs HIGH**: `HicPitExportService.generateInventoryId()` — `.getBytes()` → `.getBytes(StandardCharsets.UTF_8)` to prevent platform-dependent UUID generation.
+- **SpotBugs HIGH**: `TotpEncryptionService` — `new SecureRandom()` per call → class-level field to avoid wasteful entropy gathering.
+- **Dependabot HIGH + MEDIUM**: lodash 4.17.23 → 4.18.1 via npm overrides (transitive via vite-plugin-pwa → workbox-build).
+- **CI Gatling job**: Added `FABT_TOTP_ENCRYPTION_KEY` to performance test backend environment.
+
 ### Security
 - TOTP secrets AES-256-GCM encrypted at rest. Encryption key from `FABT_TOTP_ENCRYPTION_KEY` env var — MUST be configured before deploy.
 - mfaToken is NOT an access token — JwtAuthenticationFilter skips tokens with `purpose: "mfa"` (D9)
