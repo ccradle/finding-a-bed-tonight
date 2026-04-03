@@ -57,8 +57,9 @@ export function ShelterEditPage() {
             ? detail.capacities
             : [{ populationType: '', bedsTotal: 0 }],
         });
-      } catch {
-        setError('Failed to load shelter');
+      } catch (err: unknown) {
+        const apiErr = err as { message?: string };
+        setError(apiErr.message || 'Failed to load shelter');
       } finally {
         setLoading(false);
       }

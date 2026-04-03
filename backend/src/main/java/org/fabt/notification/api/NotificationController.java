@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -40,7 +41,10 @@ public class NotificationController {
     @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter stream(
             Authentication authentication,
-            @RequestHeader(value = "Last-Event-ID", required = false) String lastEventIdHeader) {
+            @RequestHeader(value = "Last-Event-ID", required = false) String lastEventIdHeader,
+            HttpServletResponse response) {
+        // Prevent Cloudflare and upstream nginx proxies from buffering the SSE stream
+        response.setHeader("X-Accel-Buffering", "no");
         UUID userId = (UUID) authentication.getPrincipal();
         UUID tenantId = TenantContext.getTenantId();
         boolean dvAccess = TenantContext.getDvAccess();

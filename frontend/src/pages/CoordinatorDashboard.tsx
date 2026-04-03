@@ -101,8 +101,9 @@ export function CoordinatorDashboard() {
     try {
       const data = await api.get<ShelterListItem[]>('/api/v1/shelters');
       setShelters(data || []);
-    } catch {
-      setError(intl.formatMessage({ id: 'coord.error' }));
+    } catch (err: unknown) {
+      const apiErr = err as { message?: string };
+      setError(apiErr.message || intl.formatMessage({ id: 'coord.error' }));
     } finally {
       setLoading(false);
     }
@@ -148,9 +149,10 @@ export function CoordinatorDashboard() {
       try {
         const refs = await api.get<PendingReferral[]>(`/api/v1/dv-referrals/pending?shelterId=${id}`);
         setPendingReferrals(refs || []);
-      } catch { setPendingReferrals([]); }
-    } catch {
-      setError(intl.formatMessage({ id: 'coord.error' }));
+      } catch { setPendingReferrals([]); /* DV referral fetch — silent fail for non-DV shelters */ }
+    } catch (err: unknown) {
+      const apiErr = err as { message?: string };
+      setError(apiErr.message || intl.formatMessage({ id: 'coord.error' }));
     } finally {
       setDetailLoading(false);
     }
@@ -160,8 +162,9 @@ export function CoordinatorDashboard() {
     try {
       await api.patch(`/api/v1/dv-referrals/${tokenId}/accept`, {});
       setPendingReferrals(prev => prev.filter(r => r.id !== tokenId));
-    } catch {
-      setError(intl.formatMessage({ id: 'coord.error' }));
+    } catch (err: unknown) {
+      const apiErr = err as { message?: string };
+      setError(apiErr.message || intl.formatMessage({ id: 'coord.error' }));
     }
   };
 
@@ -172,8 +175,9 @@ export function CoordinatorDashboard() {
       setPendingReferrals(prev => prev.filter(r => r.id !== tokenId));
       setRejectingId(null);
       setRejectReason('');
-    } catch {
-      setError(intl.formatMessage({ id: 'coord.error' }));
+    } catch (err: unknown) {
+      const apiErr = err as { message?: string };
+      setError(apiErr.message || intl.formatMessage({ id: 'coord.error' }));
     }
   };
 
@@ -231,16 +235,17 @@ export function CoordinatorDashboard() {
       // Refresh shelter list for updated summary
       fetchShelters();
       setTimeout(() => setAvailSaved(null), 1500);
-    } catch {
+    } catch (err: unknown) {
       // Online but request failed — enqueue as fallback
+      const apiErr = err as { message?: string };
       try {
         await enqueueAction('UPDATE_AVAILABILITY', `/api/v1/shelters/${shelterId}/availability`, 'PATCH', payload);
         setAvailSaved(popType);
         setError(intl.formatMessage({ id: 'coord.updateQueued', defaultMessage: 'Update queued — will send when online' }));
         setTimeout(() => setAvailSaved(null), 1500);
       } catch {
-        // IndexedDB also failed — show error as last resort
-        setError(intl.formatMessage({ id: 'coord.error' }));
+        // IndexedDB also failed — show API error as last resort
+        setError(apiErr.message || intl.formatMessage({ id: 'coord.error' }));
       }
     } finally {
       setAvailSaving(null);

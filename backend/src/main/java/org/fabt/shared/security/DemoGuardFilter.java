@@ -1,0 +1,148 @@
+package org.fabt.shared.security;
+
+import java.io.IOException;
+import java.time.Instant;
+import java.util.List;
+import java.util.Set;
+
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.context.annotation.Profile;
+import org.springframework.http.MediaType;
+import org.springframework.stereotype.Component;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+/**
+ * Blocks destructive API operations in the demo environment.
+ *
+ * Activated by the "demo" Spring profile. When active:
+ * - GET/HEAD/OPTIONS always pass through (full read access to all screens)
+ * - Allowlisted safe mutations pass through (login, bed search, holds, referrals, availability)
+ * - All other POST/PUT/PATCH/DELETE return 403 with demo_restricted error
+ *
+ * Admin bypass: requests from localhost (SSH tunnel to :8080) or from the Docker
+ * bridge network without X-Forwarded-For (SSH tunnel to :8081 via container nginx)
+ * are exempt. Public traffic always has X-Forwarded-For set by host nginx/Cloudflare.
+ */
+@Component
+@Profile("demo")
+public class DemoGuardFilter extends OncePerRequestFilter {
+
+    private static final Logger log = LoggerFactory.getLogger(DemoGuardFilter.class);
+
+    private static final Set<String> READ_METHODS = Set.of("GET", "HEAD", "OPTIONS");
+
+    /**
+     * Safe mutations allowlisted in demo mode. Fail-secure: any endpoint NOT listed
+     * here is blocked for non-GET methods. New endpoints are blocked by default.
+     */
+    private static final List<AllowedMutation> ALLOWED_MUTATIONS = List.of(
+            // Authentication
+            new AllowedMutation("POST", "/api/v1/auth/login"),
+            new AllowedMutation("POST", "/api/v1/auth/refresh"),
+            new AllowedMutation("POST", "/api/v1/auth/verify-totp"),
+            new AllowedMutation("POST", "/api/v1/auth/enroll-totp"),
+            new AllowedMutation("POST", "/api/v1/auth/confirm-totp-enrollment"),
+            new AllowedMutation("POST", "/api/v1/auth/access-code"),
+            // Bed operations
+            new AllowedMutation("POST", "/api/v1/queries/beds"),
+            new AllowedMutation("POST", "/api/v1/reservations"),
+            new AllowedMutation("PATCH", "/api/v1/reservations/*/confirm"),
+            new AllowedMutation("PATCH", "/api/v1/reservations/*/cancel"),
+            // DV referrals
+            new AllowedMutation("POST", "/api/v1/dv-referrals"),
+            new AllowedMutation("PATCH", "/api/v1/dv-referrals/*/accept"),
+            new AllowedMutation("PATCH", "/api/v1/dv-referrals/*/reject"),
+            // Coordinator availability update
+            new AllowedMutation("PATCH", "/api/v1/shelters/*/availability"),
+            // Webhooks
+            new AllowedMutation("POST", "/api/v1/subscriptions"),
+            new AllowedMutation("DELETE", "/api/v1/subscriptions/*")
+    );
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
+                                     FilterChain filterChain) throws ServletException, IOException {
+
+        // Read-only methods always pass
+        if (READ_METHODS.contains(request.getMethod())) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        // Admin bypass: if X-Forwarded-For is absent, the request did NOT go through
+        // nginx/Cloudflare — it's either a direct localhost tunnel (:8080) or a Docker
+        // bridge tunnel (:8081). Public traffic always has X-Forwarded-For set by host nginx.
+        String forwardedFor = request.getHeader("X-Forwarded-For");
+        String remoteAddr = request.getRemoteAddr();
+
+        if (forwardedFor == null) {
+            boolean isLocalhost = "127.0.0.1".equals(remoteAddr)
+                    || "0:0:0:0:0:0:0:1".equals(remoteAddr)
+                    || "::1".equals(remoteAddr);
+            if (isLocalhost || isPrivateAddress(remoteAddr)) {
+                log.debug("Demo guard bypassed: no X-Forwarded-For, remoteAddr={}", remoteAddr);
+                filterChain.doFilter(request, response);
+                return;
+            }
+        }
+
+        // Check if this mutation is allowlisted
+        String method = request.getMethod();
+        String path = request.getRequestURI();
+
+        for (AllowedMutation allowed : ALLOWED_MUTATIONS) {
+            if (allowed.matches(method, path)) {
+                filterChain.doFilter(request, response);
+                return;
+            }
+        }
+
+        // Block: not allowlisted, not localhost, not tunnel
+        log.info("Demo guard blocked: {} {} from {}", method, path, remoteAddr);
+        response.setStatus(403);
+        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        response.getWriter().write(
+                "{\"error\":\"demo_restricted\","
+                + "\"message\":\"" + getBlockMessage(path) + "\","
+                + "\"status\":403,"
+                + "\"timestamp\":\"" + Instant.now() + "\"}");
+    }
+
+    private static boolean isPrivateAddress(String addr) {
+        return addr != null && (
+                addr.startsWith("10.") ||
+                addr.startsWith("172.16.") || addr.startsWith("172.17.") ||
+                addr.startsWith("172.18.") || addr.startsWith("172.19.") ||
+                addr.startsWith("172.2") || addr.startsWith("172.3") ||
+                addr.startsWith("192.168."));
+    }
+
+    private static String getBlockMessage(String path) {
+        if (path.startsWith("/api/v1/users")) return "User management is disabled in the demo environment.";
+        if (path.startsWith("/api/v1/shelters")) return "Shelter modification is disabled in the demo environment.";
+        if (path.startsWith("/api/v1/auth/password")) return "Password changes are disabled in the demo environment.";
+        if (path.startsWith("/api/v1/surge")) return "Surge management is disabled in the demo environment.";
+        if (path.startsWith("/api/v1/tenants")) return "Tenant management is disabled in the demo environment.";
+        if (path.startsWith("/api/v1/import")) return "Data import is disabled in the demo environment.";
+        if (path.startsWith("/api/v1/batch")) return "Batch job management is disabled in the demo environment.";
+        if (path.startsWith("/api/v1/hmis")) return "HMIS push is disabled in the demo environment.";
+        if (path.startsWith("/api/v1/api-keys")) return "API key management is disabled in the demo environment.";
+        return "This operation is disabled in the demo environment.";
+    }
+
+    private record AllowedMutation(String method, String pattern) {
+        boolean matches(String reqMethod, String reqPath) {
+            if (!method.equals(reqMethod)) return false;
+            if (!pattern.contains("*")) return pattern.equals(reqPath);
+            // Simple wildcard: /api/v1/reservations/*/confirm
+            String regex = pattern.replace("*", "[^/]+");
+            return reqPath.matches(regex);
+        }
+    }
+}

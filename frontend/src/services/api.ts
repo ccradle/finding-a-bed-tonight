@@ -123,6 +123,10 @@ async function request<T>(
         message: `Request failed with status ${response.status}`,
       };
     }
+    // Demo guard returns demo_restricted — rewrite message for friendly UX
+    if (errorBody.error === 'demo_restricted') {
+      errorBody.message = `${errorBody.message} This feature is available in a full deployment.`;
+    }
     throw new ApiError(errorBody);
   }
 
