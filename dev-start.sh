@@ -11,6 +11,7 @@
 #   ./dev-start.sh --nginx                 Frontend via nginx proxy (port 8081) instead of Vite dev server
 #   ./dev-start.sh --nginx --no-build      Restart nginx without rebuilding frontend (quick nginx.conf iteration)
 #   ./dev-start.sh --nginx --observability Full stack with nginx proxy + observability
+#   ./dev-start.sh --nginx --demo         Full stack with demo guard (blocks admin mutations via nginx)
 #   ./dev-start.sh stop                   Stop all services including observability containers
 #
 # Note: --nginx mode is for integration testing, not active frontend development.
@@ -39,6 +40,7 @@ OAUTH2=false
 FRESH_SEED=false
 NGINX_MODE=false
 NO_BUILD=false
+DEMO_MODE=false
 
 for arg in "$@"; do
     case "$arg" in
@@ -49,6 +51,7 @@ for arg in "$@"; do
         --fresh)     FRESH_SEED=true ;;
         --nginx)     NGINX_MODE=true ;;
         --no-build)  NO_BUILD=true ;;
+        --demo)      DEMO_MODE=true ;;
     esac
 done
 
@@ -217,6 +220,10 @@ fi
 # Activate 'dev' profile for dev-only features (e.g., test reset endpoint).
 # This profile does NOT exist in production deployments.
 export SPRING_PROFILES_ACTIVE=lite,dev
+if [[ "$DEMO_MODE" == true ]]; then
+    export SPRING_PROFILES_ACTIVE=lite,dev,demo
+    log "Demo guard: ACTIVE — destructive operations blocked via nginx"
+fi
 # TOTP 2FA encryption key for LOCAL DEVELOPMENT ONLY (D16).
 # ┌─────────────────────────────────────────────────────────────────┐
 # │  WARNING: This key is committed to the public repo.            │
