@@ -8,7 +8,7 @@ Feature: Reservation Concurrency — Last Bed Race
     # Set availability to exactly 1 bed
     * configure headers = { Authorization: '#(cocadminAuthHeader)' }
     Given path '/api/v1/shelters', shelterId, 'availability'
-    And request { "populationType": "VETERAN", "bedsTotal": 40, "bedsOccupied": 39, "bedsOnHold": 0, "acceptingNewGuests": true }
+    And request { "populationType": "SINGLE_ADULT", "bedsTotal": 40, "bedsOccupied": 39, "bedsOnHold": 0, "acceptingNewGuests": true }
     When method PATCH
     Then status 200
     And match response.bedsAvailable == 1
@@ -16,13 +16,13 @@ Feature: Reservation Concurrency — Last Bed Race
     # First reservation should succeed
     * configure headers = { Authorization: '#(outreachAuthHeader)' }
     Given path '/api/v1/reservations'
-    And request { "shelterId": "#(shelterId)", "populationType": "VETERAN" }
+    And request { "shelterId": "#(shelterId)", "populationType": "SINGLE_ADULT" }
     When method POST
     Then status 201
 
     # Second reservation should fail — 0 beds available after first hold
     Given path '/api/v1/reservations'
-    And request { "shelterId": "#(shelterId)", "populationType": "VETERAN" }
+    And request { "shelterId": "#(shelterId)", "populationType": "SINGLE_ADULT" }
     When method POST
     # Should get 400 (IllegalStateException: no beds available)
     Then assert responseStatus >= 400
