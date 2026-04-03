@@ -75,21 +75,21 @@ public class DemoGuardFilter extends OncePerRequestFilter {
             return;
         }
 
-        // Admin bypass: if X-Forwarded-For is absent, the request did NOT go through
-        // nginx/Cloudflare — it's either a direct localhost tunnel (:8080) or a Docker
-        // bridge tunnel (:8081). Public traffic always has X-Forwarded-For set by host nginx.
+        // Admin bypass: SSH tunnel traffic is identified by having ONLY private/localhost
+        // IPs in the request chain. Public traffic through Cloudflare → host nginx always
+        // has a real public IP in X-Forwarded-For.
+        //
+        // Paths:
+        //   :8080 tunnel → backend directly:  remoteAddr=127.0.0.1, no XFF
+        //   :8081 tunnel → container nginx:   remoteAddr=docker-bridge, XFF=127.0.0.1
+        //   Public → Cloudflare → host nginx → container nginx: XFF=<real-public-IP>, ...
         String forwardedFor = request.getHeader("X-Forwarded-For");
         String remoteAddr = request.getRemoteAddr();
 
-        if (forwardedFor == null) {
-            boolean isLocalhost = "127.0.0.1".equals(remoteAddr)
-                    || "0:0:0:0:0:0:0:1".equals(remoteAddr)
-                    || "::1".equals(remoteAddr);
-            if (isLocalhost || isPrivateAddress(remoteAddr)) {
-                log.debug("Demo guard bypassed: no X-Forwarded-For, remoteAddr={}", remoteAddr);
-                filterChain.doFilter(request, response);
-                return;
-            }
+        if (isInternalTraffic(remoteAddr, forwardedFor)) {
+            log.debug("Demo guard bypassed: internal traffic, remoteAddr={}, xff={}", remoteAddr, forwardedFor);
+            filterChain.doFilter(request, response);
+            return;
         }
 
         // Check if this mutation is allowlisted
@@ -112,6 +112,30 @@ public class DemoGuardFilter extends OncePerRequestFilter {
                 + "\"message\":\"" + getBlockMessage(path) + "\","
                 + "\"status\":403,"
                 + "\"timestamp\":\"" + Instant.now() + "\"}");
+    }
+
+    /**
+     * Determine if the request is internal (SSH tunnel or Docker-internal) rather than
+     * public traffic through Cloudflare. Internal traffic has ONLY private/localhost IPs
+     * in the entire request chain (remoteAddr + all X-Forwarded-For entries).
+     * Public traffic always has at least one real public IP from Cloudflare.
+     */
+    private static boolean isInternalTraffic(String remoteAddr, String forwardedFor) {
+        if (!isPrivateOrLocalhost(remoteAddr)) return false;
+        if (forwardedFor == null || forwardedFor.isBlank()) return true;
+        // Check every IP in the X-Forwarded-For chain
+        for (String ip : forwardedFor.split(",")) {
+            if (!isPrivateOrLocalhost(ip.trim())) return false;
+        }
+        return true;
+    }
+
+    private static boolean isPrivateOrLocalhost(String addr) {
+        if (addr == null) return false;
+        return addr.equals("127.0.0.1")
+                || addr.equals("0:0:0:0:0:0:0:1")
+                || addr.equals("::1")
+                || isPrivateAddress(addr);
     }
 
     private static boolean isPrivateAddress(String addr) {

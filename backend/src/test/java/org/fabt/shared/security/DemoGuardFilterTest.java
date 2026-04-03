@@ -230,12 +230,55 @@ class DemoGuardFilterTest {
         verify(chain).doFilter(request, response);
     }
 
-    // --- Public traffic with X-Forwarded-For is NOT exempt ---
+    // --- Docker bridge tunnel WITH private-only X-Forwarded-For (SSH tunnel to :8081 via container nginx) ---
+
+    @Test
+    void docker_bridge_with_private_forwarded_for_bypasses_guard() throws ServletException, IOException {
+        request.setRemoteAddr("172.18.0.3");
+        request.removeHeader("X-Forwarded-For");
+        request.addHeader("X-Forwarded-For", "127.0.0.1");
+        request.setMethod("POST");
+        request.setRequestURI("/api/v1/users");
+
+        filter.doFilterInternal(request, response, chain);
+
+        verify(chain).doFilter(request, response);
+    }
+
+    @Test
+    void docker_bridge_with_docker_forwarded_for_bypasses_guard() throws ServletException, IOException {
+        request.setRemoteAddr("172.18.0.3");
+        request.removeHeader("X-Forwarded-For");
+        request.addHeader("X-Forwarded-For", "172.17.0.1");
+        request.setMethod("POST");
+        request.setRequestURI("/api/v1/users");
+
+        filter.doFilterInternal(request, response, chain);
+
+        verify(chain).doFilter(request, response);
+    }
+
+    // --- Public traffic with X-Forwarded-For containing public IP is NOT exempt ---
 
     @Test
     void public_traffic_with_forwarded_for_not_exempt() throws ServletException, IOException {
         request.setRemoteAddr("172.18.0.3");
+        request.removeHeader("X-Forwarded-For");
         request.addHeader("X-Forwarded-For", "203.0.113.50");
+        request.setMethod("POST");
+        request.setRequestURI("/api/v1/users");
+
+        filter.doFilterInternal(request, response, chain);
+
+        verifyNoInteractions(chain);
+        assertThat(response.getStatus()).isEqualTo(403);
+    }
+
+    @Test
+    void mixed_forwarded_for_with_public_ip_not_exempt() throws ServletException, IOException {
+        request.setRemoteAddr("172.18.0.3");
+        request.removeHeader("X-Forwarded-For");
+        request.addHeader("X-Forwarded-For", "203.0.113.50, 172.18.0.1");
         request.setMethod("POST");
         request.setRequestURI("/api/v1/users");
 
