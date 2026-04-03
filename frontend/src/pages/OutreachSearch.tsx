@@ -783,7 +783,7 @@ export function OutreachSearch() {
                           padding: '6px 12px', borderRadius: 6, border: 'none',
                           backgroundColor: color.dv, color: color.textInverse, fontSize: text.xs, fontWeight: weight.bold,
                           cursor: isOnline ? 'pointer' : 'default', minHeight: 44, minWidth: 44,
-                          opacity: isOnline ? 1 : 0.5,
+                          ...(isOnline ? {} : { backgroundColor: color.borderLight, color: color.textMuted }),
                         }}
                       >
                         <FormattedMessage id="search.requestReferral" />

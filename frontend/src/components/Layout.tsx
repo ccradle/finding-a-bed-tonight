@@ -265,7 +265,7 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
         </h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           {user && (
-            <span style={{ fontSize: text.base, opacity: 0.9 }}>
+            <span style={{ fontSize: text.base, color: color.headerText }}>
               {user.displayName || user.tenantName || ''}
             </span>
           )}
