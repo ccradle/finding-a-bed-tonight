@@ -20,9 +20,11 @@ Finding A Bed Tonight exists to close that gap.
 
 An outreach worker opens the app, searches for available beds filtered by the family's needs (family with children, wheelchair accessible, pets allowed), and places a hold on a bed in under a minute. The shelter coordinator sees the hold and knows someone is coming. The family rides to the shelter instead of waiting in a parking lot while phone calls are made.
 
-The platform is designed to reduce total crisis-to-placement time from an estimated 55-140 minutes (serial phone calls, voicemails, stale spreadsheets) to 25-45 minutes. The digital workflow itself -- search to bed hold -- takes under 10 seconds in testing. The remaining time is human: conversation, decision-making, and transport, which no technology can eliminate.
+Without a real-time availability system, outreach workers spend hours to days making serial phone calls to shelters that may be full, closed, or unable to serve the specific client in front of them (NBC San Diego, 2025). In Los Angeles, a 2024 City Controller audit found that 1 in 4 shelter beds sat empty while approximately 5,000 people waited on waitlists — because providers had no reliable way to know which beds were available (LA City Controller, *Interim Housing Audit*, 2024).
 
-**Important:** The time reduction is a target outcome based on workflow analysis. It has not yet been measured in a real-world pilot. The platform captures the data needed for measurement automatically. A 90-day pilot with 5+ shelters would produce the evidence to validate or revise this claim.
+The digital workflow itself — search to bed hold — takes under 10 seconds in testing. The remaining time is human: conversation, decision-making, and transport, which no technology can eliminate.
+
+**Important:** The time reduction has not yet been measured in a real-world pilot with this platform. The platform captures the data needed for measurement automatically. A 90-day pilot with 5+ shelters would produce the evidence to quantify the impact for your community.
 
 For the full logic model, evidence basis, and recommended grant language, see the [Theory of Change](theory-of-change.md).
 
@@ -81,9 +83,9 @@ Every dollar builds permanent infrastructure. The Apache 2.0 license means the s
 
 ## Recommended Grant Language
 
-> "Finding A Bed Tonight is designed to reduce total crisis-to-placement time from an estimated 55-140 minutes (serial phone calls, stale spreadsheets) to 25-45 minutes by providing real-time bed availability with a 3-tap hold to secure the bed during transport. This target is based on workflow analysis; the digital workflow alone (search to hold) takes under 10 seconds in end-to-end testing. Pilot measurement with [named partner] is planned for [timeframe]."
+> "In Los Angeles, a 2024 City Controller audit found that 1 in 4 shelter beds sat empty while thousands waited — because providers had no reliable way to know which beds were available. In San Diego, outreach workers reported spending hours to days making phone calls to find a single bed. Finding A Bed Tonight provides real-time bed availability with a 3-tap hold to secure the bed during transport. The digital workflow (search to hold) takes under 10 seconds in end-to-end testing. Pilot measurement with [named partner] is planned for [timeframe]."
 
-This language is honest, specific, and defensible. It names the basis for the claim and commits to measurement. See the [Theory of Change](theory-of-change.md) for the full evidence basis.
+This language is sourced, specific, and defensible. It uses government-audited data (LA City Controller, 2024) and practitioner testimony (NBC San Diego, 2025) rather than internal estimates. See the [Theory of Change](theory-of-change.md) for the full evidence basis.
 
 ---
 
