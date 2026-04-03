@@ -2,7 +2,8 @@ Feature: Reservation Full Lifecycle
 
   Background:
     * url baseUrl
-    * def shelterId = 'd0000000-0000-0000-0000-000000000001'
+    # Oak City Community Shelter — serves SINGLE_ADULT
+    * def shelterId = 'd0000000-0000-0000-0000-000000000004'
 
   Scenario: Full reservation lifecycle — create, confirm, verify occupancy
     # Step 1: Set availability (coordinator)

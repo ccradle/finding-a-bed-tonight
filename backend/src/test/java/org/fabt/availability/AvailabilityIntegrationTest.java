@@ -341,8 +341,75 @@ class AvailabilityIntegrationTest extends BaseIntegrationTest {
     }
 
     // -------------------------------------------------------------------------
+    // #34: Population type validation against shelter constraints
+    // -------------------------------------------------------------------------
+
+    @Test
+    void test_createSnapshot_rejects_mismatched_populationType() {
+        // Test shelter serves SINGLE_ADULT and FAMILY_WITH_CHILDREN
+        // Submitting VETERAN should be rejected
+        HttpHeaders headers = authHelper.coordinatorHeaders();
+
+        String body = """
+                {"populationType":"VETERAN","bedsTotal":10,"bedsOccupied":5,"bedsOnHold":0,"acceptingNewGuests":true}
+                """;
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/shelters/" + shelterId + "/availability",
+                HttpMethod.PATCH,
+                new HttpEntity<>(body, headers),
+                String.class);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(422);
+        assertThat(response.getBody()).contains("not served by this shelter");
+    }
+
+    @Test
+    void test_createSnapshot_accepts_matching_populationType() {
+        // SINGLE_ADULT is in the shelter's populationTypesServed — should succeed
+        HttpHeaders headers = authHelper.coordinatorHeaders();
+        submitAvailability(shelterId, headers, "SINGLE_ADULT", 50, 30, 0);
+        // No exception = success
+    }
+
+    @Test
+    void test_createSnapshot_accepts_any_type_when_no_constraints() {
+        // Create a shelter with no population constraints
+        HttpHeaders adminHeaders = authHelper.cocAdminHeaders();
+        UUID unconstrainedShelterId = createTestShelterNoConstraints(adminHeaders);
+        assignCoordinator(unconstrainedShelterId, adminHeaders);
+
+        HttpHeaders headers = authHelper.coordinatorHeaders();
+        submitAvailability(unconstrainedShelterId, headers, "VETERAN", 10, 5, 0);
+        // No exception = success — permissive when no constraints
+    }
+
+    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
+
+    private UUID createTestShelterNoConstraints(HttpHeaders headers) {
+        String body = """
+                {
+                    "name": "Unconstrained Test %s",
+                    "addressStreet": "456 Test Ave",
+                    "addressCity": "Raleigh",
+                    "addressState": "NC",
+                    "addressZip": "27601",
+                    "phone": "919-555-0199",
+                    "latitude": 35.78,
+                    "longitude": -78.64,
+                    "dvShelter": false
+                }
+                """.formatted(UUID.randomUUID().toString().substring(0, 8));
+
+        ResponseEntity<ShelterResponse> response = restTemplate.exchange(
+                "/api/v1/shelters",
+                HttpMethod.POST,
+                new HttpEntity<>(body, headers),
+                ShelterResponse.class);
+        return response.getBody() != null ? response.getBody().id() : null;
+    }
 
     private UUID createTestShelter(HttpHeaders headers) {
         String body = """

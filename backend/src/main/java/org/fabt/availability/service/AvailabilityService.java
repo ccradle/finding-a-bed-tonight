@@ -17,6 +17,8 @@ import org.fabt.shared.event.DomainEvent;
 import org.fabt.shared.event.EventBus;
 import org.fabt.shared.web.TenantContext;
 import org.fabt.shelter.domain.Shelter;
+import org.fabt.shelter.domain.ShelterConstraints;
+import org.fabt.shelter.repository.ShelterConstraintsRepository;
 import org.fabt.shelter.service.ShelterService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -58,17 +60,20 @@ public class AvailabilityService {
 
     private final BedAvailabilityRepository repository;
     private final ShelterService shelterService;
+    private final ShelterConstraintsRepository constraintsRepository;
     private final CacheService cacheService;
     private final EventBus eventBus;
     private final ObservabilityMetrics metrics;
 
     public AvailabilityService(BedAvailabilityRepository repository,
                                ShelterService shelterService,
+                               ShelterConstraintsRepository constraintsRepository,
                                CacheService cacheService,
                                EventBus eventBus,
                                ObservabilityMetrics metrics) {
         this.repository = repository;
         this.shelterService = shelterService;
+        this.constraintsRepository = constraintsRepository;
         this.cacheService = cacheService;
         this.eventBus = eventBus;
         this.metrics = metrics;
@@ -94,6 +99,20 @@ public class AvailabilityService {
         // Verify shelter exists in tenant
         Shelter shelter = shelterService.findById(shelterId)
                 .orElseThrow(() -> new java.util.NoSuchElementException("Shelter not found: " + shelterId));
+
+        // Validate population type against shelter constraints (#34)
+        // NULL or empty constraints = permissive (accept any population type)
+        ShelterConstraints constraints = constraintsRepository.findById(shelterId).orElse(null);
+        if (constraints != null && constraints.getPopulationTypesServed() != null
+                && constraints.getPopulationTypesServed().length > 0) {
+            boolean matched = java.util.Arrays.asList(constraints.getPopulationTypesServed())
+                    .contains(populationType);
+            if (!matched) {
+                throw new AvailabilityInvariantViolation(
+                        "Population type '" + populationType + "' is not served by this shelter. "
+                        + "Accepted types: " + String.join(", ", constraints.getPopulationTypesServed()));
+            }
+        }
 
         // Enforce bed availability invariants (QA briefing INV-1 through INV-5)
         if (bedsTotal < 0) {

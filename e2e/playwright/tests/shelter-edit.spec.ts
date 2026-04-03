@@ -39,6 +39,15 @@ test.describe('Shelter Edit', () => {
     await adminPage.locator('main button', { hasText: /^Shelters$/ }).first().click();
     await adminPage.waitForTimeout(1000);
     await expect(adminPage.locator('main td', { hasText: updatedName })).toBeVisible();
+
+    // RESTORE original name — prevents seed data corruption (#44)
+    const restoreEditLink = adminPage.locator('main a', { hasText: /^Edit$/ }).first();
+    await restoreEditLink.click();
+    await expect(adminPage.locator('h2', { hasText: /edit shelter/i })).toBeVisible();
+    const restoreInput = adminPage.locator('[data-testid="shelter-name"]');
+    await restoreInput.fill(originalName);
+    await adminPage.locator('[data-testid="shelter-save"]').click();
+    await adminPage.waitForURL(/\/admin/);
   });
 
   test('coordinator edits phone from dashboard', async ({ coordinatorPage }) => {
