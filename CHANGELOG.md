@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.28.2] — 2026-04-03 — WCAG Contrast Fix
+
+### Fixed
+- **Offline referral button**: replaced `opacity: 0.5` with explicit disabled colors (`borderLight` bg + `textMuted` fg) for WCAG 4.5:1 contrast. Button already had `aria-disabled={!isOnline}`. (#35)
+- **Header display name**: replaced `opacity: 0.9` with `color.headerText` token — guaranteed contrast on dark header.
+- **Surge timestamp**: replaced `opacity: 0.85` with `color.textTertiary` token.
+- **Landing page stat citations**: replaced `opacity: 0.7` with `color: var(--muted)` — contrast ratio 6.4:1 on white (was 3.59, below WCAG 4.5:1 minimum). This was introduced by the same-day stat cleanup.
+
+### Principle
+`opacity` on text is fragile for WCAG — the computed color depends on background blending. Explicit color tokens from the design system guarantee contrast ratios in both light and dark modes.
+
+---
+
 ## [v0.28.1] — 2026-04-03 — Shelters Tab Fix + Stat Cleanup
 
 ### Fixed
