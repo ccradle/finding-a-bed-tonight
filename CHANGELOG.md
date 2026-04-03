@@ -5,6 +5,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.28.0] — 2026-04-02 — Demo Guard + Error Handling + SSE Cloudflare Fix
+
+### Added
+- **DemoGuardFilter**: `@Profile("demo")` servlet filter blocks destructive API operations (user CRUD, shelter edit, password changes, surge, import, batch jobs, API keys, OAuth2 providers) for public traffic. Returns 403 with context-specific `demo_restricted` messages. Fail-secure allowlist — new endpoints blocked by default.
+- **Admin bypass**: Requests without `X-Forwarded-For` from localhost/private IPs pass through — SSH tunnel to `:8081` gives full admin access while public visitors are guarded.
+- **Safe mutation allowlist**: Login, bed search, holds, referrals, availability updates, webhooks functional in demo mode.
+- **Frontend demo_restricted enhancement**: `api.ts` appends "This feature is available in a full deployment" to demo-restricted errors.
+- **`--demo` flag for dev-start.sh**: `./dev-start.sh --nginx --demo` activates DemoGuardFilter locally.
+- **SSE Cloudflare compatibility**: `X-Accel-Buffering: no` header on SSE endpoint (NotificationController + container nginx).
+- **Playwright E2E**: `demo-guard-verify.spec.ts` — admin create user blocked, outreach search passes.
+- **25 backend tests**: 20 unit (DemoGuardFilterTest) + 5 integration (DemoGuardIntegrationTest).
+
+### Fixed
+- **29 swallowed API error catch blocks** across AdminPanel.tsx (17), CoordinatorDashboard.tsx (6), ShelterEditPage.tsx (1) — now display actual API error messages with intl fallback.
+- **5 intentionally silent catch blocks** documented with comments.
+- **Container nginx SSE**: `add_header X-Accel-Buffering "no" always` — nginx strips `X-Accel-*` from upstream by default.
+
+### Changed
+- Backend version: 0.27.0 → 0.28.0
+- Oracle update notes: nip.io URLs replaced with findabed.org
+- dev-start.sh: new `--demo` flag
+
+---
+
 ## [v0.27.0] — 2026-04-01 — Password Recovery + TOTP 2FA
 
 ### Added
