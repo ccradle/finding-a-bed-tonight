@@ -32,6 +32,7 @@ interface ShelterListItem {
   availabilitySummary: {
     totalBedsAvailable: number | null;
     dataFreshness: string;
+    dataAgeSeconds: number | null;
   } | null;
 }
 
@@ -834,7 +835,7 @@ function SheltersTab() {
                       : <span style={{ color: color.textMuted }}>—</span>}
                   </td>
                   <td style={tdStyle(i)}>
-                    <DataAge dataAgeSeconds={item.shelter.updatedAt ? Math.floor((Date.now() - new Date(item.shelter.updatedAt).getTime()) / 1000) : null} />
+                    <DataAge dataAgeSeconds={item.availabilitySummary?.dataAgeSeconds ?? null} />
                   </td>
                   <td style={tdStyle(i)}>
                     <a
