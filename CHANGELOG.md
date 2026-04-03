@@ -13,6 +13,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Surge timestamp**: replaced `opacity: 0.85` with `color.textTertiary` token.
 - **Landing page stat citations**: replaced `opacity: 0.7` with `color: var(--muted)` — contrast ratio 6.4:1 on white (was 3.59, below WCAG 4.5:1 minimum). This was introduced by the same-day stat cleanup.
 
+### Fixed (cache + SSE)
+- **sw.js served with 1-year immutable cache** — prevented browsers from detecting new service worker versions after deployments. Added explicit nginx `location = /sw.js` with `no-cache` headers. (#45)
+- **Service worker intercepted SSE connections** — Workbox `NetworkFirst` route matched `/api/v1/notifications/stream`, causing the SW to get stuck holding the streaming connection open (Workbox issue #2692). Excluded SSE from SW routing. This also resolved intermittent SSE flakiness (+5 passing tests in regression suite).
+- **manifest.webmanifest** — added `no-cache` header and correct `application/manifest+json` content type.
+
 ### Principle
 `opacity` on text is fragile for WCAG — the computed color depends on background blending. Explicit color tokens from the design system guarantee contrast ratios in both light and dark modes.
 
