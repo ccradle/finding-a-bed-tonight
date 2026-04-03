@@ -804,7 +804,6 @@ function SheltersTab() {
                 <th style={thStyle}>Name</th>
                 <th style={thStyle}>City</th>
                 <th style={thStyle}>Beds Available</th>
-                <th style={thStyle}>Freshness</th>
                 <th style={thStyle}>Updated</th>
                 <th style={thStyle}></th>
               </tr>
@@ -819,19 +818,6 @@ function SheltersTab() {
                       ? <span style={{ fontWeight: weight.bold, color: item.availabilitySummary.totalBedsAvailable > 0 ? color.success : color.error }}>
                           {item.availabilitySummary.totalBedsAvailable}
                         </span>
-                      : <span style={{ color: color.textMuted }}>—</span>}
-                  </td>
-                  <td style={tdStyle(i)}>
-                    {item.availabilitySummary
-                      ? <span style={{
-                          padding: '2px 8px', borderRadius: 6, fontSize: text['2xs'], fontWeight: weight.bold,
-                          backgroundColor: item.availabilitySummary.dataFreshness === 'FRESH' ? color.successBg
-                            : item.availabilitySummary.dataFreshness === 'AGING' ? color.warningBg
-                            : item.availabilitySummary.dataFreshness === 'STALE' ? color.errorBg : color.borderLight,
-                          color: item.availabilitySummary.dataFreshness === 'FRESH' ? color.success
-                            : item.availabilitySummary.dataFreshness === 'AGING' ? color.warning
-                            : item.availabilitySummary.dataFreshness === 'STALE' ? color.error : color.textTertiary,
-                        }}>{item.availabilitySummary.dataFreshness}</span>
                       : <span style={{ color: color.textMuted }}>—</span>}
                   </td>
                   <td style={tdStyle(i)}>
