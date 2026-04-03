@@ -108,7 +108,7 @@ function ReservationSettings() {
           setHoldDuration(Number(config.hold_duration_minutes) || 90);
         }
         setLoaded(true);
-      } catch { setLoaded(true); }
+      } catch { setLoaded(true); /* Settings load failure shows defaults — intentionally silent */ }
     })();
   }, [tenantId]);
 
@@ -120,8 +120,9 @@ function ReservationSettings() {
       const current = await api.get<Record<string, unknown>>(`/api/v1/tenants/${tenantId}/config`);
       await api.put(`/api/v1/tenants/${tenantId}/config`, { ...current, hold_duration_minutes: holdDuration });
       setMessage({ type: 'success', text: intl.formatMessage({ id: 'admin.holdDuration.saved' }) });
-    } catch {
-      setMessage({ type: 'error', text: intl.formatMessage({ id: 'admin.holdDuration.saveError' }) });
+    } catch (err: unknown) {
+      const apiErr = err as { message?: string };
+      setMessage({ type: 'error', text: apiErr.message || intl.formatMessage({ id: 'admin.holdDuration.saveError' }) });
     } finally { setSaving(false); }
   };
 
@@ -410,8 +411,9 @@ function UsersTab() {
     try {
       const data = await api.get<User[]>('/api/v1/users');
       setUsers(data || []);
-    } catch {
-      setError(intl.formatMessage({ id: 'coord.error' }));
+    } catch (err: unknown) {
+      const apiErr = err as { message?: string };
+      setError(apiErr.message || intl.formatMessage({ id: 'coord.error' }));
     } finally {
       setLoading(false);
     }
@@ -443,8 +445,9 @@ function UsersTab() {
       setFormRoles([]);
       setFormDvAccess(false);
       await fetchUsers();
-    } catch {
-      setError(intl.formatMessage({ id: 'coord.error' }));
+    } catch (err: unknown) {
+      const apiErr = err as { message?: string };
+      setError(apiErr.message || intl.formatMessage({ id: 'coord.error' }));
     } finally {
       setSubmitting(false);
     }
@@ -611,8 +614,10 @@ function UsersTab() {
                         try {
                           const res = await api.post<{ code: string }>(`/api/v1/users/${u.id}/generate-access-code`, {});
                           setGeneratedCode(res.code);
-                        } catch {
+                        } catch (err: unknown) {
+                          const apiErr = err as { message?: string };
                           setGeneratedCode(null);
+                          if (apiErr.message) setError(apiErr.message);
                         } finally {
                           setAccessCodeLoading(false);
                         }
@@ -765,8 +770,9 @@ function SheltersTab() {
     try {
       const data = await api.get<ShelterListItem[]>('/api/v1/shelters');
       setShelters(data || []);
-    } catch {
-      setError(intl.formatMessage({ id: 'coord.error' }));
+    } catch (err: unknown) {
+      const apiErr = err as { message?: string };
+      setError(apiErr.message || intl.formatMessage({ id: 'coord.error' }));
     } finally {
       setLoading(false);
     }
@@ -873,8 +879,9 @@ function ApiKeysTab() {
     try {
       const data = await api.get<ApiKeyRow[]>('/api/v1/api-keys');
       setKeys(data || []);
-    } catch {
-      setError(intl.formatMessage({ id: 'coord.error' }));
+    } catch (err: unknown) {
+      const apiErr = err as { message?: string };
+      setError(apiErr.message || intl.formatMessage({ id: 'coord.error' }));
     } finally {
       setLoading(false);
     }
@@ -891,8 +898,9 @@ function ApiKeysTab() {
       setShowForm(false);
       setFormLabel('');
       await fetchKeys();
-    } catch {
-      setError(intl.formatMessage({ id: 'coord.error' }));
+    } catch (err: unknown) {
+      const apiErr = err as { message?: string };
+      setError(apiErr.message || intl.formatMessage({ id: 'coord.error' }));
     } finally {
       setSubmitting(false);
     }
@@ -1015,8 +1023,9 @@ function ImportsTab() {
     try {
       const data = await api.get<ImportRow[]>('/api/v1/import/history');
       setImports(data || []);
-    } catch {
-      setError(intl.formatMessage({ id: 'coord.error' }));
+    } catch (err: unknown) {
+      const apiErr = err as { message?: string };
+      setError(apiErr.message || intl.formatMessage({ id: 'coord.error' }));
     } finally {
       setLoading(false);
     }
@@ -1098,8 +1107,9 @@ function SubscriptionsTab() {
     try {
       const data = await api.get<SubscriptionRow[]>('/api/v1/subscriptions');
       setSubs(data || []);
-    } catch {
-      setError(intl.formatMessage({ id: 'coord.error' }));
+    } catch (err: unknown) {
+      const apiErr = err as { message?: string };
+      setError(apiErr.message || intl.formatMessage({ id: 'coord.error' }));
     } finally {
       setLoading(false);
     }
@@ -1121,8 +1131,9 @@ function SubscriptionsTab() {
       setFormCallbackUrl('');
       setFormCallbackSecret('');
       await fetchSubs();
-    } catch {
-      setError(intl.formatMessage({ id: 'coord.error' }));
+    } catch (err: unknown) {
+      const apiErr = err as { message?: string };
+      setError(apiErr.message || intl.formatMessage({ id: 'coord.error' }));
     } finally {
       setSubmitting(false);
     }
@@ -1222,8 +1233,9 @@ function SurgeTab() {
     try {
       const data = await api.get<typeof surges>('/api/v1/surge-events');
       setSurges(data || []);
-    } catch {
-      setError(intl.formatMessage({ id: 'coord.error' }));
+    } catch (err: unknown) {
+      const apiErr = err as { message?: string };
+      setError(apiErr.message || intl.formatMessage({ id: 'coord.error' }));
     } finally {
       setLoading(false);
     }
@@ -1242,8 +1254,9 @@ function SurgeTab() {
       setReason('');
       setScheduledEnd('');
       await fetchSurges();
-    } catch {
-      setError(intl.formatMessage({ id: 'surge.alreadyActive' }));
+    } catch (err: unknown) {
+      const apiErr = err as { message?: string };
+      setError(apiErr.message || intl.formatMessage({ id: 'surge.alreadyActive' }));
     } finally {
       setSubmitting(false);
     }
@@ -1253,8 +1266,9 @@ function SurgeTab() {
     try {
       await api.patch(`/api/v1/surge-events/${id}/deactivate`);
       await fetchSurges();
-    } catch {
-      setError(intl.formatMessage({ id: 'coord.error' }));
+    } catch (err: unknown) {
+      const apiErr = err as { message?: string };
+      setError(apiErr.message || intl.formatMessage({ id: 'coord.error' }));
     }
   };
 
@@ -1412,8 +1426,9 @@ function ObservabilityTab() {
       });
       setMessage({ type: 'success', text: intl.formatMessage({ id: 'admin.observability.saved' }) });
       loadConfig();
-    } catch {
-      setMessage({ type: 'error', text: intl.formatMessage({ id: 'admin.observability.saveError' }) });
+    } catch (err: unknown) {
+      const apiErr = err as { message?: string };
+      setMessage({ type: 'error', text: apiErr.message || intl.formatMessage({ id: 'admin.observability.saveError' }) });
     } finally { setSaving(false); }
   };
 
@@ -1667,8 +1682,9 @@ function OAuth2ProvidersTab() {
       } else {
         setTestResult({ ok: false, text: intl.formatMessage({ id: 'admin.oauth2.testFailed' }) });
       }
-    } catch {
-      setTestResult({ ok: false, text: intl.formatMessage({ id: 'admin.oauth2.testFailed' }) });
+    } catch (err: unknown) {
+      const apiErr = err as { message?: string };
+      setTestResult({ ok: false, text: apiErr.message || intl.formatMessage({ id: 'admin.oauth2.testFailed' }) });
     }
   };
 
@@ -1694,8 +1710,9 @@ function OAuth2ProvidersTab() {
       setMessage({ type: 'success', text: intl.formatMessage({ id: 'admin.oauth2.saved' }) });
       resetForm();
       loadProviders();
-    } catch {
-      setMessage({ type: 'error', text: intl.formatMessage({ id: 'admin.oauth2.saveError' }) });
+    } catch (err: unknown) {
+      const apiErr = err as { message?: string };
+      setMessage({ type: 'error', text: apiErr.message || intl.formatMessage({ id: 'admin.oauth2.saveError' }) });
     } finally { setSubmitting(false); }
   };
 
@@ -1705,8 +1722,9 @@ function OAuth2ProvidersTab() {
       setMessage({ type: 'success', text: intl.formatMessage({ id: 'admin.oauth2.deleted' }) });
       setDeleteConfirm(null);
       loadProviders();
-    } catch {
-      setMessage({ type: 'error', text: intl.formatMessage({ id: 'admin.oauth2.saveError' }) });
+    } catch (err: unknown) {
+      const apiErr = err as { message?: string };
+      setMessage({ type: 'error', text: apiErr.message || intl.formatMessage({ id: 'admin.oauth2.saveError' }) });
     }
   };
 
