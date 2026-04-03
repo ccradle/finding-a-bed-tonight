@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.28.3] — 2026-04-03 — Availability Validation + Test Cleanup
+
+### Added
+- **Population type validation** in `AvailabilityService.createSnapshot()` — rejects mismatched types with 422 and descriptive error message. NULL or empty constraints remain permissive. (#34)
+- **3 new backend integration tests**: matching type accepted, mismatched type rejected, no-constraints shelter permissive.
+
+### Fixed
+- **shelter-edit.spec.ts** restores original shelter name after editing — prevents seed data corruption from accumulating "(edited)" on DV shelters. (#44)
+- **Karate reservation tests** used wrong population types (VETERAN on SINGLE_ADULT shelter, SINGLE_ADULT on FAMILY shelter) — silently accepted before validation, now correctly matched.
+
+---
+
 ## [v0.28.2] — 2026-04-03 — WCAG Contrast Fix
 
 ### Fixed
