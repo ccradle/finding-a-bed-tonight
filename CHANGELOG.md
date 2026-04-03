@@ -5,6 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.28.1] — 2026-04-03 — Shelters Tab Fix + Stat Cleanup
+
+### Fixed
+- **Admin Shelters tab "Updated" column** — was showing `shelter.updatedAt` (profile edit date, stuck at seed creation) instead of `availabilitySummary.dataAgeSeconds` (actual bed data freshness). Every shelter showed "4 days ago" even with recent availability updates. (#32)
+- **Removed redundant Freshness column** — the Updated column's DataAge component already renders both the freshness badge (Fresh/Stale/Aging) and the time. The separate Freshness column displayed the same information without the time context.
+
+### Changed
+- Added `dataAgeSeconds` to `availabilitySummary` TypeScript interface
+- Landing page: replaced unsourced "55-140 minutes" stat with "1 in 4 shelter beds sit empty" (LA City Controller audit, 2024)
+- Landing page: added "hours to days" context (NBC San Diego, 2025) to body copy
+- FOR-FUNDERS.md: updated impact section and grant language with government-audited sources
+- Playwright test: `shelters-updated-column.spec.ts` verifies Updated column shows recent times
+
+---
+
 ## [v0.28.0] — 2026-04-02 — Demo Guard + Error Handling + SSE Cloudflare Fix
 
 ### Added
