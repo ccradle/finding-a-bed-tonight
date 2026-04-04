@@ -35,7 +35,7 @@ Three deployment tiers allow the same codebase to serve communities of vastly di
 | Events | Spring Events (Lite) / Kafka (Full) |
 | Auth | JWT + OAuth2/OIDC + API Keys (hybrid) |
 | Frontend | React 19, Vite, TypeScript, Workbox PWA (injectManifest), react-intl (EN/ES), CSS custom properties design tokens |
-| Testing | JUnit 5, Testcontainers, ArchUnit (378 tests), Playwright (231 UI tests), Vitest (15 unit tests), Karate (80 API scenarios), Gatling (8 simulations) |
+| Testing | JUnit 5, Testcontainers, ArchUnit (378 tests), Playwright (241 UI tests), Vitest (20 unit tests), Karate (75 API scenarios), Gatling (8 simulations) |
 | Infra | Docker, GitHub Actions CI/CD + E2E pipeline, Terraform (3 tiers) |
 
 ---
@@ -895,10 +895,10 @@ finding-a-bed-tonight/
 │       │   ├── db/migration/                          # 33 Flyway migrations (V1–V32 + V8.1)
 │       │   ├── logback-spring.xml                     # Structured JSON logging (Logstash encoder)
 │       │   └── messages/                              # i18n error messages (EN, ES)
-│       └── test/java/org/fabt/                        # 351 tests (unit + integration)
+│       └── test/java/org/fabt/                        # 378 tests (unit + integration)
 │           ├── BaseIntegrationTest.java               # Singleton Testcontainers PostgreSQL
 │           ├── TestAuthHelper.java                    # Per-role JWT helper for tests
-│           ├── ArchitectureTest.java                  # 21 ArchUnit module boundary rules
+│           ├── ArchitectureTest.java                  # 22 ArchUnit module boundary rules
 │           ├── availability/AvailabilityIntegrationTest.java  # 10 tests
 │           ├── surge/SurgeIntegrationTest.java         # 8 tests
 │           ├── availability/TestEventListener.java    # Captures DomainEvents for assertions
@@ -935,7 +935,7 @@ finding-a-bed-tonight/
 │           └── es.json                                # Spanish (100+ keys)
 │
 ├── e2e/                                               # End-to-end test suites
-│   ├── playwright/                                    # UI tests (231 tests, Chromium + nginx profile)
+│   ├── playwright/                                    # UI tests (241 tests, Chromium + nginx profile)
 │   │   ├── package.json                               # @playwright/test + TypeScript
 │   │   ├── playwright.config.ts                       # baseURL, workers, retries, HTML reporter
 │   │   ├── fixtures/auth.fixture.ts                   # Per-role storageState (admin, cocadmin, outreach)
