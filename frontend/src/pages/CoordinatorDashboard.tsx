@@ -363,7 +363,10 @@ export function CoordinatorDashboard() {
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
-                  <div style={{ fontSize: text.lg, fontWeight: weight.bold, color: color.text, marginBottom: 3 }}>{s.name}</div>
+                  <div style={{ fontSize: text.lg, fontWeight: weight.bold, color: color.text, marginBottom: 3 }}>
+                    {s.name}
+                    {s.dvShelter && <span data-testid={`dv-indicator-${s.id}`} style={{ display: 'none' }} />}
+                  </div>
                   <div style={{ fontSize: text.base, color: color.textTertiary, marginBottom: 6 }}>{fmtAddr(s)}</div>
                 </div>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>

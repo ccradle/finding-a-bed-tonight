@@ -20,6 +20,7 @@ const selectStyle: React.CSSProperties = {
 export function LocaleSelector({ locale, onLocaleChange }: LocaleSelectorProps) {
   return (
     <select
+      data-testid="locale-selector"
       value={locale}
       onChange={(e) => onLocaleChange(e.target.value)}
       style={selectStyle}
