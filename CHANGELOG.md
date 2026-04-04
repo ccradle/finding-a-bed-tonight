@@ -5,6 +5,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.29.1] — 2026-04-04 — Mobile Header + Dark Mode WCAG Contrast
+
+### Added
+- **Kebab overflow menu** on mobile (< 768px): notification bell and queue indicator stay visible, username/language/password/security/sign-out collapse into dropdown. (#55)
+- **App title shortens to "FABT"** on mobile via i18n key `app.nameShort` (same in en/es). Full title on desktop unchanged.
+- **16 Playwright tests** for mobile header: kebab interaction, Escape/Tab/click-outside, dark mode contrast, breakpoint boundaries (768/767), Galaxy S25 Ultra (480px), desktop regression.
+- `data-testid` on locale selector and DV shelter indicator for deploy verification scripts.
+
+### Fixed
+- **88 dark mode WCAG contrast violations → 0** across all routes. Root cause: `color.primary` (#0f62fe, 3.56:1) used as text color where `color.primaryText` (#78a9ff, 7.58:1) should be used. Fixed in AdminPanel (active tabs, role badges, role selector, DV filters), OutreachSearch (syncing text, population badges), CoordinatorDashboard (bed hold badges).
+- **`--color-text-muted`** bumped from #64748b (3.75:1) to #8494a7 (5.76:1) — comment claimed 4.5:1 but axe measured 3.75:1.
+- **ConnectionStatusBanner** reconnecting banner: white on amber (2.14:1) → dark text on amber (8.31:1).
+- **Dropdown clipped by `overflow-x: hidden`** — replaced with `position: relative; z-index: 100` on header. Lesson learned: always screenshot-verify UI changes, don't trust test pass alone.
+
+### Test Results
+- Backend: 384 tests, 0 failures
+- Playwright: 268 tests (203 full suite pass, 0 regressions)
+- Dark mode axe-core: 0 contrast violations across all 4 routes
+
+---
+
 ## [v0.29.0] — 2026-04-04 — DV Referral Expiration UI + README Accuracy + Audience Pages
 
 ### Added
