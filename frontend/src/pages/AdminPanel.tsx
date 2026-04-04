@@ -238,7 +238,7 @@ export function AdminPanel() {
               padding: '12px 18px', minHeight: 44, whiteSpace: 'nowrap',
               border: 'none', backgroundColor: 'transparent', cursor: 'pointer',
               fontSize: text.base, fontWeight: activeTab === tab.key ? weight.bold : weight.medium,
-              color: activeTab === tab.key ? color.primary : color.textTertiary,
+              color: activeTab === tab.key ? color.primaryText : color.textTertiary,
               borderBottom: activeTab === tab.key ? `3px solid ${color.primaryText}` : '3px solid transparent',
               marginBottom: -2, transition: 'color 0.12s, border-color 0.12s',
             }}
@@ -316,7 +316,7 @@ function RoleBadge({ role }: { role: string }) {
   return (
     <span style={{
       padding: '3px 8px', borderRadius: 6, fontSize: text['2xs'], fontWeight: weight.semibold,
-      backgroundColor: color.bgHighlight, color: color.primaryHover, marginRight: 4,
+      backgroundColor: color.bgHighlight, color: color.primaryText, marginRight: 4,
       border: `1px solid ${color.primaryLight}`,
     }}>{role}</span>
   );
@@ -506,7 +506,7 @@ function UsersTab() {
                     style={{
                       padding: '8px 14px', borderRadius: 8, border: `2px solid ${formRoles.includes(role) ? color.primary : color.border}`,
                       backgroundColor: formRoles.includes(role) ? color.bgHighlight : color.bg,
-                      color: formRoles.includes(role) ? color.primary : color.textTertiary,
+                      color: formRoles.includes(role) ? color.primaryText : color.textTertiary,
                       fontSize: text.sm, fontWeight: weight.semibold, cursor: 'pointer', minHeight: 40,
                     }}
                   >{role}</button>
@@ -2048,12 +2048,12 @@ function HmisExportTab() {
             <button onClick={() => setDvFilter(null)} style={{
               padding: '4px 10px', borderRadius: 6, border: `1px solid ${dvFilter === null ? color.primary : color.border}`,
               backgroundColor: dvFilter === null ? color.bgHighlight : color.bg, fontSize: text['2xs'], fontWeight: weight.semibold, cursor: 'pointer',
-              color: dvFilter === null ? color.primary : color.textTertiary,
+              color: dvFilter === null ? color.primaryText : color.textTertiary,
             }}>All</button>
             <button onClick={() => setDvFilter(false)} style={{
               padding: '4px 10px', borderRadius: 6, border: `1px solid ${dvFilter === false ? color.primary : color.border}`,
               backgroundColor: dvFilter === false ? color.bgHighlight : color.bg, fontSize: text['2xs'], fontWeight: weight.semibold, cursor: 'pointer',
-              color: dvFilter === false ? color.primary : color.textTertiary,
+              color: dvFilter === false ? color.primaryText : color.textTertiary,
             }}>Non-DV</button>
             <button onClick={() => setDvFilter(true)} style={{
               padding: '4px 10px', borderRadius: 6, border: `1px solid ${dvFilter === true ? color.dv : color.border}`,

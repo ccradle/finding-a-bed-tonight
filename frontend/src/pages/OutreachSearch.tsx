@@ -594,7 +594,7 @@ export function OutreachSearch() {
                           </span>
                         )}
                         {qh.status === 'SENDING' && (
-                          <span style={{ color: color.primary }}>
+                          <span style={{ color: color.primaryText }}>
                             &#8635; Syncing...
                           </span>
                         )}
@@ -961,7 +961,7 @@ export function OutreachSearch() {
                       {selectedShelter.constraints.populationTypesServed.map((pt) => (
                         <span key={pt} style={{
                           padding: '4px 10px', borderRadius: 6, fontSize: text.xs, fontWeight: weight.semibold,
-                          backgroundColor: color.bgHighlight, color: color.primaryHover,
+                          backgroundColor: color.bgHighlight, color: color.primaryText,
                         }}>{pt.replace(/_/g, ' ')}</span>
                       ))}
                     </div>

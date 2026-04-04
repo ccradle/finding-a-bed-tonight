@@ -628,7 +628,7 @@ export function CoordinatorDashboard() {
                       {editAvailability.filter(a => a.bedsOnHold > 0).map(a => (
                         <span key={a.populationType} style={{
                           padding: '4px 10px', borderRadius: 6, fontSize: text.xs, fontWeight: weight.semibold,
-                          backgroundColor: color.primaryLight, color: color.primaryHover,
+                          backgroundColor: color.primaryLight, color: color.primaryText,
                         }}>
                           {getPopulationTypeLabel(a.populationType, intl)}: {a.bedsOnHold} held
                         </span>
