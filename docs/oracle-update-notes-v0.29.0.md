@@ -29,20 +29,25 @@ Nginx serves these via `try_files` — no restart needed after copying.
 
 ```bash
 # From your local machine (Windows / Git Bash):
-scp -i ~/.ssh/fabt-oracle \
-  /c/Development/findABed/index.html \
-  ubuntu@150.136.221.232:/var/www/findabed-docs/index.html
 
+# Audience pages + for-cities.html (resync)
 scp -i ~/.ssh/fabt-oracle \
   /c/Development/findABed/demo/for-coordinators.html \
   /c/Development/findABed/demo/for-coc-admins.html \
   /c/Development/findABed/demo/for-funders.html \
+  /c/Development/findABed/demo/for-cities.html \
   ubuntu@150.136.221.232:/var/www/findabed-docs/demo/
+
+# Homepage + sitemap (updated links and new page entries)
+scp -i ~/.ssh/fabt-oracle \
+  /c/Development/findABed/index.html \
+  /c/Development/findABed/sitemap.xml \
+  ubuntu@150.136.221.232:/var/www/findabed-docs/
 
 # Verify on VM:
 ssh -i ~/.ssh/fabt-oracle ubuntu@150.136.221.232 \
-  "ls -la /var/www/findabed-docs/demo/for-*.html"
-# Expected: 4 files (for-cities.html already exists, 3 new)
+  "ls -la /var/www/findabed-docs/demo/for-*.html && echo '---' && grep 'for-' /var/www/findabed-docs/sitemap.xml"
+# Expected: 4 for-*.html files, 4 sitemap entries
 ```
 
 ### Step 2: Application code (backend + frontend)
@@ -103,6 +108,10 @@ curl -s -o /dev/null -w "%{http_code}" https://findabed.org/demo/for-funders.htm
 curl -s https://findabed.org/index.html | grep -c "github.com/ccradle.*FOR-"
 # Expected: 0
 
+# 4. Sitemap includes new audience pages
+curl -s https://findabed.org/sitemap.xml | grep -c "for-"
+# Expected: 4 (coordinators, coc-admins, cities, funders)
+
 # 4. DV referral expiration — verify SSE event type is registered
 # (functional test: create referral via UI, wait for countdown to appear)
 
@@ -142,6 +151,12 @@ docker compose --env-file ~/fabt-secrets/.env.prod \
 ```
 
 ---
+
+## Reference: Cloudflare cache purge
+
+**When needed:** Only if Cloudflare starts caching static HTML (currently `cf-cache-status: DYNAMIC` — not cached).
+**Method:** Cloudflare Dashboard → findabed.org → Caching → Purge Cache → Custom Purge → enter URLs.
+**sw.js:** No longer needs purging — nginx serves with `no-cache` headers since v0.28.2.
 
 ## Reference: Static content deployment
 
