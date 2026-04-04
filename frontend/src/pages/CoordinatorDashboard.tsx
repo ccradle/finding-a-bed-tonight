@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import { api } from '../services/api';
 import { enqueueAction } from '../services/offlineQueue';
@@ -117,6 +117,36 @@ export function CoordinatorDashboard() {
       .catch(() => {});
   }, []);
 
+  // Countdown timer for pending referrals (Design D1: client-side timer)
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => {
+    if (pendingReferrals.some(r => r.remainingSeconds != null && r.remainingSeconds > 0)) {
+      countdownRef.current = setInterval(() => {
+        setPendingReferrals(prev => prev.map(r => ({
+          ...r,
+          remainingSeconds: r.remainingSeconds != null ? Math.max(0, r.remainingSeconds - 1) : null,
+        })));
+      }, 1000);
+    }
+    return () => { if (countdownRef.current) clearInterval(countdownRef.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingReferrals.length]);
+
+  // SSE listener for dv-referral.expired events (Design D6)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      const expiredIds: string[] = detail?.tokenIds || [];
+      if (expiredIds.length > 0) {
+        setPendingReferrals(prev => prev.map(r =>
+          expiredIds.includes(r.id) ? { ...r, remainingSeconds: 0 } : r
+        ));
+      }
+    };
+    window.addEventListener('fabt:referral-expired', handler);
+    return () => window.removeEventListener('fabt:referral-expired', handler);
+  }, []);
+
   const fmtAddr = (s: Shelter) =>
     [s.addressStreet, s.addressCity, s.addressState, s.addressZip].filter(Boolean).join(', ');
 
@@ -164,7 +194,12 @@ export function CoordinatorDashboard() {
       setPendingReferrals(prev => prev.filter(r => r.id !== tokenId));
     } catch (err: unknown) {
       const apiErr = err as { message?: string };
-      setError(apiErr.message || intl.formatMessage({ id: 'coord.error' }));
+      if (apiErr.message?.includes('expired')) {
+        setError(intl.formatMessage({ id: 'referral.expiredError' }));
+        setPendingReferrals(prev => prev.map(r => r.id === tokenId ? { ...r, remainingSeconds: 0 } : r));
+      } else {
+        setError(apiErr.message || intl.formatMessage({ id: 'coord.error' }));
+      }
     }
   };
 
@@ -177,7 +212,14 @@ export function CoordinatorDashboard() {
       setRejectReason('');
     } catch (err: unknown) {
       const apiErr = err as { message?: string };
-      setError(apiErr.message || intl.formatMessage({ id: 'coord.error' }));
+      if (apiErr.message?.includes('expired')) {
+        setError(intl.formatMessage({ id: 'referral.expiredError' }));
+        setPendingReferrals(prev => prev.map(r => r.id === tokenId ? { ...r, remainingSeconds: 0 } : r));
+        setRejectingId(null);
+        setRejectReason('');
+      } else {
+        setError(apiErr.message || intl.formatMessage({ id: 'coord.error' }));
+      }
     }
   };
 
@@ -504,9 +546,20 @@ export function CoordinatorDashboard() {
                             }}>{ref.urgency}</span>
                           </div>
                           {ref.remainingSeconds != null && (
-                            <span style={{ fontSize: text['2xs'], color: color.textTertiary }}>
-                              {Math.floor(ref.remainingSeconds / 60)}m remaining
-                            </span>
+                            ref.remainingSeconds <= 0 ? (
+                              <span data-testid={`referral-expired-badge-${ref.id}`} style={{
+                                padding: '2px 8px', borderRadius: 4, fontSize: text['2xs'], fontWeight: weight.bold,
+                                backgroundColor: color.errorBg, color: color.error,
+                              }}>
+                                <FormattedMessage id="referral.expired" />
+                              </span>
+                            ) : (
+                              <span data-testid={`referral-countdown-${ref.id}`} style={{ fontSize: text['2xs'], color: color.textTertiary }}>
+                                {ref.remainingSeconds < 300
+                                  ? intl.formatMessage({ id: 'referral.remainingMinutesSeconds' }, { minutes: Math.floor(ref.remainingSeconds / 60), seconds: ref.remainingSeconds % 60 })
+                                  : intl.formatMessage({ id: 'referral.remainingMinutes' }, { minutes: Math.floor(ref.remainingSeconds / 60) })}
+                              </span>
+                            )
                           )}
                         </div>
                         {ref.specialNeeds && (
@@ -518,7 +571,9 @@ export function CoordinatorDashboard() {
                           <FormattedMessage id="referral.callbackLabel" />: {ref.callbackNumber}
                         </div>
 
-                        {rejectingId === ref.id ? (
+                        {(() => {
+                          const isExpired = ref.remainingSeconds != null && ref.remainingSeconds <= 0;
+                          return rejectingId === ref.id && !isExpired ? (
                           <div style={{ display: 'flex', gap: 6 }}>
                             <input data-testid={`reject-reason-${ref.id}`}
                               type="text" value={rejectReason}
@@ -539,16 +594,19 @@ export function CoordinatorDashboard() {
                           <div style={{ display: 'flex', gap: 6 }}>
                             <button data-testid={`accept-referral-${ref.id}`}
                               onClick={() => acceptReferral(ref.id)}
-                              style={{ padding: '6px 12px', borderRadius: 6, border: 'none', backgroundColor: color.success, color: color.textInverse, fontSize: text['2xs'], fontWeight: weight.bold, cursor: 'pointer' }}>
+                              disabled={isExpired}
+                              style={{ padding: '6px 12px', borderRadius: 6, border: 'none', backgroundColor: isExpired ? color.textTertiary : color.success, color: color.textInverse, fontSize: text['2xs'], fontWeight: weight.bold, cursor: isExpired ? 'not-allowed' : 'pointer', opacity: isExpired ? 0.5 : 1 }}>
                               <FormattedMessage id="referral.accept" />
                             </button>
                             <button data-testid={`reject-referral-${ref.id}`}
                               onClick={() => setRejectingId(ref.id)}
-                              style={{ padding: '6px 12px', borderRadius: 6, border: `1px solid ${color.errorMid}`, backgroundColor: color.bg, color: color.errorMid, fontSize: text['2xs'], fontWeight: weight.bold, cursor: 'pointer' }}>
+                              disabled={isExpired}
+                              style={{ padding: '6px 12px', borderRadius: 6, border: `1px solid ${isExpired ? color.textTertiary : color.errorMid}`, backgroundColor: color.bg, color: isExpired ? color.textTertiary : color.errorMid, fontSize: text['2xs'], fontWeight: weight.bold, cursor: isExpired ? 'not-allowed' : 'pointer', opacity: isExpired ? 0.5 : 1 }}>
                               <FormattedMessage id="referral.reject" />
                             </button>
                           </div>
-                        )}
+                        );
+                        })()}
                       </div>
                     ))}
                   </div>

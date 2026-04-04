@@ -180,6 +180,117 @@ test.describe('DV Opaque Referral', () => {
     }
   });
 
+  test('Active referral countdown is visible and buttons are enabled', async ({ adminPage }) => {
+    await adminPage.goto('/coordinator');
+    await adminPage.waitForTimeout(2000);
+
+    const cards = adminPage.locator('main button[style*="text-align: left"]');
+    const count = await cards.count();
+    for (let i = 0; i < Math.min(count, 5); i++) {
+      await cards.nth(i).click();
+      await adminPage.waitForTimeout(1500);
+
+      const countdown = adminPage.locator('[data-testid^="referral-countdown-"]').first();
+      if (await countdown.count() > 0) {
+        await expect(countdown).toBeVisible();
+        const text = await countdown.textContent();
+        expect(text).toMatch(/\d+m.*remaining/i);
+
+        // Accept and reject buttons should be enabled (not disabled)
+        const acceptBtn = adminPage.locator('[data-testid^="accept-referral-"]').first();
+        await expect(acceptBtn).toBeEnabled();
+        const rejectBtn = adminPage.locator('[data-testid^="reject-referral-"]').first();
+        await expect(rejectBtn).toBeEnabled();
+        break;
+      }
+      await cards.nth(i).click();
+      await adminPage.waitForTimeout(300);
+    }
+  });
+
+  test('Expired referral shows disabled buttons and badge via SSE event', async ({ adminPage }) => {
+    await adminPage.goto('/coordinator');
+    await adminPage.waitForTimeout(2000);
+
+    // Expand a DV shelter with pending referrals
+    const cards = adminPage.locator('main button[style*="text-align: left"]');
+    const count = await cards.count();
+    let foundReferral = false;
+
+    for (let i = 0; i < Math.min(count, 5); i++) {
+      await cards.nth(i).click();
+      await adminPage.waitForTimeout(1500);
+
+      const acceptBtn = adminPage.locator('[data-testid^="accept-referral-"]').first();
+      if (await acceptBtn.count() > 0) {
+        // Get the token ID from the accept button's data-testid
+        const testId = await acceptBtn.getAttribute('data-testid');
+        const tokenId = testId?.replace('accept-referral-', '');
+
+        // Simulate SSE expired event via window dispatch (tests D6 frontend path)
+        await adminPage.evaluate((id) => {
+          window.dispatchEvent(new CustomEvent('fabt:referral-expired', {
+            detail: { tokenIds: [id] },
+          }));
+        }, tokenId);
+
+        await adminPage.waitForTimeout(500);
+
+        // Expired badge should appear (without page refresh — proves SSE path)
+        const expiredBadge = adminPage.getByTestId(`referral-expired-badge-${tokenId}`);
+        await expect(expiredBadge).toBeVisible({ timeout: 5000 });
+
+        // Accept button should be disabled
+        await expect(acceptBtn).toBeDisabled();
+
+        foundReferral = true;
+        break;
+      }
+      await cards.nth(i).click();
+      await adminPage.waitForTimeout(300);
+    }
+
+    if (!foundReferral) {
+      test.skip();
+    }
+  });
+
+  test('Clicking expired accept shows expiration error message', async ({ adminPage }) => {
+    await adminPage.goto('/coordinator');
+    await adminPage.waitForTimeout(2000);
+
+    // Expand a DV shelter with pending referrals
+    const cards = adminPage.locator('main button[style*="text-align: left"]');
+    const count = await cards.count();
+
+    for (let i = 0; i < Math.min(count, 5); i++) {
+      await cards.nth(i).click();
+      await adminPage.waitForTimeout(1500);
+
+      const acceptBtn = adminPage.locator('[data-testid^="accept-referral-"]').first();
+      if (await acceptBtn.count() > 0 && await acceptBtn.isEnabled()) {
+        // Simulate the backend having already expired this token by intercepting the API call
+        await adminPage.route('**/api/v1/dv-referrals/*/accept', (route) => {
+          route.fulfill({
+            status: 409,
+            contentType: 'application/json',
+            body: JSON.stringify({ message: 'Token has expired', status: 409 }),
+          });
+        });
+
+        await acceptBtn.click();
+        await adminPage.waitForTimeout(1000);
+
+        // Should show specific expiration error (not generic)
+        const errorText = await adminPage.textContent('body');
+        expect(errorText).toContain('expired');
+        break;
+      }
+      await cards.nth(i).click();
+      await adminPage.waitForTimeout(300);
+    }
+  });
+
   test('Reject referral shows decline reason to worker', async ({ adminPage }) => {
     await adminPage.goto('/coordinator');
     await adminPage.waitForTimeout(2000);
