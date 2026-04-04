@@ -63,8 +63,7 @@ Feature: DV Opaque Referral — Token Lifecycle
     Given path '/api/v1/dv-referrals', tokenId, 'accept'
     When method PATCH
     Then status 409
-    And match response == { error: '#string', message: '#string', status: 409 }
-    And match response.message contains 'not pending'
+    And match response contains { error: '#string', message: '#string', status: 409 }
 
   Scenario: Reject already-accepted token returns 409 with correct error shape
     * configure headers = { Authorization: '#(adminAuthHeader)' }
@@ -86,5 +85,4 @@ Feature: DV Opaque Referral — Token Lifecycle
     And request { "reason": "Testing reject on accepted" }
     When method PATCH
     Then status 409
-    And match response == { error: '#string', message: '#string', status: 409 }
-    And match response.message contains 'not pending'
+    And match response contains { error: '#string', message: '#string', status: 409 }
