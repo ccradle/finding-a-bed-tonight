@@ -135,7 +135,7 @@ public class OfflineReplaySimulation extends FabtSimulation {
                             .header("Authorization", "Bearer " + OUTREACH_TOKEN)
                             .header("X-Idempotency-Key", "#{idempotencyKey}")
                             .body(StringBody(String.format(
-                                    "{\"shelterId\":\"%s\",\"populationType\":\"SINGLE_ADULT\"}",
+                                    "{\"shelterId\":\"%s\",\"populationType\":\"FAMILY_WITH_CHILDREN\"}",
                                     MIXED_SHELTER)))
                             .check(status().in(201, 409))
             )
@@ -145,7 +145,7 @@ public class OfflineReplaySimulation extends FabtSimulation {
                     http("PATCH availability (mixed - update)")
                             .patch(String.format("/api/v1/shelters/%s/availability", MIXED_SHELTER))
                             .header("Authorization", "Bearer " + COCADMIN_TOKEN)
-                            .body(StringBody("{\"populationType\":\"SINGLE_ADULT\",\"bedsTotal\":50,\"bedsOccupied\":#{occupied},\"bedsOnHold\":0,\"acceptingNewGuests\":true}"))
+                            .body(StringBody("{\"populationType\":\"FAMILY_WITH_CHILDREN\",\"bedsTotal\":50,\"bedsOccupied\":#{occupied},\"bedsOnHold\":0,\"acceptingNewGuests\":true}"))
                             .check(status().is(200))
             )
             .pause(Duration.ofMillis(100))
