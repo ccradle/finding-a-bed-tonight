@@ -5,6 +5,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.29.0] — 2026-04-04 — DV Referral Expiration UI + README Accuracy + Audience Pages
+
+### Added
+- **DV referral countdown timer** on coordinator dashboard — live decrementing display with format switch at 5 minutes (`{N}m remaining` → `{M}m {S}s remaining`). (#31)
+- **Expired referral badge** — disabled Accept/Reject buttons with "Expired" badge when countdown reaches zero or SSE expiration event received. Design decision: disable, don't hide (Smashing Magazine UX research). (#31)
+- **SSE `dv-referral.expired` event** — backend publishes via `UPDATE...RETURNING` (atomic, no race condition), NotificationService pushes to coordinators, useNotifications.ts hook dispatches window event. (#31)
+- **Specific error handling** for expired token API responses — shows i18n expiration message instead of generic error. (#31)
+- **i18n** for all expiration text: `referral.expired`, `referral.expiredError`, `referral.remainingMinutes`, `referral.remainingMinutesSeconds` in en.json and es.json. (#31)
+- **3 audience HTML pages** — `demo/for-coordinators.html`, `demo/for-coc-admins.html`, `demo/for-funders.html` following `for-cities.html` template (FAQ schema, OG tags, dark mode, WCAG). (#39)
+- **Audience-specific card link text** — "Quick Start Guide", "Admin Overview", "Impact Report" instead of generic "Read more". (#39)
+- **9 axe-core accessibility tests** for audience pages (a11y scan, skip links, FAQ schema). (#39)
+- **2 Karate API contract tests** — 409 response shape for non-pending token actions. (#31)
+- **7 Playwright tests** — countdown timer, expired badge via SSE, expired accept/reject errors, format switch, Spanish locale verification. (#31)
+
+### Fixed
+- **README test counts** — Flyway 30→33, Karate 73→75, Playwright 217→241, ArchUnit 351→378, Vitest 15→20. Fixed in README.md and all 7 locations in FOR-DEVELOPERS.md. (#40)
+- **ArchUnit rule count** — internal consistency fix (line 66 said 21, line 1257 said 22, both now 22). (#40)
+- **README version** — was stuck at v0.27.0, now v0.29.0. (#40)
+- **GitHub markdown links** — 3 "Who It's For" cards on findabed.org no longer link to github.com. (#39)
+
+### Test Results
+- Backend: 384 tests (356 @Test + 22 @ArchTest + 6 parameterized), 0 failures
+- Playwright: 241 tests, 0 regressions
+- Karate: 75 API scenarios
+
+---
+
 ## [v0.28.3] — 2026-04-03 — Availability Validation + Test Cleanup
 
 ### Added

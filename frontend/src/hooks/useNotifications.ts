@@ -23,6 +23,7 @@ const MAX_NOTIFICATIONS = 50;
 
 /** Custom events dispatched on window for page-level refresh triggers */
 export const SSE_REFERRAL_UPDATE = 'fabt:referral-update';
+export const SSE_REFERRAL_EXPIRED = 'fabt:referral-expired';
 export const SSE_AVAILABILITY_UPDATE = 'fabt:availability-update';
 
 /**
@@ -119,6 +120,14 @@ export function useNotifications(): UseNotificationsReturn {
               const referralData = JSON.parse(ev.data);
               addNotification(ev.event, referralData, ev.id);
               window.dispatchEvent(new Event(SSE_REFERRAL_UPDATE));
+            } catch { /* malformed event */ }
+            break;
+
+          case 'dv-referral.expired':
+            try {
+              const expiredData = JSON.parse(ev.data);
+              addNotification(ev.event, expiredData, ev.id);
+              window.dispatchEvent(new CustomEvent(SSE_REFERRAL_EXPIRED, { detail: expiredData }));
             } catch { /* malformed event */ }
             break;
 

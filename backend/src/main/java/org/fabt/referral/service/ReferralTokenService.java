@@ -208,12 +208,16 @@ public class ReferralTokenService {
     @Transactional
     public void expireTokens() {
         TenantContext.runWithContext(TenantContext.getTenantId(), true, () -> {
-            int expired = repository.expirePendingTokens();
-            if (expired > 0) {
-                for (int i = 0; i < expired; i++) {
-                    dvReferralCounter("expired").increment();
-                }
-                log.info("Expired {} DV referral tokens", expired);
+            List<UUID> expiredIds = repository.expirePendingTokensReturningIds();
+            if (!expiredIds.isEmpty()) {
+                expiredIds.forEach(id -> dvReferralCounter("expired").increment());
+
+                Map<String, Object> payload = new HashMap<>();
+                payload.put("token_ids", expiredIds.stream().map(UUID::toString).toList());
+                eventBus.publish(new DomainEvent("dv-referral.expired",
+                        TenantContext.getTenantId(), payload));
+
+                log.info("Expired {} DV referral tokens: {}", expiredIds.size(), expiredIds);
             }
         });
     }

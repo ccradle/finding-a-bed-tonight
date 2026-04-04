@@ -57,16 +57,16 @@ Full setup guide: [For Developers](docs/FOR-DEVELOPERS.md#prerequisites)
 | Layer | Technology |
 |---|---|
 | Backend | Java 25, Spring Boot 4.0, Spring MVC, Spring Data JDBC, Virtual Threads |
-| Database | PostgreSQL 16, Flyway (30 migrations), Row Level Security (DV shelters) |
+| Database | PostgreSQL 16, Flyway (33 migrations), Row Level Security (DV shelters) |
 | Frontend | React 19, Vite, TypeScript, Workbox PWA (injectManifest), react-intl (EN/ES), CSS custom properties design tokens |
-| Testing | JUnit 5, Testcontainers, ArchUnit (351 tests), Playwright (217 UI tests), Vitest (15 unit tests), Karate (73 API scenarios), Gatling (8 simulations) |
+| Testing | JUnit 5, Testcontainers, ArchUnit (378 tests), Playwright (241 UI tests), Vitest (20 unit tests), Karate (75 API scenarios), Gatling (8 simulations) |
 | Infra | Docker, GitHub Actions CI/CD + E2E pipeline, Terraform (3 tiers) |
 
 ---
 
 ## What's Complete
 
-**Current version: v0.27.0** — 38 archived OpenSpec changes, 88 specs, 13 modules.
+**Current version: v0.29.0** — 40 archived OpenSpec changes, 93 specs, 13 modules.
 
 - Real-time bed search with freshness indicators and constraint filters
 - Soft-hold reservations with configurable hold duration (default 90 min)

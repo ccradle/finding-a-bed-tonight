@@ -87,9 +87,10 @@ public class ReferralTokenRepository {
                 status, respondedBy, rejectionReason, id);
     }
 
-    public int expirePendingTokens() {
-        return jdbcTemplate.update(
-                "UPDATE referral_token SET status = 'EXPIRED' WHERE status = 'PENDING' AND expires_at < NOW()");
+    public List<UUID> expirePendingTokensReturningIds() {
+        return jdbcTemplate.queryForList(
+                "UPDATE referral_token SET status = 'EXPIRED' WHERE status = 'PENDING' AND expires_at < NOW() RETURNING id",
+                UUID.class);
     }
 
     public int purgeTerminalTokens(Instant olderThan) {

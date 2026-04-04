@@ -179,6 +179,7 @@ public class NotificationService {
         switch (event.type()) {
             case "dv-referral.responded" -> notifyReferralResponse(event);
             case "dv-referral.requested" -> notifyReferralRequest(event);
+            case "dv-referral.expired" -> notifyReferralExpired(event);
             case "availability.updated" -> notifyAvailabilityUpdate(event);
             default -> { /* Other events not pushed via SSE */ }
         }
@@ -260,6 +261,25 @@ public class NotificationService {
             if (!hasRole(entry.roles(), "COORDINATOR")) return;
 
             sendAndBufferEvent(entry, "dv-referral.requested", ssePayload, tenantId, true);
+        });
+    }
+
+    /**
+     * dv-referral.expired → coordinators in same tenant.
+     * Payload: list of expired token IDs (no client PII).
+     */
+    private void notifyReferralExpired(DomainEvent event) {
+        UUID tenantId = event.tenantId();
+        Map<String, Object> payload = event.payload();
+
+        Map<String, Object> ssePayload = new java.util.LinkedHashMap<>();
+        ssePayload.put("tokenIds", payload.get("token_ids"));
+
+        emitters.forEach((userId, entry) -> {
+            if (!entry.tenantId().equals(tenantId)) return;
+            if (!hasRole(entry.roles(), "COORDINATOR")) return;
+
+            sendAndBufferEvent(entry, "dv-referral.expired", ssePayload, tenantId, false);
         });
     }
 
