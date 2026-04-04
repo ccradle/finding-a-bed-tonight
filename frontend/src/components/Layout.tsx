@@ -79,6 +79,9 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
   const { notifications, unreadCount, markRead, markAllRead, dismiss, connected } = useNotifications();
   const [queueSize, setQueueSize] = useState(0);
   const [appVersion, setAppVersion] = useState<string | null>(null);
+  const [kebabOpen, setKebabOpen] = useState(false);
+  const kebabRef = useRef<HTMLDivElement>(null);
+  const kebabButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     api.get<{ version: string }>('/api/v1/version')
@@ -166,6 +169,31 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
     navigate('/login');
   };
 
+  // Kebab menu: click-outside to close (Design D4)
+  useEffect(() => {
+    if (!kebabOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (kebabRef.current && !kebabRef.current.contains(e.target as Node)) {
+        setKebabOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [kebabOpen]);
+
+  // Kebab menu: Escape to close + return focus (Design D4)
+  useEffect(() => {
+    if (!kebabOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setKebabOpen(false);
+        kebabButtonRef.current?.focus();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [kebabOpen]);
+
   const isActive = (path: string) => location.pathname.startsWith(path);
 
   // Route announcer — announces page changes to screen readers (WCAG 2.4.3, D2)
@@ -247,29 +275,34 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          padding: '12px 20px',
+          padding: isMobile ? '8px 12px' : '12px 20px',
           backgroundColor: color.headerBg,
           color: color.headerText,
           minHeight: '56px',
+          position: 'relative',
+          zIndex: 100,
         }}
       >
-        <h1 style={{ margin: 0, fontSize: text.lg, fontWeight: weight.bold }}>
+        <h1 style={{ margin: 0, fontSize: text.lg, fontWeight: weight.bold, whiteSpace: isMobile ? 'nowrap' : undefined }}>
           <a
             href="#"
             onClick={(e) => { e.preventDefault(); navigate(user ? getDefaultRouteForRoles(user.roles) : '/'); }}
             style={{ color: color.headerText, textDecoration: 'none', cursor: 'pointer' }}
             aria-label="Finding A Bed Tonight — go to home page"
           >
-            <FormattedMessage id="app.name" />
+            {isMobile ? <FormattedMessage id="app.nameShort" /> : <FormattedMessage id="app.name" />}
           </a>
         </h1>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          {user && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '8px' : '12px' }}>
+          {/* Desktop-only inline controls */}
+          {!isMobile && user && (
             <span style={{ fontSize: text.base, color: color.headerText }}>
               {user.displayName || user.tenantName || ''}
             </span>
           )}
-          <LocaleSelector locale={locale} onLocaleChange={onLocaleChange} />
+          {!isMobile && <LocaleSelector locale={locale} onLocaleChange={onLocaleChange} />}
+
+          {/* Always visible: queue indicator + notification bell */}
           <QueueStatusIndicator count={queueSize} />
           <NotificationBell
             notifications={notifications}
@@ -278,57 +311,192 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
             onMarkAllRead={markAllRead}
             onDismiss={dismiss}
           />
-          <button
-            onClick={() => setChangePasswordOpen(true)}
-            aria-label={intl.formatMessage({ id: 'password.change.title' })}
-            data-testid="change-password-button"
-            style={{
-              padding: '8px 16px',
-              backgroundColor: 'transparent',
-              color: color.headerText,
-              border: '1px solid rgba(255,255,255,0.3)',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              fontSize: text.base,
-              minHeight: '44px',
-              minWidth: '44px',
-            }}
-          >
-            <FormattedMessage id="password.change.button" />
-          </button>
-          <button
-            onClick={() => navigate('/settings/totp')}
-            data-testid="totp-settings-button"
-            style={{
-              padding: '8px 16px',
-              backgroundColor: 'transparent',
-              color: color.headerText,
-              border: '1px solid rgba(255,255,255,0.3)',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              fontSize: text.base,
-              minHeight: '44px',
-              minWidth: '44px',
-            }}
-          >
-            <FormattedMessage id="totp.settingsButton" defaultMessage="Security" />
-          </button>
-          <button
-            onClick={handleLogout}
-            style={{
-              padding: '8px 16px',
-              backgroundColor: 'transparent',
-              color: color.headerText,
-              border: '1px solid rgba(255,255,255,0.5)',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              fontSize: text.base,
-              minHeight: '44px',
-              minWidth: '44px',
-            }}
-          >
-            <FormattedMessage id="nav.logout" />
-          </button>
+
+          {/* Desktop-only inline buttons */}
+          {!isMobile && (
+            <>
+              <button
+                onClick={() => setChangePasswordOpen(true)}
+                aria-label={intl.formatMessage({ id: 'password.change.title' })}
+                data-testid="change-password-button"
+                style={{
+                  padding: '8px 16px',
+                  backgroundColor: 'transparent',
+                  color: color.headerText,
+                  border: '1px solid rgba(255,255,255,0.3)',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontSize: text.base,
+                  minHeight: '44px',
+                  minWidth: '44px',
+                }}
+              >
+                <FormattedMessage id="password.change.button" />
+              </button>
+              <button
+                onClick={() => navigate('/settings/totp')}
+                data-testid="totp-settings-button"
+                style={{
+                  padding: '8px 16px',
+                  backgroundColor: 'transparent',
+                  color: color.headerText,
+                  border: '1px solid rgba(255,255,255,0.3)',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontSize: text.base,
+                  minHeight: '44px',
+                  minWidth: '44px',
+                }}
+              >
+                <FormattedMessage id="totp.settingsButton" defaultMessage="Security" />
+              </button>
+              <button
+                onClick={handleLogout}
+                style={{
+                  padding: '8px 16px',
+                  backgroundColor: 'transparent',
+                  color: color.headerText,
+                  border: '1px solid rgba(255,255,255,0.5)',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontSize: text.base,
+                  minHeight: '44px',
+                  minWidth: '44px',
+                }}
+              >
+                <FormattedMessage id="nav.logout" />
+              </button>
+            </>
+          )}
+
+          {/* Mobile kebab overflow menu */}
+          {isMobile && (
+            <div ref={kebabRef} style={{ position: 'relative' }}>
+              <button
+                ref={kebabButtonRef}
+                data-testid="header-kebab-menu"
+                onClick={() => setKebabOpen(!kebabOpen)}
+                aria-label="Menu"
+                aria-expanded={kebabOpen}
+                style={{
+                  padding: '8px',
+                  backgroundColor: 'transparent',
+                  color: color.headerText,
+                  border: '1px solid rgba(255,255,255,0.3)',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontSize: '20px',
+                  lineHeight: 1,
+                  minHeight: '44px',
+                  minWidth: '44px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                ⋮
+              </button>
+              {kebabOpen && (
+                <div
+                  data-testid="header-overflow-dropdown"
+                  role="menu"
+                  style={{
+                    position: 'absolute',
+                    top: '100%',
+                    right: 0,
+                    marginTop: '4px',
+                    backgroundColor: color.bg,
+                    border: `1px solid ${color.border}`,
+                    borderRadius: '8px',
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                    minWidth: '200px',
+                    zIndex: 1000,
+                    padding: '4px 0',
+                  }}
+                >
+                  {/* Username display */}
+                  {user && (
+                    <div
+                      data-testid="header-overflow-username"
+                      style={{
+                        padding: '12px 16px',
+                        fontSize: text.sm,
+                        color: color.textTertiary,
+                        borderBottom: `1px solid ${color.border}`,
+                      }}
+                    >
+                      {user.displayName || user.tenantName || ''}
+                    </div>
+                  )}
+                  {/* Language selector */}
+                  <div style={{ padding: '8px 16px', minHeight: '44px', display: 'flex', alignItems: 'center' }}>
+                    <LocaleSelector locale={locale} onLocaleChange={onLocaleChange} />
+                  </div>
+                  {/* Change Password */}
+                  <button
+                    data-testid="header-overflow-password"
+                    role="menuitem"
+                    onClick={() => { setKebabOpen(false); setChangePasswordOpen(true); }}
+                    style={{
+                      display: 'block',
+                      width: '100%',
+                      padding: '12px 16px',
+                      backgroundColor: 'transparent',
+                      border: 'none',
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      fontSize: text.base,
+                      color: color.text,
+                      minHeight: '44px',
+                    }}
+                  >
+                    <FormattedMessage id="password.change.button" />
+                  </button>
+                  {/* Security */}
+                  <button
+                    data-testid="header-overflow-security"
+                    role="menuitem"
+                    onClick={() => { setKebabOpen(false); navigate('/settings/totp'); }}
+                    style={{
+                      display: 'block',
+                      width: '100%',
+                      padding: '12px 16px',
+                      backgroundColor: 'transparent',
+                      border: 'none',
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      fontSize: text.base,
+                      color: color.text,
+                      minHeight: '44px',
+                    }}
+                  >
+                    <FormattedMessage id="totp.settingsButton" defaultMessage="Security" />
+                  </button>
+                  {/* Sign Out */}
+                  <button
+                    data-testid="header-overflow-signout"
+                    role="menuitem"
+                    onClick={() => { setKebabOpen(false); handleLogout(); }}
+                    style={{
+                      display: 'block',
+                      width: '100%',
+                      padding: '12px 16px',
+                      backgroundColor: 'transparent',
+                      border: 'none',
+                      borderTop: `1px solid ${color.border}`,
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      fontSize: text.base,
+                      color: color.error,
+                      minHeight: '44px',
+                    }}
+                  >
+                    <FormattedMessage id="nav.logout" />
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </header>
 

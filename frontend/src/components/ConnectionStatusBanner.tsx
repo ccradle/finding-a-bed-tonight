@@ -89,7 +89,7 @@ export function ConnectionStatusBanner({ connected }: ConnectionStatusBannerProp
       style={{
         padding: '8px 20px',
         backgroundColor: color.warningMid,
-        color: color.textInverse,
+        color: color.text,
         fontSize: text.sm,
         fontWeight: weight.semibold,
         textAlign: 'center',
