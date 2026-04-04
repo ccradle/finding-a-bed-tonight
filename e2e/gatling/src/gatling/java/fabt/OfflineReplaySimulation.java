@@ -35,9 +35,9 @@ import static io.gatling.javaapi.http.HttpDsl.status;
  */
 public class OfflineReplaySimulation extends FabtSimulation {
 
-    // Use a real shelter with availability
-    private static final String TARGET_SHELTER = "d0000000-0000-0000-0000-000000000002"; // Capital Boulevard Family Center
-    private static final String MIXED_SHELTER = "d0000000-0000-0000-0000-000000000004"; // Oak City Community Shelter
+    // Use real shelters with matching population types for their constraints
+    private static final String TARGET_SHELTER = "d0000000-0000-0000-0000-000000000004"; // Oak City Community Shelter (SINGLE_ADULT)
+    private static final String MIXED_SHELTER = "d0000000-0000-0000-0000-000000000001"; // Crabtree Valley Family Haven (FAMILY_WITH_CHILDREN)
 
     // Track idempotency keys for verification
     private static final AtomicInteger holdCount = new AtomicInteger(0);
@@ -89,7 +89,7 @@ public class OfflineReplaySimulation extends FabtSimulation {
                             .header("Authorization", "Bearer " + OUTREACH_TOKEN)
                             .header("X-Idempotency-Key", IDEMPOTENT_KEY)
                             .body(StringBody(String.format(
-                                    "{\"shelterId\":\"%s\",\"populationType\":\"YOUTH_18_24\"}",
+                                    "{\"shelterId\":\"%s\",\"populationType\":\"SINGLE_ADULT\"}",
                                     TARGET_SHELTER)))
                             .check(status().in(201, 409))
             )
@@ -102,7 +102,7 @@ public class OfflineReplaySimulation extends FabtSimulation {
                                     .header("Authorization", "Bearer " + OUTREACH_TOKEN)
                                     .header("X-Idempotency-Key", IDEMPOTENT_KEY)
                                     .body(StringBody(String.format(
-                                            "{\"shelterId\":\"%s\",\"populationType\":\"YOUTH_18_24\"}",
+                                            "{\"shelterId\":\"%s\",\"populationType\":\"SINGLE_ADULT\"}",
                                             TARGET_SHELTER)))
                                     .check(status().in(200, 409)) // 200 = idempotent match, 409 = beds gone
                     ).pause(Duration.ofMillis(20))
