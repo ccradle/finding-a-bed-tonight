@@ -478,21 +478,21 @@ function UsersTab() {
                 <FormattedMessage id="admin.email" />
               </label>
               <input value={formEmail} onChange={(e) => setFormEmail(e.target.value)}
-                type="email" style={inputStyle} />
+                type="email" data-testid="create-user-email" style={inputStyle} />
             </div>
             <div>
               <label style={{ fontSize: text.xs, fontWeight: weight.semibold, color: color.textTertiary, marginBottom: 4, display: 'block' }}>
                 <FormattedMessage id="admin.displayName" />
               </label>
               <input value={formDisplayName} onChange={(e) => setFormDisplayName(e.target.value)}
-                style={inputStyle} />
+                data-testid="create-user-name" style={inputStyle} />
             </div>
             <div>
               <label style={{ fontSize: text.xs, fontWeight: weight.semibold, color: color.textTertiary, marginBottom: 4, display: 'block' }}>
                 Password
               </label>
               <input value={formPassword} onChange={(e) => setFormPassword(e.target.value)}
-                type="password" style={inputStyle} />
+                type="password" data-testid="create-user-password" style={inputStyle} />
             </div>
             <div>
               <label style={{ fontSize: text.xs, fontWeight: weight.semibold, color: color.textTertiary, marginBottom: 4, display: 'block' }}>
@@ -530,7 +530,7 @@ function UsersTab() {
                 {formDvAccess ? 'ON' : 'OFF'}
               </button>
             </div>
-            <button onClick={handleCreate} disabled={submitting}
+            <button onClick={handleCreate} disabled={submitting} data-testid="create-user-submit"
               style={{ ...primaryBtnStyle, width: '100%', opacity: submitting ? 0.7 : 1 }}>
               {submitting ? '...' : <FormattedMessage id="admin.createUser" />}
             </button>
