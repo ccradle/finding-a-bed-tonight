@@ -492,6 +492,8 @@ class DvReferralIntegrationTest extends BaseIntegrationTest {
         ResponseEntity<String> resp = restTemplate.exchange(
                 "/api/v1/shelters", HttpMethod.POST,
                 new HttpEntity<>(body, adminHeaders), String.class);
+        assertEquals(HttpStatus.CREATED, resp.getStatusCode(),
+                "POST /shelters should return 201 — body: " + resp.getBody());
         return UUID.fromString(extractField(resp.getBody(), "id"));
     }
 
@@ -520,7 +522,9 @@ class DvReferralIntegrationTest extends BaseIntegrationTest {
 
     private String extractField(String json, String field) {
         int idx = json.indexOf("\"" + field + "\":\"");
-        if (idx < 0) return null;
+        if (idx < 0) {
+            throw new AssertionError("Field '" + field + "' not found in response: " + json);
+        }
         int start = idx + field.length() + 4;
         int end = json.indexOf("\"", start);
         return json.substring(start, end);

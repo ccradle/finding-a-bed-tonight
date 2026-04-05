@@ -264,8 +264,12 @@ class DvAddressRedactionTest extends BaseIntegrationTest {
         ResponseEntity<String> resp = restTemplate.exchange(
                 "/api/v1/shelters", HttpMethod.POST,
                 new HttpEntity<>(body, adminHeaders), String.class);
+        assertEquals(HttpStatus.CREATED, resp.getStatusCode(),
+                "POST /shelters should return 201 — body: " + resp.getBody());
         String respBody = resp.getBody();
+        assertNotNull(respBody, "Response body should not be null");
         int idx = respBody.indexOf("\"id\":\"") + 6;
+        assertTrue(idx > 5, "Field 'id' not found in response: " + respBody);
         return UUID.fromString(respBody.substring(idx, respBody.indexOf("\"", idx)));
     }
 

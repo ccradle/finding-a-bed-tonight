@@ -62,10 +62,13 @@ class BedAvailabilityHardeningTest extends BaseIntegrationTest {
         ResponseEntity<String> response = restTemplate.exchange(
                 "/api/v1/shelters", HttpMethod.POST,
                 new HttpEntity<>(body, headers), String.class);
+        assertEquals(HttpStatus.CREATED, response.getStatusCode(),
+                "POST /shelters should return 201 — body: " + response.getBody());
         String responseBody = response.getBody();
-        assertNotNull(responseBody);
-        // Extract shelter ID from response
-        String idStr = responseBody.substring(responseBody.indexOf("\"id\":\"") + 6, responseBody.indexOf("\"", responseBody.indexOf("\"id\":\"") + 6));
+        assertNotNull(responseBody, "Response body should not be null");
+        int idStart = responseBody.indexOf("\"id\":\"") + 6;
+        assertTrue(idStart > 5, "Field 'id' not found in response: " + responseBody);
+        String idStr = responseBody.substring(idStart, responseBody.indexOf("\"", idStart));
         return UUID.fromString(idStr);
     }
 
