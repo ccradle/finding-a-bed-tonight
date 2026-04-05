@@ -75,19 +75,30 @@ public class DemoGuardFilter extends OncePerRequestFilter {
             return;
         }
 
-        // Admin bypass: SSH tunnel traffic is identified by having ONLY private/localhost
-        // IPs in the request chain. Public traffic through Cloudflare → host nginx always
-        // has a real public IP in X-Forwarded-For.
+        // Admin bypass: two detection mechanisms (Design D2).
         //
-        // Paths:
-        //   :8080 tunnel → backend directly:  remoteAddr=127.0.0.1, no XFF
-        //   :8081 tunnel → container nginx:   remoteAddr=docker-bridge, XFF=127.0.0.1
-        //   Public → Cloudflare → host nginx → container nginx: XFF=<real-public-IP>, ...
+        // Primary (via container nginx): X-FABT-Traffic-Source header.
+        //   - Container nginx sets this via a map directive based on XFF presence.
+        //   - "tunnel" = no incoming XFF (SSH tunnel to :8081, nothing upstream).
+        //   - "public" = incoming XFF present (Cloudflare → host nginx → container nginx).
+        //   - proxy_set_header REPLACES client-sent values — forgery impossible.
+        //   - Security: port 8081 is 127.0.0.1-only, iptables DROP policy blocks external.
+        //
+        // Fallback (port 8080 direct): IP-chain check.
+        //   - Direct curl to :8080 doesn't go through nginx, so no header is set.
+        //   - Falls back to checking remoteAddr + XFF are all private/localhost.
+        String trafficSource = request.getHeader("X-FABT-Traffic-Source");
         String forwardedFor = request.getHeader("X-Forwarded-For");
         String remoteAddr = request.getRemoteAddr();
 
+        if ("tunnel".equals(trafficSource)) {
+            log.info("Demo guard bypassed: tunnel traffic (X-FABT-Traffic-Source=tunnel), remoteAddr={}", remoteAddr);
+            filterChain.doFilter(request, response);
+            return;
+        }
+
         if (isInternalTraffic(remoteAddr, forwardedFor)) {
-            log.debug("Demo guard bypassed: internal traffic, remoteAddr={}, xff={}", remoteAddr, forwardedFor);
+            log.info("Demo guard bypassed: internal IP chain, remoteAddr={}, xff={}", remoteAddr, forwardedFor);
             filterChain.doFilter(request, response);
             return;
         }
@@ -104,7 +115,7 @@ public class DemoGuardFilter extends OncePerRequestFilter {
         }
 
         // Block: not allowlisted, not localhost, not tunnel
-        log.info("Demo guard blocked: {} {} from {}", method, path, remoteAddr);
+        log.info("Demo guard blocked: {} {} from {} (source={})", method, path, remoteAddr, trafficSource);
         response.setStatus(403);
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         response.getWriter().write(
