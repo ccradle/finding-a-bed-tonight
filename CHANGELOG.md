@@ -5,6 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.29.3] — 2026-04-05 — DemoGuard SSH Tunnel Bypass
+
+### Fixed
+- **SSH tunnel admin bypass now works** — administrators can open SSH tunnel to :8081, login in browser, and perform all admin operations (create users, activate surge, edit shelters). Previously returned 403 due to X-Forwarded-For header behavior in container nginx.
+- **nginx `map` directive** detects traffic source based on XFF presence: tunnel (no XFF) → bypass, public (XFF from Cloudflare) → guard applies. Header set by `proxy_set_header` (unforgeable).
+- **DemoGuardFilter** checks `X-FABT-Traffic-Source` header first, retains IP-chain fallback for port 8080 direct access. Diagnostic logging shows traffic source on every block/bypass decision.
+
+### Security
+- Port 8081 bound to 127.0.0.1 only (verified `ss -tlnp`)
+- iptables default DROP, only 22/80/443 allowed (80/443 Cloudflare IPs only)
+- `proxy_set_header` always replaces client-sent values — header forgery impossible
+- Forged header test: `X-FABT-Traffic-Source: tunnel` + XFF → nginx overwrites to "public" → blocked
+
+---
+
 ## [v0.29.2] — 2026-04-05 — SSE Emitter Lifecycle Fix
 
 ### Fixed
