@@ -73,6 +73,21 @@ docker compose --env-file ~/fabt-secrets/.env.prod \
   up -d frontend
 ```
 
+## Reference: Cloudflare SSE Configuration
+
+SSE (Server-Sent Events) requires specific Cloudflare settings to work reliably:
+
+| Setting | Location | Value | Why |
+|---------|----------|-------|-----|
+| **HTTP/3 (QUIC)** | Speed → Optimization → Protocol | **Off** | QUIC kills long-lived SSE streams with `ERR_QUIC_PROTOCOL_ERROR`. HTTP/2 over TLS 1.3 is equally secure and improves WAF consistency. Fixed 2026-04-04. |
+| **Proxy status** | DNS → findabed.org A record | **Proxied (orange cloud)** | Required for CDN/WAF. SSE works through proxy with HTTP/2. |
+| **SSL mode** | SSL/TLS → Overview | **Full (Strict)** | Origin has valid Let's Encrypt cert. |
+| **Always Use HTTPS** | SSL/TLS → Edge Certificates | **On** | Prevents mixed-content SSE connections. |
+
+**sw.js caching:** Served with `no-cache` headers from nginx since v0.28.2. Cloudflare respects these — no manual purge needed after deploys.
+
+**If SSE breaks again:** Check browser DevTools Console for `ERR_QUIC_PROTOCOL_ERROR` — means HTTP/3 got re-enabled (Cloudflare may re-enable on plan changes or dashboard updates). Fix: Speed → Optimization → Protocol → HTTP/3 → Off.
+
 ## Reference: Static content deployment
 
 **Location on VM:** `/var/www/findabed-docs/`
