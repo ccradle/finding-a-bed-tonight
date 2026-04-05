@@ -53,7 +53,7 @@ jobs:
 
       - name: Build backend
         working-directory: backend
-        run: mvn compile -q --batch-mode --no-transfer-progress
+        run: mvn spring-boot:build-info compile -q --batch-mode --no-transfer-progress
 
       - name: Start backend
         run: |
@@ -148,7 +148,7 @@ jobs:
 
       - name: Build backend
         working-directory: backend
-        run: mvn compile -q --batch-mode --no-transfer-progress
+        run: mvn spring-boot:build-info compile -q --batch-mode --no-transfer-progress
 
       - name: Start backend
         run: |

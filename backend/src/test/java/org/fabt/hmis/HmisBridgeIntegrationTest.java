@@ -4,6 +4,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.fabt.BaseIntegrationTest;
 import org.fabt.TestAuthHelper;
 import org.fabt.hmis.domain.HmisInventoryRecord;
@@ -231,7 +233,10 @@ class HmisBridgeIntegrationTest extends BaseIntegrationTest {
                 }
                 """, name, dvShelter, dvShelter ? "DV_SURVIVOR" : "SINGLE_ADULT",
                 dvShelter ? "DV_SURVIVOR" : "SINGLE_ADULT");
-        restTemplate.exchange("/api/v1/shelters", HttpMethod.POST,
+        ResponseEntity<String> resp = restTemplate.exchange("/api/v1/shelters", HttpMethod.POST,
                 new HttpEntity<>(body, adminHeaders), String.class);
+        if (resp.getStatusCode() != HttpStatus.CREATED && resp.getStatusCode() != HttpStatus.CONFLICT) {
+            throw new AssertionError("POST /shelters returned " + resp.getStatusCode() + " — body: " + resp.getBody());
+        }
     }
 }

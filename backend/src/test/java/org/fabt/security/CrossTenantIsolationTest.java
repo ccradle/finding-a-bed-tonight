@@ -295,10 +295,14 @@ class CrossTenantIsolationTest extends BaseIntegrationTest {
                 HttpMethod.POST,
                 new HttpEntity<>(body, headers),
                 String.class);
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(response.getStatusCode())
+                .as("POST /shelters should return 201 — body: %s", response.getBody())
+                .isEqualTo(HttpStatus.CREATED);
+        assertThat(response.getBody()).as("Response body should not be null").isNotNull();
 
         String responseBody = response.getBody();
         int idStart = responseBody.indexOf("\"id\":\"") + 6;
+        assertThat(idStart).as("Field 'id' not found in response: %s", responseBody).isGreaterThan(5);
         int idEnd = responseBody.indexOf("\"", idStart);
         return UUID.fromString(responseBody.substring(idStart, idEnd));
     }
