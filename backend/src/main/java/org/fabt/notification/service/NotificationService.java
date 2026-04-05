@@ -98,12 +98,25 @@ public class NotificationService {
             }
         };
 
-        // Spring #33421/#33340: register all three callbacks to prevent deadlock and leaks
-        emitter.onCompletion(cleanup);
-        emitter.onTimeout(cleanup);
+        // Spring #33421/#33340: register all three callbacks to prevent deadlock and leaks.
+        // Callbacks must be idempotent — heartbeat/sendEvent may have already removed the
+        // emitter from the map before these callbacks fire asynchronously (Design D5).
+        emitter.onCompletion(() -> {
+            if (emitters.containsKey(userId)) {
+                cleanup.run();
+            }
+        });
+        emitter.onTimeout(() -> {
+            log.warn("SSE emitter timed out for user {}", userId);
+            if (emitters.containsKey(userId)) {
+                cleanup.run();
+            }
+        });
         emitter.onError(e -> {
-            log.debug("SSE emitter error for user {}: {}", userId, e.getMessage());
-            cleanup.run();
+            log.warn("SSE emitter error for user {}: {}", userId, e.getClass().getSimpleName());
+            if (emitters.containsKey(userId)) {
+                cleanup.run();
+            }
         });
 
         emitters.put(userId, new EmitterEntry(emitter, userId, tenantId, roles, dvAccess));
@@ -201,13 +214,18 @@ public class NotificationService {
                         .data("{}"));
             } catch (IOException e) {
                 sendFailuresCounter.increment();
-                log.debug("Heartbeat failed for user {}, removing emitter", userId);
-                entry.emitter().completeWithError(e);
+                log.warn("Heartbeat failed for user {}: {} — removing emitter", userId, e.getClass().getSimpleName());
+                // Remove from map FIRST to prevent onError callback race (Design D1)
+                if (emitters.remove(userId) != null) {
+                    activeConnections.decrementAndGet();
+                }
+                try { entry.emitter().completeWithError(e); } catch (Exception ignored) { /* already completed */ }
             } catch (IllegalStateException e) {
-                // Emitter already completed (client disconnect raced with heartbeat tick)
                 sendFailuresCounter.increment();
-                log.debug("Heartbeat skipped for user {} (emitter already completed)", userId);
-                emitters.remove(userId);
+                log.warn("Heartbeat skipped for user {} (emitter already completed): {}", userId, e.getMessage());
+                if (emitters.remove(userId) != null) {
+                    activeConnections.decrementAndGet();
+                }
             }
         });
     }
@@ -394,12 +412,18 @@ public class NotificationService {
                 eventsSentCounter(eventType).increment();
             } catch (IOException e) {
                 sendFailuresCounter.increment();
-                log.debug("Failed to send SSE event to user {}, removing emitter", entry.userId());
-                entry.emitter().completeWithError(e);
+                log.warn("SSE event send failed for user {}: {} — removing emitter", entry.userId(), e.getClass().getSimpleName());
+                // Remove from map FIRST to prevent onError callback race (Design D1)
+                if (emitters.remove(entry.userId()) != null) {
+                    activeConnections.decrementAndGet();
+                }
+                try { entry.emitter().completeWithError(e); } catch (Exception ignored) { /* already completed */ }
             } catch (IllegalStateException e) {
                 sendFailuresCounter.increment();
-                log.debug("SSE event skipped for user {} (emitter already completed)", entry.userId());
-                emitters.remove(entry.userId());
+                log.warn("SSE event skipped for user {} (emitter already completed): {}", entry.userId(), e.getMessage());
+                if (emitters.remove(entry.userId()) != null) {
+                    activeConnections.decrementAndGet();
+                }
             }
         });
     }
