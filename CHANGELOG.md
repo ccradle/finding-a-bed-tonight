@@ -5,6 +5,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.29.2] — 2026-04-05 — SSE Emitter Lifecycle Fix
+
+### Fixed
+- **SSE cascading errors eliminated** — `sendHeartbeat()` called `completeWithError()` inside `forEach()`, triggering `onError` callback that modified the emitter map during iteration. Spring Security then re-challenged the async dispatch against an already-committed response. Root cause of persistent "Reconnecting to live updates..." banner.
+- **Remove-before-completeWithError pattern** — emitter removed from registry before calling `completeWithError()` in both `sendHeartbeat()` and `sendEvent()`. Prevents `onError` callback race.
+- **Idempotent callbacks** — `onError`, `onCompletion`, `onTimeout` check `containsKey` before cleanup. Prevents double-removal when heartbeat has already cleaned up.
+- **DispatcherType.ASYNC permitAll** — prevents Spring Security 401 re-challenge on async dispatch (spring-security#16266).
+- **Async timeout 600s** — was 30s default, dangerously close to 20s heartbeat interval. SSE connections no longer timeout prematurely.
+- **WARN-level logging** on emitter failures — was DEBUG, invisible in production. Now visible in Grafana/Loki.
+- **Cloudflare HTTP/3 disabled** — QUIC protocol kills long-lived SSE streams with `ERR_QUIC_PROTOCOL_ERROR`. HTTP/2 over TLS 1.3 is equally secure and improves WAF consistency.
+
+### Test Results
+- Backend: 388 tests (4 new SSE lifecycle tests), 0 failures
+- SSE error recovery, broadcast isolation, 30s+ timeout survival, auth regression all verified
+
+---
+
 ## [v0.29.1] — 2026-04-04 — Mobile Header + Dark Mode WCAG Contrast
 
 ### Added
