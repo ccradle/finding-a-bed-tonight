@@ -19,6 +19,8 @@ spring:
     multipart:
       max-file-size: 10MB
       max-request-size: 10MB
+    async:
+      request-timeout: 600000  # 10 minutes — SSE connections need long async timeout (Design D3)
 
   datasource:
     url: jdbc:postgresql://localhost:5432/fabt

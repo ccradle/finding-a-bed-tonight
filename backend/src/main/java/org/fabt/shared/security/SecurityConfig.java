@@ -3,6 +3,8 @@ package org.fabt.shared.security;
 import java.util.Arrays;
 import java.util.List;
 
+import jakarta.servlet.DispatcherType;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -92,6 +94,11 @@ public class SecurityConfig {
                 .sessionManagement(session -> session
                         .sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
+                        // SSE async dispatch: when emitters error, Tomcat dispatches async.
+                        // Without this, Spring Security re-challenges with 401 on the committed
+                        // SSE response → "response already committed" errors (spring-security#16266).
+                        // Safe site-wide: only SSE uses async dispatch; initial connection is authenticated.
+                        .dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
                         // Public endpoints (no auth required)
                         // Security audit (REQ-AUTH-PERMIT-1): each path reviewed for info disclosure.
                         // Swagger paths disabled in prod profile (application-prod.yml).

@@ -29,6 +29,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 
 /**
  * Integration tests for SSE notification endpoint.
@@ -229,5 +230,153 @@ class SseNotificationIntegrationTest extends BaseIntegrationTest {
         // Verify the event DID contain expected fields (positive assertion)
         assertThat(allLines).contains("referralId");
         assertThat(allLines).contains("ACCEPTED");
+    }
+
+    @Test
+    @DisplayName("Heartbeat error recovery — dead emitter removed without cascading exception")
+    void heartbeatErrorRecovery() throws Exception {
+        User outreach = authHelper.setupOutreachWorkerUser();
+        String token = authHelper.getJwtService().generateAccessToken(outreach);
+
+        // Connect via real HTTP SSE stream
+        HttpClient httpClient = HttpClient.newHttpClient();
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create("http://localhost:" + port
+                        + "/api/v1/notifications/stream?token=" + token))
+                .header("Accept", "text/event-stream")
+                .GET()
+                .build();
+
+        HttpResponse<Stream<String>> response = httpClient
+                .sendAsync(request, HttpResponse.BodyHandlers.ofLines())
+                .get(5, TimeUnit.SECONDS);
+
+        assertThat(response.statusCode()).isEqualTo(200);
+        Thread.sleep(300); // Allow connection to establish
+
+        // Force-close the client connection to simulate disconnect
+        response.body().close();
+        httpClient.shutdownNow();
+        httpClient.awaitTermination(Duration.ofSeconds(2));
+
+        // Trigger heartbeat — should handle the dead emitter gracefully (no exception)
+        assertThatCode(() -> notificationService.sendHeartbeat())
+                .as("Heartbeat should not throw on dead emitter — remove-before-completeWithError pattern")
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("Event broadcast error recovery — dead emitter doesn't affect live emitter")
+    void eventBroadcastErrorRecovery() throws Exception {
+        // User A — will disconnect
+        User userA = authHelper.setupUserWithDvAccess(
+                "sse-usera@test.fabt.org", "User A", new String[]{"OUTREACH_WORKER"});
+        String tokenA = authHelper.getJwtService().generateAccessToken(userA);
+
+        // User B — stays connected
+        User userB = authHelper.setupUserWithDvAccess(
+                "sse-userb@test.fabt.org", "User B", new String[]{"OUTREACH_WORKER"});
+        String tokenB = authHelper.getJwtService().generateAccessToken(userB);
+
+        // Connect both
+        HttpClient clientA = HttpClient.newHttpClient();
+        HttpResponse<Stream<String>> respA = clientA.sendAsync(
+                HttpRequest.newBuilder()
+                        .uri(URI.create("http://localhost:" + port + "/api/v1/notifications/stream?token=" + tokenA))
+                        .header("Accept", "text/event-stream").GET().build(),
+                HttpResponse.BodyHandlers.ofLines()).get(5, TimeUnit.SECONDS);
+
+        HttpClient clientB = HttpClient.newHttpClient();
+        var receivedB = new java.util.concurrent.CopyOnWriteArrayList<String>();
+        var latchB = new java.util.concurrent.CountDownLatch(1);
+        HttpResponse<Stream<String>> respB = clientB.sendAsync(
+                HttpRequest.newBuilder()
+                        .uri(URI.create("http://localhost:" + port + "/api/v1/notifications/stream?token=" + tokenB))
+                        .header("Accept", "text/event-stream").GET().build(),
+                HttpResponse.BodyHandlers.ofLines()).get(5, TimeUnit.SECONDS);
+
+        Thread.startVirtualThread(() -> {
+            respB.body().forEach(line -> {
+                receivedB.add(line);
+                if (line.contains("dv-referral.responded")) latchB.countDown();
+            });
+        });
+
+        Thread.sleep(300);
+
+        // Disconnect User A
+        respA.body().close();
+        clientA.shutdownNow();
+        clientA.awaitTermination(Duration.ofSeconds(2));
+
+        // Publish event — User A is dead, User B should still receive
+        UUID tenantId = testTenant.getId();
+        TenantContext.runWithContext(tenantId, true, () ->
+                eventBus.publish(new DomainEvent("dv-referral.responded", tenantId, Map.of(
+                        "token_id", UUID.randomUUID().toString(),
+                        "shelter_id", UUID.randomUUID().toString(),
+                        "status", "ACCEPTED"))));
+
+        boolean received = latchB.await(5, TimeUnit.SECONDS);
+
+        respB.body().close();
+        clientB.shutdownNow();
+        clientB.awaitTermination(Duration.ofSeconds(2));
+
+        assertThat(received).as("User B should receive event even after User A disconnects").isTrue();
+    }
+
+    @Test
+    @DisplayName("SSE connection survives beyond 30 seconds (async timeout override)")
+    void sseConnectionSurvivesBeyond30Seconds() throws Exception {
+        User outreach = authHelper.setupOutreachWorkerUser();
+        String token = authHelper.getJwtService().generateAccessToken(outreach);
+
+        HttpClient httpClient = HttpClient.newHttpClient();
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create("http://localhost:" + port
+                        + "/api/v1/notifications/stream?token=" + token))
+                .header("Accept", "text/event-stream")
+                .GET()
+                .build();
+
+        HttpResponse<Stream<String>> response = httpClient
+                .sendAsync(request, HttpResponse.BodyHandlers.ofLines())
+                .get(5, TimeUnit.SECONDS);
+
+        assertThat(response.statusCode()).isEqualTo(200);
+
+        var receivedLines = new java.util.concurrent.CopyOnWriteArrayList<String>();
+        var latch = new java.util.concurrent.CountDownLatch(1);
+        Thread.startVirtualThread(() -> {
+            response.body().forEach(line -> {
+                receivedLines.add(line);
+                if (line.contains("heartbeat")) latch.countDown();
+            });
+        });
+
+        Thread.sleep(500); // Allow connection to establish
+
+        // Manually trigger heartbeat at 31 seconds — beyond default 30s timeout
+        Thread.sleep(31_000);
+        notificationService.sendHeartbeat();
+        Thread.sleep(500);
+
+        boolean received = latch.await(5, TimeUnit.SECONDS);
+
+        response.body().close();
+        httpClient.shutdownNow();
+        httpClient.awaitTermination(Duration.ofSeconds(2));
+
+        // If we received a heartbeat at 31s, the connection survived past the default 30s timeout
+        assertThat(received).as("SSE connection should survive beyond 30s default timeout").isTrue();
+    }
+
+    @Test
+    @DisplayName("Unauthenticated SSE connection returns 401")
+    void unauthenticatedSseReturns401() {
+        ResponseEntity<String> response = restTemplate.getForEntity(
+                "/api/v1/notifications/stream", String.class);
+        assertThat(response.getStatusCode()).isEqualTo(org.springframework.http.HttpStatus.UNAUTHORIZED);
     }
 }
