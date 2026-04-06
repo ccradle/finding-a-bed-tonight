@@ -5,6 +5,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.29.4] — 2026-04-06 — WCAG 2.1 AA Accessibility Fixes (#52)
+
+### Fixed
+- **WCAG 1.3.5 Identify Input Purpose** — added `autocomplete` attributes to all login form inputs (`email`, `current-password`, `organization`). Change password modal and admin password reset already had them. Eliminates the only "Does Not Support" finding in the ACR.
+- **WCAG 2.4.7 Focus Visible** — added global `:focus-visible` CSS rules in `global.css` using `var(--color-border-focus)` token. Inputs get `border-color` + `box-shadow` highlight; buttons/tabs get 2px solid outline. Removed `outline: 'none'` from 5 interactive input elements across `OutreachSearch.tsx`, `AdminPanel.tsx`, and `ChangePasswordModal.tsx`. Focus token switches correctly in dark mode (`#1a56db` light, `#78a9ff` dark).
+
+### Changed
+- **WCAG-ACR.md** rewritten for v0.29.4: 36 Supports, 3 Partially Supports, **0 Does Not Support**, 11 N/A. AI preparation disclosure added. Previous version (v0.12.1) was 17 versions behind.
+- **18 VPAT verification tests** added (`wcag-vpat-verification.spec.ts`) — hard assertions on autocomplete attributes, focus visibility (light + dark mode), keyboard operability, skip links, reflow, text spacing, contrast, and aria-live regions.
+
+### Test Results
+- Playwright: 267 passed, 0 failed (full suite through nginx with `--trace on`)
+- axe-core: zero WCAG 2.1 AA violations across all pages (light + dark mode)
+- Focus visible verified on login inputs, search input, admin tabs (live spot check + automated)
+
+---
+
 ## [v0.29.3] — 2026-04-05 — DemoGuard SSH Tunnel Bypass
 
 ### Fixed

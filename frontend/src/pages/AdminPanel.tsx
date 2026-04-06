@@ -296,7 +296,7 @@ const primaryBtnStyle: React.CSSProperties = {
 const inputStyle: React.CSSProperties = {
   width: '100%', padding: '12px 14px', borderRadius: 10,
   border: `2px solid ${color.border}`, fontSize: text.base, boxSizing: 'border-box',
-  color: color.text, fontWeight: weight.medium, outline: 'none',
+  color: color.text, fontWeight: weight.medium,
 };
 
 function StatusBadge({ active, yesId, noId }: { active: boolean; yesId: string; noId: string }) {
@@ -680,7 +680,7 @@ function UsersTab() {
                   <FormattedMessage id="password.reset.new" />
                 </label>
                 <input id="reset-new-password" type="password" autoComplete="new-password" value={resetPassword} onChange={(e) => setResetPassword(e.target.value)}
-                  style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: `2px solid ${color.border}`, fontSize: text.base, boxSizing: 'border-box', color: color.text, fontWeight: weight.medium, outline: 'none' }}
+                  style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: `2px solid ${color.border}`, fontSize: text.base, boxSizing: 'border-box', color: color.text, fontWeight: weight.medium }}
                   data-testid="reset-new-password-input" />
                 <span style={{ fontSize: text.xs, color: color.textMuted, marginTop: 2, display: 'block' }}><FormattedMessage id="password.change.minLength" /></span>
               </div>
@@ -689,7 +689,7 @@ function UsersTab() {
                   <FormattedMessage id="password.reset.confirm" />
                 </label>
                 <input id="reset-confirm-password" type="password" autoComplete="new-password" value={resetConfirm} onChange={(e) => setResetConfirm(e.target.value)}
-                  style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: `2px solid ${color.border}`, fontSize: text.base, boxSizing: 'border-box', color: color.text, fontWeight: weight.medium, outline: 'none' }}
+                  style={{ width: '100%', padding: '12px 14px', borderRadius: 10, border: `2px solid ${color.border}`, fontSize: text.base, boxSizing: 'border-box', color: color.text, fontWeight: weight.medium }}
                   data-testid="reset-confirm-password-input" />
               </div>
               <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>

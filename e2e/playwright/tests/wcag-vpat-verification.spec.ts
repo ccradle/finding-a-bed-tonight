@@ -105,23 +105,43 @@ test.describe('WCAG 1.3.1 Info and Relationships', () => {
 
 test.describe('WCAG 1.3.5 Identify Input Purpose', () => {
 
-  test('login form has autocomplete attributes', async ({ page }) => {
+  test('login form inputs have correct autocomplete attributes', async ({ page }) => {
     await page.goto('/login');
     await page.waitForTimeout(1000);
 
-    // Email/username field should have autocomplete
+    // Email field must have autocomplete="email"
     const emailInput = page.locator('[data-testid="login-email"]');
-    if (await emailInput.count() > 0) {
-      const autocomplete = await emailInput.getAttribute('autocomplete');
-      // Record whether autocomplete is present — this verifies the ACR claim
-      console.log(`Login email autocomplete: ${autocomplete || 'MISSING'}`);
-    }
+    await expect(emailInput).toHaveAttribute('autocomplete', 'email');
 
-    // Password field should have autocomplete
+    // Password field must have autocomplete="current-password"
     const passwordInput = page.locator('[data-testid="login-password"]');
-    if (await passwordInput.count() > 0) {
-      const autocomplete = await passwordInput.getAttribute('autocomplete');
-      console.log(`Login password autocomplete: ${autocomplete || 'MISSING'}`);
+    await expect(passwordInput).toHaveAttribute('autocomplete', 'current-password');
+
+    // Tenant field must have autocomplete="organization"
+    const tenantInput = page.locator('[data-testid="login-tenant-slug"]');
+    await expect(tenantInput).toHaveAttribute('autocomplete', 'organization');
+  });
+
+  test('change password modal inputs have correct autocomplete attributes', async ({ outreachPage }) => {
+    await outreachPage.goto('/outreach');
+    await outreachPage.waitForTimeout(2000);
+
+    // Open change password modal
+    const changePasswordBtn = outreachPage.locator('[data-testid="change-password-button"]');
+    // Desktop only — may not be visible on mobile viewport
+    if (await changePasswordBtn.isVisible()) {
+      await changePasswordBtn.click();
+      await outreachPage.waitForTimeout(500);
+
+      await expect(outreachPage.locator('[data-testid="current-password-input"]'))
+        .toHaveAttribute('autocomplete', 'current-password');
+      await expect(outreachPage.locator('[data-testid="new-password-input"]'))
+        .toHaveAttribute('autocomplete', 'new-password');
+      await expect(outreachPage.locator('[data-testid="confirm-password-input"]'))
+        .toHaveAttribute('autocomplete', 'new-password');
+
+      // Close modal
+      await outreachPage.keyboard.press('Escape');
     }
   });
 });
@@ -323,52 +343,115 @@ test.describe('WCAG 2.4.2 Page Titled', () => {
 
 test.describe('WCAG 2.4.7 Focus Visible', () => {
 
-  test('focused elements have visible focus indicators', async ({ outreachPage }) => {
+  test('login form inputs show visible focus indicator on Tab', async ({ page }) => {
+    await page.goto('/login');
+    await page.waitForTimeout(1000);
+
+    // Helper: check that the focused element has a visible focus indicator
+    // (outline with width > 0, or box-shadow, or border-color matching focus token)
+    async function assertFocusVisible(label: string) {
+      const result = await page.evaluate(() => {
+        const el = document.activeElement;
+        if (!el || el === document.body) return { element: 'body', hasIndicator: false, detail: 'no element focused' };
+
+        const style = window.getComputedStyle(el);
+        const outlineWidth = parseInt(style.outlineWidth);
+        const hasOutline = outlineWidth > 0 && style.outlineStyle !== 'none';
+        const hasBoxShadow = style.boxShadow !== 'none';
+
+        return {
+          element: `${el.tagName}#${el.id || el.getAttribute('data-testid') || ''}`,
+          hasIndicator: hasOutline || hasBoxShadow,
+          detail: `outline: ${style.outline}, boxShadow: ${style.boxShadow?.substring(0, 60)}`,
+        };
+      });
+      console.log(`Focus [${label}]: ${result.element} — visible: ${result.hasIndicator} (${result.detail})`);
+      expect(result.hasIndicator, `${label}: ${result.element} must have visible focus indicator. Got: ${result.detail}`).toBe(true);
+    }
+
+    // Tab: skip link → tenant → email → password → submit
+    await page.keyboard.press('Tab'); // skip link
+    await page.keyboard.press('Tab'); // tenant input
+    await assertFocusVisible('tenant input');
+
+    await page.keyboard.press('Tab'); // email input
+    await assertFocusVisible('email input');
+
+    await page.keyboard.press('Tab'); // password input
+    await assertFocusVisible('password input');
+
+    await page.keyboard.press('Tab'); // submit button
+    await assertFocusVisible('submit button');
+  });
+
+  test('outreach search input shows visible focus indicator', async ({ outreachPage }) => {
     await outreachPage.goto('/outreach');
     await outreachPage.waitForTimeout(2000);
 
-    // Tab through elements and verify focus is visible
-    // This checks for outline, box-shadow, or border changes on focus
-    const focusResults: { element: string; hasIndicator: boolean }[] = [];
+    // Tab past skip link to first interactive element in main content
+    await outreachPage.keyboard.press('Tab'); // skip link
+    await outreachPage.keyboard.press('Tab'); // search input or nav item
 
-    for (let i = 0; i < 8; i++) {
-      await outreachPage.keyboard.press('Tab');
-      await outreachPage.waitForTimeout(100);
+    const result = await outreachPage.evaluate(() => {
+      const el = document.activeElement;
+      if (!el || el === document.body) return { hasIndicator: false, detail: 'nothing focused' };
+      const style = window.getComputedStyle(el);
+      const outlineWidth = parseInt(style.outlineWidth);
+      const hasOutline = outlineWidth > 0 && style.outlineStyle !== 'none';
+      const hasBoxShadow = style.boxShadow !== 'none';
+      return {
+        hasIndicator: hasOutline || hasBoxShadow,
+        detail: `${el.tagName}#${el.id || ''} outline: ${style.outline}, boxShadow: ${style.boxShadow?.substring(0, 60)}`,
+      };
+    });
+    console.log(`Focus [outreach]: ${result.detail} — visible: ${result.hasIndicator}`);
+    expect(result.hasIndicator, `Outreach focused element must have visible focus indicator. Got: ${result.detail}`).toBe(true);
+  });
 
-      const result = await outreachPage.evaluate(() => {
-        const el = document.activeElement;
-        if (!el || el === document.body) return null;
+  test('dark mode: focus indicators are visible on dark background', async ({ browser }) => {
+    const fs = await import('fs');
+    const path = await import('path');
+    const stateFile = path.join(__dirname, '..', 'auth', 'admin.json');
 
-        const style = window.getComputedStyle(el);
-        const outline = style.outline;
-        const outlineWidth = parseInt(style.outlineWidth);
-        const boxShadow = style.boxShadow;
-        const borderColor = style.borderColor;
+    const storageState = fs.existsSync(stateFile) ? stateFile : undefined;
+    const context = await browser.newContext({
+      colorScheme: 'dark',
+      ...(storageState ? { storageState } : {}),
+    });
+    const page = await context.newPage();
 
-        const hasOutline = outlineWidth > 0 && style.outlineStyle !== 'none';
-        const hasBoxShadow = boxShadow !== 'none';
-
-        return {
-          element: `${el.tagName}[${el.getAttribute('aria-label') || el.textContent?.trim().substring(0, 30) || ''}]`,
-          hasIndicator: hasOutline || hasBoxShadow,
-          outline,
-          boxShadow: boxShadow?.substring(0, 50),
-        };
-      });
-
-      if (result) {
-        focusResults.push(result);
-        console.log(`Focus: ${result.element} — indicator: ${result.hasIndicator} (outline: ${result.outline})`);
-      }
+    if (!storageState) {
+      await page.goto('/login');
+      await page.locator('[data-testid="login-tenant-slug"]').fill('dev-coc');
+      await page.locator('[data-testid="login-email"]').fill('admin@dev.fabt.org');
+      await page.locator('[data-testid="login-password"]').fill('admin123');
+      await page.locator('[data-testid="login-submit"]').click();
+      await page.waitForURL((url: URL) => !url.pathname.includes('/login'), { timeout: 10000 });
     }
 
-    // Log results for ACR accuracy — at least some elements should have visible focus
-    const withIndicator = focusResults.filter(r => r.hasIndicator);
-    console.log(`Focus visible: ${withIndicator.length}/${focusResults.length} elements have visible focus indicators`);
+    await page.goto('/outreach');
+    await page.waitForTimeout(2000);
 
-    // This test documents the current state rather than hard-failing,
-    // because browser default focus rings may not be detected by getComputedStyle
-    // in all cases. The ACR should reflect the actual ratio.
+    // Tab to first interactive element
+    await page.keyboard.press('Tab'); // skip link
+    await page.keyboard.press('Tab'); // first interactive
+
+    const result = await page.evaluate(() => {
+      const el = document.activeElement;
+      if (!el || el === document.body) return { hasIndicator: false, detail: 'nothing focused' };
+      const style = window.getComputedStyle(el);
+      const outlineWidth = parseInt(style.outlineWidth);
+      const hasOutline = outlineWidth > 0 && style.outlineStyle !== 'none';
+      const hasBoxShadow = style.boxShadow !== 'none';
+      return {
+        hasIndicator: hasOutline || hasBoxShadow,
+        detail: `${el.tagName}#${el.id || ''} outline: ${style.outline}, boxShadow: ${style.boxShadow?.substring(0, 60)}`,
+      };
+    });
+    console.log(`Focus [dark mode]: ${result.detail} — visible: ${result.hasIndicator}`);
+    expect(result.hasIndicator, `Dark mode: focused element must have visible focus indicator. Got: ${result.detail}`).toBe(true);
+
+    await context.close();
   });
 });
 

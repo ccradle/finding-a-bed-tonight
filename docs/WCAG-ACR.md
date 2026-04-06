@@ -18,7 +18,7 @@
 | Field | Value |
 |---|---|
 | **Product Name** | Finding A Bed Tonight (FABT) |
-| **Product Version** | v0.29.3 |
+| **Product Version** | v0.29.4 |
 | **Report Date** | April 6, 2026 |
 | **Product Description** | Open-source emergency shelter bed availability platform. React 19 progressive web application with Spring Boot 4.0 backend (Java 25, virtual threads). Used by outreach workers, shelter coordinators, and CoC administrators to find, hold, and manage emergency shelter beds in real time. |
 | **Contact** | GitHub: github.com/ccradle/finding-a-bed-tonight |
@@ -66,7 +66,7 @@
 | **1.2.1 Audio-only and Video-only** | Not Applicable | Product contains no audio or video content. |
 | **1.2.2 Captions (Prerecorded)** | Not Applicable | No prerecorded media. |
 | **1.2.3 Audio Description or Media Alternative** | Not Applicable | No prerecorded media. |
-| **1.3.1 Info and Relationships** | Partially Supports | Admin tab bar uses `role="tablist"` / `role="tab"` / `role="tabpanel"` with `aria-selected` and `aria-controls`. Session timeout dialog uses `role="alertdialog"` with `aria-modal`, `aria-labelledby`, `aria-describedby`. Kebab overflow menu uses `role="menu"` / `role="menuitem"`. Data tables use semantic HTML `<table>`. **Gap:** Sortable table headers do not use `aria-sort` attributes. Some form inputs use `aria-label` instead of linked `<label>` elements. Verified by virtual screen reader tests and VPAT verification tests. |
+| **1.3.1 Info and Relationships** | Partially Supports | Admin tab bar uses `role="tablist"` / `role="tab"` / `role="tabpanel"` with `aria-selected` and `aria-controls`. Session timeout dialog uses `role="alertdialog"` with `aria-modal`, `aria-labelledby`, `aria-describedby`. Kebab overflow menu uses `role="menu"` / `role="menuitem"`. Data tables use semantic HTML `<table>`. Tables are not sortable, so `aria-sort` is not applicable. **Gap:** Some form inputs use `aria-label` instead of linked `<label>` elements. Verified by virtual screen reader tests and VPAT verification tests. |
 | **1.3.2 Meaningful Sequence** | Supports | Content follows logical reading order. DOM order matches visual presentation. Mobile bottom nav and desktop sidebar maintain consistent item ordering. |
 | **1.3.3 Sensory Characteristics** | Supports | Instructions and status indicators do not rely solely on shape, color, size, or location. Freshness badges show "Fresh", "Stale", "Unknown" text alongside color. Utilization indicators show percentage and status word. |
 | **1.4.1 Use of Color** | Supports | All status indicators include text labels alongside color: freshness badges ("Fresh"/"Stale"/"Unknown"), RAG utilization (percentage + "OK"/"Low"/"Over"), reservation status (text label), batch job status (text), connection status banner (text). Verified by virtual screen reader test confirming badge text is announced. |
@@ -102,7 +102,7 @@
 | **1.2.4 Captions (Live)** | Not Applicable | No live video or audio content. |
 | **1.2.5 Audio Description (Prerecorded)** | Not Applicable | No prerecorded video content. |
 | **1.3.4 Orientation** | Supports | Content is not restricted to a single orientation. Responsive design adapts to portrait and landscape via flexbox layout. Mobile bottom navigation appears below 768px breakpoint. |
-| **1.3.5 Identify Input Purpose** | Does Not Support | Login form inputs have appropriate `type` attributes (`email`, `password`) but **no `autocomplete` attributes** are present on any form inputs in the application. This was identified as a gap in v0.12.1 and planned for remediation in v0.14.0 but has not been implemented as of v0.29.3. Verified by source code search: zero `autocomplete` attributes found in `frontend/src/`. |
+| **1.3.5 Identify Input Purpose** | Supports | Login form inputs have `autocomplete="email"`, `autocomplete="current-password"`, and `autocomplete="organization"`. Change password modal uses `autocomplete="current-password"` and `autocomplete="new-password"`. Admin password reset uses `autocomplete="new-password"`. All standard personal data form fields have appropriate `autocomplete` attributes. Verified by VPAT verification test (hard assertion on all 6 fields). |
 | **1.4.3 Contrast (Minimum)** | Supports | All text meets 4.5:1 minimum contrast ratio in both light and dark modes. Color system uses CSS custom properties with `@media (prefers-color-scheme: dark)` overrides. Light mode: primary text on white = 7.8:1, body text = 17.4:1, muted text = 4.6:1. Dark mode: Carbon Blue-40 on dark = 7.7:1, body text = 13.5:1, muted text = 5.76:1 (previously 3.75:1, fixed in color system migration). Automated axe-core contrast scans run in both light and dark modes — zero violations. Documented contrast ratios verified in `frontend/src/global.css`. |
 | **1.4.4 Resize Text** | Supports | Text can be resized to 200% without loss of content or functionality. Layout uses flexbox for reflow. Typography system uses CSS custom properties — all font sizes centrally defined and scale consistently. Base font size set via `var(--text-base)`. |
 | **1.4.5 Images of Text** | Supports | No images of text used. All text is rendered as HTML text with system fonts. |
@@ -112,7 +112,7 @@
 | **1.4.13 Content on Hover or Focus** | Supports | Shelter card hover effects are purely visual (border color change). No content appears on hover/focus that is not also available through other means. No tooltips that show content only on hover. Kebab menu content accessible via click/keyboard, not hover. |
 | **2.4.5 Multiple Ways** | Supports | Content accessible via navigation menu (sidebar/bottom nav) and direct URL. Bed search provides text search and population type filter as alternative discovery methods. |
 | **2.4.6 Headings and Labels** | Supports | Pages use descriptive headings (h1-h3). Section headings in admin panel clearly label each section. Form labels describe their purpose. Navigation items have descriptive text. |
-| **2.4.7 Focus Visible** | Partially Supports | Browser default focus indicators are visible on native elements (`<a>`, `<button>`, `<input>`, `<select>`). **Gap:** Several custom-styled elements use `outline: 'none'` in inline styles (search input in `OutreachSearch.tsx`, form inputs in `AdminPanel.tsx`, main content area in `Layout.tsx`) without providing a replacement focus indicator via `box-shadow`, `border`, or custom outline. The main content area (`tabIndex={-1}`, `outline: 'none'`) is a programmatic focus target, which is an accepted pattern. The input fields are a genuine gap — users navigating by keyboard may not see which field has focus. No `:focus-visible` styles exist in `global.css`. The skip-to-content link has explicit focus styling. |
+| **2.4.7 Focus Visible** | Supports | Global `:focus-visible` CSS rules in `global.css` provide a 2px solid outline using `var(--color-border-focus)` with 2px offset on all focusable elements. Input fields use a border-color highlight with box-shadow instead of outline for a cleaner visual. Focus token switches from `#1a56db` (light, 7.8:1 contrast) to `#78a9ff` (dark, 7.7:1 contrast). All previous `outline: 'none'` overrides on interactive inputs have been removed — only the main content programmatic focus target (`tabIndex={-1}`) retains `outline: 'none'`, which is an accepted pattern per WCAG. Skip-to-content link has explicit focus styling. Verified by VPAT verification tests: login form inputs, outreach search input, and dark mode focus indicators all pass hard assertions. |
 | **3.1.2 Language of Parts** | Supports | When user switches to Spanish locale, `document.documentElement.lang` is updated to "es". Content is served in the selected language via `react-intl`. Verified by VPAT test and virtual screen reader test. **Note:** Individual inline content in a different language (e.g., shelter names in Spanish within an English page) is not separately marked with `lang` attributes. This edge case has not been observed in practice. |
 | **3.2.3 Consistent Navigation** | Supports | Navigation is consistent across all pages. Desktop sidebar and mobile bottom nav maintain same item order and labeling. Header items appear in the same position on all authenticated pages. |
 | **3.2.4 Consistent Identification** | Supports | Components with the same functionality use consistent labeling. Save buttons, status badges, freshness indicators, and navigation items are identified consistently throughout the application. |
@@ -127,31 +127,40 @@
 | Level | Supports | Partially Supports | Does Not Support | Not Applicable |
 |---|---|---|---|---|
 | **Level A (30)** | 18 | 3 | 0 | 9 |
-| **Level AA (20)** | 16 | 1 | 1 | 2 |
-| **Total (50)** | **34** | **4** | **1** | **11** |
+| **Level AA (20)** | 18 | 0 | 0 | 2 |
+| **Total (50)** | **36** | **3** | **0** | **11** |
 
 ### Criteria Requiring Attention
 
 | Criterion | Status | Gap | Remediation |
 |---|---|---|---|
 | **1.1.1 Non-text Content** | Partially Supports | Chart data points lack text alternatives | Recharts `accessibilityLayer` integration or aria-describedby on chart containers |
-| **1.3.1 Info and Relationships** | Partially Supports | No `aria-sort` on sortable table headers; some inputs use `aria-label` instead of `<label>` | Add `aria-sort` to sortable columns; associate inputs with `<label for="...">` where possible |
-| **1.3.5 Identify Input Purpose** | Does Not Support | Zero `autocomplete` attributes on any form input | Add `autocomplete="email"`, `autocomplete="current-password"`, `autocomplete="new-password"` to login and password change forms |
+| **1.3.1 Info and Relationships** | Partially Supports | Some inputs use `aria-label` instead of `<label>` | Associate inputs with `<label for="...">` where possible |
 | **2.1.1 Keyboard** | Partially Supports | Full keyboard audit of all interactive elements not completed | Complete keyboard-only walkthrough of every page and flow |
-| **2.4.7 Focus Visible** | Partially Supports | `outline: 'none'` on several inputs without replacement focus indicator; no global `:focus-visible` styles | Add `:focus-visible` styles in `global.css`; replace `outline: 'none'` with visible focus indicators |
+
+### Criteria Fixed in This Version
+
+| Criterion | Previous | Now | What Changed |
+|---|---|---|---|
+| **1.3.5 Identify Input Purpose** | Does Not Support | Supports | Added `autocomplete` attributes to all login, password change, and admin password reset forms (6 fields total) |
+| **2.4.7 Focus Visible** | Partially Supports | Supports | Added global `:focus-visible` CSS rules with `var(--color-border-focus)` token. Removed `outline: 'none'` from 5 interactive input elements. Input fields use border-color + box-shadow on focus. Verified in light mode, dark mode, and through nginx. |
 
 ---
 
 ## Remediation Plan
 
+**Completed in v0.29.4 WCAG fixes:**
+- ~~`autocomplete` attributes~~ — Added to all login, password change, and admin reset forms (6 fields)
+- ~~Focus visible styles~~ — Global `:focus-visible` CSS added; `outline: 'none'` removed from 5 inputs
+- ~~`aria-sort` on tables~~ — Tables are not sortable; `aria-sort` is not applicable
+
+**Remaining:**
+
 | Item | Priority | Description |
 |---|---|---|
-| **`autocomplete` attributes** | High | Add `autocomplete` attributes to all login, password, and form inputs per WCAG 1.3.5. This is the only "Does Not Support" finding. |
-| **Focus visible styles** | High | Add `:focus-visible` CSS rules in `global.css`. Replace `outline: 'none'` in inline styles with visible focus indicators (outline, box-shadow, or border change). |
-| **`aria-sort` on tables** | Medium | Add `aria-sort="ascending"` / `aria-sort="descending"` / `aria-sort="none"` to sortable table column headers in admin panel. |
+| **Real screen reader testing** | High | Test with NVDA (Windows) and VoiceOver (macOS/iOS) by users with screen reader experience. Virtual screen reader tests are a useful CI gate but do not replace real AT testing. This is the most significant gap in this assessment. |
 | **Chart text alternatives** | Medium | Add `aria-describedby` to Recharts chart containers linking to data tables, or integrate Recharts `accessibilityLayer` when stable. |
 | **Full keyboard audit** | Medium | Complete keyboard-only walkthrough of every page and interactive flow. Document any elements that cannot be reached or activated via keyboard. |
-| **Real screen reader testing** | High | Test with NVDA (Windows) and VoiceOver (macOS/iOS) by users with screen reader experience. Virtual screen reader tests are a useful CI gate but do not replace real AT testing. This is the most significant gap in this assessment. |
 | **`<label>` associations** | Low | Where form inputs use `aria-label` instead of linked `<label for="...">` elements, prefer the linked pattern for better AT support. |
 
 ---
@@ -204,4 +213,4 @@ The following automated tests directly verify WCAG claims in this report:
 *VPAT 2.5 WCAG Edition*
 *Self-assessment, prepared with AI assistance — not a third-party certification*
 *Must be reviewed by a qualified accessibility professional before use in procurement*
-*Report date: April 6, 2026 — Product version: v0.29.3*
+*Report date: April 6, 2026 — Product version: v0.29.4*

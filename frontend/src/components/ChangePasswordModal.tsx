@@ -82,7 +82,6 @@ export function ChangePasswordModal({ open, onClose, onSuccess }: ChangePassword
     boxSizing: 'border-box',
     color: color.text,
     fontWeight: weight.medium,
-    outline: 'none',
   };
 
   const labelStyle: React.CSSProperties = {

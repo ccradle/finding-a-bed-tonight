@@ -296,6 +296,7 @@ export function LoginPage() {
             <input
               id="tenant"
               type="text"
+              autoComplete="organization"
               value={tenantSlug}
               onChange={(e) => setTenantSlug(e.target.value)}
               placeholder="my-organization"
@@ -322,6 +323,7 @@ export function LoginPage() {
             <input
               id="email"
               type="email"
+              autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
@@ -348,6 +350,7 @@ export function LoginPage() {
             <input
               id="password"
               type="password"
+              autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required

@@ -512,7 +512,7 @@ export function OutreachSearch() {
         style={{
           width: '100%', padding: '15px 18px', borderRadius: 14,
           border: `2px solid ${color.border}`, fontSize: text.md, minHeight: 50,
-          boxSizing: 'border-box', marginBottom: 14, outline: 'none',
+          boxSizing: 'border-box', marginBottom: 14,
           fontWeight: weight.medium, color: color.text,
         }}
       />
