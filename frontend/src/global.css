@@ -210,3 +210,22 @@ html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
 }
+
+/*
+ * WCAG 2.4.7 Focus Visible — global focus indicator styles.
+ * Uses :focus-visible so mouse clicks don't show the ring,
+ * but keyboard navigation does.
+ */
+:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 2px;
+}
+
+/* Inputs and textareas: use border highlight instead of outline to stay inside the field */
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none;
+  border-color: var(--color-border-focus);
+  box-shadow: 0 0 0 1px var(--color-border-focus);
+}
