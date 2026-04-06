@@ -643,9 +643,21 @@ export function OutreachSearch() {
                     display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8,
                   }}>
                     <div>
-                      <div style={{ fontWeight: weight.bold, fontSize: text.base, color: color.text }}>
+                      <button
+                        data-testid={`reservation-shelter-link-${res.shelterId}`}
+                        onClick={(e) => { e.stopPropagation(); openDetail(res.shelterId); }}
+                        style={{
+                          fontWeight: weight.bold, fontSize: text.base, color: color.primaryText,
+                          background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                          textAlign: 'left', textDecoration: 'underline', textUnderlineOffset: '2px',
+                        }}
+                        aria-label={intl.formatMessage(
+                          { id: 'reservations.viewShelter', defaultMessage: 'View details for {shelter}' },
+                          { shelter: shelterResult?.shelterName || res.shelterId.substring(0, 8) }
+                        )}
+                      >
                         {shelterResult?.shelterName || res.shelterId.substring(0, 8)}
-                      </div>
+                      </button>
                       <div style={{ fontSize: text.xs, color: color.textTertiary }}>
                         {getPopulationTypeLabel(res.populationType, intl)}
                       </div>

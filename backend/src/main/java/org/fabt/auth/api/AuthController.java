@@ -227,7 +227,7 @@ public class AuthController {
                     + "On success, issues JWTs with mustChangePassword=true — the user must set a new "
                     + "password before accessing any other endpoint.")
     @PostMapping("/access-code")
-    public ResponseEntity<?> accessCodeLogin(@RequestBody Map<String, String> body) {
+    public ResponseEntity<?> accessCodeLogin(@RequestBody Map<String, String> body, jakarta.servlet.http.HttpServletRequest request) {
         String email = body.get("email");
         String tenantSlug = body.get("tenantSlug");
         String code = body.get("code");
@@ -244,7 +244,7 @@ public class AuthController {
 
         // Publish audit event OUTSIDE the @Transactional boundary (avoids rollback-only marking)
         log.info("Access code login successful for user {}", user.getId());
-        eventPublisher.publishEvent(new AuditEventRecord(null, user.getId(), "ACCESS_CODE_USED", null, null));
+        eventPublisher.publishEvent(new AuditEventRecord(user.getId(), user.getId(), "ACCESS_CODE_USED", null, request.getRemoteAddr()));
 
         // Issue JWTs with mustChangePassword flag
         String accessToken = jwtService.generateAccessTokenWithPasswordChange(user);

@@ -117,6 +117,7 @@
   "reservations.status.CONFIRMED": "Confirmed",
   "reservations.status.CANCELLED": "Cancelled",
   "reservations.status.EXPIRED": "Expired",
+  "reservations.viewShelter": "View details for {shelter}",
 
   "surge.banner": "SURGE ACTIVE",
   "surge.reason": "Reason",
