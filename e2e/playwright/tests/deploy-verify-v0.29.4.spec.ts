@@ -313,6 +313,7 @@ test.describe('v0.29.4 Deployment Verification', () => {
   test('version shown in authenticated layout footer', async ({ page }) => {
     await login(page, 'outreach@dev.fabt.org');
     const version = page.getByTestId('app-version');
+    await version.scrollIntoViewIfNeeded();
     await expect(version).toContainText('v0.29', { timeout: 10000 });
   });
 });
