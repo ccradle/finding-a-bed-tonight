@@ -42,7 +42,7 @@
 
 ```bash
 # SSH to Oracle VM
-ssh -i ~/.ssh/fabt-oracle ubuntu@150.136.221.232
+ssh -i ~/.ssh/fabt-oracle ubuntu@${FABT_VM_IP}
 
 # Generate and add encryption key
 # IMPORTANT: Generate a UNIQUE key. Do NOT copy the key from dev-start.sh —

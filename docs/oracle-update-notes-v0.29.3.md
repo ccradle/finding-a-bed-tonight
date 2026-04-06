@@ -24,7 +24,7 @@
 **BOTH containers restart — ~15 seconds backend downtime.**
 
 ```bash
-ssh -i ~/.ssh/fabt-oracle ubuntu@150.136.221.232
+ssh -i ~/.ssh/fabt-oracle ubuntu@${FABT_VM_IP}
 
 cd ~/finding-a-bed-tonight
 git pull origin main
@@ -82,7 +82,7 @@ Also run in browser: incognito → https://findabed.org → login as admin → C
 
 ```bash
 # In a separate terminal:
-ssh -i ~/.ssh/fabt-oracle -L 8081:localhost:8081 ubuntu@150.136.221.232 -N
+ssh -i ~/.ssh/fabt-oracle -L 8081:localhost:8081 ubuntu@${FABT_VM_IP} -N
 ```
 
 Then in **incognito** browser: http://localhost:8081 → login as admin → perform these operations:

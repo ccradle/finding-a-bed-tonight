@@ -25,7 +25,7 @@
 **Backend-only — no frontend restart needed.**
 
 ```bash
-ssh -i ~/.ssh/fabt-oracle ubuntu@150.136.221.232
+ssh -i ~/.ssh/fabt-oracle ubuntu@${FABT_VM_IP}
 
 cd ~/finding-a-bed-tonight
 git pull origin main
@@ -59,7 +59,7 @@ curl -s https://findabed.org/api/v1/version
 # Expected: {"version":"0.29"}
 
 # 2. Monitor logs for 5 minutes — ZERO AsyncContext/Security errors expected
-ssh -i ~/.ssh/fabt-oracle ubuntu@150.136.221.232 \
+ssh -i ~/.ssh/fabt-oracle ubuntu@${FABT_VM_IP} \
   "docker logs -f fabt-backend 2>&1 | grep -i 'AsyncContext\|response has already been committed\|Cannot render error page'"
 # Expected: no output (previously 195+ errors)
 
@@ -68,7 +68,7 @@ ssh -i ~/.ssh/fabt-oracle ubuntu@150.136.221.232 \
 # The "Reconnecting to live updates..." banner should NOT appear
 
 # 4. Check WARN logs for expected emitter lifecycle messages
-ssh -i ~/.ssh/fabt-oracle ubuntu@150.136.221.232 \
+ssh -i ~/.ssh/fabt-oracle ubuntu@${FABT_VM_IP} \
   "docker logs fabt-backend 2>&1 | grep 'Heartbeat failed\|emitter error\|emitter timed out' | tail -5"
 # Expected: WARN-level messages with userId (healthy cleanup, not ERROR cascades)
 ```

@@ -24,7 +24,7 @@
 **Frontend-only — no backend restart needed.**
 
 ```bash
-ssh -i ~/.ssh/fabt-oracle ubuntu@150.136.221.232
+ssh -i ~/.ssh/fabt-oracle ubuntu@${FABT_VM_IP}
 
 cd ~/finding-a-bed-tonight
 git pull origin main

@@ -4,6 +4,9 @@
 **Date:** April 6, 2026
 **Changes:** WCAG accessibility fixes, SSE lifecycle fix, DemoGuard tunnel bypass, Vite security patch
 
+> **Connection:** Set `FABT_VM_IP` before running commands. Value is in your
+> local `~/fabt-secrets/connection.md` or password manager — not stored in git.
+
 ## What changed
 
 This deploy covers v0.29.2 + v0.29.3 + v0.29.4 (three versions, never individually deployed).
@@ -30,7 +33,7 @@ This deploy covers v0.29.2 + v0.29.3 + v0.29.4 (three versions, never individual
 **BOTH containers restart — ~15 seconds backend downtime.**
 
 ```bash
-ssh -i ~/.ssh/fabt-oracle ubuntu@150.136.221.232
+ssh -i ~/.ssh/fabt-oracle ubuntu@${FABT_VM_IP}
 
 cd ~/finding-a-bed-tonight
 git fetch origin
@@ -45,10 +48,10 @@ docker build -t fabt-frontend:latest -f infra/docker/Dockerfile.frontend .
 cd backend && mvn package -DskipTests -q && cd ..
 docker build -t fabt-backend:latest -f infra/docker/Dockerfile.backend .
 
-# Restart BOTH containers
+# Restart BOTH containers (with observability profile)
 docker compose --env-file ~/fabt-secrets/.env.prod \
   -f docker-compose.yml -f ~/fabt-secrets/docker-compose.prod.yml \
-  up -d backend frontend
+  --profile observability up -d backend frontend
 
 # Wait for backend startup
 sleep 15
@@ -64,44 +67,31 @@ rm -f backend/target/finding-a-bed-tonight-0.29.3.jar
 
 ## Post-Deploy Smoke Tests
 
-### Part A: Version and basic health
+### Automated verification (run from local machine)
 
 ```bash
-# From the VM
-curl -s localhost:8080/api/v1/version
-# Expected: {"version":"0.29.4"}
-
-curl -s localhost:8080/actuator/health | python3 -c "import sys,json; print(json.load(sys.stdin)['status'])"
-# Expected: UP
+cd e2e/playwright
+BASE_URL=https://findabed.org npx playwright test tests/deploy-verify-v0.29.4.spec.ts \
+  --reporter=list --trace on 2>&1 | tee ../../logs/deploy-verify-v0.29.4.log
 ```
 
-### Part B: WCAG verification (browser — use incognito!)
+Covers: version, health API, WCAG focus-visible + autocomplete, SSE stability,
+DV canary, DemoGuard blocks, user workflows (search, hold, coordinator update).
 
-1. Open **incognito** → https://findabed.org/login
-2. **Version check**: footer shows v0.29.4
-3. **Autocomplete**: click on Email field → browser should offer autocomplete suggestions
-4. **Focus visible (light mode)**: Tab through login form → blue focus ring visible on each input and Sign In button
-5. **Focus visible (dark mode)**: Enable dark mode in OS → refresh → Tab through form → lighter blue focus ring visible
-6. **SSE check**: Login as outreach worker → wait 60 seconds → no "Reconnecting to live updates..." banner (v0.29.2 fix)
+### Manual checks (after automated passes)
 
-### Part C: DemoGuard tunnel bypass (v0.29.3)
+**WCAG visual spot check (incognito):**
+1. https://findabed.org/login → Tab through form → blue focus ring visible
+2. Dark mode → refresh → lighter blue focus ring on inputs
 
+**DemoGuard tunnel bypass (v0.29.3 — requires SSH tunnel):**
 ```bash
-# In a separate terminal:
-ssh -i ~/.ssh/fabt-oracle -L 8081:localhost:8081 ubuntu@150.136.221.232 -N
+ssh -i ~/.ssh/fabt-oracle -L 8081:localhost:8081 ubuntu@${FABT_VM_IP} -N
 ```
-
-In **incognito** browser: http://localhost:8081 → login as admin:
+Incognito → http://localhost:8081 → login as admin:
 1. Create User → should succeed → delete the test user
 2. Activate Surge → should succeed → deactivate
-3. Wait 60 seconds → no "Reconnecting" banner
-
-### Part D: Public still protected
-
-1. Close SSH tunnel
-2. New incognito → https://findabed.org → login as admin
-3. Create User → should show "disabled in demo environment"
-4. Verify all 4 demo credentials work (admin123)
+3. Close tunnel → public site → Create User → should show "disabled in demo environment"
 
 ## Backout Plan
 

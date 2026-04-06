@@ -16,7 +16,7 @@
 
 ## Pre-deploy checklist
 
-- [ ] Verify SSH access: `ssh -i ~/.ssh/fabt-oracle ubuntu@150.136.221.232`
+- [ ] Verify SSH access: `ssh -i ~/.ssh/fabt-oracle ubuntu@${FABT_VM_IP}`
 - [ ] Verify current version: `curl -s https://findabed.org/api/v1/version` → `{"version":"0.28"}`
 - [ ] Verify all 4 demo credentials work (`admin123`)
 
@@ -36,16 +36,16 @@ scp -i ~/.ssh/fabt-oracle \
   /c/Development/findABed/demo/for-coc-admins.html \
   /c/Development/findABed/demo/for-funders.html \
   /c/Development/findABed/demo/for-cities.html \
-  ubuntu@150.136.221.232:/var/www/findabed-docs/demo/
+  ubuntu@${FABT_VM_IP}:/var/www/findabed-docs/demo/
 
 # Homepage + sitemap (updated links and new page entries)
 scp -i ~/.ssh/fabt-oracle \
   /c/Development/findABed/index.html \
   /c/Development/findABed/sitemap.xml \
-  ubuntu@150.136.221.232:/var/www/findabed-docs/
+  ubuntu@${FABT_VM_IP}:/var/www/findabed-docs/
 
 # Verify on VM:
-ssh -i ~/.ssh/fabt-oracle ubuntu@150.136.221.232 \
+ssh -i ~/.ssh/fabt-oracle ubuntu@${FABT_VM_IP} \
   "ls -la /var/www/findabed-docs/demo/for-*.html && echo '---' && grep 'for-' /var/www/findabed-docs/sitemap.xml"
 # Expected: 4 for-*.html files, 4 sitemap entries
 ```
@@ -54,7 +54,7 @@ ssh -i ~/.ssh/fabt-oracle ubuntu@150.136.221.232 \
 
 ```bash
 # SSH into the VM
-ssh -i ~/.ssh/fabt-oracle ubuntu@150.136.221.232
+ssh -i ~/.ssh/fabt-oracle ubuntu@${FABT_VM_IP}
 
 # Pull latest main
 cd ~/finding-a-bed-tonight
