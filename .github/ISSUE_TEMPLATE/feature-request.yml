@@ -1,0 +1,72 @@
+name: "Feature Request"
+description: "Suggest a new feature or improvement"
+title: "[Feature]: "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have an idea for something the platform should do? Describe the problem
+        you're trying to solve and we'll figure out the best solution together.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: "What problem does this solve?"
+      description: "Describe the situation or frustration this feature would address."
+      placeholder: "After holding a bed, I can't get directions back to the shelter from My Reservations..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: "What would you like to happen?"
+      description: "Describe your ideal solution. Screenshots or mockups welcome."
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: "Alternatives you've considered"
+      description: "Any workarounds or other approaches you've thought of?"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: persona
+    attributes:
+      label: "Who benefits most from this feature?"
+      description: "Which user role would use this? Select all that apply."
+      multiple: true
+      options:
+        - "Outreach Workers (street outreach, like Darius)"
+        - "Shelter Coordinators (like Sandra)"
+        - "CoC Administrators (like Marcus)"
+        - "Hospital Discharge Planners (like Dr. Whitfield)"
+        - "Faith Community Operators (like Rev. Monroe)"
+        - "City / Government Officials (like Teresa)"
+        - "Everyone"
+        - "Not sure"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: urgency
+    attributes:
+      label: "How important is this to you?"
+      options:
+        - "Nice to have — would improve the experience"
+        - "Important — I work around it but it slows me down"
+        - "Critical — this blocks a key workflow"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: "Before submitting"
+      options:
+        - label: "I searched existing issues and this hasn't been requested yet"
+          required: true

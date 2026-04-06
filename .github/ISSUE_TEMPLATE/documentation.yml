@@ -1,0 +1,54 @@
+name: "Documentation Issue"
+description: "Report missing, incorrect, or unclear documentation"
+title: "[Docs]: "
+labels: ["documentation", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Found something wrong or missing in the docs? Let us know.
+
+  - type: dropdown
+    id: type
+    attributes:
+      label: "What kind of documentation issue?"
+      options:
+        - "Something is incorrect or outdated"
+        - "Something is missing"
+        - "Something is confusing or unclear"
+        - "Typo or formatting issue"
+    validations:
+      required: true
+
+  - type: input
+    id: location
+    attributes:
+      label: "Where is the issue?"
+      description: "File name, page URL, or section heading."
+      placeholder: "README.md, 'Getting Started' section"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: "What's wrong?"
+      description: "Describe what's incorrect, missing, or unclear."
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: "Suggested fix"
+      description: "If you know what it should say, tell us."
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: "Before submitting"
+      options:
+        - label: "I searched existing issues and this hasn't been reported yet"
+          required: true

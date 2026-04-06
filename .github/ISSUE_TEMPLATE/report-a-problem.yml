@@ -1,0 +1,70 @@
+name: "Report a Problem"
+description: "Something isn't working right — no technical details needed"
+title: "[Problem]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Something not working? Tell us what happened in your own words.
+        No technical knowledge needed — just describe what you saw.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: "What happened?"
+      description: "Describe the problem in plain language."
+      placeholder: "I updated the bed count and hit save, but nothing changed."
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-expected
+    attributes:
+      label: "What did you expect to happen?"
+      placeholder: "The bed count should have updated to the new number."
+    validations:
+      required: false
+
+  - type: dropdown
+    id: role
+    attributes:
+      label: "What were you doing in the app?"
+      options:
+        - "Searching for beds"
+        - "Holding / reserving a bed"
+        - "Updating bed counts at my shelter"
+        - "Managing shelters or users (admin)"
+        - "Logging in or changing my password"
+        - "Something else"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: device
+    attributes:
+      label: "What device were you using?"
+      options:
+        - "Phone (Android)"
+        - "Phone (iPhone)"
+        - "Tablet"
+        - "Desktop / laptop computer"
+        - "Not sure"
+    validations:
+      required: true
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: "Screenshots"
+      description: "If you can, take a screenshot and drag it here. This helps a lot!"
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: "Before submitting"
+      options:
+        - label: "I looked through existing issues and didn't see this reported"
+          required: true

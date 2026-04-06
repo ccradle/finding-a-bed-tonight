@@ -1,0 +1,115 @@
+name: "Bug Report"
+description: "Report a bug — for developers and technical testers"
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. Please fill out what you can —
+        the more detail, the faster we can fix it.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: "What happened?"
+      description: "A clear description of the bug."
+      placeholder: "When I clicked 'Hold This Bed' on a shelter with 0 availability..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: "Steps to reproduce"
+      description: "Step-by-step instructions to trigger the bug."
+      placeholder: |
+        1. Log in as outreach worker
+        2. Search for beds (SINGLE_ADULT)
+        3. Click 'Hold This Bed' on a shelter showing 0 available
+        4. Observe: hold is created despite zero availability
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: "Expected behavior"
+      description: "What should have happened instead?"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: persona
+    attributes:
+      label: "Which user role were you testing as?"
+      options:
+        - "Outreach Worker (Darius)"
+        - "Coordinator (Sandra)"
+        - "CoC Admin (Marcus)"
+        - "Platform Admin"
+        - "Hospital Social Worker (Dr. Whitfield)"
+        - "Unauthenticated / public"
+        - "Not applicable"
+      default: 6
+    validations:
+      required: true
+
+  - type: dropdown
+    id: version
+    attributes:
+      label: "Application version"
+      description: "Shown in the bottom-left of the app footer."
+      options:
+        - "0.29.3 (current)"
+        - "0.29.2"
+        - "0.28.x or older"
+        - "Unknown"
+      default: 0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: "Environment"
+      options:
+        - "Demo site (findabed.org)"
+        - "Local development"
+        - "Other"
+    validations:
+      required: true
+
+  - type: input
+    id: browser
+    attributes:
+      label: "Browser and device"
+      description: "e.g., Chrome 124 on Android, Safari on iPhone 15, Firefox on Windows"
+      placeholder: "Chrome 124 on Windows 11"
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: "Relevant logs or error messages"
+      description: "Paste any console errors, network errors, or server logs."
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: "Screenshots"
+      description: "Drag and drop screenshots here if applicable."
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: "Before submitting"
+      options:
+        - label: "I searched existing issues and this hasn't been reported yet"
+          required: true

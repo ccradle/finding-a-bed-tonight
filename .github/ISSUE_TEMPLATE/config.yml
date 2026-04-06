@@ -1,0 +1,9 @@
+blank_issues_enabled: false
+
+contact_links:
+  - name: "Security Vulnerability"
+    url: "https://github.com/ccradle/finding-a-bed-tonight/security/advisories/new"
+    about: "Report security issues privately — never open a public issue for security vulnerabilities"
+  - name: "Question or Support"
+    url: "https://github.com/ccradle/finding-a-bed-tonight/discussions/categories/q-a"
+    about: "Ask a question in Discussions — issues are for bugs and feature requests"
