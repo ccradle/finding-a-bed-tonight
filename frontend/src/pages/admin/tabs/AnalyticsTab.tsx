@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useContext, lazy, Suspense } from 'react';
 import { FormattedMessage } from 'react-intl';
-import { api } from '../services/api';
-import { AuthContext } from '../auth/AuthContext';
-import { text, weight } from '../theme/typography';
-import { color } from '../theme/colors';
+import { api } from '../../../services/api';
+import { AuthContext } from '../../../auth/AuthContext';
+import { text, weight } from '../../../theme/typography';
+import { color } from '../../../theme/colors';
 
 // Lazy-load Recharts (~200KB) — only when admin opens Analytics tab.
 // Outreach workers on phones never download it.
