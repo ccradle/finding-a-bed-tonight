@@ -477,7 +477,7 @@ export function OutreachSearch() {
         <h1 style={{ margin: 0, fontSize: text['2xl'], fontWeight: weight.extrabold, letterSpacing: '-0.03em' }}>
           <FormattedMessage id="search.title" />
         </h1>
-        <p style={{ margin: '6px 0 0', fontSize: text.base, color: color.textTertiary }}>
+        <p style={{ margin: '6px 0 0', fontSize: text.base, color: color.headerText }}>
           <FormattedMessage id="search.subtitle" />
         </p>
       </div>
@@ -496,7 +496,7 @@ export function OutreachSearch() {
             </div>
             <div style={{ fontSize: text.base, fontWeight: weight.medium }}>{activeSurge.reason}</div>
           </div>
-          <div style={{ fontSize: text.xs, color: color.textTertiary }}>
+          <div style={{ fontSize: text.xs, color: color.textInverse }}>
             <FormattedMessage id="surge.since" />: {new Date(activeSurge.activatedAt).toLocaleString()}
           </div>
         </div>

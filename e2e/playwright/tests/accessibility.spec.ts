@@ -1,5 +1,6 @@
 import { test, expect } from '../fixtures/auth.fixture';
 import AxeBuilder from '@axe-core/playwright';
+import type { AxeResults } from 'axe-core';
 
 /**
  * WCAG 2.1 AA Accessibility Scan — axe-core automated audit.
@@ -19,6 +20,55 @@ function formatViolations(violations: any[]): string {
     `[${v.id}] ${v.description} (${v.impact}) — ${v.nodes.length} instance(s)\n` +
     v.nodes.slice(0, 3).map((n: any) => `  → ${n.html.substring(0, 120)}`).join('\n')
   ).join('\n\n');
+}
+
+const API_URL = process.env.BASE_URL || 'http://localhost:8080';
+
+function logIncomplete(results: AxeResults): void {
+  if (results.incomplete.length > 0) {
+    console.log(`  ⚠ ${results.incomplete.length} incomplete (need manual review):`);
+    for (const item of results.incomplete) {
+      console.log(`    [${item.id}] ${item.description} — ${item.nodes.length} instance(s)`);
+    }
+  }
+}
+
+async function getAdminToken(): Promise<string> {
+  const res = await fetch(`${API_URL}/api/v1/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tenantSlug: 'dev-coc', email: 'admin@dev.fabt.org', password: 'admin123' }),
+  });
+  const data = await res.json();
+  return data.accessToken;
+}
+
+async function activateSurge(token: string): Promise<void> {
+  const surgesRes = await fetch(`${API_URL}/api/v1/surge-events`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const surges = await surgesRes.json();
+  if (surges.some((s: { status: string }) => s.status === 'ACTIVE')) return;
+
+  await fetch(`${API_URL}/api/v1/surge-events`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason: 'WCAG scan — surge contrast check', temperatureF: 25 }),
+  });
+}
+
+async function deactivateSurge(token: string): Promise<void> {
+  const surgesRes = await fetch(`${API_URL}/api/v1/surge-events`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const surges = await surgesRes.json();
+  const active = surges.find((s: { status: string }) => s.status === 'ACTIVE');
+  if (!active) return;
+
+  await fetch(`${API_URL}/api/v1/surge-events/${active.id}/deactivate`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}` },
+  });
 }
 
 test.describe('WCAG 2.1 AA Accessibility Scan', () => {
@@ -42,6 +92,7 @@ test.describe('WCAG 2.1 AA Accessibility Scan', () => {
       .withTags(AXE_TAGS)
       .analyze();
 
+    logIncomplete(results);
     expect(results.violations, formatViolations(results.violations)).toEqual([]);
   });
 
@@ -60,7 +111,40 @@ test.describe('WCAG 2.1 AA Accessibility Scan', () => {
       .withTags(AXE_TAGS)
       .analyze();
 
+    logIncomplete(results);
     expect(results.violations, formatViolations(results.violations)).toEqual([]);
+  });
+
+  test('outreach search with surge banner has no violations', async ({ outreachPage }) => {
+    // Activate surge so the banner renders
+    let token: string;
+    try {
+      token = await getAdminToken();
+      await activateSurge(token);
+    } catch {
+      console.log('Could not activate surge (backend not reachable?) — skipping');
+      test.skip();
+      return;
+    }
+
+    try {
+      await outreachPage.goto('/');
+      await outreachPage.waitForTimeout(3000);
+
+      // Verify surge banner is visible before scanning
+      const surgeBanner = outreachPage.locator('text=/SURGE ACTIVE|EMERGENCIA ACTIVA/i');
+      await expect(surgeBanner).toBeVisible({ timeout: 5000 });
+
+      const results = await new AxeBuilder({ page: outreachPage })
+        .withTags(AXE_TAGS)
+        .analyze();
+
+      logIncomplete(results);
+      expect(results.violations, formatViolations(results.violations)).toEqual([]);
+    } finally {
+      // Always deactivate surge after test
+      try { await deactivateSurge(token!); } catch { /* best effort */ }
+    }
   });
 
   test('coordinator dashboard has no accessibility violations', async ({ coordinatorPage }) => {
