@@ -79,6 +79,10 @@ public class ApiKeyService {
         ApiKey existing = apiKeyRepository.findById(keyId)
                 .orElseThrow(() -> new NoSuchElementException("API key not found: " + keyId));
 
+        if (!existing.isActive()) {
+            throw new IllegalStateException("Cannot rotate a deactivated API key: " + keyId);
+        }
+
         // Preserve old key hash for grace period — both keys authenticate during overlap
         existing.setOldKeyHash(existing.getKeyHash());
         existing.setOldKeyExpiresAt(Instant.now().plusSeconds(DEFAULT_GRACE_PERIOD_HOURS * 3600));
