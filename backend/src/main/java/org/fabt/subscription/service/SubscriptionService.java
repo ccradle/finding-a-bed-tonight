@@ -100,7 +100,7 @@ public class SubscriptionService {
      * Resetting to ACTIVE from DEACTIVATED or FAILING clears consecutive failure counter.
      */
     @Transactional
-    public Subscription updateStatus(UUID id, String newStatus) {
+    public Subscription updateStatus(UUID id, UUID tenantId, String newStatus) {
         if (!"ACTIVE".equals(newStatus) && !"PAUSED".equals(newStatus)) {
             throw new IllegalArgumentException("Only ACTIVE and PAUSED are valid admin-settable status values");
         }
@@ -108,6 +108,22 @@ public class SubscriptionService {
         Subscription subscription = subscriptionRepository.findById(id)
                 .orElseThrow(() -> new NoSuchElementException("Subscription not found: " + id));
 
+        // Tenant isolation — return 404 to avoid confirming existence in another tenant
+        if (!subscription.getTenantId().equals(tenantId)) {
+            throw new NoSuchElementException("Subscription not found: " + id);
+        }
+
+        // CANCELLED is terminal — cannot be reactivated
+        if ("CANCELLED".equals(subscription.getStatus())) {
+            throw new IllegalStateException("Cannot modify a cancelled subscription");
+        }
+
+        // Only allow PAUSED from ACTIVE (not from DEACTIVATED/FAILING — re-enable to ACTIVE first)
+        if ("PAUSED".equals(newStatus) && !"ACTIVE".equals(subscription.getStatus())) {
+            throw new IllegalStateException("Can only pause an ACTIVE subscription. Current status: " + subscription.getStatus());
+        }
+
+        // Resetting to ACTIVE from DEACTIVATED or FAILING clears failure state
         if ("ACTIVE".equals(newStatus) &&
                 ("DEACTIVATED".equals(subscription.getStatus()) || "FAILING".equals(subscription.getStatus()))) {
             subscription.setConsecutiveFailures(0);
@@ -124,14 +140,35 @@ public class SubscriptionService {
     }
 
     /**
+     * Return recent delivery log entries for a subscription, with tenant isolation.
+     * Returns 404 (via NoSuchElementException) if subscription doesn't belong to tenant.
+     */
+    @Transactional(readOnly = true)
+    public List<org.fabt.subscription.domain.WebhookDeliveryLog> findRecentDeliveries(UUID subscriptionId, UUID tenantId) {
+        Subscription subscription = subscriptionRepository.findById(subscriptionId)
+                .orElseThrow(() -> new NoSuchElementException("Subscription not found: " + subscriptionId));
+        if (!subscription.getTenantId().equals(tenantId)) {
+            throw new NoSuchElementException("Subscription not found: " + subscriptionId);
+        }
+        return deliveryLogRepository.findRecentBySubscriptionId(subscriptionId);
+    }
+
+    /**
      * Record a delivery attempt in the delivery log.
+     * Response body is redacted (secrets/PII masked) before persistence.
      * Manages consecutive failure counter and auto-disable at 5 failures.
+     * NOTE: consecutiveFailures increment is not atomic (read-modify-write).
+     * For lite profile (single instance) this is acceptable. For multi-instance,
+     * use SQL atomic increment: UPDATE subscription SET consecutive_failures = consecutive_failures + 1
      */
     @Transactional
     public void recordDelivery(UUID subscriptionId, String eventType, Integer statusCode,
                                 Integer responseTimeMs, int attemptNumber, String responseBody) {
+        // Redact secrets/PII before persistence
+        String redactedBody = WebhookResponseRedactor.redact(responseBody);
+
         var logEntry = new org.fabt.subscription.domain.WebhookDeliveryLog(
-                subscriptionId, eventType, statusCode, responseTimeMs, attemptNumber, responseBody);
+                subscriptionId, eventType, statusCode, responseTimeMs, attemptNumber, redactedBody);
         deliveryLogRepository.save(logEntry);
 
         Subscription subscription = subscriptionRepository.findById(subscriptionId).orElse(null);

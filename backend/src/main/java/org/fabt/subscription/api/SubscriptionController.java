@@ -12,7 +12,6 @@ import org.fabt.shared.web.TenantContext;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.fabt.subscription.domain.WebhookDeliveryLog;
-import org.fabt.subscription.repository.WebhookDeliveryLogRepository;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -28,12 +27,9 @@ import org.springframework.web.bind.annotation.RestController;
 public class SubscriptionController {
 
     private final SubscriptionService subscriptionService;
-    private final WebhookDeliveryLogRepository deliveryLogRepository;
 
-    public SubscriptionController(SubscriptionService subscriptionService,
-                                   WebhookDeliveryLogRepository deliveryLogRepository) {
+    public SubscriptionController(SubscriptionService subscriptionService) {
         this.subscriptionService = subscriptionService;
-        this.deliveryLogRepository = deliveryLogRepository;
     }
 
     @PostMapping
@@ -82,7 +78,8 @@ public class SubscriptionController {
         if (newStatus == null || newStatus.isBlank()) {
             return ResponseEntity.badRequest().build();
         }
-        Subscription updated = subscriptionService.updateStatus(id, newStatus);
+        UUID tenantId = TenantContext.getTenantId();
+        Subscription updated = subscriptionService.updateStatus(id, tenantId, newStatus);
         return ResponseEntity.ok(SubscriptionResponse.from(updated));
     }
 
@@ -90,8 +87,9 @@ public class SubscriptionController {
     @Operation(summary = "Get recent delivery log for a subscription",
                description = "Returns the last 20 delivery attempts for the specified subscription, "
                        + "ordered by most recent first. Includes status code, response time, and "
-                       + "truncated response body (max 1KB).")
+                       + "redacted response body (max 1KB, secrets masked).")
     public ResponseEntity<List<WebhookDeliveryLog>> getDeliveries(@PathVariable UUID id) {
-        return ResponseEntity.ok(deliveryLogRepository.findRecentBySubscriptionId(id));
+        UUID tenantId = TenantContext.getTenantId();
+        return ResponseEntity.ok(subscriptionService.findRecentDeliveries(id, tenantId));
     }
 }
