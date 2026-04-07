@@ -5,6 +5,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.29.6] — 2026-04-07 — Admin Panel Extraction (#74)
+
+### Changed
+- **Admin panel refactored from 2,136-line monolith to 15 focused files** — `AdminPanel.tsx` is now a 128-line orchestrator with `React.lazy()` + `Suspense` for code splitting. Each of the 10 tabs is a separate Vite chunk, downloaded only when activated.
+- **New `TabErrorBoundary`** — a failing tab shows an error message with "Try Again" button instead of crashing the entire admin panel. Tab bar stays functional. Resets on tab switch via `key={activeTab}`.
+- **Deploy-verify specs isolated** — 5 deployment verification scripts moved from `e2e/playwright/tests/` to `e2e/playwright/deploy/` with standalone `playwright.config.ts`. These were silently corrupting seed credentials (outreach password changed on non-demo runs), causing cascading 401 failures across the test suite.
+
+### Added
+- `frontend/src/pages/admin/types.ts` — shared interfaces (User, ShelterListItem, ApiKeyRow, etc.)
+- `frontend/src/pages/admin/styles.ts` — shared style objects (tableStyle, thStyle, tdStyle, etc.)
+- `frontend/src/pages/admin/components/` — StatusBadge, RoleBadge, ErrorBox, NoData, Spinner, ReservationSettings, TabErrorBoundary
+- `frontend/src/pages/admin/tabs/` — UsersTab, SheltersTab, ApiKeysTab, ImportsTab, SubscriptionsTab, SurgeTab, ObservabilityTab, OAuth2ProvidersTab, HmisExportTab, AnalyticsTab
+
+### Fixed
+- **WCAG 2.4.1 skip-to-content test** — rewritten to verify existence, focus visibility, and activation instead of fragile Tab-from-body order that conflicted with route-change focus management.
+- **App-version admin test** — waits for element to be attached before `scrollIntoViewIfNeeded()` (version footer renders conditionally after API call).
+
+### Removed
+- `frontend/src/pages/AdminPanel.tsx` (2,136 lines) — replaced by `admin/AdminPanel.tsx` (128 lines) + extracted modules
+- `frontend/src/pages/AnalyticsTab.tsx` — moved to `admin/tabs/AnalyticsTab.tsx`
+
+### Test Results
+- Playwright: 286 passed, 2 pre-existing failures (#64), 11 skipped (through nginx, `--trace on`)
+- `npm run build`: zero TS/Vite errors, 10 separate tab chunks
+- axe-core: zero new violations
+
+---
+
 ## [v0.29.5] — 2026-04-06 — Audit Fix, Clickable Reservations, Contrast Fixes
 
 ### Fixed
