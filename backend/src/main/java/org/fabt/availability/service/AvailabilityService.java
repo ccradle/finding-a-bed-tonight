@@ -79,6 +79,10 @@ public class AvailabilityService {
         this.metrics = metrics;
     }
 
+    /**
+     * Create an availability snapshot. Controllers should use
+     * {@link AvailabilityRetryService#createSnapshotWithRetry} for automatic retry on transient failures.
+     */
     @Transactional
     public AvailabilitySnapshot createSnapshot(UUID shelterId, String populationType,
                                                 int bedsTotal, int bedsOccupied, int bedsOnHold,
