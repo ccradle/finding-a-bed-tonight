@@ -46,9 +46,9 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
     private static final Logger log = LoggerFactory.getLogger(ApiKeyAuthenticationFilter.class);
     private static final String API_KEY_HEADER = "X-API-Key";
 
-    // Per-IP rate limiting for API key attempts: 5 per minute
-    private static final int RATE_LIMIT = 5;
-    private static final Duration RATE_WINDOW = Duration.ofMinutes(1);
+    // Configurable via fabt.api-key.rate-limit (default 5/min for production, high for tests)
+    private final int rateLimit;
+    private final Duration rateWindow = Duration.ofMinutes(1);
 
     // Caffeine cache: bounded size + TTL eviction to prevent memory DoS from IP rotation
     private final Cache<String, Bucket> rateLimitBuckets = Caffeine.newBuilder()
@@ -58,8 +58,14 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
 
     private final ApiKeyService apiKeyService;
 
-    public ApiKeyAuthenticationFilter(ApiKeyService apiKeyService) {
+    public ApiKeyAuthenticationFilter(
+            ApiKeyService apiKeyService,
+            @org.springframework.beans.factory.annotation.Value("${fabt.api-key.rate-limit:5}") int rateLimit) {
         this.apiKeyService = apiKeyService;
+        if (rateLimit < 1) {
+            log.warn("fabt.api-key.rate-limit={} is below minimum — using 1", rateLimit);
+        }
+        this.rateLimit = Math.max(rateLimit, 1);
     }
 
     @Override
@@ -96,7 +102,7 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
             response.setStatus(429);
             response.setContentType("application/json");
             response.setHeader("Retry-After", String.valueOf(retryAfterSeconds));
-            response.setHeader("X-RateLimit-Limit", String.valueOf(RATE_LIMIT));
+            response.setHeader("X-RateLimit-Limit", String.valueOf(rateLimit));
             response.setHeader("X-RateLimit-Remaining", "0");
             response.setHeader("X-RateLimit-Reset", String.valueOf(retryAfterSeconds));
             response.getWriter().write("{\"error\":\"rate_limited\",\"message\":\"Too many API key attempts. Try again later.\",\"status\":429}");
@@ -104,7 +110,7 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
         }
 
         // Add rate limit headers to all API key responses (valid or invalid)
-        response.setHeader("X-RateLimit-Limit", String.valueOf(RATE_LIMIT));
+        response.setHeader("X-RateLimit-Limit", String.valueOf(rateLimit));
         response.setHeader("X-RateLimit-Remaining", String.valueOf(probe.getRemainingTokens()));
 
         UUID tenantId = null;
@@ -160,8 +166,8 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
     private Bucket createBucket() {
         return Bucket.builder()
                 .addLimit(Bandwidth.builder()
-                        .capacity(RATE_LIMIT)
-                        .refillGreedy(RATE_LIMIT, RATE_WINDOW)
+                        .capacity(rateLimit)
+                        .refillGreedy(rateLimit, rateWindow)
                         .build())
                 .build();
     }
