@@ -4,9 +4,7 @@ import java.util.UUID;
 
 import org.fabt.BaseIntegrationTest;
 import org.fabt.TestAuthHelper;
-import org.fabt.availability.service.AvailabilityRetryService;
 import org.fabt.availability.service.AvailabilityService;
-import org.fabt.shared.event.DomainEvent;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

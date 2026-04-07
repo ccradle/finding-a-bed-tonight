@@ -6,8 +6,13 @@ import java.util.UUID;
 
 import org.fabt.BaseIntegrationTest;
 import org.fabt.TestAuthHelper;
+import org.fabt.auth.domain.User;
+import org.fabt.auth.repository.UserRepository;
+import org.fabt.auth.service.JwtService;
+import org.fabt.auth.service.PasswordService;
 import org.fabt.subscription.service.SubscriptionService;
 import org.fabt.subscription.service.WebhookResponseRedactor;
+import org.fabt.tenant.service.TenantService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -33,6 +38,10 @@ class WebhookManagementTest extends BaseIntegrationTest {
     @Autowired private TestAuthHelper authHelper;
     @Autowired private SubscriptionService subscriptionService;
     @Autowired private JdbcTemplate jdbcTemplate;
+    @Autowired private TenantService tenantService;
+    @Autowired private UserRepository userRepository;
+    @Autowired private PasswordService passwordService;
+    @Autowired private JwtService jwtService;
 
     private UUID subscriptionId;
 
@@ -246,5 +255,124 @@ class WebhookManagementTest extends BaseIntegrationTest {
                 new ParameterizedTypeReference<>() {});
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(resp.getBody()).hasSize(2);
+    }
+
+    // --- Riley: Intermediate FAILING state test ---
+
+    @Test
+    @DisplayName("1-4 failures set status to FAILING, 5th sets DEACTIVATED")
+    void failureStateTransitions() {
+        // 1 failure → FAILING
+        subscriptionService.recordDelivery(subscriptionId, "availability.updated", 500, 100, 1, "Error");
+        String status1 = jdbcTemplate.queryForObject("SELECT status FROM subscription WHERE id = ?", String.class, subscriptionId);
+        assertThat(status1).as("After 1 failure, status should be FAILING").isEqualTo("FAILING");
+
+        // 4 failures total → still FAILING, consecutive_failures=4
+        for (int i = 2; i <= 4; i++) {
+            subscriptionService.recordDelivery(subscriptionId, "availability.updated", 500, 100, i, "Error");
+        }
+        String status4 = jdbcTemplate.queryForObject("SELECT status FROM subscription WHERE id = ?", String.class, subscriptionId);
+        Integer count4 = jdbcTemplate.queryForObject("SELECT consecutive_failures FROM subscription WHERE id = ?", Integer.class, subscriptionId);
+        assertThat(status4).as("After 4 failures, status should still be FAILING").isEqualTo("FAILING");
+        assertThat(count4).as("After 4 failures, counter should be 4").isEqualTo(4);
+
+        // 5th failure → DEACTIVATED
+        subscriptionService.recordDelivery(subscriptionId, "availability.updated", 500, 100, 5, "Error");
+        String status5 = jdbcTemplate.queryForObject("SELECT status FROM subscription WHERE id = ?", String.class, subscriptionId);
+        assertThat(status5).as("After 5 failures, status should be DEACTIVATED").isEqualTo("DEACTIVATED");
+    }
+
+    // --- Marcus: Cross-tenant isolation tests ---
+
+    @Test
+    @DisplayName("Tenant B cannot PATCH status on Tenant A's subscription (returns 404)")
+    void crossTenantPatchStatus_returns404() {
+        // Create Tenant B
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        var tenantB = tenantService.findBySlug("wh-b-" + suffix)
+                .orElseGet(() -> tenantService.create("Webhook Tenant B", "wh-b-" + suffix));
+        var userB = new org.fabt.auth.domain.User();
+        userB.setTenantId(tenantB.getId());
+        userB.setEmail("admin-b-" + suffix + "@test.fabt.org");
+        userB.setPasswordHash(passwordService.hash("TestPass123!"));
+        userB.setDisplayName("Tenant B Admin");
+        userB.setRoles(new String[]{"PLATFORM_ADMIN"});
+        userB.setStatus("ACTIVE");
+        userB.setCreatedAt(java.time.Instant.now());
+        userB.setUpdatedAt(java.time.Instant.now());
+        userRepository.save(userB);
+        String tokenB = jwtService.generateAccessToken(userB);
+
+        // Tenant B tries to patch Tenant A's subscription
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(tokenB);
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        ResponseEntity<String> resp = restTemplate.exchange(
+                "/api/v1/subscriptions/" + subscriptionId + "/status", HttpMethod.PATCH,
+                new HttpEntity<>("{\"status\":\"PAUSED\"}", headers), String.class);
+
+        assertThat(resp.getStatusCode())
+                .as("Cross-tenant PATCH should return 404 (not 403)")
+                .isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("Tenant B cannot GET delivery log for Tenant A's subscription (returns 404)")
+    void crossTenantGetDeliveries_returns404() {
+        // Create delivery for Tenant A's subscription
+        subscriptionService.recordDelivery(subscriptionId, "availability.updated", 200, 50, 1, "OK");
+
+        // Create Tenant B
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        var tenantB = tenantService.findBySlug("wh-c-" + suffix)
+                .orElseGet(() -> tenantService.create("Webhook Tenant C", "wh-c-" + suffix));
+        var userB = new org.fabt.auth.domain.User();
+        userB.setTenantId(tenantB.getId());
+        userB.setEmail("admin-c-" + suffix + "@test.fabt.org");
+        userB.setPasswordHash(passwordService.hash("TestPass123!"));
+        userB.setDisplayName("Tenant C Admin");
+        userB.setRoles(new String[]{"PLATFORM_ADMIN"});
+        userB.setStatus("ACTIVE");
+        userB.setCreatedAt(java.time.Instant.now());
+        userB.setUpdatedAt(java.time.Instant.now());
+        userRepository.save(userB);
+        String tokenB = jwtService.generateAccessToken(userB);
+
+        // Tenant B tries to read Tenant A's delivery log
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(tokenB);
+        ResponseEntity<String> resp = restTemplate.exchange(
+                "/api/v1/subscriptions/" + subscriptionId + "/deliveries", HttpMethod.GET,
+                new HttpEntity<>(headers), String.class);
+
+        assertThat(resp.getStatusCode())
+                .as("Cross-tenant GET deliveries should return 404 (not 403)")
+                .isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    // --- Marcus: Additional redaction pattern tests ---
+
+    @Test
+    @DisplayName("SSN in response body is redacted")
+    void ssnRedacted() {
+        String result = WebhookResponseRedactor.redact("SSN: 123-45-6789 on file");
+        assertThat(result).contains("[REDACTED]");
+        assertThat(result).doesNotContain("123-45-6789");
+    }
+
+    @Test
+    @DisplayName("Credit card number in response body is redacted")
+    void creditCardRedacted() {
+        String result = WebhookResponseRedactor.redact("Card: 4111111111111111 charged");
+        assertThat(result).contains("[REDACTED]");
+        assertThat(result).doesNotContain("4111111111111111");
+    }
+
+    @Test
+    @DisplayName("Generic API key value in response body is redacted")
+    void apiKeyValueRedacted() {
+        String result = WebhookResponseRedactor.redact("api_key=sk_live_abcdef1234567890abcdef1234567890");
+        assertThat(result).contains("[REDACTED]");
+        assertThat(result).doesNotContain("sk_live_abcdef");
     }
 }
