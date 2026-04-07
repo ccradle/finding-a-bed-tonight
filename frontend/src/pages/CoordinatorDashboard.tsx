@@ -305,7 +305,7 @@ export function CoordinatorDashboard() {
         <h1 data-testid="coordinator-heading" style={{ margin: 0, fontSize: text['2xl'], fontWeight: weight.extrabold, letterSpacing: '-0.03em' }}>
           <FormattedMessage id="coord.title" />
         </h1>
-        <p style={{ margin: '6px 0 0', fontSize: text.base, color: color.textTertiary }}>
+        <p style={{ margin: '6px 0 0', fontSize: text.base, color: color.headerText }}>
           <FormattedMessage id="coord.subtitle" />
         </p>
       </div>

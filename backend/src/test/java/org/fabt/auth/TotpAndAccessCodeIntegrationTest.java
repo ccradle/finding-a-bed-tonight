@@ -435,4 +435,118 @@ class TotpAndAccessCodeIntegrationTest extends BaseIntegrationTest {
         }
         return codes.plaintext().get(0);
     }
+
+    // =========================================================================
+    // T-58b–e: ACCESS_CODE_USED audit event fix (#58)
+    // =========================================================================
+
+    @Test
+    @DisplayName("#58: Access code login creates audit event with correct actor_user_id")
+    void accessCodeLogin_createsAuditEventWithCorrectActor() {
+        HttpHeaders adminHeaders = authHelper.cocAdminHeaders();
+        var outreachUser = authHelper.setupOutreachWorkerUser();
+
+        // Generate access code
+        ResponseEntity<Map<String, Object>> codeResponse = restTemplate.exchange(
+                "/api/v1/users/" + outreachUser.getId() + "/generate-access-code",
+                HttpMethod.POST, new HttpEntity<>(adminHeaders),
+                new ParameterizedTypeReference<>() {});
+        assertThat(codeResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
+        String code = (String) codeResponse.getBody().get("code");
+
+        // Clear existing audit events for clean assertion
+        jdbcTemplate.update("DELETE FROM audit_events WHERE target_user_id = ?", outreachUser.getId());
+
+        // Login with access code
+        ResponseEntity<Map<String, Object>> loginResponse = restTemplate.exchange(
+                "/api/v1/auth/access-code", HttpMethod.POST,
+                new HttpEntity<>(Map.of(
+                        "email", TestAuthHelper.OUTREACH_EMAIL,
+                        "tenantSlug", authHelper.getTestTenantSlug(),
+                        "code", code)),
+                new ParameterizedTypeReference<>() {});
+        assertThat(loginResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        // Verify audit event: actor_user_id = target_user_id (self-authentication)
+        var events = jdbcTemplate.queryForList(
+                "SELECT actor_user_id, target_user_id, action, ip_address FROM audit_events WHERE target_user_id = ? AND action = 'ACCESS_CODE_USED'",
+                outreachUser.getId());
+        assertThat(events).as("ACCESS_CODE_USED audit event should exist").hasSize(1);
+        assertThat(events.get(0).get("actor_user_id")).as("actor_user_id should equal target_user_id").isEqualTo(outreachUser.getId());
+        assertThat(events.get(0).get("target_user_id")).isEqualTo(outreachUser.getId());
+    }
+
+    @Test
+    @DisplayName("#58: Access code audit event includes IP address")
+    void accessCodeLogin_auditEventIncludesIpAddress() {
+        HttpHeaders adminHeaders = authHelper.cocAdminHeaders();
+        var outreachUser = authHelper.setupOutreachWorkerUser();
+
+        ResponseEntity<Map<String, Object>> codeResponse = restTemplate.exchange(
+                "/api/v1/users/" + outreachUser.getId() + "/generate-access-code",
+                HttpMethod.POST, new HttpEntity<>(adminHeaders),
+                new ParameterizedTypeReference<>() {});
+        String code = (String) codeResponse.getBody().get("code");
+
+        jdbcTemplate.update("DELETE FROM audit_events WHERE target_user_id = ?", outreachUser.getId());
+
+        restTemplate.exchange("/api/v1/auth/access-code", HttpMethod.POST,
+                new HttpEntity<>(Map.of(
+                        "email", TestAuthHelper.OUTREACH_EMAIL,
+                        "tenantSlug", authHelper.getTestTenantSlug(),
+                        "code", code)),
+                new ParameterizedTypeReference<Map<String, Object>>() {});
+
+        var events = jdbcTemplate.queryForList(
+                "SELECT ip_address FROM audit_events WHERE target_user_id = ? AND action = 'ACCESS_CODE_USED'",
+                outreachUser.getId());
+        assertThat(events).hasSize(1);
+        assertThat(events.get(0).get("ip_address")).as("IP address should be recorded").isNotNull();
+    }
+
+    @Test
+    @DisplayName("#58: Standard login audit events not affected by access code fix")
+    void standardLogin_auditEventsUnaffected() {
+        authHelper.setupOutreachWorkerUser();
+
+        // Standard email/password login — should complete without constraint violations
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+        ResponseEntity<Map<String, Object>> loginResponse = restTemplate.exchange(
+                "/api/v1/auth/login", HttpMethod.POST,
+                new HttpEntity<>(Map.of(
+                        "email", TestAuthHelper.OUTREACH_EMAIL,
+                        "tenantSlug", authHelper.getTestTenantSlug(),
+                        "password", TestAuthHelper.TEST_PASSWORD), headers),
+                new ParameterizedTypeReference<>() {});
+
+        // The key assertion: login completes successfully (no constraint violations from our change)
+        assertThat(loginResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    @Test
+    @DisplayName("#58: Access code login does not produce constraint violation")
+    void accessCodeLogin_noConstraintViolation() {
+        HttpHeaders adminHeaders = authHelper.cocAdminHeaders();
+        var outreachUser = authHelper.setupOutreachWorkerUser();
+
+        ResponseEntity<Map<String, Object>> codeResponse = restTemplate.exchange(
+                "/api/v1/users/" + outreachUser.getId() + "/generate-access-code",
+                HttpMethod.POST, new HttpEntity<>(adminHeaders),
+                new ParameterizedTypeReference<>() {});
+        String code = (String) codeResponse.getBody().get("code");
+
+        // This should NOT throw or produce 500 — the bug was a NOT NULL constraint violation
+        ResponseEntity<Map<String, Object>> loginResponse = restTemplate.exchange(
+                "/api/v1/auth/access-code", HttpMethod.POST,
+                new HttpEntity<>(Map.of(
+                        "email", TestAuthHelper.OUTREACH_EMAIL,
+                        "tenantSlug", authHelper.getTestTenantSlug(),
+                        "code", code)),
+                new ParameterizedTypeReference<>() {});
+
+        // Must be 200, not 500 (constraint violation would cause 500)
+        assertThat(loginResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(loginResponse.getBody()).containsKey("accessToken");
+    }
 }

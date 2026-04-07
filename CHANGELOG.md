@@ -5,6 +5,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.29.5] — 2026-04-06 — Audit Fix, Clickable Reservations, Contrast Fixes
+
+### Fixed
+- **#58 ACCESS_CODE_USED audit event** — `actor_user_id` was null, causing NOT NULL constraint violation. Set to `target_user_id` (self-authentication). IP address now recorded. 4 integration tests.
+- **#72 Low-contrast text on dark gradient heroes** — `color.textTertiary` on dark `linear-gradient` backgrounds across outreach search, coordinator dashboard, and admin panel subtitle text. Surge banner "Active since" timestamp had same issue. All replaced with `color.headerText` / `color.textInverse`.
+- **#64 My Reservations shelter names not clickable** — shelter names in the reservations panel are now clickable buttons that open the shelter detail modal. Includes `data-testid`, `aria-label` with i18n (en/es), and `stopPropagation` to preserve countdown timer. 6 Playwright tests.
+- **seed-reset.sql** — `--fresh` flag now resets all users (was commented out), preventing stale passwords and test user accumulation. Correct FK dependency order using DELETE (not TRUNCATE — safe while backend runs). `seed-data.sql` ON CONFLICT DO UPDATE restores canonical passwords on reload.
+
+### Changed
+- **Surge-active axe-core scan** — new accessibility test activates surge via API, verifies banner renders, scans for WCAG violations, deactivates in `finally` block. Closes the gap where axe-core never scanned conditional UI.
+- **`logIncomplete()` on all axe-core scans** — gradient contrast items that axe marks as "incomplete" (manual review needed) are now visible in test output instead of silently ignored.
+
+### Test Results
+- Playwright: 323 passed, 6 skipped, 4 known non-regressions (through nginx, `--trace on`)
+- axe-core: zero violations including surge-active scan (9/9 accessibility tests)
+- Backend: compiles clean with 4 new audit integration tests
+
+---
+
 ## [v0.29.4] — 2026-04-06 — WCAG 2.1 AA Accessibility Fixes (#52)
 
 ### Fixed

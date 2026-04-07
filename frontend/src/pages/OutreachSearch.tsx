@@ -477,7 +477,7 @@ export function OutreachSearch() {
         <h1 style={{ margin: 0, fontSize: text['2xl'], fontWeight: weight.extrabold, letterSpacing: '-0.03em' }}>
           <FormattedMessage id="search.title" />
         </h1>
-        <p style={{ margin: '6px 0 0', fontSize: text.base, color: color.textTertiary }}>
+        <p style={{ margin: '6px 0 0', fontSize: text.base, color: color.headerText }}>
           <FormattedMessage id="search.subtitle" />
         </p>
       </div>
@@ -496,7 +496,7 @@ export function OutreachSearch() {
             </div>
             <div style={{ fontSize: text.base, fontWeight: weight.medium }}>{activeSurge.reason}</div>
           </div>
-          <div style={{ fontSize: text.xs, color: color.textTertiary }}>
+          <div style={{ fontSize: text.xs, color: color.textInverse }}>
             <FormattedMessage id="surge.since" />: {new Date(activeSurge.activatedAt).toLocaleString()}
           </div>
         </div>
@@ -643,9 +643,21 @@ export function OutreachSearch() {
                     display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8,
                   }}>
                     <div>
-                      <div style={{ fontWeight: weight.bold, fontSize: text.base, color: color.text }}>
+                      <button
+                        data-testid={`reservation-shelter-link-${res.shelterId}`}
+                        onClick={(e) => { e.stopPropagation(); openDetail(res.shelterId); }}
+                        style={{
+                          fontWeight: weight.bold, fontSize: text.base, color: color.primaryText,
+                          background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+                          textAlign: 'left', textDecoration: 'underline', textUnderlineOffset: '2px',
+                        }}
+                        aria-label={intl.formatMessage(
+                          { id: 'reservations.viewShelter', defaultMessage: 'View details for {shelter}' },
+                          { shelter: shelterResult?.shelterName || res.shelterId.substring(0, 8) }
+                        )}
+                      >
                         {shelterResult?.shelterName || res.shelterId.substring(0, 8)}
-                      </div>
+                      </button>
                       <div style={{ fontSize: text.xs, color: color.textTertiary }}>
                         {getPopulationTypeLabel(res.populationType, intl)}
                       </div>
