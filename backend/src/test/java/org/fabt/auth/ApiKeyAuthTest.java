@@ -245,6 +245,55 @@ class ApiKeyAuthTest extends BaseIntegrationTest {
         assertThat(rotated.plaintextKey()).hasSize(64);
     }
 
+    // T-22a: Revoke non-existent key → 404
+    @Test
+    void test_apiKeyAuth_revokeNonExistent_returns404() {
+        HttpHeaders headers = authHelper.cocAdminHeaders();
+        ResponseEntity<String> resp = restTemplate.exchange(
+                "/api/v1/api-keys/" + UUID.randomUUID(),
+                HttpMethod.DELETE,
+                new HttpEntity<>(headers), String.class);
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    // T-22b: Non-admin revoke → 403
+    @Test
+    void test_apiKeyAuth_nonAdminRevoke_returns403() {
+        UUID tenantId = authHelper.getTestTenantId();
+        ApiKeyService.ApiKeyCreateResult key = apiKeyService.create(tenantId, null, "Non-admin Test");
+
+        // Outreach worker should NOT be able to revoke
+        authHelper.setupOutreachWorkerUser();
+        HttpHeaders headers = authHelper.outreachWorkerHeaders();
+        ResponseEntity<String> resp = restTemplate.exchange(
+                "/api/v1/api-keys/" + key.id(),
+                HttpMethod.DELETE,
+                new HttpEntity<>(headers), String.class);
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    // T-22c: Revoke already-revoked key → idempotent (204)
+    @Test
+    void test_apiKeyAuth_revokeAlreadyRevoked_isIdempotent() {
+        UUID tenantId = authHelper.getTestTenantId();
+        ApiKeyService.ApiKeyCreateResult key = apiKeyService.create(tenantId, null, "Double Revoke");
+
+        // Revoke once
+        apiKeyService.deactivate(key.id());
+
+        // Revoke again via API — should NOT throw
+        HttpHeaders headers = authHelper.cocAdminHeaders();
+        ResponseEntity<String> resp = restTemplate.exchange(
+                "/api/v1/api-keys/" + key.id(),
+                HttpMethod.DELETE,
+                new HttpEntity<>(headers), String.class);
+        // 204 (NoContent) from controller — deactivate is idempotent (sets active=false again)
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+    }
+
+    // T-23: Rotate key — both old and new work during grace, verify via API
+    // (Covered by test_apiKeyAuth_keyRotation_bothKeysWorkDuringGracePeriod above)
+
     @Autowired
     private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
 
