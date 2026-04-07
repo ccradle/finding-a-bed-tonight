@@ -79,6 +79,27 @@ public class AvailabilityService {
         this.metrics = metrics;
     }
 
+    /**
+     * Retry wrapper for createSnapshot — OUTSIDE @Transactional boundary.
+     * Retries on transient DataAccessException (connection pool, lock contention).
+     * Business exceptions (AvailabilityInvariantViolation, NoSuchElementException) propagate immediately.
+     * Each retry gets a fresh transaction via the @Transactional createSnapshot() call.
+     */
+    @org.springframework.resilience.annotation.Retryable(
+            includes = org.springframework.dao.DataAccessException.class,
+            maxRetries = 2,
+            delay = 100,
+            multiplier = 2,
+            maxDelay = 1000
+    )
+    public AvailabilitySnapshot createSnapshotWithRetry(UUID shelterId, String populationType,
+                                                         int bedsTotal, int bedsOccupied, int bedsOnHold,
+                                                         boolean acceptingNewGuests, String notes,
+                                                         String updatedBy, int overflowBeds) {
+        return createSnapshot(shelterId, populationType, bedsTotal, bedsOccupied, bedsOnHold,
+                acceptingNewGuests, notes, updatedBy, overflowBeds);
+    }
+
     @Transactional
     public AvailabilitySnapshot createSnapshot(UUID shelterId, String populationType,
                                                 int bedsTotal, int bedsOccupied, int bedsOnHold,

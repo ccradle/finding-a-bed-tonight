@@ -85,7 +85,7 @@ public class AvailabilityController {
                     "for shelter {} / {}", requestedHold, effectiveHold, activeHeldCount, id, request.populationType());
         }
 
-        AvailabilitySnapshot snapshot = availabilityService.createSnapshot(
+        AvailabilitySnapshot snapshot = availabilityService.createSnapshotWithRetry(
                 id, request.populationType(),
                 request.bedsTotal(), request.bedsOccupied(), effectiveHold,
                 request.acceptingNewGuests(), request.notes(), updatedBy,
