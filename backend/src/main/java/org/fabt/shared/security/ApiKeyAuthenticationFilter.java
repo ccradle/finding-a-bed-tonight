@@ -4,10 +4,13 @@ import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.Bucket;
+import io.github.bucket4j.ConsumptionProbe;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -25,7 +28,17 @@ import org.springframework.web.filter.OncePerRequestFilter;
 /**
  * Authenticates requests bearing the X-API-Key header against stored API key hashes.
  * Includes per-IP rate limiting on failed attempts (5/min) to prevent brute-force
- * key guessing. Returns 429 with Retry-After when rate limit exceeded.
+ * key guessing. Returns 429 with Retry-After and X-RateLimit-* headers.
+ *
+ * Rate limit uses a single atomic tryConsumeAndReturnRemaining(1) call per request.
+ * Buckets are stored in a Caffeine cache (max 10,000 IPs, 10 min TTL) to prevent
+ * unbounded memory growth from IP rotation attacks.
+ *
+ * Client IP resolution: trusts X-Real-IP header (set by nginx from CF-Connecting-IP
+ * in production, from $remote_addr in local dev). Falls back to getRemoteAddr() if
+ * header absent. This is safe because:
+ * - Production: iptables restricts 80/443 to Cloudflare IPs only — no direct access
+ * - Local dev: no proxy, getRemoteAddr() is the real client IP
  */
 @Component
 public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
@@ -33,10 +46,15 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
     private static final Logger log = LoggerFactory.getLogger(ApiKeyAuthenticationFilter.class);
     private static final String API_KEY_HEADER = "X-API-Key";
 
-    // Per-IP rate limiting for failed API key attempts: 5 per minute
-    private static final int FAILURE_LIMIT = 5;
-    private static final Duration FAILURE_WINDOW = Duration.ofMinutes(1);
-    private final ConcurrentHashMap<String, Bucket> failureBuckets = new ConcurrentHashMap<>();
+    // Per-IP rate limiting for API key attempts: 5 per minute
+    private static final int RATE_LIMIT = 5;
+    private static final Duration RATE_WINDOW = Duration.ofMinutes(1);
+
+    // Caffeine cache: bounded size + TTL eviction to prevent memory DoS from IP rotation
+    private final Cache<String, Bucket> rateLimitBuckets = Caffeine.newBuilder()
+            .maximumSize(10_000)
+            .expireAfterAccess(Duration.ofMinutes(10))
+            .build();
 
     private final ApiKeyService apiKeyService;
 
@@ -61,18 +79,33 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
             return;
         }
 
-        // Check if this IP is rate-limited before attempting validation
-        String clientIp = request.getRemoteAddr();
-        Bucket failureBucket = getFailureBucket(clientIp);
-        if (!failureBucket.tryConsume(0)) {
-            // Already exhausted — don't even attempt validation
+        // Resolve client IP: trust X-Real-IP (set by nginx), fall back to remote addr
+        String clientIp = resolveClientIp(request);
+
+        // Atomic rate limit check — consumes 1 token per request bearing X-API-Key.
+        // Both valid and invalid keys consume tokens. This is intentional:
+        // - Valid keys: 5/min is generous for normal API integration use
+        // - Invalid keys: prevents brute-force guessing
+        // - Attacker can't distinguish valid from invalid based on rate limit behavior
+        Bucket bucket = rateLimitBuckets.get(clientIp, k -> createBucket());
+        ConsumptionProbe probe = bucket.tryConsumeAndReturnRemaining(1);
+
+        if (!probe.isConsumed()) {
+            long retryAfterSeconds = TimeUnit.NANOSECONDS.toSeconds(probe.getNanosToWaitForRefill()) + 1;
             log.warn("API key rate limit exceeded: ip={}, path={}", clientIp, request.getRequestURI());
             response.setStatus(429);
             response.setContentType("application/json");
-            response.setHeader("Retry-After", "60");
-            response.getWriter().write("{\"error\":\"rate_limited\",\"message\":\"Too many failed API key attempts. Try again later.\",\"status\":429}");
+            response.setHeader("Retry-After", String.valueOf(retryAfterSeconds));
+            response.setHeader("X-RateLimit-Limit", String.valueOf(RATE_LIMIT));
+            response.setHeader("X-RateLimit-Remaining", "0");
+            response.setHeader("X-RateLimit-Reset", String.valueOf(retryAfterSeconds));
+            response.getWriter().write("{\"error\":\"rate_limited\",\"message\":\"Too many API key attempts. Try again later.\",\"status\":429}");
             return;
         }
+
+        // Add rate limit headers to all API key responses (valid or invalid)
+        response.setHeader("X-RateLimit-Limit", String.valueOf(RATE_LIMIT));
+        response.setHeader("X-RateLimit-Remaining", String.valueOf(probe.getRemainingTokens()));
 
         UUID tenantId = null;
         try {
@@ -88,14 +121,10 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
 
                 tenantId = apiKey.getTenantId();
             } else {
-                // Invalid key — consume a token from the failure bucket
-                failureBucket.tryConsume(1);
-                log.debug("Invalid API key from ip={}, path={}", clientIp, request.getRequestURI());
+                log.debug("Invalid API key from ip={}, path={}, remaining={}", clientIp, request.getRequestURI(), probe.getRemainingTokens());
             }
         } catch (Exception e) {
-            log.debug("API key authentication failed for request {}: {}",
-                    request.getRequestURI(), e.getMessage());
-            failureBucket.tryConsume(1);
+            log.debug("API key authentication error for request {}: {}", request.getRequestURI(), e.getMessage());
             SecurityContextHolder.clearContext();
         }
 
@@ -115,13 +144,25 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
         }
     }
 
-    private Bucket getFailureBucket(String ip) {
-        return failureBuckets.computeIfAbsent(ip, k ->
-                Bucket.builder()
-                        .addLimit(Bandwidth.builder()
-                                .capacity(FAILURE_LIMIT)
-                                .refillGreedy(FAILURE_LIMIT, FAILURE_WINDOW)
-                                .build())
-                        .build());
+    /**
+     * Resolve client IP from trusted proxy headers.
+     * Production (Cloudflare → nginx): nginx sets X-Real-IP from CF-Connecting-IP.
+     * Local dev (no proxy): falls back to getRemoteAddr().
+     */
+    private String resolveClientIp(HttpServletRequest request) {
+        String realIp = request.getHeader("X-Real-IP");
+        if (realIp != null && !realIp.isBlank()) {
+            return realIp.trim();
+        }
+        return request.getRemoteAddr();
+    }
+
+    private Bucket createBucket() {
+        return Bucket.builder()
+                .addLimit(Bandwidth.builder()
+                        .capacity(RATE_LIMIT)
+                        .refillGreedy(RATE_LIMIT, RATE_WINDOW)
+                        .build())
+                .build();
     }
 }
