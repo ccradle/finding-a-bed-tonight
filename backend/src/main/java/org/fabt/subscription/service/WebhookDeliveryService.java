@@ -90,7 +90,8 @@ public class WebhookDeliveryService {
                     "test", true
             ));
 
-            String hmacKey = subscription.getCallbackSecretHash();
+            // Decrypt the stored secret for HMAC computation (AES-256-GCM at rest)
+            String hmacKey = subscriptionService.decryptCallbackSecret(subscription.getCallbackSecretHash());
             String signature = "sha256=" + computeHmacSha256(hmacKey, jsonBody);
 
             var response = restClient.post()
@@ -201,7 +202,8 @@ public class WebhookDeliveryService {
             throw new RuntimeException("Failed to serialize event to JSON", e);
         }
 
-        String hmacKey = subscription.getCallbackSecretHash();
+        // Decrypt the stored secret for HMAC computation (AES-256-GCM at rest)
+        String hmacKey = subscriptionService.decryptCallbackSecret(subscription.getCallbackSecretHash());
         String signature = "sha256=" + computeHmacSha256(hmacKey, jsonBody);
 
         log.debug("Delivering event {} to {} for subscription {}",

@@ -8,7 +8,7 @@ import java.util.UUID;
 import org.fabt.BaseIntegrationTest;
 import org.fabt.TestAuthHelper;
 import org.fabt.auth.domain.User;
-import org.fabt.auth.service.TotpEncryptionService;
+import org.fabt.auth.service.org.fabt.shared.security.SecretEncryptionService;
 import org.fabt.auth.service.TotpService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;

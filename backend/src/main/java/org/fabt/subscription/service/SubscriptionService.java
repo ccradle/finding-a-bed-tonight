@@ -2,12 +2,8 @@ package org.fabt.subscription.service;
 
 import java.net.MalformedURLException;
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -32,13 +28,16 @@ public class SubscriptionService {
 
     private final SubscriptionRepository subscriptionRepository;
     private final WebhookDeliveryLogRepository deliveryLogRepository;
+    private final org.fabt.shared.security.SecretEncryptionService encryptionService;
     private final ObjectMapper objectMapper;
 
     public SubscriptionService(SubscriptionRepository subscriptionRepository,
                                WebhookDeliveryLogRepository deliveryLogRepository,
+                               org.fabt.shared.security.SecretEncryptionService encryptionService,
                                ObjectMapper objectMapper) {
         this.subscriptionRepository = subscriptionRepository;
         this.deliveryLogRepository = deliveryLogRepository;
+        this.encryptionService = encryptionService;
         this.objectMapper = objectMapper;
     }
 
@@ -53,11 +52,10 @@ public class SubscriptionService {
         subscription.setEventType(eventType);
         subscription.setFilter(toJsonString(filter));
         subscription.setCallbackUrl(callbackUrl);
-        // MVP: store secret as-is for HMAC computation (see WebhookDeliveryService).
-        // Field name is callbackSecretHash but we store the SHA-256 hash for verification,
-        // and need the original for HMAC. For MVP, store as-is.
-        // TODO: encrypt the secret at rest instead of hashing (future migration will rename field)
-        subscription.setCallbackSecretHash(hashSecret(callbackSecret));
+        // Encrypt the callback secret with AES-256-GCM for storage at rest.
+        // Decrypted on delivery to compute HMAC-SHA256 signatures.
+        // Field name is still callbackSecretHash (pre-existing column) — stores encrypted value.
+        subscription.setCallbackSecretHash(encryptionService.encrypt(callbackSecret));
         subscription.setStatus("ACTIVE");
         subscription.setExpiresAt(Instant.now().plus(365, ChronoUnit.DAYS));
         subscription.setCreatedAt(Instant.now());
@@ -219,14 +217,12 @@ public class SubscriptionService {
         }
     }
 
-    private String hashSecret(String secret) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(secret.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(hash);
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 algorithm not available", e);
-        }
+    /**
+     * Decrypt a stored webhook callback secret for HMAC computation.
+     * Public so WebhookDeliveryService can call it.
+     */
+    public String decryptCallbackSecret(String encryptedSecret) {
+        return encryptionService.decrypt(encryptedSecret);
     }
 
     private JsonString toJsonString(Map<String, Object> filter) {

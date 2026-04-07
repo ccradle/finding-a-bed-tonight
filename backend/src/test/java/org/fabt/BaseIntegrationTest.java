@@ -48,7 +48,7 @@ public abstract class BaseIntegrationTest {
         registry.add("spring.flyway.url", POSTGRES::getJdbcUrl);
         registry.add("spring.flyway.user", POSTGRES::getUsername);
         registry.add("spring.flyway.password", POSTGRES::getPassword);
-        // TOTP encryption key for tests (D16 — ensures TOTP tests never skip)
+        // Encryption key for TOTP + webhook secrets (SecretEncryptionService reads fabt.encryption-key with fabt.totp.encryption-key fallback)
         registry.add("fabt.totp.encryption-key", () -> "dGVzdC1vbmx5LXRvdHAtZW5jcnlwdGlvbi1rZXktMzI=");
         // API key rate limit: high for tests (default 5/min would break after 5 API key test methods)
         registry.add("fabt.api-key.rate-limit", () -> "1000");
