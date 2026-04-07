@@ -9,7 +9,7 @@ import { Layout } from './components/Layout';
 import { LoginPage } from './pages/LoginPage';
 import { CoordinatorDashboard } from './pages/CoordinatorDashboard';
 import { OutreachSearch } from './pages/OutreachSearch';
-import { AdminPanel } from './pages/AdminPanel';
+import { AdminPanel } from './pages/admin/AdminPanel';
 import { ShelterForm } from './pages/ShelterForm';
 import { ShelterEditPage } from './pages/ShelterEditPage';
 import { HsdsImportPage } from './pages/HsdsImportPage';
