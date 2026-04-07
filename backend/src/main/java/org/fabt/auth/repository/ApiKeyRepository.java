@@ -14,5 +14,11 @@ public interface ApiKeyRepository extends CrudRepository<ApiKey, UUID> {
     @Query("SELECT * FROM api_key WHERE key_hash = :keyHash AND active = true")
     Optional<ApiKey> findByKeyHashAndActiveTrue(@Param("keyHash") String keyHash);
 
+    @Query("SELECT * FROM api_key WHERE old_key_hash = :keyHash AND active = true")
+    Optional<ApiKey> findByOldKeyHashAndActiveTrue(@Param("keyHash") String keyHash);
+
+    @Query("SELECT * FROM api_key WHERE old_key_expires_at IS NOT NULL AND old_key_expires_at < NOW() AND active = true")
+    List<ApiKey> findExpiredGracePeriodKeys();
+
     List<ApiKey> findByTenantId(UUID tenantId);
 }
