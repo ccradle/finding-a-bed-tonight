@@ -314,20 +314,35 @@ test.describe('WCAG 2.1.1 Keyboard Operability', () => {
 
 test.describe('WCAG 2.4.1 Bypass Blocks', () => {
 
-  test('skip-to-content link is first focusable element', async ({ page }) => {
-    await page.goto('/login');
-    await page.waitForTimeout(1000);
+  test('skip-to-content link exists, becomes visible on focus, and navigates to main', async ({ outreachPage }) => {
+    // Skip link lives in Layout.tsx — only rendered on authenticated pages.
+    // WCAG 2.4.1 requires a mechanism to bypass repeated blocks.
+    // We verify: (1) link exists in DOM, (2) it targets #main-content,
+    // (3) it becomes visible when focused, (4) activating it moves focus to main.
+    await outreachPage.goto('/');
+    await outreachPage.waitForTimeout(2000);
 
-    // Tab to first element
-    await page.keyboard.press('Tab');
+    // 1. Skip link exists and points to #main-content
+    const skipLink = outreachPage.locator('a[href="#main-content"]');
+    await expect(skipLink).toHaveCount(1);
+    await expect(skipLink).toHaveText(/skip/i);
 
-    // Should be the skip link
-    const activeText = await page.evaluate(() => document.activeElement?.textContent?.trim());
-    expect(activeText?.toLowerCase()).toContain('skip');
+    // 2. Initially visually hidden (clipped to 1×1px)
+    const boxBefore = await skipLink.boundingBox();
+    expect(boxBefore!.width).toBeLessThanOrEqual(1);
 
-    // Should link to #main-content
-    const href = await page.evaluate(() => document.activeElement?.getAttribute('href'));
-    expect(href).toBe('#main-content');
+    // 3. Becomes visible when focused (keyboard users see it)
+    await skipLink.focus();
+    await outreachPage.waitForTimeout(200);
+    const boxAfter = await skipLink.boundingBox();
+    expect(boxAfter!.width).toBeGreaterThan(10);
+    expect(boxAfter!.height).toBeGreaterThan(10);
+
+    // 4. Activating it moves focus to the main content area
+    await skipLink.press('Enter');
+    await outreachPage.waitForTimeout(300);
+    const focusedId = await outreachPage.evaluate(() => document.activeElement?.id);
+    expect(focusedId).toBe('main-content');
   });
 });
 

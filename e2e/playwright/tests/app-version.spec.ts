@@ -27,7 +27,11 @@ authTest.describe('Version in Authenticated Layout', () => {
   authTest('version is visible in admin panel footer', async ({ adminPage }) => {
     await adminPage.goto('/admin');
 
+    // Version footer renders only after /api/v1/version returns (conditional on appVersion state).
+    // Wait for it to appear in the DOM first, then scroll into view.
     const version = adminPage.locator('[data-testid="app-version"]');
+    await expect(version).toBeAttached({ timeout: 15000 });
+    await version.scrollIntoViewIfNeeded();
     await expect(version).toBeVisible({ timeout: 10000 });
     const text = await version.textContent();
     expect(text).toMatch(/Finding A Bed Tonight v\d+\.\d+/);

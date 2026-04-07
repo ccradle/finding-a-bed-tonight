@@ -919,7 +919,12 @@ finding-a-bed-tonight/
 │       │   ├── LoginPage.tsx                          # Tenant slug + email/password login
 │       │   ├── OutreachSearch.tsx                     # Bed search, hold buttons, reservations panel
 │       │   ├── CoordinatorDashboard.tsx               # Availability update, hold indicators
-│       │   ├── AdminPanel.tsx                         # Users, shelters, API keys, subscriptions, observability, OAuth2 providers
+│       │   ├── admin/                                 # Admin panel (extracted from 2,136-line monolith)
+│       │   │   ├── AdminPanel.tsx                     # 128-line orchestrator: React.lazy + Suspense + TabErrorBoundary
+│       │   │   ├── types.ts                           # Shared interfaces (User, ShelterListItem, ApiKeyRow, TabKey, etc.)
+│       │   │   ├── styles.ts                          # Shared style objects (tableStyle, thStyle, tdStyle, etc.)
+│       │   │   ├── components/                        # StatusBadge, RoleBadge, ErrorBox, NoData, Spinner, ReservationSettings, TabErrorBoundary
+│       │   │   └── tabs/                              # 10 lazy-loaded tabs (UsersTab, SheltersTab, ApiKeysTab, ...)
 │       │   ├── ShelterForm.tsx                        # Create shelter with constraints + capacity
 │       │   ├── HsdsImportPage.tsx                     # HSDS JSON file upload
 │       │   └── TwoOneOneImportPage.tsx                # 211 CSV import with column mapping
@@ -935,7 +940,7 @@ finding-a-bed-tonight/
 │           └── es.json                                # Spanish (100+ keys)
 │
 ├── e2e/                                               # End-to-end test suites
-│   ├── playwright/                                    # UI tests (241 tests, Chromium + nginx profile)
+│   ├── playwright/                                    # UI tests (286+ tests, Chromium + nginx profile)
 │   │   ├── package.json                               # @playwright/test + TypeScript
 │   │   ├── playwright.config.ts                       # baseURL, workers, retries, HTML reporter
 │   │   ├── fixtures/auth.fixture.ts                   # Per-role storageState (admin, cocadmin, outreach)
@@ -945,6 +950,11 @@ finding-a-bed-tonight/
 │   │   │   ├── OutreachSearchPage.ts                  # Filters, results, detail modal
 │   │   │   ├── CoordinatorDashboardPage.ts            # Shelter cards, steppers, save
 │   │   │   └── AdminPanelPage.ts                      # Tabs, forms, tables
+│   │   ├── deploy/                                    # Deployment verification (isolated — NOT in regression suite)
+│   │   │   ├── playwright.config.ts                   # Standalone config targeting live site
+│   │   │   ├── deploy-verify-v0.29.*.spec.ts          # Version-specific deployment checks
+│   │   │   ├── post-deploy-smoke.spec.ts              # Post-deploy health check
+│   │   │   └── demo-guard-verify.spec.ts              # Demo guard validation
 │   │   └── tests/
 │   │       ├── auth.spec.ts                           # 4 tests — login per role + failed login
 │   │       ├── outreach-search.spec.ts                # 9 tests — filters, modal, hold/cancel, freshness
