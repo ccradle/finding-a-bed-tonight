@@ -54,10 +54,13 @@ class AvailabilityRetryTest extends BaseIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        // Reset spy state from prior tests — prevents doThrow/doCallRealMethod leakage
+        Mockito.reset(availabilityService);
+
         authHelper.setupTestTenant();
         authHelper.setupAdminUser();
         authHelper.setupCocAdminUser();
-        authHelper.setupCoordinatorUser();
+        var coordinator = authHelper.setupCoordinatorUser();
 
         eventListener.clear();
 
@@ -69,10 +72,10 @@ class AvailabilityRetryTest extends BaseIntegrationTest {
         jdbcTemplate.update(
                 "INSERT INTO shelter_constraints (shelter_id, population_types_served) VALUES (?, ?)",
                 shelterId, new String[]{"SINGLE_ADULT"});
-        // Assign coordinator
+        // Assign coordinator (reuse the same instance, don't call setup twice)
         jdbcTemplate.update(
                 "INSERT INTO coordinator_assignment (user_id, shelter_id) VALUES (?, ?)",
-                authHelper.setupCoordinatorUser().getId(), shelterId);
+                coordinator.getId(), shelterId);
     }
 
     // T-18a: Retry succeeds on second attempt, single domain event
@@ -99,6 +102,11 @@ class AvailabilityRetryTest extends BaseIntegrationTest {
 
         // Should succeed (retry worked)
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        // Verify createSnapshot was called exactly 2 times (first throw, second succeed)
+        Mockito.verify(availabilityService, Mockito.times(2))
+                .createSnapshot(any(UUID.class), anyString(), anyInt(), anyInt(), anyInt(),
+                        anyBoolean(), anyString(), anyString(), anyInt());
 
         // Verify only ONE domain event published (not one per attempt)
         var events = eventListener.getEventsByType("availability.updated");
