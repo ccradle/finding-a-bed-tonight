@@ -1,34 +1,62 @@
 -- Reset all seed-loaded data for a fresh reload.
--- Preserves Flyway schema and Spring Batch schema structure.
--- Run before seed-data.sql when shelter structure has changed.
+-- Preserves Flyway schema, tenant structure, and Spring Batch schema.
+-- Run before seed-data.sql when user or shelter state needs a clean slate.
+--
+-- Uses DELETE (DML) not TRUNCATE (DDL) — safe to run while backend is up.
+-- FK dependency order: delete leaves first, then parents.
 --
 -- Usage: psql -U fabt -d fabt -f infra/scripts/seed-reset.sql
 -- Or:    ./dev-start.sh --fresh   (runs this automatically before seed load)
 
--- Activity data (demo-activity-seed.sql handles its own cleanup, but reset all here)
-DELETE FROM daily_utilization_summary;
+-- ============================================================
+-- Layer 1: Leaf tables (no children depend on these)
+-- ============================================================
+
+DELETE FROM audit_events;
 DELETE FROM bed_search_log;
-DELETE FROM dv_referral_token;
-DELETE FROM reservation;
-
--- Spring Batch (FK order)
-DELETE FROM BATCH_STEP_EXECUTION_CONTEXT;
-DELETE FROM BATCH_JOB_EXECUTION_CONTEXT;
-DELETE FROM BATCH_STEP_EXECUTION;
-DELETE FROM BATCH_JOB_EXECUTION_PARAMS;
-DELETE FROM BATCH_JOB_EXECUTION;
-DELETE FROM BATCH_JOB_INSTANCE;
-
--- Shelter data (FK order: availability → assignments → constraints → shelters)
+DELETE FROM daily_utilization_summary;
+DELETE FROM hmis_audit_log;
+DELETE FROM hmis_outbox;
+DELETE FROM import_log;
 DELETE FROM bed_availability;
-DELETE FROM coordinator_assignment;
 DELETE FROM shelter_constraints;
+DELETE FROM api_key;
+
+-- Spring Batch (leaf → parent order)
+DELETE FROM batch_step_execution_context;
+DELETE FROM batch_job_execution_context;
+DELETE FROM batch_step_execution;
+DELETE FROM batch_job_execution_params;
+DELETE FROM batch_job_execution;
+DELETE FROM batch_job_instance;
+
+-- ============================================================
+-- Layer 2: Tables that reference both app_user AND shelter
+-- ============================================================
+
+DELETE FROM coordinator_assignment;
+DELETE FROM referral_token;
+DELETE FROM reservation;
+DELETE FROM one_time_access_code;
+DELETE FROM surge_event;
+DELETE FROM user_oauth2_link;
+DELETE FROM subscription;
+
+-- ============================================================
+-- Layer 3: Parent tables (after all children are cleared)
+-- ============================================================
+
+-- Shelters (children cleared in layers 1-2)
 DELETE FROM shelter;
 
--- User data (keep tenant, clear users for full reset)
--- Uncomment if you also need to reset users:
--- DELETE FROM app_user;
--- DELETE FROM tenant_oauth2_provider;
--- DELETE FROM tenant;
+-- Users — clears ALL users including accumulated test users.
+-- seed-data.sql will reload the 5 seed users with correct passwords.
+DELETE FROM app_user;
+
+-- Tenant config (preserve tenant row, clear OAuth providers)
+DELETE FROM tenant_oauth2_provider;
+
+-- NOTE: tenant table is NOT deleted — it's the root of all FK chains
+-- and seed-data.sql expects it to exist (ON CONFLICT for idempotency).
 
 \echo 'Seed data reset complete. Run seed-data.sql and demo-activity-seed.sql to reload.'

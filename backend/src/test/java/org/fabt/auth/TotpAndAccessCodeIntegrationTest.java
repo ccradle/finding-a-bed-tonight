@@ -508,20 +508,20 @@ class TotpAndAccessCodeIntegrationTest extends BaseIntegrationTest {
     @DisplayName("#58: Standard login audit events not affected by access code fix")
     void standardLogin_auditEventsUnaffected() {
         authHelper.setupOutreachWorkerUser();
-        jdbcTemplate.update("DELETE FROM audit_events WHERE action = 'LOGIN_SUCCESS'");
 
-        // Standard email/password login
-        restTemplate.exchange("/api/v1/auth/login", HttpMethod.POST,
+        // Standard email/password login — should complete without constraint violations
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+        ResponseEntity<Map<String, Object>> loginResponse = restTemplate.exchange(
+                "/api/v1/auth/login", HttpMethod.POST,
                 new HttpEntity<>(Map.of(
                         "email", TestAuthHelper.OUTREACH_EMAIL,
                         "tenantSlug", authHelper.getTestTenantSlug(),
-                        "password", TestAuthHelper.DEFAULT_PASSWORD)),
-                new ParameterizedTypeReference<Map<String, Object>>() {});
+                        "password", TestAuthHelper.TEST_PASSWORD), headers),
+                new ParameterizedTypeReference<>() {});
 
-        var events = jdbcTemplate.queryForList(
-                "SELECT actor_user_id, target_user_id, action FROM audit_events WHERE action = 'LOGIN_SUCCESS'");
-        // Standard login may or may not publish LOGIN_SUCCESS — depends on implementation
-        // The key assertion: no constraint violations occurred (test completes without error)
+        // The key assertion: login completes successfully (no constraint violations from our change)
+        assertThat(loginResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
     }
 
     @Test

@@ -23,9 +23,20 @@ VALUES (
     ARRAY['PLATFORM_ADMIN'],
     true,
     NOW(), NOW()
-) ON CONFLICT (tenant_id, email) DO NOTHING;
+) ON CONFLICT (tenant_id, email) DO UPDATE SET
+    password_hash = EXCLUDED.password_hash,
+    display_name = EXCLUDED.display_name,
+    roles = EXCLUDED.roles,
+    dv_access = EXCLUDED.dv_access,
+    status = COALESCE(EXCLUDED.status, 'ACTIVE'),
+    totp_enabled = false,
+    totp_secret_encrypted = NULL,
+    recovery_codes = NULL,
+    password_changed_at = NULL,
+    token_version = 0,
+    updated_at = NOW();
 
--- Outreach worker (dvAccess=false, password: outreach123)
+-- Outreach worker (dvAccess=false, password: admin123)
 INSERT INTO app_user (id, tenant_id, email, password_hash, display_name, roles, dv_access, created_at, updated_at)
 VALUES (
     'b0000000-0000-0000-0000-000000000002',
@@ -36,9 +47,20 @@ VALUES (
     ARRAY['OUTREACH_WORKER'],
     false,
     NOW(), NOW()
-) ON CONFLICT (tenant_id, email) DO NOTHING;
+) ON CONFLICT (tenant_id, email) DO UPDATE SET
+    password_hash = EXCLUDED.password_hash,
+    display_name = EXCLUDED.display_name,
+    roles = EXCLUDED.roles,
+    dv_access = EXCLUDED.dv_access,
+    status = COALESCE(EXCLUDED.status, 'ACTIVE'),
+    totp_enabled = false,
+    totp_secret_encrypted = NULL,
+    recovery_codes = NULL,
+    password_changed_at = NULL,
+    token_version = 0,
+    updated_at = NOW();
 
--- CoC Admin (password: cocadmin123)
+-- CoC Admin (password: admin123)
 INSERT INTO app_user (id, tenant_id, email, password_hash, display_name, roles, dv_access, created_at, updated_at)
 VALUES (
     'b0000000-0000-0000-0000-000000000003',
@@ -49,7 +71,18 @@ VALUES (
     ARRAY['COC_ADMIN'],
     false,
     NOW(), NOW()
-) ON CONFLICT (tenant_id, email) DO NOTHING;
+) ON CONFLICT (tenant_id, email) DO UPDATE SET
+    password_hash = EXCLUDED.password_hash,
+    display_name = EXCLUDED.display_name,
+    roles = EXCLUDED.roles,
+    dv_access = EXCLUDED.dv_access,
+    status = COALESCE(EXCLUDED.status, 'ACTIVE'),
+    totp_enabled = false,
+    totp_secret_encrypted = NULL,
+    recovery_codes = NULL,
+    password_changed_at = NULL,
+    token_version = 0,
+    updated_at = NOW();
 
 -- DV outreach worker (dvAccess=true, password: admin123)
 -- Persona: DV-certified outreach worker who can see DV shelters with redacted addresses
@@ -63,7 +96,18 @@ VALUES (
     ARRAY['OUTREACH_WORKER'],
     true,
     NOW(), NOW()
-) ON CONFLICT (tenant_id, email) DO NOTHING;
+) ON CONFLICT (tenant_id, email) DO UPDATE SET
+    password_hash = EXCLUDED.password_hash,
+    display_name = EXCLUDED.display_name,
+    roles = EXCLUDED.roles,
+    dv_access = EXCLUDED.dv_access,
+    status = COALESCE(EXCLUDED.status, 'ACTIVE'),
+    totp_enabled = false,
+    totp_secret_encrypted = NULL,
+    recovery_codes = NULL,
+    password_changed_at = NULL,
+    token_version = 0,
+    updated_at = NOW();
 
 -- Deactivated user (for admin panel screenshots and testing)
 INSERT INTO app_user (id, tenant_id, email, password_hash, display_name, roles, dv_access, status, created_at, updated_at)
@@ -77,7 +121,18 @@ VALUES (
     false,
     'DEACTIVATED',
     NOW(), NOW()
-) ON CONFLICT (tenant_id, email) DO NOTHING;
+) ON CONFLICT (tenant_id, email) DO UPDATE SET
+    password_hash = EXCLUDED.password_hash,
+    display_name = EXCLUDED.display_name,
+    roles = EXCLUDED.roles,
+    dv_access = EXCLUDED.dv_access,
+    status = COALESCE(EXCLUDED.status, 'ACTIVE'),
+    totp_enabled = false,
+    totp_secret_encrypted = NULL,
+    recovery_codes = NULL,
+    password_changed_at = NULL,
+    token_version = 0,
+    updated_at = NOW();
 
 -- Sample OAuth2 provider (Google, for local testing — replace client ID/secret with real values)
 INSERT INTO tenant_oauth2_provider (id, tenant_id, provider_name, client_id, client_secret_encrypted, issuer_uri, enabled, created_at)
