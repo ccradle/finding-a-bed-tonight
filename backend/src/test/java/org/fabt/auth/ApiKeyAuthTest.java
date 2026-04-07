@@ -147,7 +147,7 @@ class ApiKeyAuthTest extends BaseIntegrationTest {
     }
 
     @Test
-    void test_apiKeyAuth_keyRotation() {
+    void test_apiKeyAuth_keyRotation_bothKeysWorkDuringGracePeriod() {
         // Create an API key
         UUID tenantId = authHelper.getTestTenantId();
         ApiKeyService.ApiKeyCreateResult original = apiKeyService.create(tenantId, null, "Rotate Me");
@@ -155,29 +155,94 @@ class ApiKeyAuthTest extends BaseIntegrationTest {
         // Rotate the key
         ApiKeyService.ApiKeyCreateResult rotated = apiKeyService.rotate(original.id());
 
-        // Old key should no longer work
+        // OLD key should STILL work during grace period (24h default)
         HttpHeaders oldHeaders = new HttpHeaders();
         oldHeaders.set("X-API-Key", original.plaintextKey());
 
         ResponseEntity<String> oldKeyResponse = restTemplate.exchange(
-                "/api/v1/users",
-                HttpMethod.GET,
-                new HttpEntity<>(oldHeaders),
-                String.class
-        );
-        assertThat(oldKeyResponse.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+                "/api/v1/users", HttpMethod.GET,
+                new HttpEntity<>(oldHeaders), String.class);
+        assertThat(oldKeyResponse.getStatusCode())
+                .as("Old key should authenticate during grace period")
+                .isEqualTo(HttpStatus.OK);
 
-        // New key should work
+        // New key should also work
         HttpHeaders newHeaders = new HttpHeaders();
         newHeaders.set("X-API-Key", rotated.plaintextKey());
 
         ResponseEntity<String> newKeyResponse = restTemplate.exchange(
-                "/api/v1/users",
-                HttpMethod.GET,
-                new HttpEntity<>(newHeaders),
-                String.class
-        );
+                "/api/v1/users", HttpMethod.GET,
+                new HttpEntity<>(newHeaders), String.class);
         assertThat(newKeyResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    // T-5f: Revoke during active grace period — old key no longer authenticates
+    @Test
+    void test_apiKeyAuth_revokeDuringGracePeriod_bothKeysFail() {
+        UUID tenantId = authHelper.getTestTenantId();
+        ApiKeyService.ApiKeyCreateResult original = apiKeyService.create(tenantId, null, "Revoke During Grace");
+
+        // Rotate — creates grace period
+        ApiKeyService.ApiKeyCreateResult rotated = apiKeyService.rotate(original.id());
+
+        // Revoke — should kill both current and old key
+        apiKeyService.deactivate(original.id());
+
+        // Old key must fail
+        HttpHeaders oldHeaders = new HttpHeaders();
+        oldHeaders.set("X-API-Key", original.plaintextKey());
+        ResponseEntity<String> oldResp = restTemplate.exchange(
+                "/api/v1/users", HttpMethod.GET,
+                new HttpEntity<>(oldHeaders), String.class);
+        assertThat(oldResp.getStatusCode())
+                .as("Old key must fail after revoke during grace period")
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+
+        // New key must also fail (key is deactivated)
+        HttpHeaders newHeaders = new HttpHeaders();
+        newHeaders.set("X-API-Key", rotated.plaintextKey());
+        ResponseEntity<String> newResp = restTemplate.exchange(
+                "/api/v1/users", HttpMethod.GET,
+                new HttpEntity<>(newHeaders), String.class);
+        assertThat(newResp.getStatusCode())
+                .as("New key must fail after revoke during grace period")
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    // T-5g: Expired grace period old key rejected even without cleanup
+    @Test
+    void test_apiKeyAuth_expiredGracePeriod_oldKeyRejected() {
+        UUID tenantId = authHelper.getTestTenantId();
+        ApiKeyService.ApiKeyCreateResult original = apiKeyService.create(tenantId, null, "Expire Grace");
+
+        // Rotate
+        apiKeyService.rotate(original.id());
+
+        // Manually expire the grace period in DB (simulate clock advance)
+        jdbcTemplate.update(
+                "UPDATE api_key SET old_key_expires_at = NOW() - INTERVAL '1 hour' WHERE id = ?",
+                original.id());
+
+        // Old key should now fail (grace expired, even though cleanup hasn't run)
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("X-API-Key", original.plaintextKey());
+        ResponseEntity<String> resp = restTemplate.exchange(
+                "/api/v1/users", HttpMethod.GET,
+                new HttpEntity<>(headers), String.class);
+        assertThat(resp.getStatusCode())
+                .as("Old key must fail after grace period expires (SQL-level check)")
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    // T-5h: Rotated key is 64 hex chars (256 bits)
+    @Test
+    void test_apiKeyAuth_keyEntropy_256bits() {
+        UUID tenantId = authHelper.getTestTenantId();
+        ApiKeyService.ApiKeyCreateResult result = apiKeyService.create(tenantId, null, "Entropy Check");
+        assertThat(result.plaintextKey()).hasSize(64); // 32 bytes = 64 hex chars
+
+        ApiKeyService.ApiKeyCreateResult rotated = apiKeyService.rotate(result.id());
+        assertThat(rotated.plaintextKey()).hasSize(64);
     }
 
     @Autowired
