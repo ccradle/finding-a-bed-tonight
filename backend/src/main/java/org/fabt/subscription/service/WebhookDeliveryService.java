@@ -1,8 +1,12 @@
 package org.fabt.subscription.service;
 
+import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -50,10 +54,74 @@ public class WebhookDeliveryService {
                                   ObservabilityMetrics metrics) {
         this.subscriptionService = subscriptionService;
         this.objectMapper = objectMapper;
-        this.restClient = restClientBuilder.build();
+        // Timeouts: 10s connect, 30s read per design D3
+        this.restClient = restClientBuilder
+                .requestFactory(new org.springframework.http.client.JdkClientHttpRequestFactory(
+                        HttpClient.newBuilder()
+                                .connectTimeout(Duration.ofSeconds(10))
+                                .build()))
+                .build();
         this.metrics = metrics;
         this.deliveryExecutor = Executors.newVirtualThreadPerTaskExecutor();
     }
+
+    /**
+     * Send a test event to a subscription endpoint and return the delivery result.
+     * Used by the admin "Send Test" button. Runs synchronously (not on executor).
+     */
+    public TestDeliveryResult sendTestEvent(UUID subscriptionId, UUID tenantId, String eventType) {
+        Subscription subscription = subscriptionService.findByTenantId(tenantId).stream()
+                .filter(s -> s.getId().equals(subscriptionId))
+                .findFirst()
+                .orElseThrow(() -> new NoSuchElementException("Subscription not found: " + subscriptionId));
+
+        // Build synthetic event using convenience constructor (generates UUID + timestamp)
+        DomainEvent testEvent = new DomainEvent(eventType, tenantId, Map.of("test", true));
+
+        long startMs = System.currentTimeMillis();
+        try {
+            String jsonBody = objectMapper.writeValueAsString(Map.of(
+                    "id", testEvent.id().toString(),
+                    "type", testEvent.type(),
+                    "schemaVersion", testEvent.schemaVersion(),
+                    "tenantId", testEvent.tenantId().toString(),
+                    "payload", testEvent.payload(),
+                    "timestamp", testEvent.timestamp().toString(),
+                    "test", true
+            ));
+
+            String hmacKey = subscription.getCallbackSecretHash();
+            String signature = "sha256=" + computeHmacSha256(hmacKey, jsonBody);
+
+            var response = restClient.post()
+                    .uri(subscription.getCallbackUrl())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .header("X-Signature", signature)
+                    .header("X-Test-Event", "true")
+                    .body(jsonBody)
+                    .retrieve()
+                    .toEntity(String.class);
+
+            int responseTimeMs = (int) (System.currentTimeMillis() - startMs);
+            String body = response.getBody();
+            String truncated = body != null && body.length() > 1024 ? body.substring(0, 1024) : body;
+
+            subscriptionService.recordDelivery(subscriptionId, eventType,
+                    response.getStatusCode().value(), responseTimeMs, 1, truncated);
+
+            return new TestDeliveryResult(response.getStatusCode().value(), responseTimeMs, truncated);
+
+        } catch (Exception e) {
+            int responseTimeMs = (int) (System.currentTimeMillis() - startMs);
+            String error = e.getMessage() != null ? e.getMessage().substring(0, Math.min(e.getMessage().length(), 200)) : "Unknown error";
+
+            subscriptionService.recordDelivery(subscriptionId, eventType, null, responseTimeMs, 1, error);
+
+            return new TestDeliveryResult(null, responseTimeMs, error);
+        }
+    }
+
+    public record TestDeliveryResult(Integer statusCode, int responseTimeMs, String responseBody) {}
 
     @EventListener
     public void onDomainEvent(DomainEvent event) {
