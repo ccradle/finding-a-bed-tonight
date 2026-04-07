@@ -86,8 +86,8 @@ class AvailabilityRetryTest extends BaseIntegrationTest {
         Mockito.doThrow(new TransientDataAccessResourceException("Simulated transient DB failure"))
                 .doCallRealMethod()
                 .when(availabilityService)
-                .createSnapshot(any(UUID.class), anyString(), anyInt(), anyInt(), anyInt(),
-                        anyBoolean(), anyString(), anyString(), anyInt());
+                .createSnapshot(any(UUID.class), any(), anyInt(), anyInt(), anyInt(),
+                        anyBoolean(), any(), any(), anyInt());
 
         HttpHeaders headers = authHelper.coordinatorHeaders();
         headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
@@ -105,8 +105,8 @@ class AvailabilityRetryTest extends BaseIntegrationTest {
 
         // Verify createSnapshot was called exactly 2 times (first throw, second succeed)
         Mockito.verify(availabilityService, Mockito.times(2))
-                .createSnapshot(any(UUID.class), anyString(), anyInt(), anyInt(), anyInt(),
-                        anyBoolean(), anyString(), anyString(), anyInt());
+                .createSnapshot(any(UUID.class), any(), anyInt(), anyInt(), anyInt(),
+                        anyBoolean(), any(), any(), anyInt());
 
         // Verify only ONE domain event published (not one per attempt)
         var events = eventListener.getEventsByType("availability.updated");
@@ -121,8 +121,8 @@ class AvailabilityRetryTest extends BaseIntegrationTest {
         Mockito.doThrow(new TransientDataAccessResourceException("Transaction rolled back"))
                 .doCallRealMethod()
                 .when(availabilityService)
-                .createSnapshot(any(UUID.class), anyString(), anyInt(), anyInt(), anyInt(),
-                        anyBoolean(), anyString(), anyString(), anyInt());
+                .createSnapshot(any(UUID.class), any(), anyInt(), anyInt(), anyInt(),
+                        anyBoolean(), any(), any(), anyInt());
 
         HttpHeaders headers = authHelper.coordinatorHeaders();
         headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
@@ -164,13 +164,13 @@ class AvailabilityRetryTest extends BaseIntegrationTest {
                 String.class);
 
         // Should return 422 (not retried, not 500)
-        assertThat(response.getStatusCode())
+        assertThat(response.getStatusCode().value())
                 .as("Business exception should propagate immediately as 422")
-                .isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+                .isEqualTo(422);
 
         // Verify createSnapshot was called only ONCE (not retried)
         Mockito.verify(availabilityService, Mockito.times(1))
-                .createSnapshot(any(UUID.class), anyString(), anyInt(), anyInt(), anyInt(),
-                        anyBoolean(), anyString(), anyString(), anyInt());
+                .createSnapshot(any(UUID.class), any(), anyInt(), anyInt(), anyInt(),
+                        anyBoolean(), any(), any(), anyInt());
     }
 }

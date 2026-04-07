@@ -14,8 +14,6 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.test.context.TestPropertySource;
-
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -31,8 +29,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  * - 429 + Retry-After + X-RateLimit-* headers on exhaustion
  * - Per-IP isolation (Caffeine-cached buckets)
  */
-@TestPropertySource(properties = "fabt.api-key.rate-limit=5")
 @DisplayName("API Key Rate Limiting")
+@org.springframework.boot.test.context.SpringBootTest(
+        webEnvironment = org.springframework.boot.test.context.SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = "fabt.api-key.rate-limit=5"
+)
 class ApiKeyRateLimitTest extends BaseIntegrationTest {
 
     @Autowired
@@ -41,10 +42,16 @@ class ApiKeyRateLimitTest extends BaseIntegrationTest {
     @Autowired
     private ApiKeyService apiKeyService;
 
+    @Autowired
+    private org.fabt.shared.security.ApiKeyAuthenticationFilter apiKeyFilter;
+
     private String validApiKey;
 
     @BeforeEach
     void setUp() {
+        // Reset rate limit buckets between tests — each test gets a fresh budget
+        apiKeyFilter.clearRateLimits();
+
         authHelper.setupTestTenant();
         authHelper.setupAdminUser();
 

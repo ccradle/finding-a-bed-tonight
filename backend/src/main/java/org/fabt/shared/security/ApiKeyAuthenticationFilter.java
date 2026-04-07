@@ -163,6 +163,11 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
         return request.getRemoteAddr();
     }
 
+    /** Clear all rate limit buckets. Used by tests to reset state between test methods. */
+    public void clearRateLimits() {
+        rateLimitBuckets.invalidateAll();
+    }
+
     private Bucket createBucket() {
         return Bucket.builder()
                 .addLimit(Bandwidth.builder()

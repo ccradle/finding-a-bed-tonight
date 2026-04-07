@@ -17,6 +17,10 @@ import org.springframework.http.ResponseEntity;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+@org.springframework.boot.test.context.SpringBootTest(
+        webEnvironment = org.springframework.boot.test.context.SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = "fabt.api-key.rate-limit=1000"
+)
 class ApiKeyAuthTest extends BaseIntegrationTest {
 
     @Autowired

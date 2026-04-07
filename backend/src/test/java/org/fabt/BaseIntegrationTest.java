@@ -50,8 +50,9 @@ public abstract class BaseIntegrationTest {
         registry.add("spring.flyway.password", POSTGRES::getPassword);
         // Encryption key for TOTP + webhook secrets (SecretEncryptionService reads fabt.encryption-key with fabt.totp.encryption-key fallback)
         registry.add("fabt.totp.encryption-key", () -> "dGVzdC1vbmx5LXRvdHAtZW5jcnlwdGlvbi1rZXktMzI=");
-        // API key rate limit: high for tests (default 5/min would break after 5 API key test methods)
-        registry.add("fabt.api-key.rate-limit", () -> "1000");
+        // API key rate limit: default 5/min applies. Tests that make >5 API key requests
+        // should inject ApiKeyAuthenticationFilter and call rateLimitBuckets.invalidateAll()
+        // in @BeforeEach, or use @SpringBootTest(properties = "fabt.api-key.rate-limit=1000").
     }
 
     @Autowired
