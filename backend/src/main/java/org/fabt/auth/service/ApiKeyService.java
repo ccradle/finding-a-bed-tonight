@@ -15,7 +15,6 @@ import org.fabt.auth.domain.ApiKey;
 import org.fabt.auth.repository.ApiKeyRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -61,11 +60,9 @@ public class ApiKeyService {
         // Try current key first
         Optional<ApiKey> found = apiKeyRepository.findByKeyHashAndActiveTrue(keyHash);
 
-        // If not found, try old key within grace period
+        // If not found, try old key within grace period (expiry checked in SQL)
         if (found.isEmpty()) {
-            found = apiKeyRepository.findByOldKeyHashAndActiveTrue(keyHash)
-                    .filter(apiKey -> apiKey.getOldKeyExpiresAt() != null
-                            && apiKey.getOldKeyExpiresAt().isAfter(Instant.now()));
+            found = apiKeyRepository.findByOldKeyHashWithinGracePeriod(keyHash);
         }
 
         found.ifPresent(apiKey -> {
@@ -102,6 +99,9 @@ public class ApiKeyService {
         ApiKey existing = apiKeyRepository.findById(keyId)
                 .orElseThrow(() -> new NoSuchElementException("API key not found: " + keyId));
         existing.setActive(false);
+        // Clear any active grace period — revoked key should not authenticate via old hash
+        existing.setOldKeyHash(null);
+        existing.setOldKeyExpiresAt(null);
         apiKeyRepository.save(existing);
     }
 
@@ -113,6 +113,8 @@ public class ApiKeyService {
     /**
      * Clear expired grace period keys. Runs hourly when scheduling is enabled.
      * Removes old_key_hash and old_key_expires_at after the grace window closes.
+     * Idempotent — safe if multiple runs overlap.
+     * NOTE: For multi-instance deployments, add ShedLock to prevent duplicate execution.
      */
     @Scheduled(fixedRate = 3600_000) // every hour
     @Transactional
@@ -130,7 +132,7 @@ public class ApiKeyService {
     }
 
     private String generateRandomKey() {
-        byte[] bytes = new byte[16];
+        byte[] bytes = new byte[32]; // 256 bits — industry standard for API keys
         secureRandom.nextBytes(bytes);
         return HexFormat.of().formatHex(bytes);
     }
