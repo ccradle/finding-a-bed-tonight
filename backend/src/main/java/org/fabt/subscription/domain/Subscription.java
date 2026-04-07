@@ -20,6 +20,7 @@ public class Subscription {
     private String status;
     private Instant expiresAt;
     private String lastError;
+    private int consecutiveFailures;
     private Instant createdAt;
 
     public Subscription() {
@@ -103,5 +104,13 @@ public class Subscription {
 
     public void setCreatedAt(Instant createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public int getConsecutiveFailures() {
+        return consecutiveFailures;
+    }
+
+    public void setConsecutiveFailures(int consecutiveFailures) {
+        this.consecutiveFailures = consecutiveFailures;
     }
 }

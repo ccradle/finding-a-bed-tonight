@@ -18,18 +18,27 @@ import tools.jackson.databind.ObjectMapper;
 import org.fabt.shared.config.JsonString;
 import org.fabt.subscription.domain.Subscription;
 import org.fabt.subscription.repository.SubscriptionRepository;
+import org.fabt.subscription.repository.WebhookDeliveryLogRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class SubscriptionService {
 
+    private static final Logger log = LoggerFactory.getLogger(SubscriptionService.class);
+
     private final SubscriptionRepository subscriptionRepository;
+    private final WebhookDeliveryLogRepository deliveryLogRepository;
     private final ObjectMapper objectMapper;
 
     public SubscriptionService(SubscriptionRepository subscriptionRepository,
+                               WebhookDeliveryLogRepository deliveryLogRepository,
                                ObjectMapper objectMapper) {
         this.subscriptionRepository = subscriptionRepository;
+        this.deliveryLogRepository = deliveryLogRepository;
         this.objectMapper = objectMapper;
     }
 
@@ -86,9 +95,83 @@ public class SubscriptionService {
         subscriptionRepository.save(subscription);
     }
 
+    /**
+     * Admin-initiated status change. Only ACTIVE and PAUSED are valid admin-settable values.
+     * Resetting to ACTIVE from DEACTIVATED or FAILING clears consecutive failure counter.
+     */
+    @Transactional
+    public Subscription updateStatus(UUID id, String newStatus) {
+        if (!"ACTIVE".equals(newStatus) && !"PAUSED".equals(newStatus)) {
+            throw new IllegalArgumentException("Only ACTIVE and PAUSED are valid admin-settable status values");
+        }
+
+        Subscription subscription = subscriptionRepository.findById(id)
+                .orElseThrow(() -> new NoSuchElementException("Subscription not found: " + id));
+
+        if ("ACTIVE".equals(newStatus) &&
+                ("DEACTIVATED".equals(subscription.getStatus()) || "FAILING".equals(subscription.getStatus()))) {
+            subscription.setConsecutiveFailures(0);
+            subscription.setLastError(null);
+        }
+
+        subscription.setStatus(newStatus);
+        return subscriptionRepository.save(subscription);
+    }
+
     @Transactional(readOnly = true)
     public List<Subscription> findActiveByEventType(String eventType) {
         return subscriptionRepository.findActiveByEventType(eventType);
+    }
+
+    /**
+     * Record a delivery attempt in the delivery log.
+     * Manages consecutive failure counter and auto-disable at 5 failures.
+     */
+    @Transactional
+    public void recordDelivery(UUID subscriptionId, String eventType, Integer statusCode,
+                                Integer responseTimeMs, int attemptNumber, String responseBody) {
+        var logEntry = new org.fabt.subscription.domain.WebhookDeliveryLog(
+                subscriptionId, eventType, statusCode, responseTimeMs, attemptNumber, responseBody);
+        deliveryLogRepository.save(logEntry);
+
+        Subscription subscription = subscriptionRepository.findById(subscriptionId).orElse(null);
+        if (subscription == null) return;
+
+        boolean success = statusCode != null && statusCode >= 200 && statusCode < 300;
+
+        if (success) {
+            if (subscription.getConsecutiveFailures() > 0) {
+                subscription.setConsecutiveFailures(0);
+                subscription.setLastError(null);
+                if ("FAILING".equals(subscription.getStatus())) {
+                    subscription.setStatus("ACTIVE");
+                }
+                subscriptionRepository.save(subscription);
+            }
+        } else {
+            subscription.setConsecutiveFailures(subscription.getConsecutiveFailures() + 1);
+            subscription.setLastError(responseBody != null ? responseBody.substring(0, Math.min(responseBody.length(), 200)) : "No response");
+            if (subscription.getConsecutiveFailures() >= 5) {
+                subscription.setStatus("DEACTIVATED");
+                log.warn("Subscription {} auto-disabled after {} consecutive failures", subscriptionId, subscription.getConsecutiveFailures());
+            } else if (!"FAILING".equals(subscription.getStatus())) {
+                subscription.setStatus("FAILING");
+            }
+            subscriptionRepository.save(subscription);
+        }
+    }
+
+    /**
+     * Delete delivery logs older than 14 days. Runs daily.
+     * NOTE: For multi-instance deployments, add ShedLock to prevent duplicate execution.
+     */
+    @Scheduled(fixedRate = 86_400_000) // daily
+    @Transactional
+    public void cleanupOldDeliveryLogs() {
+        int deleted = deliveryLogRepository.deleteOlderThan14Days();
+        if (deleted > 0) {
+            log.info("Cleaned up {} delivery log entries older than 14 days", deleted);
+        }
     }
 
     private void validateCallbackUrl(String callbackUrl) {
