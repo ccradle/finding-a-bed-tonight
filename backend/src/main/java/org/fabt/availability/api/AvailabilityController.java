@@ -5,7 +5,7 @@ import java.util.UUID;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import jakarta.validation.Valid;
-import org.fabt.availability.service.AvailabilityService;
+import org.fabt.availability.service.AvailabilityRetryService;
 import org.fabt.availability.service.AvailabilityService.AvailabilitySnapshot;
 import org.fabt.reservation.service.ReservationService;
 import org.fabt.shelter.domain.PopulationType;
@@ -27,14 +27,14 @@ public class AvailabilityController {
 
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(AvailabilityController.class);
 
-    private final AvailabilityService availabilityService;
+    private final AvailabilityRetryService availabilityRetryService;
     private final ReservationService reservationService;
     private final CoordinatorAssignmentRepository coordinatorAssignmentRepository;
 
-    public AvailabilityController(AvailabilityService availabilityService,
+    public AvailabilityController(AvailabilityRetryService availabilityRetryService,
                                    ReservationService reservationService,
                                    CoordinatorAssignmentRepository coordinatorAssignmentRepository) {
-        this.availabilityService = availabilityService;
+        this.availabilityRetryService = availabilityRetryService;
         this.reservationService = reservationService;
         this.coordinatorAssignmentRepository = coordinatorAssignmentRepository;
     }
@@ -85,7 +85,7 @@ public class AvailabilityController {
                     "for shelter {} / {}", requestedHold, effectiveHold, activeHeldCount, id, request.populationType());
         }
 
-        AvailabilitySnapshot snapshot = availabilityService.createSnapshot(
+        AvailabilitySnapshot snapshot = availabilityRetryService.createSnapshotWithRetry(
                 id, request.populationType(),
                 request.bedsTotal(), request.bedsOccupied(), effectiveHold,
                 request.acceptingNewGuests(), request.notes(), updatedBy,

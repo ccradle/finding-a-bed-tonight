@@ -21,7 +21,7 @@ import org.springframework.stereotype.Service;
  *
  * Handles secret generation, QR code URI generation, code verification
  * (with ±1 time step for clock drift per RFC 6238), and backup code
- * management. TOTP secrets are encrypted by TotpEncryptionService
+ * management. TOTP secrets are encrypted by org.fabt.shared.security.SecretEncryptionService
  * before storage — this service works with plaintext base32 secrets
  * only in memory, never persisted unencrypted.
  */
@@ -37,9 +37,9 @@ public class TotpService {
     private final SecretGenerator secretGenerator = new DefaultSecretGenerator(SECRET_LENGTH);
     private final CodeVerifier codeVerifier;
     private final PasswordService passwordService;
-    private final TotpEncryptionService encryptionService;
+    private final org.fabt.shared.security.SecretEncryptionService encryptionService;
 
-    public TotpService(PasswordService passwordService, TotpEncryptionService encryptionService) {
+    public TotpService(PasswordService passwordService, org.fabt.shared.security.SecretEncryptionService encryptionService) {
         this.passwordService = passwordService;
         this.encryptionService = encryptionService;
 

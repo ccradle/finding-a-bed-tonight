@@ -57,16 +57,16 @@ Full setup guide: [For Developers](docs/FOR-DEVELOPERS.md#prerequisites)
 | Layer | Technology |
 |---|---|
 | Backend | Java 25, Spring Boot 4.0, Spring MVC, Spring Data JDBC, Virtual Threads |
-| Database | PostgreSQL 16, Flyway (33 migrations), Row Level Security (DV shelters) |
+| Database | PostgreSQL 16, Flyway (34 migrations), Row Level Security (DV shelters) |
 | Frontend | React 19, Vite, TypeScript, Workbox PWA (injectManifest), react-intl (EN/ES), CSS custom properties design tokens |
-| Testing | JUnit 5, Testcontainers, ArchUnit (382 tests), Playwright (268 UI tests), Vitest (20 unit tests), Karate (75 API scenarios), Gatling (8 simulations) |
+| Testing | JUnit 5, Testcontainers, ArchUnit (425 tests), Playwright (299 UI tests), Vitest (20 unit tests), Karate (82 API scenarios), Gatling (8 simulations) |
 | Infra | Docker, GitHub Actions CI/CD + E2E pipeline, Terraform (3 tiers) |
 
 ---
 
 ## What's Complete
 
-**Current version: v0.29.3** — 41 archived OpenSpec changes, 95 specs, 13 modules.
+**Current version: v0.29.6** — 42 archived OpenSpec changes, 96 specs, 14 modules.
 
 - Real-time bed search with freshness indicators and constraint filters
 - Soft-hold reservations with configurable hold duration (default 90 min)
@@ -86,6 +86,8 @@ Full setup guide: [For Developers](docs/FOR-DEVELOPERS.md#prerequisites)
 - App version display: public `GET /api/v1/version` (major.minor, rate-limited), login page and layout footers
 - Overflow beds management: surge-gated "Temporary Beds" stepper for coordinators, combined display for outreach workers during White Flag nights, holds succeed on overflow-only capacity
 - Password recovery + TOTP 2FA: sign-in verification via authenticator apps, admin-generated one-time access codes, backup codes, designed to support NIST 800-63B AAL2 and CJIS MFA requirements
+- Platform hardening: API key lifecycle (create, rotate with 24h grace period, revoke), per-IP rate limiting (Bucket4j + nginx edge), webhook subscription management (pause/resume, send test, delivery log, auto-disable at 5 failures), server-side retry on transient DB errors, AES-256-GCM secret encryption at rest
+- Admin panel extraction: 2,136-line monolith split into 15 focused files with React.lazy code splitting and per-tab ErrorBoundary
 - Dignity-centered copy: "Temporary beds" not "overflow," "sign-in verification" not "2FA," "Safety Shelter" label, i18n freshness badges, human error messages
 
 Full feature details: [For Developers — Project Status](docs/FOR-DEVELOPERS.md#project-status)

@@ -158,6 +158,8 @@ export function OutreachSearch() {
   const [holdPopType, setHoldPopType] = useState<string | null>(null);
   const [showReservations, setShowReservations] = useState(false);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const detailModalRef = useRef<HTMLDivElement>(null);
+  const referralModalRef = useRef<HTMLDivElement>(null);
 
   // Queued holds state (offline)
   interface QueuedHold {
@@ -349,6 +351,16 @@ export function OutreachSearch() {
     return () => { if (countdownRef.current) clearInterval(countdownRef.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps -- Intentionally depends on .length, not the full array (avoids infinite re-renders from the interval update)
   }, [reservations.length]);
+
+  // Auto-focus modal content on open — required for onKeyDown (Escape) to work.
+  // WAI-ARIA APG: dialog content receives focus, tabIndex={-1} makes it programmatically focusable.
+  useEffect(() => {
+    if (selectedShelter) detailModalRef.current?.focus();
+  }, [selectedShelter]);
+
+  useEffect(() => {
+    if (referralModal) referralModalRef.current?.focus();
+  }, [referralModal]);
 
   const holdBed = async (shelterId: string, popType: string) => {
     setHoldingShelterId(shelterId);
@@ -845,10 +857,17 @@ export function OutreachSearch() {
       {selectedShelter && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
           onClick={() => setSelectedShelter(null)}>
-          <div style={{
-            backgroundColor: color.bg, borderRadius: '24px 24px 0 0', width: '100%', maxWidth: 600,
-            maxHeight: '88vh', overflowY: 'auto', padding: '28px 24px 36px',
-          }} onClick={(e) => e.stopPropagation()}>
+          <div
+            ref={detailModalRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label={selectedShelter.shelter.name}
+            tabIndex={-1}
+            onKeyDown={(e) => { if (e.key === 'Escape') setSelectedShelter(null); }}
+            style={{
+              backgroundColor: color.bg, borderRadius: '24px 24px 0 0', width: '100%', maxWidth: 600,
+              maxHeight: '88vh', overflowY: 'auto', padding: '28px 24px 36px', outline: 'none',
+            }} onClick={(e) => e.stopPropagation()}>
             <div style={{ width: 40, height: 4, backgroundColor: color.borderMedium, borderRadius: 2, margin: '0 auto 22px' }} />
 
             <h2 style={{ margin: '0 0 4px', fontSize: text['2xl'], fontWeight: weight.extrabold, color: color.text }}>{selectedShelter.shelter.name}</h2>
@@ -994,10 +1013,18 @@ export function OutreachSearch() {
       {referralModal && (
         <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1002, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           onClick={() => setReferralModal(null)}>
-          <div data-testid="referral-modal" style={{
-            backgroundColor: color.bg, borderRadius: 16, width: '90%', maxWidth: 440, padding: '28px 24px',
-            boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
-          }} onClick={(e) => e.stopPropagation()}>
+          <div
+            ref={referralModalRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label={intl.formatMessage({ id: 'referral.requestTitle' })}
+            tabIndex={-1}
+            onKeyDown={(e) => { if (e.key === 'Escape') setReferralModal(null); }}
+            data-testid="referral-modal"
+            style={{
+              backgroundColor: color.bg, borderRadius: 16, width: '90%', maxWidth: 440, padding: '28px 24px',
+              boxShadow: '0 8px 32px rgba(0,0,0,0.2)', outline: 'none',
+            }} onClick={(e) => e.stopPropagation()}>
             <h3 style={{ margin: '0 0 4px', fontSize: text.lg, fontWeight: weight.extrabold, color: color.dvText }}>
               <FormattedMessage id="referral.title" />
             </h3>

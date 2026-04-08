@@ -137,16 +137,18 @@ Table audit_events {
 // ---------------------------------------------------------------------------
 
 Table api_key {
-  id          uuid        [pk, note: 'gen_random_uuid()']
-  tenant_id   uuid        [not null, ref: > tenant.id]
-  shelter_id  uuid        [ref: > shelter.id, note: 'Nullable — scoped to a single shelter when present']
-  key_hash    varchar     [not null, note: 'bcrypt hash of the full API key']
-  key_suffix  "char(4)"   [not null, note: 'Last 4 chars for identification in UI']
-  label       varchar     [not null, note: 'Human-readable label for the key']
-  role        varchar     [not null, note: 'Role enum value governing permissions']
-  active      boolean     [not null, default: true]
-  created_at  timestamptz [not null, default: `now()`]
-  last_used_at timestamptz [note: 'Nullable — set on first use']
+  id               uuid        [pk, note: 'gen_random_uuid()']
+  tenant_id        uuid        [not null, ref: > tenant.id]
+  shelter_id       uuid        [ref: > shelter.id, note: 'Nullable — scoped to a single shelter when present']
+  key_hash         varchar     [not null, note: 'SHA-256 hex of the full API key']
+  key_suffix       "char(4)"   [not null, note: 'Last 4 chars for identification in UI']
+  label            varchar     [not null, note: 'Human-readable label for the key']
+  role             varchar     [not null, note: 'Role enum value governing permissions']
+  active           boolean     [not null, default: true]
+  created_at       timestamptz [not null, default: `now()`]
+  last_used_at     timestamptz [note: 'Nullable — set on first use']
+  old_key_hash     varchar     [note: 'V33 — SHA-256 of previous key during rotation grace period']
+  old_key_expires_at timestamptz [note: 'V33 — grace period expiry (default +24h from rotation)']
 }
 
 // ---------------------------------------------------------------------------
@@ -272,16 +274,32 @@ Table user_oauth2_link {
 // ---------------------------------------------------------------------------
 
 Table subscription {
-  id                  uuid              [pk, note: 'gen_random_uuid()']
-  tenant_id           uuid              [not null, ref: > tenant.id]
-  event_type          varchar           [not null, note: 'e.g. availability.updated, surge.activated']
-  filter              jsonb             [note: 'Optional filter criteria — shelter_id, population_type, etc.']
-  callback_url        varchar           [not null, note: 'HTTPS endpoint receiving webhook POSTs']
-  callback_secret_hash varchar          [not null, note: 'HMAC-SHA256 secret hash for payload signing']
-  status              varchar           [not null, default: 'ACTIVE', note: 'SubscriptionStatus enum value']
-  expires_at          timestamptz       [note: 'Nullable — no expiry if null']
-  last_error          text              [note: 'Most recent delivery error message']
-  created_at          timestamptz       [not null, default: `now()`]
+  id                   uuid              [pk, note: 'gen_random_uuid()']
+  tenant_id            uuid              [not null, ref: > tenant.id]
+  event_type           varchar           [not null, note: 'e.g. availability.updated, surge.activated']
+  filter               jsonb             [note: 'Optional filter criteria — shelter_id, population_type, etc.']
+  callback_url         varchar           [not null, note: 'HTTPS endpoint receiving webhook POSTs']
+  callback_secret_hash varchar           [not null, note: 'AES-256-GCM encrypted secret for HMAC-SHA256 payload signing']
+  status               varchar           [not null, default: 'ACTIVE', note: 'ACTIVE|PAUSED|FAILING|DEACTIVATED|CANCELLED']
+  consecutive_failures integer           [not null, default: 0, note: 'V34 — auto-disable at 5; reset on success or re-enable']
+  expires_at           timestamptz       [note: 'Nullable — no expiry if null']
+  last_error           text              [note: 'Most recent delivery error message']
+  created_at           timestamptz       [not null, default: `now()`]
+}
+
+// ---------------------------------------------------------------------------
+// V34 — Webhook Delivery Log
+// ---------------------------------------------------------------------------
+
+Table webhook_delivery_log {
+  id              uuid        [pk, note: 'gen_random_uuid()']
+  subscription_id uuid        [not null, ref: > subscription.id, note: 'ON DELETE CASCADE']
+  event_type      varchar     [not null]
+  status_code     integer     [note: 'HTTP response status code (null if connection failed)']
+  response_time_ms integer    [note: 'Round-trip time in milliseconds']
+  attempted_at    timestamptz [not null, default: `now()`]
+  attempt_number  integer     [not null, default: 1]
+  response_body   text        [note: 'Truncated to 1KB, secrets redacted by WebhookResponseRedactor']
 }
 
 // ---------------------------------------------------------------------------

@@ -20,6 +20,8 @@ public class ApiKey {
     private boolean active;
     private Instant createdAt;
     private Instant lastUsedAt;
+    private String oldKeyHash;
+    private Instant oldKeyExpiresAt;
 
     public ApiKey() {
     }
@@ -116,5 +118,21 @@ public class ApiKey {
 
     public void setLastUsedAt(Instant lastUsedAt) {
         this.lastUsedAt = lastUsedAt;
+    }
+
+    public String getOldKeyHash() {
+        return oldKeyHash;
+    }
+
+    public void setOldKeyHash(String oldKeyHash) {
+        this.oldKeyHash = oldKeyHash;
+    }
+
+    public Instant getOldKeyExpiresAt() {
+        return oldKeyExpiresAt;
+    }
+
+    public void setOldKeyExpiresAt(Instant oldKeyExpiresAt) {
+        this.oldKeyExpiresAt = oldKeyExpiresAt;
     }
 }

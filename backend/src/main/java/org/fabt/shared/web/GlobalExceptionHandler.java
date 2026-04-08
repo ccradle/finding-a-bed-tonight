@@ -142,6 +142,17 @@ public class GlobalExceptionHandler {
                 .body(new ErrorResponse("duplicate_entry", message, 409));
     }
 
+    @ExceptionHandler(org.springframework.dao.DataAccessException.class)
+    public ResponseEntity<ErrorResponse> handleDataAccess(org.springframework.dao.DataAccessException ex) {
+        log.warn("Data access failure (retries exhausted): {}", ex.getMessage());
+        Locale locale = LocaleContextHolder.getLocale();
+        String message = messageSource.getMessage("error.conflict", null,
+                "The operation could not be completed due to a temporary conflict. Please try again.", locale);
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(new ErrorResponse("conflict", message, 409));
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ErrorResponse> handleValidation(MethodArgumentNotValidException ex) {
         log.warn("Validation failed: {}", ex.getMessage());

@@ -269,3 +269,73 @@ INSERT INTO bed_availability (shelter_id, tenant_id, population_type, beds_total
 ON CONFLICT DO NOTHING;
 -- Utilization check: total=415+8+10+6=439, occupied=326+6+7+4=343, on_hold=5
 -- 343/439 = 78.1% ✓ | DV shelters: 3 distinct, 49 total DV beds > suppression thresholds ✓
+
+-- =====================================================================
+-- API Keys — demo keys for admin screenshots (platform-hardening)
+-- DEV ONLY — these keys have known hashes committed to the repo.
+-- NEVER use these keys in production. The demo guard blocks all
+-- API key mutations on the public demo site.
+--
+-- Key plaintext: fabt_demo_key_12345678901234567890123456789012
+-- SHA-256: 5a84da3158eb5d8b6d28fc979310ac9f2301c583c6678b97a07fdf0ed6bd6e8f
+-- =====================================================================
+INSERT INTO api_key (id, tenant_id, shelter_id, key_hash, key_suffix, label, role, active, created_at, last_used_at, old_key_hash, old_key_expires_at)
+VALUES
+    -- Active key with recent usage
+    ('e0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', NULL,
+     '5a84da3158eb5d8b6d28fc979310ac9f2301c583c6678b97a07fdf0ed6bd6e8f', '9012',
+     'Mobile App Integration', 'COC_ADMIN', true, NOW() - INTERVAL '14 days', NOW() - INTERVAL '2 hours',
+     NULL, NULL),
+    -- Active key in grace period (recently rotated, old key valid for 24h)
+    ('e0000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000001',
+     'd0000000-0000-0000-0000-000000000002',
+     'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'ab12',
+     'Kiosk - Capital Blvd', 'COORDINATOR', true, NOW() - INTERVAL '7 days', NOW() - INTERVAL '30 minutes',
+     'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc', NOW() + INTERVAL '20 hours'),
+    -- Revoked key
+    ('e0000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000001', NULL,
+     'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 'cd34',
+     'Legacy HMIS Bridge', 'COC_ADMIN', false, NOW() - INTERVAL '60 days', NOW() - INTERVAL '45 days',
+     NULL, NULL)
+ON CONFLICT (id) DO UPDATE SET
+    last_used_at = EXCLUDED.last_used_at,
+    active = EXCLUDED.active,
+    old_key_hash = EXCLUDED.old_key_hash,
+    old_key_expires_at = EXCLUDED.old_key_expires_at;
+
+-- =====================================================================
+-- Subscriptions — demo webhooks for admin screenshots (platform-hardening)
+-- callback_secret_hash is a placeholder (encrypted secret would need the encryption key)
+-- =====================================================================
+INSERT INTO subscription (id, tenant_id, event_type, callback_url, callback_secret_hash, status, consecutive_failures, created_at, last_error)
+VALUES
+    ('f0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001',
+     'shelter.availability.updated', 'https://api.partner-coc.org/webhooks/fabt', 'placeholder-encrypted',
+     'ACTIVE', 0, NOW() - INTERVAL '21 days', NULL),
+    ('f0000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000001',
+     'shelter.updated', 'https://hmis.county.gov/inbound/fabt', 'placeholder-encrypted',
+     'FAILING', 3, NOW() - INTERVAL '14 days', 'Connection timed out after 10000ms'),
+    ('f0000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000001',
+     'reservation.created', 'https://old-system.example.com/hooks', 'placeholder-encrypted',
+     'DEACTIVATED', 5, NOW() - INTERVAL '30 days', '502 Bad Gateway')
+ON CONFLICT (id) DO UPDATE SET
+    status = EXCLUDED.status,
+    consecutive_failures = EXCLUDED.consecutive_failures,
+    last_error = EXCLUDED.last_error;
+
+-- Delivery log entries for the active and failing subscriptions
+INSERT INTO webhook_delivery_log (id, subscription_id, event_type, status_code, response_time_ms, attempted_at, attempt_number, response_body)
+VALUES
+    ('f1000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000001',
+     'shelter.availability.updated', 200, 145, NOW() - INTERVAL '2 hours', 1, '{"status":"ok"}'),
+    ('f1000000-0000-0000-0000-000000000002', 'f0000000-0000-0000-0000-000000000001',
+     'shelter.availability.updated', 200, 132, NOW() - INTERVAL '4 hours', 1, '{"status":"ok"}'),
+    ('f1000000-0000-0000-0000-000000000003', 'f0000000-0000-0000-0000-000000000001',
+     'shelter.availability.updated', 200, 189, NOW() - INTERVAL '6 hours', 1, '{"status":"ok"}'),
+    ('f1000000-0000-0000-0000-000000000004', 'f0000000-0000-0000-0000-000000000002',
+     'shelter.updated', 502, 10023, NOW() - INTERVAL '1 hour', 1, '502 Bad Gateway'),
+    ('f1000000-0000-0000-0000-000000000005', 'f0000000-0000-0000-0000-000000000002',
+     'shelter.updated', 502, 10015, NOW() - INTERVAL '2 hours', 1, '502 Bad Gateway'),
+    ('f1000000-0000-0000-0000-000000000006', 'f0000000-0000-0000-0000-000000000002',
+     'shelter.updated', 200, 98, NOW() - INTERVAL '3 hours', 1, '{"status":"ok"}')
+ON CONFLICT (id) DO NOTHING;

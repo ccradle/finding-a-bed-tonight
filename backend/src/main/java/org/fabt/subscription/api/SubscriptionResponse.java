@@ -12,6 +12,7 @@ public record SubscriptionResponse(
         String callbackUrl,
         Instant expiresAt,
         String lastError,
+        int consecutiveFailures,
         Instant createdAt
 ) {
 
@@ -23,6 +24,7 @@ public record SubscriptionResponse(
                 subscription.getCallbackUrl(),
                 subscription.getExpiresAt(),
                 subscription.getLastError(),
+                subscription.getConsecutiveFailures(),
                 subscription.getCreatedAt()
         );
     }

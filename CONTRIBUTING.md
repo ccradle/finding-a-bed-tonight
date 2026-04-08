@@ -39,8 +39,8 @@ cd backend
 mvn test
 
 # E2E tests (requires dev-start.sh stack running)
-cd e2e/playwright && npx playwright test    # 17+ UI tests
-cd e2e/karate && mvn test                   # 19+ API tests
+cd e2e/playwright && BASE_URL=http://localhost:8081 npx playwright test    # 299 UI tests (run through nginx)
+cd e2e/karate && mvn test                   # 82 API scenarios
 
 # Performance tests (requires dev-start.sh stack running)
 cd e2e/gatling && mvn verify -Pperf         # Gatling simulations with SLO assertions

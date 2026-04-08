@@ -12,7 +12,9 @@ public record ApiKeyResponse(
         String role,
         UUID shelterId,
         boolean active,
-        Instant createdAt
+        Instant createdAt,
+        Instant lastUsedAt,
+        Instant oldKeyExpiresAt
 ) {
     public static ApiKeyResponse from(ApiKey apiKey) {
         return new ApiKeyResponse(
@@ -22,7 +24,9 @@ public record ApiKeyResponse(
                 apiKey.getRole(),
                 apiKey.getShelterId(),
                 apiKey.isActive(),
-                apiKey.getCreatedAt()
+                apiKey.getCreatedAt(),
+                apiKey.getLastUsedAt(),
+                apiKey.getOldKeyExpiresAt()
         );
     }
 }

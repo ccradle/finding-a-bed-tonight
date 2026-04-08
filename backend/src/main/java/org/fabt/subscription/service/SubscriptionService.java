@@ -2,12 +2,8 @@ package org.fabt.subscription.service;
 
 import java.net.MalformedURLException;
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -18,18 +14,30 @@ import tools.jackson.databind.ObjectMapper;
 import org.fabt.shared.config.JsonString;
 import org.fabt.subscription.domain.Subscription;
 import org.fabt.subscription.repository.SubscriptionRepository;
+import org.fabt.subscription.repository.WebhookDeliveryLogRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class SubscriptionService {
 
+    private static final Logger log = LoggerFactory.getLogger(SubscriptionService.class);
+
     private final SubscriptionRepository subscriptionRepository;
+    private final WebhookDeliveryLogRepository deliveryLogRepository;
+    private final org.fabt.shared.security.SecretEncryptionService encryptionService;
     private final ObjectMapper objectMapper;
 
     public SubscriptionService(SubscriptionRepository subscriptionRepository,
+                               WebhookDeliveryLogRepository deliveryLogRepository,
+                               org.fabt.shared.security.SecretEncryptionService encryptionService,
                                ObjectMapper objectMapper) {
         this.subscriptionRepository = subscriptionRepository;
+        this.deliveryLogRepository = deliveryLogRepository;
+        this.encryptionService = encryptionService;
         this.objectMapper = objectMapper;
     }
 
@@ -44,11 +52,10 @@ public class SubscriptionService {
         subscription.setEventType(eventType);
         subscription.setFilter(toJsonString(filter));
         subscription.setCallbackUrl(callbackUrl);
-        // MVP: store secret as-is for HMAC computation (see WebhookDeliveryService).
-        // Field name is callbackSecretHash but we store the SHA-256 hash for verification,
-        // and need the original for HMAC. For MVP, store as-is.
-        // TODO: encrypt the secret at rest instead of hashing (future migration will rename field)
-        subscription.setCallbackSecretHash(hashSecret(callbackSecret));
+        // Encrypt the callback secret with AES-256-GCM for storage at rest.
+        // Decrypted on delivery to compute HMAC-SHA256 signatures.
+        // Field name is still callbackSecretHash (pre-existing column) — stores encrypted value.
+        subscription.setCallbackSecretHash(encryptionService.encrypt(callbackSecret));
         subscription.setStatus("ACTIVE");
         subscription.setExpiresAt(Instant.now().plus(365, ChronoUnit.DAYS));
         subscription.setCreatedAt(Instant.now());
@@ -86,9 +93,120 @@ public class SubscriptionService {
         subscriptionRepository.save(subscription);
     }
 
+    /**
+     * Admin-initiated status change. Only ACTIVE and PAUSED are valid admin-settable values.
+     * Resetting to ACTIVE from DEACTIVATED or FAILING clears consecutive failure counter.
+     */
+    @Transactional
+    public Subscription updateStatus(UUID id, UUID tenantId, String newStatus) {
+        if (!"ACTIVE".equals(newStatus) && !"PAUSED".equals(newStatus)) {
+            throw new IllegalArgumentException("Only ACTIVE and PAUSED are valid admin-settable status values");
+        }
+
+        Subscription subscription = subscriptionRepository.findById(id)
+                .orElseThrow(() -> new NoSuchElementException("Subscription not found: " + id));
+
+        // Tenant isolation — return 404 to avoid confirming existence in another tenant
+        if (!subscription.getTenantId().equals(tenantId)) {
+            throw new NoSuchElementException("Subscription not found: " + id);
+        }
+
+        // CANCELLED is terminal — cannot be reactivated
+        if ("CANCELLED".equals(subscription.getStatus())) {
+            throw new IllegalStateException("Cannot modify a cancelled subscription");
+        }
+
+        // Only allow PAUSED from ACTIVE (not from DEACTIVATED/FAILING — re-enable to ACTIVE first)
+        if ("PAUSED".equals(newStatus) && !"ACTIVE".equals(subscription.getStatus())) {
+            throw new IllegalStateException("Can only pause an ACTIVE subscription. Current status: " + subscription.getStatus());
+        }
+
+        // Resetting to ACTIVE from DEACTIVATED or FAILING clears failure state
+        if ("ACTIVE".equals(newStatus) &&
+                ("DEACTIVATED".equals(subscription.getStatus()) || "FAILING".equals(subscription.getStatus()))) {
+            subscription.setConsecutiveFailures(0);
+            subscription.setLastError(null);
+        }
+
+        subscription.setStatus(newStatus);
+        return subscriptionRepository.save(subscription);
+    }
+
     @Transactional(readOnly = true)
     public List<Subscription> findActiveByEventType(String eventType) {
         return subscriptionRepository.findActiveByEventType(eventType);
+    }
+
+    /**
+     * Return recent delivery log entries for a subscription, with tenant isolation.
+     * Returns 404 (via NoSuchElementException) if subscription doesn't belong to tenant.
+     */
+    @Transactional(readOnly = true)
+    public List<org.fabt.subscription.domain.WebhookDeliveryLog> findRecentDeliveries(UUID subscriptionId, UUID tenantId) {
+        Subscription subscription = subscriptionRepository.findById(subscriptionId)
+                .orElseThrow(() -> new NoSuchElementException("Subscription not found: " + subscriptionId));
+        if (!subscription.getTenantId().equals(tenantId)) {
+            throw new NoSuchElementException("Subscription not found: " + subscriptionId);
+        }
+        return deliveryLogRepository.findRecentBySubscriptionId(subscriptionId);
+    }
+
+    /**
+     * Record a delivery attempt in the delivery log.
+     * Response body is redacted (secrets/PII masked) before persistence.
+     * Manages consecutive failure counter and auto-disable at 5 failures.
+     * NOTE: consecutiveFailures increment is not atomic (read-modify-write).
+     * For lite profile (single instance) this is acceptable. For multi-instance,
+     * use SQL atomic increment: UPDATE subscription SET consecutive_failures = consecutive_failures + 1
+     */
+    @Transactional
+    public void recordDelivery(UUID subscriptionId, String eventType, Integer statusCode,
+                                Integer responseTimeMs, int attemptNumber, String responseBody) {
+        // Redact secrets/PII before persistence
+        String redactedBody = WebhookResponseRedactor.redact(responseBody);
+
+        var logEntry = new org.fabt.subscription.domain.WebhookDeliveryLog(
+                subscriptionId, eventType, statusCode, responseTimeMs, attemptNumber, redactedBody);
+        deliveryLogRepository.save(logEntry);
+
+        Subscription subscription = subscriptionRepository.findById(subscriptionId).orElse(null);
+        if (subscription == null) return;
+
+        boolean success = statusCode != null && statusCode >= 200 && statusCode < 300;
+
+        if (success) {
+            if (subscription.getConsecutiveFailures() > 0) {
+                subscription.setConsecutiveFailures(0);
+                subscription.setLastError(null);
+                if ("FAILING".equals(subscription.getStatus())) {
+                    subscription.setStatus("ACTIVE");
+                }
+                subscriptionRepository.save(subscription);
+            }
+        } else {
+            subscription.setConsecutiveFailures(subscription.getConsecutiveFailures() + 1);
+            subscription.setLastError(responseBody != null ? responseBody.substring(0, Math.min(responseBody.length(), 200)) : "No response");
+            if (subscription.getConsecutiveFailures() >= 5) {
+                subscription.setStatus("DEACTIVATED");
+                log.warn("Subscription {} auto-disabled after {} consecutive failures", subscriptionId, subscription.getConsecutiveFailures());
+            } else if (!"FAILING".equals(subscription.getStatus())) {
+                subscription.setStatus("FAILING");
+            }
+            subscriptionRepository.save(subscription);
+        }
+    }
+
+    /**
+     * Delete delivery logs older than 14 days. Runs daily.
+     * NOTE: For multi-instance deployments, add ShedLock to prevent duplicate execution.
+     */
+    @Scheduled(fixedRate = 86_400_000) // daily
+    @Transactional
+    public void cleanupOldDeliveryLogs() {
+        int deleted = deliveryLogRepository.deleteOlderThan14Days();
+        if (deleted > 0) {
+            log.info("Cleaned up {} delivery log entries older than 14 days", deleted);
+        }
     }
 
     private void validateCallbackUrl(String callbackUrl) {
@@ -99,14 +217,12 @@ public class SubscriptionService {
         }
     }
 
-    private String hashSecret(String secret) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(secret.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(hash);
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 algorithm not available", e);
-        }
+    /**
+     * Decrypt a stored webhook callback secret for HMAC computation.
+     * Public so WebhookDeliveryService can call it.
+     */
+    public String decryptCallbackSecret(String encryptedSecret) {
+        return encryptionService.decrypt(encryptedSecret);
     }
 
     private JsonString toJsonString(Map<String, Object> filter) {

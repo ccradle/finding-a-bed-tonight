@@ -28,11 +28,16 @@ test.describe('Reservation Shelter Link (#64)', () => {
     await holdButton.click();
     await outreachPage.waitForTimeout(2000);
 
-    // Open reservations panel
+    // Ensure reservations panel is expanded.
+    // The hold handler sets showReservations=true, so the panel may already be open.
+    // Only click the toggle if the panel is collapsed (arrow shows ▼).
     const panelToggle = outreachPage.locator('button', { hasText: /My Reservations|Mis Reservaciones/i });
     if (await panelToggle.count() === 0) return null;
-    await panelToggle.click();
-    await outreachPage.waitForTimeout(500);
+    const arrowText = await panelToggle.textContent();
+    if (arrowText?.includes('▼')) {
+      await panelToggle.click();
+      await outreachPage.waitForTimeout(500);
+    }
 
     // Get shelter name from the clickable link
     const shelterLink = outreachPage.locator('[data-testid^="reservation-shelter-link-"]').first();
@@ -55,11 +60,16 @@ test.describe('Reservation Shelter Link (#64)', () => {
     await holdButton.click();
     await outreachPage.waitForTimeout(2000);
 
-    // Open reservations panel
+    // Ensure reservations panel is expanded.
+    // The hold handler sets showReservations=true, so the panel may already be open.
+    // Only click the toggle if the panel is collapsed (arrow shows ▼).
     const panelToggle = outreachPage.locator('button', { hasText: /My Reservations/i });
     await expect(panelToggle).toBeVisible({ timeout: 5000 });
-    await panelToggle.click();
-    await outreachPage.waitForTimeout(500);
+    const arrowText = await panelToggle.textContent();
+    if (arrowText?.includes('▼')) {
+      await panelToggle.click();
+      await outreachPage.waitForTimeout(500);
+    }
 
     // Shelter link should exist with data-testid
     const shelterLink = outreachPage.locator('[data-testid^="reservation-shelter-link-"]').first();
@@ -144,10 +154,13 @@ test.describe('Reservation Shelter Link (#64)', () => {
     await holdButtons.nth(1).click();
     await outreachPage.waitForTimeout(2000);
 
-    // Open reservations panel
+    // Ensure reservations panel is expanded (hold handler may have already opened it)
     const panelToggle = outreachPage.locator('button', { hasText: /My Reservations/i });
-    await panelToggle.click();
-    await outreachPage.waitForTimeout(500);
+    const arrowText = await panelToggle.textContent();
+    if (arrowText?.includes('▼')) {
+      await panelToggle.click();
+      await outreachPage.waitForTimeout(500);
+    }
 
     // Should have at least 2 shelter links
     const shelterLinks = outreachPage.locator('[data-testid^="reservation-shelter-link-"]');
@@ -168,7 +181,7 @@ test.describe('Reservation Shelter Link (#64)', () => {
     const modal = outreachPage.locator('div[style*="position: fixed"][style*="inset: 0"]');
     await expect(modal).toBeVisible();
     await outreachPage.keyboard.press('Escape');
-    await outreachPage.waitForTimeout(300);
+    await expect(modal).not.toBeVisible({ timeout: 5000 });
 
     // Click second link — should also open modal (independent)
     await shelterLinks.nth(1).click();

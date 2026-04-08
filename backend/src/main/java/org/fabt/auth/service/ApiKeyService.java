@@ -13,12 +13,16 @@ import java.util.UUID;
 
 import org.fabt.auth.domain.ApiKey;
 import org.fabt.auth.repository.ApiKeyRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class ApiKeyService {
 
+    private static final Logger log = LoggerFactory.getLogger(ApiKeyService.class);
     private final ApiKeyRepository apiKeyRepository;
     private final SecureRandom secureRandom = new SecureRandom();
 
@@ -52,7 +56,15 @@ public class ApiKeyService {
     @Transactional
     public Optional<ApiKey> validate(String rawKey) {
         String keyHash = sha256Hex(rawKey);
+
+        // Try current key first
         Optional<ApiKey> found = apiKeyRepository.findByKeyHashAndActiveTrue(keyHash);
+
+        // If not found, try old key within grace period (expiry checked in SQL)
+        if (found.isEmpty()) {
+            found = apiKeyRepository.findByOldKeyHashWithinGracePeriod(keyHash);
+        }
+
         found.ifPresent(apiKey -> {
             apiKey.setLastUsedAt(Instant.now());
             apiKeyRepository.save(apiKey);
@@ -60,10 +72,20 @@ public class ApiKeyService {
         return found;
     }
 
+    private static final long DEFAULT_GRACE_PERIOD_HOURS = 24;
+
     @Transactional
     public ApiKeyCreateResult rotate(UUID keyId) {
         ApiKey existing = apiKeyRepository.findById(keyId)
                 .orElseThrow(() -> new NoSuchElementException("API key not found: " + keyId));
+
+        if (!existing.isActive()) {
+            throw new IllegalStateException("Cannot rotate a deactivated API key: " + keyId);
+        }
+
+        // Preserve old key hash for grace period — both keys authenticate during overlap
+        existing.setOldKeyHash(existing.getKeyHash());
+        existing.setOldKeyExpiresAt(Instant.now().plusSeconds(DEFAULT_GRACE_PERIOD_HOURS * 3600));
 
         String plaintextKey = generateRandomKey();
         String keyHash = sha256Hex(plaintextKey);
@@ -81,6 +103,9 @@ public class ApiKeyService {
         ApiKey existing = apiKeyRepository.findById(keyId)
                 .orElseThrow(() -> new NoSuchElementException("API key not found: " + keyId));
         existing.setActive(false);
+        // Clear any active grace period — revoked key should not authenticate via old hash
+        existing.setOldKeyHash(null);
+        existing.setOldKeyExpiresAt(null);
         apiKeyRepository.save(existing);
     }
 
@@ -89,8 +114,29 @@ public class ApiKeyService {
         return apiKeyRepository.findByTenantId(tenantId);
     }
 
+    /**
+     * Clear expired grace period keys. Runs hourly when scheduling is enabled.
+     * Removes old_key_hash and old_key_expires_at after the grace window closes.
+     * Idempotent — safe if multiple runs overlap.
+     * NOTE: For multi-instance deployments, add ShedLock to prevent duplicate execution.
+     */
+    @Scheduled(fixedRate = 3600_000) // every hour
+    @Transactional
+    public void cleanupExpiredGracePeriodKeys() {
+        List<ApiKey> expired = apiKeyRepository.findExpiredGracePeriodKeys();
+        for (ApiKey key : expired) {
+            key.setOldKeyHash(null);
+            key.setOldKeyExpiresAt(null);
+            apiKeyRepository.save(key);
+            log.info("Cleared expired grace period for API key {} (suffix: {})", key.getId(), key.getKeySuffix());
+        }
+        if (!expired.isEmpty()) {
+            log.info("Cleaned up {} expired API key grace periods", expired.size());
+        }
+    }
+
     private String generateRandomKey() {
-        byte[] bytes = new byte[16];
+        byte[] bytes = new byte[32]; // 256 bits — industry standard for API keys
         secureRandom.nextBytes(bytes);
         return HexFormat.of().formatHex(bytes);
     }
