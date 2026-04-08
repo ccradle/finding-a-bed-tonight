@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.30.1] — 2026-04-08 — Surge Banner Contrast Fix (#79)
+
+### Fixed
+- **WCAG 1.4.3 Contrast** — Admin Surge tab "Active since" timestamp used `color.textTertiary` (gray) on dark red gradient background. Changed to `color.textInverse` (white). Same pattern as the v0.29.5 fix for outreach search and coordinator dashboard surge banners — this instance was missed during the admin panel extraction.
+
+---
+
 ## [v0.30.0] — 2026-04-08 — Platform Hardening (#51)
 
 ### Added
