@@ -5,7 +5,7 @@ import java.util.UUID;
 
 /**
  * DV opaque referral token — privacy-preserving shelter referral.
- * Contains zero client PII (VAWA compliant).
+ * Contains no structured client PII (designed to support VAWA 34 U.S.C. 12291(b)(2)).
  * Terminal tokens are hard-deleted within 24 hours.
  */
 public class ReferralToken {

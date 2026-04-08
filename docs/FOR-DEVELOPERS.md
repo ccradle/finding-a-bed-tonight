@@ -497,7 +497,7 @@ See **[docs/WCAG-ACR.md](docs/WCAG-ACR.md)** for the full conformance report, re
 
 ### DV Privacy — Opaque Referral
 
-FABT implements a **privacy-preserving referral system** for domestic violence shelters, designed to support VAWA (34 U.S.C. 12291(b)(2)), FVPSA, and HUD HMIS requirements. Key guarantees:
+FABT implements a **privacy-preserving referral system** for domestic violence shelters, designed to support VAWA (34 U.S.C. 12291(b)(2)), FVPSA, and HUD HMIS requirements. Key design principles:
 
 - **Zero client PII** in the database — referral tokens contain only household size, population type, urgency, and the worker's callback number
 - **Shelter address never displayed** — shared verbally during warm handoff phone call only

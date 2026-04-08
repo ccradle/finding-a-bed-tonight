@@ -1,0 +1,30 @@
+# Legal Language Scan — Allowlist
+# Lines containing these patterns are excluded from flagged results.
+# One pattern per line. Comments (#) and blank lines ignored.
+#
+# Format: substring match against the full grep output line (file:line:content)
+
+# External standards/protocols (describing others, not FABT claims)
+OIDC-compliant
+standards-compliant and modern web browser
+WCAG 1.4.12 compliant
+
+# Disclaimers — these are correct legal language (saying we are NOT certified)
+not certified
+has not been independently certified
+has not been certified by HUD
+has not undergone a formal third-party
+
+# Code comments — technical facts, not compliance claims
+clock_timestamp() guarantees
+Equivalent to TotpTestHelper
+
+# Changelog — describes user role, not platform certification
+DV-certified field workers
+
+# External report content (OWASP ZAP output, not our language)
+zap-api-report
+zap-report
+
+# Support model — describes the category of open-source software, not FABT specifically
+production-grade open-source

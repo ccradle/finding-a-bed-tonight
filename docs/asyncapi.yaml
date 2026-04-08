@@ -151,7 +151,7 @@ channels:
       Published when an outreach worker requests a privacy-preserving
       referral to a DV shelter. The payload contains ZERO client PII —
       only the token ID, shelter ID, tenant ID, and urgency level.
-      VAWA 34 U.S.C. 12291(b)(2) compliant.
+      Designed to support VAWA 34 U.S.C. 12291(b)(2).
     x-security:
       dv-access-control: |
         This event ALWAYS relates to DV shelters. ALL consumers MUST hold
@@ -498,7 +498,7 @@ components:
       summary: |
         Published on dv-referral.requested and dv-referral.responded channels.
         Contains ZERO client PII — only token ID, shelter ID, and status.
-        VAWA 34 U.S.C. 12291(b)(2) compliant.
+        Designed to support VAWA 34 U.S.C. 12291(b)(2).
       contentType: application/json
       payload:
         $ref: '#/components/schemas/DvReferralEvent'
@@ -869,7 +869,7 @@ components:
       type: object
       description: |
         DV referral event payload. Contains ZERO client PII — only operational
-        identifiers. VAWA 34 U.S.C. 12291(b)(2) compliant. No client name, DOB,
+        identifiers. Designed to support VAWA 34 U.S.C. 12291(b)(2). No client name, DOB,
         SSN, address, or phone is included. The token_id references a row that
         is hard-deleted within 24 hours of reaching terminal status.
       required:

@@ -123,7 +123,7 @@ This document describes the architectural and operational design of FABT's DV re
 | Rejection reason (optional, no PII advisory) | |
 | Aggregate counters (Micrometer) | |
 
-**Even if the database is compromised**, an attacker learns only: "an outreach worker requested a DV bed at time T for a household of size N." There is no way to identify the survivor.
+**Even if the database is compromised**, an attacker learns only: "an outreach worker requested a DV bed at time T for a household of size N." The architecture is designed to minimize re-identification risk — no names, DOB, SSN, or addresses are stored. Correlation attacks against external data sources remain a residual risk that organizations should assess independently.
 
 > **Free-text field risk note:** The "Special needs" field accepts free text. While the UI displays an advisory — "Do not include client identifying information" — no automated scrubbing or validation prevents a coordinator from typing PII into this field. CoC administrators should include this field in staff training: only operational descriptors (e.g., "wheelchair," "service dog," "requires ground floor") should be entered. FABT does not guarantee that this field is PII-free at the time of token purge. The 24-hour hard deletion mitigates the exposure window, but does not eliminate the risk entirely if PII is entered contrary to the advisory.
 
@@ -144,7 +144,7 @@ CoC administrators deploying FABT can use this checklist for self-assessment:
 - [ ] Rejection reasons do not contain client PII (advisory label shown to shelter staff)
 - [ ] Consent is obtained verbally during the warm handoff call, not through FABT
 
-  > **Why verbal consent at warm handoff satisfies VAWA:** VAWA's written consent requirements apply to disclosures of victim information to outside entities. The FABT warm handoff is not such a disclosure — the shelter's intake phone number is shared with the outreach worker who is actively facilitating the client's placement, not forwarded to a third party. The outreach worker then calls the shelter directly, equivalent to the worker calling the shelter without any platform intermediary. No survivor-identifying information is shared in either direction through the FABT system. Consent for shelter placement is obtained by the outreach worker and shelter staff during the warm handoff call itself, consistent with standard coordinated entry practice. Organizations with specific consent policy requirements should consult their VAWA administrator or legal counsel.
+  > **Why verbal consent at warm handoff satisfies VAWA:** VAWA's written consent requirements apply to disclosures of victim information to outside entities. The FABT warm handoff is not such a disclosure — the shelter's intake phone number is shared with the outreach worker who is actively facilitating the client's placement, not forwarded to a third party. The outreach worker then calls the shelter directly — functionally the same as the worker calling the shelter without any platform intermediary. No survivor-identifying information is shared in either direction through the FABT system. Consent for shelter placement is obtained by the outreach worker and shelter staff during the warm handoff call itself, consistent with standard coordinated entry practice. Organizations with specific consent policy requirements should consult their VAWA administrator or legal counsel.
 
 ---
 
