@@ -66,7 +66,7 @@ Full setup guide: [For Developers](docs/FOR-DEVELOPERS.md#prerequisites)
 
 ## What's Complete
 
-**Current version: v0.29.6** — 42 archived OpenSpec changes, 96 specs, 14 modules.
+**Current version: v0.30.0** — 42 archived OpenSpec changes, 96 specs, 14 modules.
 
 - Real-time bed search with freshness indicators and constraint filters
 - Soft-hold reservations with configurable hold duration (default 90 min)

@@ -5,6 +5,53 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.30.0] — 2026-04-08 — Platform Hardening (#51)
+
+### Added
+- **API key lifecycle** — rotate with 24h grace period (old + new key both authenticate), revoke (immediate, clears grace), 256-bit key entropy (32 bytes), `lastUsedAt` tracking. Admin UI: confirm dialogs, 3-state status badges (Active/Grace Period/Revoked), grace period countdown.
+- **Webhook subscription management** — pause/resume toggle, send test event (inline result), expandable delivery log (last 20 attempts, secrets redacted, 1KB truncated), delete with confirmation. 5-state status badges (Active/Paused/Failing/Deactivated/Cancelled). Auto-disable at 5 consecutive failures, reset on re-enable.
+- **Per-IP API key rate limiting** — Bucket4j + Caffeine cache (10K max IPs, 10m TTL). Returns 429 with `Retry-After`, `X-RateLimit-Limit/Remaining/Reset` headers. Nginx edge rate limit at 1r/s with burst=20.
+- **Server-side retry** — Spring Framework 7 native `@Retryable` on availability snapshots (2 retries, 100ms backoff, exponential). AOP self-invocation fix: separate `AvailabilityRetryService` class.
+- **AES-256-GCM secret encryption** — generalized `SecretEncryptionService` (from TOTP-only `TotpEncryptionService`). Webhook callback secrets encrypted at rest, decrypted for HMAC computation. Dev-key-in-prod rejection.
+- **7 Playwright tests** for API key and subscription management UI
+- **Seed data** — 3 API keys (all badge states), 3 subscriptions (Active/Failing/Deactivated), 6 delivery log entries
+- 63 i18n keys (en + es) for API key lifecycle and webhook management
+
+### Changed
+- **Backend DTOs** — `ApiKeyResponse` now includes `lastUsedAt`, `oldKeyExpiresAt`; `SubscriptionResponse` includes `consecutiveFailures`
+- **`SubscriptionStatus` union type** — compile-time safety for 5 status values
+- **Dev nginx rate limits** — relaxed to 30r/s (vs 1r/s production) in `00-rate-limit-dev.conf` for Playwright test reliability
+
+### Fixed
+- **9 pre-existing Playwright failures** — 7 caused by nginx `api_edge` rate limiting throttling rapid test API calls (RCA: 1r/s limit on all `/api/` paths in dev). 2 caused by reservation panel double-toggle bug (hold handler opens panel, test re-toggled it closed) + shelter detail modal missing Escape key support.
+- **WCAG 2.1.1 Keyboard** — shelter detail and DV referral modals now support Escape dismiss (WAI-ARIA dialog pattern: `tabIndex={-1}`, `ref`, `useEffect` auto-focus, `role="dialog"`, `aria-modal`).
+- **CI: DV canary job** — added `FABT_TOTP_ENCRYPTION_KEY` env var (required since `KarateRunnerTest` runs all features including subscription-crud which encrypts webhook secrets).
+
+### Security
+- API key entropy: 128-bit → 256-bit (32 bytes, `SecureRandom`)
+- Webhook response body redaction: Bearer tokens, AWS keys, API keys, emails, SSNs, credit card numbers — 6 regex patterns applied before database persistence
+- `WebhookDeliveryLog` truncates response body to 1KB in entity constructor
+- Demo guard blocks all new mutation endpoints (revoke, rotate, pause, test) on public demo site
+
+### Database
+- V33: `old_key_hash`, `old_key_expires_at` columns on `api_key` table (grace period support)
+- V34: `webhook_delivery_log` table + `consecutive_failures` column on `subscription`
+
+### Documentation
+- `schema.dbml`: webhook_delivery_log, api_key grace period, subscription failures
+- `asyncapi.yaml`: webhook.test-delivered, subscription.auto-disabled channels
+- `FOR-DEVELOPERS.md`: API reference for 6 new endpoints, rate limit configuration
+- `erd.svg`: regenerated from updated DBML
+- `WCAG-ACR.md`: updated to v0.30.0 with modal Escape fixes
+
+### Test Results
+- Backend: 425 passed, 0 failures (including 22 ArchUnit rules)
+- Playwright: 299 passed, 0 failures (through nginx, `--trace on`)
+- Karate: 82 API scenarios across 29 features
+- ESLint + TypeScript: 0 errors
+
+---
+
 ## [v0.29.6] — 2026-04-07 — Admin Panel Extraction (#74)
 
 ### Changed

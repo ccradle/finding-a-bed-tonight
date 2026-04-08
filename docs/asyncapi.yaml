@@ -271,7 +271,7 @@ channels:
         $ref: '#/components/messages/UserLifecycleMessage'
 
   # -----------------------------------------------------------------------
-  # Webhook lifecycle events (v0.29.7 — platform-hardening)
+  # Webhook lifecycle events (v0.30.0 — platform-hardening)
   # -----------------------------------------------------------------------
 
   webhookTestDelivered:
@@ -929,7 +929,7 @@ components:
           type: object
           description: Old/new values (e.g., old_roles, new_roles).
 
-    # -- Webhook delivery events (v0.29.7 — platform-hardening) ---------------
+    # -- Webhook delivery events (v0.30.0 — platform-hardening) ---------------
 
     WebhookDeliveryPayload:
       type: object
