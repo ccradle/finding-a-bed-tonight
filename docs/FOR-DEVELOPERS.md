@@ -9,7 +9,7 @@
 
 ## Architecture
 
-The backend is a Spring Boot 4.0 modular monolith with virtual threads. Each bounded context lives in its own top-level package under `org.fabt.*` with enforced boundaries (21 ArchUnit rules). A shared kernel provides cross-cutting infrastructure (security filters, caching, event bus, JDBC configuration).
+The backend is a Spring Boot 4.0 modular monolith with virtual threads. Each bounded context lives in its own top-level package under `org.fabt.*` with enforced boundaries (22 ArchUnit rules). A shared kernel provides cross-cutting infrastructure (security filters, caching, event bus, JDBC configuration).
 
 Three deployment tiers allow the same codebase to serve communities of vastly different size and budget:
 
@@ -35,7 +35,7 @@ Three deployment tiers allow the same codebase to serve communities of vastly di
 | Events | Spring Events (Lite) / Kafka (Full) |
 | Auth | JWT + OAuth2/OIDC + API Keys (hybrid) |
 | Frontend | React 19, Vite, TypeScript, Workbox PWA (injectManifest), react-intl (EN/ES), CSS custom properties design tokens |
-| Testing | JUnit 5, Testcontainers, ArchUnit (382 tests), Playwright (268 UI tests), Vitest (20 unit tests), Karate (75 API scenarios), Gatling (8 simulations) |
+| Testing | JUnit 5, Testcontainers, ArchUnit (425 tests), Playwright (299 UI tests), Vitest (20 unit tests), Karate (82 API scenarios), Gatling (8 simulations) |
 | Infra | Docker, GitHub Actions CI/CD + E2E pipeline, Terraform (3 tiers) |
 
 ---
@@ -315,12 +315,12 @@ curl -s http://localhost:8080/actuator/health | python3 -m json.tool
 ```bash
 cd backend
 
-# Run all 325 backend tests
+# Run all 425 backend tests
 mvn test
 
 # Run E2E tests (requires dev-start.sh stack running)
-cd ../e2e/playwright && npx playwright test    # 174 UI tests
-cd ../e2e/karate && mvn test                   # 77 API tests (71 + 6 @observability)
+cd ../e2e/playwright && BASE_URL=http://localhost:8081 npx playwright test    # 299 UI tests (run through nginx)
+cd ../e2e/karate && mvn test                   # 82 API scenarios across 29 features
 cd ../e2e/gatling && mvn gatling:test           # Gatling performance simulations
 
 # Run E2E tests through nginx proxy (catches proxy-specific bugs like SSE buffering)
@@ -1045,7 +1045,7 @@ finding-a-bed-tonight/
 ### Completed: Platform Foundation (archived)
 
 - [x] Modular monolith backend (Java 25, Spring Boot 4.0, 6 modules, ArchUnit boundaries, virtual threads)
-- [x] 26 Flyway migrations (V1–V27 + V8.1), PostgreSQL 16, Row Level Security for DV shelters
+- [x] 34 Flyway migrations (V1–V34 + V8.1), PostgreSQL 16, Row Level Security for DV shelters
 - [x] 3 deployment profiles (Lite / Standard / Full) with CacheService + EventBus abstractions
 - [x] Multi-tenant auth: JWT + API keys + OAuth2 provider management, 4 roles, dual-layer security
 - [x] Shelter module: CRUD, constraints, capacities, HSDS 3.0 export, coordinator assignments
