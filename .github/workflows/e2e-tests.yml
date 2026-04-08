@@ -67,6 +67,12 @@ jobs:
           FABT_DB_URL: jdbc:postgresql://localhost:5432/fabt
           FABT_DB_OWNER_USER: fabt
           FABT_DB_OWNER_PASSWORD: fabt
+          # CI-ONLY encryption key for SecretEncryptionService.
+          # DO NOT use this key in production — generate a unique key with:
+          #   openssl rand -base64 32
+          # Required: KarateRunnerTest runs all features including subscription-crud
+          # which encrypts webhook callback secrets via encryptionService.encrypt().
+          FABT_TOTP_ENCRYPTION_KEY: dGVzdC1vbmx5LXRvdHAtZW5jcnlwdGlvbi1rZXktMzI=
 
       - name: Wait for backend readiness
         run: |
