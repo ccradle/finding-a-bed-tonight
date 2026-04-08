@@ -270,6 +270,32 @@ channels:
       accessCodeUsedMessage:
         $ref: '#/components/messages/UserLifecycleMessage'
 
+  # -----------------------------------------------------------------------
+  # Webhook lifecycle events (v0.29.7 — platform-hardening)
+  # -----------------------------------------------------------------------
+
+  webhookTestDelivered:
+    address: webhook.test-delivered
+    title: Webhook Test Event Delivered
+    description: |
+      Published when an admin sends a test event to a subscription endpoint
+      via POST /api/v1/subscriptions/{id}/test. The delivery result (status
+      code, response time, truncated body) is logged to webhook_delivery_log.
+    messages:
+      webhookTestDeliveredMessage:
+        $ref: '#/components/messages/WebhookDeliveryMessage'
+
+  subscriptionAutoDisabled:
+    address: subscription.auto-disabled
+    title: Subscription Auto-Disabled
+    description: |
+      Published when a subscription reaches 5 consecutive delivery failures
+      and is automatically set to DEACTIVATED status. The admin should
+      investigate the callback endpoint before re-enabling.
+    messages:
+      subscriptionAutoDisabledMessage:
+        $ref: '#/components/messages/SubscriptionLifecycleMessage'
+
 # ---------------------------------------------------------------------------
 # Operations
 # ---------------------------------------------------------------------------
@@ -411,6 +437,22 @@ operations:
     messages:
       - $ref: '#/channels/accessCodeUsed/messages/accessCodeUsedMessage'
 
+  onWebhookTestDelivered:
+    action: receive
+    channel:
+      $ref: '#/channels/webhookTestDelivered'
+    summary: Receive webhook test delivery results
+    messages:
+      - $ref: '#/channels/webhookTestDelivered/messages/webhookTestDeliveredMessage'
+
+  onSubscriptionAutoDisabled:
+    action: receive
+    channel:
+      $ref: '#/channels/subscriptionAutoDisabled'
+    summary: Receive subscription auto-disable events (5 consecutive failures)
+    messages:
+      - $ref: '#/channels/subscriptionAutoDisabled/messages/subscriptionAutoDisabledMessage'
+
 # ---------------------------------------------------------------------------
 # Components
 # ---------------------------------------------------------------------------
@@ -471,6 +513,20 @@ components:
       contentType: application/json
       payload:
         $ref: '#/components/schemas/UserLifecyclePayload'
+
+    WebhookDeliveryMessage:
+      name: WebhookDeliveryMessage
+      title: Webhook Delivery Result
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/WebhookDeliveryPayload'
+
+    SubscriptionLifecycleMessage:
+      name: SubscriptionLifecycleMessage
+      title: Subscription Lifecycle Event
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/SubscriptionLifecyclePayload'
 
   # -------------------------------------------------------------------------
   # Schemas
@@ -841,34 +897,97 @@ components:
           enum: [ACCEPTED, REJECTED]
           description: Shelter response. Present on dv-referral.responded events only.
 
-  # -----------------------------------------------------------------------
-  # User lifecycle events (v0.19.0 — admin-user-management)
-  # -----------------------------------------------------------------------
+    # -----------------------------------------------------------------------
+    # User lifecycle events (v0.19.0 — admin-user-management)
+    # -----------------------------------------------------------------------
 
-  UserLifecyclePayload:
-    type: object
-    description: |
-      Payload for user lifecycle events: deactivation, reactivation, role change.
-      Published to the EventBus when admin actions modify user accounts.
-      Consumed by NotificationService (SSE disconnect on deactivation) and
-      AuditEventService (persistence to audit_events table).
-    properties:
-      user_id:
-        type: string
-        format: uuid
-        description: UUID of the affected user.
-      tenant_id:
-        type: string
-        format: uuid
-        description: Continuum of Care tenant.
-      action:
-        type: string
-        enum: [USER_DEACTIVATED, USER_REACTIVATED, ROLE_CHANGED, DV_ACCESS_CHANGED]
-        description: The admin action performed.
-      actor_user_id:
-        type: string
-        format: uuid
-        description: UUID of the admin who performed the action.
-      details:
-        type: object
-        description: Old/new values (e.g., old_roles, new_roles).
+    UserLifecyclePayload:
+      type: object
+      description: |
+        Payload for user lifecycle events: deactivation, reactivation, role change.
+        Published to the EventBus when admin actions modify user accounts.
+        Consumed by NotificationService (SSE disconnect on deactivation) and
+        AuditEventService (persistence to audit_events table).
+      properties:
+        user_id:
+          type: string
+          format: uuid
+          description: UUID of the affected user.
+        tenant_id:
+          type: string
+          format: uuid
+          description: Continuum of Care tenant.
+        action:
+          type: string
+          enum: [USER_DEACTIVATED, USER_REACTIVATED, ROLE_CHANGED, DV_ACCESS_CHANGED]
+          description: The admin action performed.
+        actor_user_id:
+          type: string
+          format: uuid
+          description: UUID of the admin who performed the action.
+        details:
+          type: object
+          description: Old/new values (e.g., old_roles, new_roles).
+
+    # -- Webhook delivery events (v0.29.7 — platform-hardening) ---------------
+
+    WebhookDeliveryPayload:
+      type: object
+      description: |
+        Result of a webhook delivery attempt (test or real). Logged to
+        webhook_delivery_log. Response body is truncated to 1KB and
+        secrets are redacted by WebhookResponseRedactor.
+      required:
+        - subscription_id
+        - event_type
+        - status_code
+        - response_time_ms
+      properties:
+        subscription_id:
+          type: string
+          format: uuid
+        event_type:
+          type: string
+          description: Event type delivered (e.g. shelter.updated, test.ping).
+        status_code:
+          type: integer
+          nullable: true
+          description: HTTP status code (null if connection failed).
+        response_time_ms:
+          type: integer
+          description: Round-trip time in milliseconds.
+        response_body:
+          type: string
+          nullable: true
+          description: Truncated (1KB max), secrets redacted.
+
+    SubscriptionLifecyclePayload:
+      type: object
+      description: |
+        Published when a subscription changes state automatically
+        (e.g., auto-disabled after 5 consecutive failures).
+      required:
+        - subscription_id
+        - tenant_id
+        - old_status
+        - new_status
+        - reason
+      properties:
+        subscription_id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        old_status:
+          type: string
+          enum: [ACTIVE, PAUSED, FAILING, DEACTIVATED, CANCELLED]
+        new_status:
+          type: string
+          enum: [ACTIVE, PAUSED, FAILING, DEACTIVATED, CANCELLED]
+        reason:
+          type: string
+          description: Human-readable reason (e.g. "5 consecutive delivery failures").
+        consecutive_failures:
+          type: integer
+          description: Number of consecutive failures at the time of state change.

@@ -653,10 +653,12 @@ All endpoints are under `/api/v1`. Authentication is via JWT Bearer token (from 
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| `POST` | `/api/v1/api-keys` | COC_ADMIN+ | Create API key (plaintext returned once) |
-| `GET` | `/api/v1/api-keys` | COC_ADMIN+ | List keys (suffix only, no secrets) |
-| `DELETE` | `/api/v1/api-keys/{id}` | COC_ADMIN+ | Deactivate key |
-| `POST` | `/api/v1/api-keys/{id}/rotate` | COC_ADMIN+ | Rotate key |
+| `POST` | `/api/v1/api-keys` | COC_ADMIN+ | Create API key (256-bit, plaintext returned once) |
+| `GET` | `/api/v1/api-keys` | COC_ADMIN+ | List keys (suffix, status, lastUsedAt, grace period) |
+| `DELETE` | `/api/v1/api-keys/{id}` | COC_ADMIN+ | Revoke key (immediate, clears grace period) |
+| `POST` | `/api/v1/api-keys/{id}/rotate` | COC_ADMIN+ | Rotate key (24h grace period for old key) |
+
+**API key rate limiting:** Per-IP rate limiting on all API key-authenticated requests via Bucket4j + Caffeine cache (10K max IPs, 10m TTL). Configurable via `fabt.api-key.rate-limit` property (default: 1000 req/min). Returns `429 Too Many Requests` with `Retry-After`, `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset` headers. Client IP resolved from `X-Real-IP` header (set by nginx), falls back to `getRemoteAddr()`. Nginx also applies `limit_req_zone` at 1r/s with burst=20 on `/api/`.
 
 ### Shelters
 
@@ -708,9 +710,12 @@ All endpoints are under `/api/v1`. Authentication is via JWT Bearer token (from 
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| `POST` | `/api/v1/subscriptions` | Any authenticated | Subscribe to events (HMAC webhook delivery) |
-| `GET` | `/api/v1/subscriptions` | Any authenticated | List subscriptions for tenant |
-| `DELETE` | `/api/v1/subscriptions/{id}` | Any authenticated | Cancel subscription |
+| `POST` | `/api/v1/subscriptions` | Any authenticated | Subscribe to events (HMAC-SHA256 webhook delivery) |
+| `GET` | `/api/v1/subscriptions` | Any authenticated | List subscriptions (status, consecutiveFailures, lastError) |
+| `DELETE` | `/api/v1/subscriptions/{id}` | Any authenticated | Cancel subscription (sets CANCELLED, not deleted) |
+| `PATCH` | `/api/v1/subscriptions/{id}/status` | COC_ADMIN+ | Pause/resume (ACTIVE↔PAUSED only, resets failures on re-enable) |
+| `POST` | `/api/v1/subscriptions/{id}/test` | COC_ADMIN+ | Send test event, returns delivery result (status, time, body) |
+| `GET` | `/api/v1/subscriptions/{id}/deliveries` | COC_ADMIN+ | Last 20 delivery attempts (redacted, 1KB truncated) |
 
 ### SSE Notifications
 

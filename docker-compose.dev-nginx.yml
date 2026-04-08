@@ -14,7 +14,7 @@ services:
     volumes:
       - ./frontend/dist:/usr/share/nginx/html:ro
       - ./infra/docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./infra/docker/00-rate-limit.conf:/etc/nginx/conf.d/00-rate-limit.conf:ro
+      - ./infra/docker/00-rate-limit-dev.conf:/etc/nginx/conf.d/00-rate-limit.conf:ro
     extra_hosts:
       - "backend:host-gateway"
     profiles:

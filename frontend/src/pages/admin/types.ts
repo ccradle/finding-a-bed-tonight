@@ -34,6 +34,8 @@ export interface ApiKeyRow {
   role: string;
   active: boolean;
   createdAt: string;
+  lastUsedAt: string | null;
+  oldKeyExpiresAt: string | null;
 }
 
 export interface ApiKeyCreateResponse {
@@ -55,11 +57,16 @@ export interface ImportRow {
   createdAt: string;
 }
 
+export type SubscriptionStatus = 'ACTIVE' | 'PAUSED' | 'FAILING' | 'DEACTIVATED' | 'CANCELLED';
+
 export interface SubscriptionRow {
   id: string;
   eventType: string;
   callbackUrl: string;
-  status: string;
+  status: SubscriptionStatus;
+  expiresAt: string | null;
+  lastError: string | null;
+  consecutiveFailures: number;
   createdAt: string;
 }
 
