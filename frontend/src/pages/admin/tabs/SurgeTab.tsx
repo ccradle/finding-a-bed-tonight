@@ -77,7 +77,7 @@ function SurgeTab() {
             <FormattedMessage id="surge.banner" />
           </div>
           <div style={{ fontSize: text.md, fontWeight: weight.medium, marginBottom: 8 }}>{activeSurge.reason}</div>
-          <div style={{ fontSize: text.xs, color: color.textTertiary, marginBottom: 12 }}>
+          <div style={{ fontSize: text.xs, color: color.textInverse, marginBottom: 12 }}>
             <FormattedMessage id="surge.since" />: {new Date(activeSurge.activatedAt).toLocaleString()}
           </div>
           <button onClick={() => deactivateSurge(activeSurge.id)} style={{
