@@ -97,6 +97,14 @@ public class ReferralTokenService {
             throw new IllegalArgumentException("Referral tokens are only for DV shelters");
         }
 
+        // Check for existing PENDING referral from this user to this shelter
+        List<ReferralToken> existing = repository.findPendingByShelterId(shelterId);
+        if (existing.stream().anyMatch(t -> t.getReferringUserId().equals(userId))) {
+            throw new IllegalStateException(
+                    "You already have a pending referral for this shelter. " +
+                    "Please wait for a response or let it expire before submitting another.");
+        }
+
         // Calculate expiry from tenant config
         int expiryMinutes = getDvReferralExpiryMinutes(tenantId);
         Instant expiresAt = Instant.now().plus(Duration.ofMinutes(expiryMinutes));
