@@ -144,8 +144,12 @@ export function useNotifications(): UseNotificationsReturn {
     } catch { /* best-effort */ }
   }, []);
 
-  const dismiss = useCallback((id: string) => {
+  const dismiss = useCallback(async (id: string) => {
     setNotifications((prev) => prev.filter((n) => n.id !== id));
+    setSseDelta((d) => d - 1);
+    try {
+      await api.patch<void>(`/api/v1/notifications/${id}/read`);
+    } catch { /* best-effort — local state already updated */ }
   }, []);
 
   // T-39: Deduplicated add — ignores catch-up notifications already seen via SSE
