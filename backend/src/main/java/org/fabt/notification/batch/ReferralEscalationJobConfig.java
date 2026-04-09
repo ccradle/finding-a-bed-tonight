@@ -224,10 +224,12 @@ public class ReferralEscalationJobConfig {
      * notifications per referral in production. See Lesson #83 in CLAUDE-CODE-BRIEF.md.</p>
      */
     private boolean isNew(String type, String referralId) {
-        // Raw connection from pool — RESET ROLE + SELECT + SET ROLE on the SAME connection.
-        // Connection is closed in finally block (returned to pool), not managed by Spring.
+        // Raw connection from pool — RESET ROLE + SELECT on the SAME connection.
         try (java.sql.Connection conn = dataSource.getConnection()) {
             conn.createStatement().execute("RESET ROLE");
+            String currentRole = conn.createStatement().executeQuery("SELECT current_user")
+                    .next() ? conn.createStatement().executeQuery("SELECT current_user")
+                    .getString(1) : "unknown";
             try (var ps = conn.prepareStatement(
                     "SELECT COUNT(*) > 0 FROM notification WHERE type = ? AND payload ->> 'referralId' = ?")) {
                 ps.setString(1, type);
@@ -235,6 +237,8 @@ public class ReferralEscalationJobConfig {
                 var rs = ps.executeQuery();
                 rs.next();
                 boolean exists = rs.getBoolean(1);
+                log.info("isNew dedup: type={}, referralId={}, role={}, exists={}, result={}",
+                        type, referralId.substring(0, 8), currentRole, exists, !exists);
                 return !exists;
             }
         } catch (java.sql.SQLException e) {
