@@ -113,6 +113,7 @@ public class ReferralTokenService {
         payload.put("token_id", saved.getId().toString());
         payload.put("shelter_id", shelterId.toString());
         payload.put("tenant_id", tenantId.toString());
+        payload.put("referring_user_id", userId.toString());
         payload.put("urgency", urgency);
         eventBus.publish(new DomainEvent("dv-referral.requested", tenantId, payload));
 
@@ -148,6 +149,7 @@ public class ReferralTokenService {
         Map<String, Object> payload = new HashMap<>();
         payload.put("token_id", tokenId.toString());
         payload.put("shelter_id", token.getShelterId().toString());
+        payload.put("referring_user_id", token.getReferringUserId().toString());
         payload.put("status", "ACCEPTED");
         eventBus.publish(new DomainEvent("dv-referral.responded", token.getTenantId(), payload));
 
@@ -188,6 +190,7 @@ public class ReferralTokenService {
         Map<String, Object> payload = new HashMap<>();
         payload.put("token_id", tokenId.toString());
         payload.put("shelter_id", token.getShelterId().toString());
+        payload.put("referring_user_id", token.getReferringUserId().toString());
         payload.put("status", "REJECTED");
         eventBus.publish(new DomainEvent("dv-referral.responded", token.getTenantId(), payload));
 
@@ -230,6 +233,16 @@ public class ReferralTokenService {
     @Transactional(readOnly = true)
     public List<ReferralToken> getByUserId(UUID userId) {
         return repository.findByUserId(userId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ReferralToken> findAllPending() {
+        return repository.findAllPending();
+    }
+
+    @Transactional(readOnly = true)
+    public int countPendingByShelterIds(List<UUID> shelterIds) {
+        return repository.countPendingByShelterIds(shelterIds);
     }
 
     @Transactional(readOnly = true)

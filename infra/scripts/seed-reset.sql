@@ -21,6 +21,7 @@ DELETE FROM import_log;
 DELETE FROM bed_availability;
 DELETE FROM shelter_constraints;
 DELETE FROM api_key;
+DELETE FROM notification;
 
 -- Spring Batch (leaf → parent order)
 DELETE FROM batch_step_execution_context;

@@ -14,6 +14,7 @@ import jakarta.validation.Valid;
 
 import org.fabt.referral.domain.ReferralToken;
 import org.fabt.referral.service.ReferralTokenService;
+import org.fabt.shelter.repository.CoordinatorAssignmentRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -36,10 +37,14 @@ import org.springframework.web.bind.annotation.RestController;
 public class ReferralTokenController {
 
     private final ReferralTokenService referralTokenService;
+    private final CoordinatorAssignmentRepository coordinatorAssignmentRepository;
     private final MeterRegistry meterRegistry;
 
-    public ReferralTokenController(ReferralTokenService referralTokenService, MeterRegistry meterRegistry) {
+    public ReferralTokenController(ReferralTokenService referralTokenService,
+                                   CoordinatorAssignmentRepository coordinatorAssignmentRepository,
+                                   MeterRegistry meterRegistry) {
         this.referralTokenService = referralTokenService;
+        this.coordinatorAssignmentRepository = coordinatorAssignmentRepository;
         this.meterRegistry = meterRegistry;
     }
 
@@ -102,6 +107,20 @@ public class ReferralTokenController {
                 .map(t -> ReferralTokenResponse.from(t, null))
                 .toList();
         return ResponseEntity.ok(responses);
+    }
+
+    @Operation(
+            summary = "Count pending referrals across coordinator's assigned DV shelters",
+            description = "Returns total PENDING referral count across all DV shelters assigned to the "
+                    + "authenticated coordinator. Used for the dashboard referral banner."
+    )
+    @GetMapping("/pending/count")
+    @PreAuthorize("hasAnyRole('COORDINATOR', 'COC_ADMIN', 'PLATFORM_ADMIN')")
+    public ResponseEntity<Map<String, Integer>> countPending(Authentication authentication) {
+        UUID userId = UUID.fromString(authentication.getName());
+        List<UUID> assignedShelterIds = coordinatorAssignmentRepository.findShelterIdsByUserId(userId);
+        int count = referralTokenService.countPendingByShelterIds(assignedShelterIds);
+        return ResponseEntity.ok(Map.of("count", count));
     }
 
     @Operation(

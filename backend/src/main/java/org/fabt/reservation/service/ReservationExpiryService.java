@@ -13,6 +13,12 @@ import org.springframework.stereotype.Service;
  * Lite-tier auto-expiry: polls for expired HELD reservations every 30 seconds.
  * In Standard/Full tiers, Redis TTL provides near-instant expiry and this
  * scheduled task serves as a safety net for missed notifications.
+ *
+ * <p><b>RLS note:</b> This job runs without TenantContext (no dvAccess). Reservation RLS
+ * filters via shelter FK — DV shelter reservations would be invisible. This is safe
+ * because DV shelters use the referral token system, not the reservation/hold system.
+ * The API prevents creating reservations for DV shelters. If this assumption changes,
+ * this job must be wrapped in {@code TenantContext.runWithContext(null, true, ...)}.</p>
  */
 @Service
 public class ReservationExpiryService {

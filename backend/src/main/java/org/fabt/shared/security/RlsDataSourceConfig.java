@@ -82,20 +82,26 @@ public class RlsDataSourceConfig {
 
         private void applyRlsContext(Connection conn) throws SQLException {
             boolean dvAccess = TenantContext.getDvAccess();
+            java.util.UUID userId = TenantContext.getUserId();
             try {
                 // Single round-trip: SET ROLE + set_config in one statement.
-                // Eliminates the 2nd round-trip that compounded under virtual thread
+                // Eliminates extra round-trips that compound under virtual thread
                 // burst concurrency (p99 regression under Gatling mixed load).
                 //
                 // SET ROLE fabt_app: drop to restricted role so RLS enforces.
                 // PostgreSQL superusers bypass RLS — SET ROLE to NOSUPERUSER role
                 // ensures RLS applies in ALL environments including Testcontainers (D14).
                 //
-                // set_config('app.dv_access', ...): session-scoped variable for RLS policy.
-                // Callers bind dvAccess via TenantContext.runWithContext() BEFORE queries.
+                // set_config('app.dv_access', ...): session-scoped variable for DV shelter RLS.
+                // set_config('app.current_user_id', ...): session-scoped variable for notification RLS.
+                //   - Nil UUID when no user context (scheduled jobs, API key auth) → fails closed
+                //     (notification SELECT returns nothing, which is correct for system operations).
+                // Callers bind context via TenantContext.runWithContext() BEFORE queries.
+                String userIdStr = userId != null ? userId.toString() : "00000000-0000-0000-0000-000000000000";
                 try (java.sql.PreparedStatement pstmt = conn.prepareStatement(
-                        "SET ROLE fabt_app; SELECT set_config('app.dv_access', ?, false)")) {
+                        "SET ROLE fabt_app; SELECT set_config('app.dv_access', ?, false), set_config('app.current_user_id', ?, false)")) {
                     pstmt.setString(1, String.valueOf(dvAccess));
+                    pstmt.setString(2, userIdStr);
                     pstmt.execute();
                 }
             } catch (SQLException e) {

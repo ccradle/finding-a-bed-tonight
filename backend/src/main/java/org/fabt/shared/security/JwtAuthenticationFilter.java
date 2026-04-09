@@ -48,6 +48,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         String token = authHeader.substring(BEARER_PREFIX.length());
+        UUID userId = null;
         UUID tenantId = null;
         boolean dvAccess = false;
 
@@ -105,6 +106,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     new UsernamePasswordAuthenticationToken(claims.userId(), null, authorities);
             SecurityContextHolder.getContext().setAuthentication(authentication);
 
+            userId = claims.userId();
             tenantId = claims.tenantId();
             dvAccess = claims.dvAccess();
 
@@ -115,7 +117,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         if (tenantId != null) {
             try {
-                TenantContext.callWithContext(tenantId, dvAccess, () -> {
+                TenantContext.callWithContext(tenantId, userId, dvAccess, () -> {
                     filterChain.doFilter(request, response);
                     return null;
                 });

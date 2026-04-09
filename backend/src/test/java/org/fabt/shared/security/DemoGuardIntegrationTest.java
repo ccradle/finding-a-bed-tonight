@@ -2,6 +2,8 @@ package org.fabt.shared.security;
 
 import org.fabt.BaseIntegrationTest;
 import org.fabt.TestAuthHelper;
+import org.fabt.notification.domain.Notification;
+import org.fabt.notification.service.NotificationPersistenceService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,6 +30,9 @@ class DemoGuardIntegrationTest extends BaseIntegrationTest {
 
     @Autowired
     private TestAuthHelper authHelper;
+
+    @Autowired
+    private NotificationPersistenceService notificationPersistenceService;
 
     @BeforeEach
     void setUp() {
@@ -118,6 +123,38 @@ class DemoGuardIntegrationTest extends BaseIntegrationTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
         assertThat(response.getBody()).contains("demo_restricted");
         assertThat(response.getBody()).contains("Password changes are disabled");
+    }
+
+    @Test
+    void notification_mark_read_allowed_for_public_traffic() {
+        // Create a notification for the admin user
+        var admin = authHelper.setupAdminUser();
+        Notification notification = notificationPersistenceService.send(
+                authHelper.getTestTenantId(), admin.getId(),
+                "test.demo-guard", "INFO", "{}");
+
+        HttpHeaders headers = publicAdminHeaders();
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/notifications/" + notification.getId() + "/read",
+                HttpMethod.PATCH,
+                new HttpEntity<>(headers),
+                String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+    }
+
+    @Test
+    void notification_read_all_allowed_for_public_traffic() {
+        HttpHeaders headers = publicAdminHeaders();
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/notifications/read-all",
+                HttpMethod.POST,
+                new HttpEntity<>(headers),
+                String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
     }
 
     @Test

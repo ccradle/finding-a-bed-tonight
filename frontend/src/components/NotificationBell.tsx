@@ -17,13 +17,29 @@ function getNotificationMessageId(notification: Notification): string {
   const { eventType, data } = notification;
   switch (eventType) {
     case 'dv-referral.responded':
+    case 'referral.responded':
       return data.status === 'ACCEPTED'
         ? 'notifications.referralAccepted'
         : 'notifications.referralRejected';
     case 'dv-referral.requested':
+    case 'referral.requested':
       return 'notifications.referralRequested';
     case 'availability.updated':
       return 'notifications.availabilityUpdated';
+    case 'surge.activated':
+      return 'notifications.surgeActivated';
+    case 'surge.deactivated':
+      return 'notifications.surgeDeactivated';
+    case 'reservation.expired':
+      return 'notifications.reservationExpired';
+    case 'escalation.1h':
+      return 'notifications.escalation1h';
+    case 'escalation.2h':
+      return 'notifications.escalation2h';
+    case 'escalation.3_5h':
+      return 'notifications.escalation3_5h';
+    case 'escalation.4h':
+      return 'notifications.escalation4h';
     default:
       return 'notifications.unknown';
   }
@@ -31,9 +47,18 @@ function getNotificationMessageId(notification: Notification): string {
 
 function getNotificationMessageValues(notification: Notification): Record<string, string> {
   const { data } = notification;
+
+  // Persistent notifications (type "notification" from SSE) have payload as a JSON string.
+  // Domain events (dv-referral.responded, etc.) have data fields directly.
+  let payload: Record<string, unknown> = {};
+  if (typeof data.payload === 'string') {
+    try { payload = JSON.parse(data.payload); } catch { /* malformed payload */ }
+  }
+
   return {
-    shelterName: data.shelterName ? String(data.shelterName) : '',
-    status: data.status ? String(data.status) : '',
+    shelterName: String(data.shelterName || payload.shelterName || ''),
+    status: String(data.status || payload.status || ''),
+    count: String(data.count || ''),
   };
 }
 
@@ -41,8 +66,17 @@ function getNavigationPath(eventType: string): string {
   switch (eventType) {
     case 'dv-referral.responded':
     case 'availability.updated':
+    case 'referral.responded':
+    case 'reservation.expired':
       return '/outreach';
     case 'dv-referral.requested':
+    case 'referral.requested':
+    case 'escalation.1h':
+    case 'escalation.2h':
+    case 'escalation.3_5h':
+    case 'escalation.4h':
+    case 'surge.activated':
+    case 'surge.deactivated':
       return '/coordinator';
     default:
       return '/';
@@ -123,7 +157,7 @@ export function NotificationBell({
 
       <button
         ref={buttonRef}
-        onClick={() => { setOpen(!open); if (!open) onMarkAllRead(); }}
+        onClick={() => { setOpen(!open); }}
         aria-label={bellLabel}
         aria-expanded={open}
         aria-controls={PANEL_ID}
@@ -202,11 +236,32 @@ export function NotificationBell({
           <div style={{
             padding: '12px 16px',
             borderBottom: `1px solid ${color.border}`,
-            fontWeight: weight.semibold,
-            color: color.text,
-            fontSize: text.sm,
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
           }}>
-            <FormattedMessage id="notifications.title" />
+            <span style={{ fontWeight: weight.semibold, color: color.text, fontSize: text.sm }}>
+              <FormattedMessage id="notifications.title" />
+            </span>
+            {unreadCount > 0 && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onMarkAllRead(); }}
+                data-testid="mark-all-read-button"
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: color.primaryText,
+                  fontSize: text.xs,
+                  cursor: 'pointer',
+                  padding: '4px 8px',
+                  minHeight: '44px',
+                  display: 'flex',
+                  alignItems: 'center',
+                }}
+              >
+                <FormattedMessage id="notifications.markAllRead" />
+              </button>
+            )}
           </div>
 
           {notifications.length === 0 ? (
@@ -275,6 +330,11 @@ export function NotificationBell({
                       padding: '4px',
                       fontSize: text.md,
                       lineHeight: 1,
+                      minHeight: '44px',
+                      minWidth: '44px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
                     }}
                   >
                     ×

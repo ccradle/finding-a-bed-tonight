@@ -5,6 +5,7 @@ import java.util.UUID;
 import org.fabt.BaseIntegrationTest;
 import org.fabt.TestAuthHelper;
 import org.fabt.auth.domain.User;
+import org.fabt.auth.service.UserService;
 import org.fabt.notification.service.NotificationService;
 import org.fabt.referral.service.ReferralTokenPurgeService;
 import org.fabt.referral.service.ReferralTokenService;
@@ -54,6 +55,9 @@ class DvReferralIntegrationTest extends BaseIntegrationTest {
 
     @Autowired
     private NotificationService notificationService;
+
+    @Autowired
+    private UserService userService;
 
     @LocalServerPort
     private int port;
@@ -463,8 +467,288 @@ class DvReferralIntegrationTest extends BaseIntegrationTest {
     }
 
     // =========================================================================
+    // Persistent Notification Integration
+    // =========================================================================
+
+    @Test
+    void tc_referralCreated_notificationExistsForCoordinator() {
+        // Create a DV coordinator (COORDINATOR role + dvAccess) who should receive the notification
+        User dvCoordinator = authHelper.setupUserWithDvAccess(
+                "notif-coord@test.fabt.org", "Notif Coordinator", new String[]{"COORDINATOR"});
+        HttpHeaders dvCoordHeaders = authHelper.headersForUser(dvCoordinator);
+
+        // Create a referral — triggers @TransactionalEventListener → persistent notification
+        ResponseEntity<String> createResp = createReferral(dvShelterId, outreachHeaders);
+        assertEquals(HttpStatus.CREATED, createResp.getStatusCode());
+        String tokenId = extractField(createResp.getBody(), "id");
+
+        // Coordinator should have a persistent notification for the referral
+        ResponseEntity<String> notifResp = restTemplate.exchange(
+                "/api/v1/notifications?unread=true", HttpMethod.GET,
+                new HttpEntity<>(dvCoordHeaders), String.class);
+        assertEquals(HttpStatus.OK, notifResp.getStatusCode());
+        assertTrue(notifResp.getBody().contains("referral.requested"),
+                "Coordinator should have a referral.requested notification");
+        assertTrue(notifResp.getBody().contains("ACTION_REQUIRED"),
+                "Referral notification should be ACTION_REQUIRED severity");
+    }
+
+    @Test
+    void tc_referralAccepted_notificationExistsForOutreachWorker() {
+        // Create coordinator to accept the referral
+        User dvCoordinator = authHelper.setupUserWithDvAccess(
+                "accept-coord@test.fabt.org", "Accept Coordinator", new String[]{"COORDINATOR"});
+        HttpHeaders acceptCoordHeaders = authHelper.headersForUser(dvCoordinator);
+
+        // Create referral as outreach worker
+        ResponseEntity<String> createResp = createReferral(dvShelterId, outreachHeaders);
+        assertEquals(HttpStatus.CREATED, createResp.getStatusCode());
+        String tokenId = extractField(createResp.getBody(), "id");
+
+        // Accept as coordinator — triggers referral.responded notification to outreach worker
+        ResponseEntity<String> acceptResp = restTemplate.exchange(
+                "/api/v1/dv-referrals/" + tokenId + "/accept",
+                HttpMethod.PATCH, new HttpEntity<>(acceptCoordHeaders), String.class);
+        assertEquals(HttpStatus.OK, acceptResp.getStatusCode());
+
+        // Outreach worker should have a persistent notification about the acceptance
+        ResponseEntity<String> notifResp = restTemplate.exchange(
+                "/api/v1/notifications?unread=true", HttpMethod.GET,
+                new HttpEntity<>(outreachHeaders), String.class);
+        assertEquals(HttpStatus.OK, notifResp.getStatusCode());
+        assertTrue(notifResp.getBody().contains("referral.responded"),
+                "Outreach worker should have a referral.responded notification");
+        assertTrue(notifResp.getBody().contains("ACCEPTED"),
+                "Notification payload should contain ACCEPTED status");
+    }
+
+    @Test
+    void tc_referralRejected_notificationExistsForOutreachWorker() {
+        User dvCoordinator = authHelper.setupUserWithDvAccess(
+                "reject-coord@test.fabt.org", "Reject Coordinator", new String[]{"COORDINATOR"});
+        HttpHeaders rejectCoordHeaders = authHelper.headersForUser(dvCoordinator);
+
+        // Create referral as outreach worker
+        ResponseEntity<String> createResp = createReferral(dvShelterId, outreachHeaders);
+        assertEquals(HttpStatus.CREATED, createResp.getStatusCode());
+        String tokenId = extractField(createResp.getBody(), "id");
+
+        // Reject as coordinator
+        String rejectBody = """
+                {"reason": "No capacity tonight"}
+                """;
+        ResponseEntity<String> rejectResp = restTemplate.exchange(
+                "/api/v1/dv-referrals/" + tokenId + "/reject",
+                HttpMethod.PATCH, new HttpEntity<>(rejectBody, rejectCoordHeaders), String.class);
+        assertEquals(HttpStatus.OK, rejectResp.getStatusCode());
+
+        // Outreach worker should have notification with REJECTED status
+        ResponseEntity<String> notifResp = restTemplate.exchange(
+                "/api/v1/notifications?unread=true", HttpMethod.GET,
+                new HttpEntity<>(outreachHeaders), String.class);
+        assertEquals(HttpStatus.OK, notifResp.getStatusCode());
+        assertTrue(notifResp.getBody().contains("referral.responded"),
+                "Outreach worker should have referral.responded notification on rejection");
+        assertTrue(notifResp.getBody().contains("REJECTED"),
+                "Notification payload should contain REJECTED status — Darius needs to find another bed");
+    }
+
+    @Test
+    void tc_zeroDvCoordinators_referralSucceeds_noNotificationCrash() {
+        // Create a separate tenant with NO DV coordinators
+        var isolatedTenant = authHelper.setupTestTenant("no-coord-tenant");
+        var dvAdmin = authHelper.setupUserWithDvAccess(
+                "nocord-admin@test.fabt.org", "No-Coord Admin", new String[]{"PLATFORM_ADMIN"});
+        HttpHeaders isolatedAdminHeaders = authHelper.headersForUser(dvAdmin);
+        var dvOutreach = authHelper.setupUserWithDvAccess(
+                "nocord-outreach@test.fabt.org", "No-Coord Outreach", new String[]{"OUTREACH_WORKER"});
+        HttpHeaders isolatedOutreachHeaders = authHelper.headersForUser(dvOutreach);
+
+        // Create DV shelter in isolated tenant
+        TenantContext.runWithContext(isolatedTenant.getId(), true, () -> {
+            // Verify precondition: zero DV coordinators exist in this tenant
+            var dvCoords = userService.findDvCoordinators(isolatedTenant.getId());
+            assertEquals(0, dvCoords.size(),
+                    "Precondition: isolated tenant must have zero DV coordinators");
+
+            UUID shelterId = createShelterInTenant(isolatedAdminHeaders, true);
+            patchAvailabilityInTenant(shelterId, "DV_SURVIVOR", 10, 3, 0, isolatedAdminHeaders);
+
+            // Create referral — should succeed even with zero coordinators
+            ResponseEntity<String> createResp = createReferral(shelterId, isolatedOutreachHeaders);
+            assertEquals(HttpStatus.CREATED, createResp.getStatusCode(),
+                    "Referral must succeed even when no DV coordinators exist — no crash");
+        });
+    }
+
+    @Test
+    void tc_nonDvCoordinator_doesNotReceiveReferralNotification() {
+        // Create a UNIQUE coordinator WITHOUT dvAccess — must not reuse shared coordinator
+        // which may have accumulated notifications from other tests
+        User nonDvCoord = authHelper.getUserRepository().findByTenantIdAndEmail(
+                authHelper.getTestTenantId(), "nodv-isolation@test.fabt.org").orElseGet(() -> {
+            var u = new org.fabt.auth.domain.User();
+            u.setTenantId(authHelper.getTestTenantId());
+            u.setEmail("nodv-isolation@test.fabt.org");
+            u.setDisplayName("Non-DV Isolation Coordinator");
+            u.setPasswordHash(authHelper.getPasswordService().hash(TestAuthHelper.TEST_PASSWORD));
+            u.setRoles(new String[]{"COORDINATOR"});
+            u.setDvAccess(false);
+            u.setCreatedAt(java.time.Instant.now());
+            u.setUpdatedAt(java.time.Instant.now());
+            return authHelper.getUserRepository().save(u);
+        });
+        HttpHeaders nonDvCoordHeaders = authHelper.headersForUser(nonDvCoord);
+
+        // Create a DV coordinator who SHOULD get the notification
+        User dvCoord = authHelper.setupUserWithDvAccess(
+                "dvonly-coord@test.fabt.org", "DV Only Coordinator", new String[]{"COORDINATOR"});
+
+        // Create referral
+        createReferral(dvShelterId, outreachHeaders);
+
+        // Non-DV coordinator should NOT have the referral notification
+        ResponseEntity<String> notifResp = restTemplate.exchange(
+                "/api/v1/notifications?unread=true", HttpMethod.GET,
+                new HttpEntity<>(nonDvCoordHeaders), String.class);
+        assertEquals(HttpStatus.OK, notifResp.getStatusCode());
+        assertFalse(notifResp.getBody().contains("referral.requested"),
+                "Non-DV coordinator must NOT receive referral.requested notification — DV leak prevention");
+    }
+
+    @Test
+    void tc_notificationPayload_containsZeroPII() {
+        // Create DV coordinator to receive notification
+        User dvCoord = authHelper.setupUserWithDvAccess(
+                "pii-coord@test.fabt.org", "PII Check Coordinator", new String[]{"COORDINATOR"});
+        HttpHeaders dvCoordHeaders = authHelper.headersForUser(dvCoord);
+
+        // Create referral with PII-containing fields (specialNeeds, callbackNumber)
+        createReferral(dvShelterId, outreachHeaders);
+
+        // Check coordinator's notification payload — must NOT contain PII
+        ResponseEntity<String> notifResp = restTemplate.exchange(
+                "/api/v1/notifications?unread=true", HttpMethod.GET,
+                new HttpEntity<>(dvCoordHeaders), String.class);
+        String body = notifResp.getBody();
+
+        // Positive: must contain opaque identifiers
+        assertTrue(body.contains("referralId"), "Notification must contain referralId");
+        assertTrue(body.contains("shelterId"), "Notification must contain shelterId");
+
+        // Negative: must NOT contain any PII from the referral
+        assertFalse(body.contains("919-555-0042"), "Notification must NOT contain callback number (PII)");
+        assertFalse(body.contains("Wheelchair"), "Notification must NOT contain special needs text (PII)");
+        assertFalse(body.contains("householdSize"), "Notification must NOT contain household size");
+        assertFalse(body.contains("callbackNumber"), "Notification must NOT contain callback number field");
+        assertFalse(body.contains("specialNeeds"), "Notification must NOT contain special needs field");
+    }
+
+    @Test
+    void tc_failedReferral_noOrphanNotification() {
+        // Create DV coordinator who would receive notification IF one were created
+        User dvCoord = authHelper.setupUserWithDvAccess(
+                "orphan-coord@test.fabt.org", "Orphan Check Coordinator", new String[]{"COORDINATOR"});
+        HttpHeaders dvCoordHeaders = authHelper.headersForUser(dvCoord);
+
+        // Attempt to create referral to NON-DV shelter — this should fail (400)
+        ResponseEntity<String> failedResp = createReferral(nonDvShelterId, outreachHeaders);
+        assertTrue(failedResp.getStatusCode().is4xxClientError(),
+                "Referral to non-DV shelter should fail");
+
+        // Coordinator should NOT have any referral notification (transaction rolled back)
+        ResponseEntity<String> notifResp = restTemplate.exchange(
+                "/api/v1/notifications?unread=true", HttpMethod.GET,
+                new HttpEntity<>(dvCoordHeaders), String.class);
+        assertFalse(notifResp.getBody().contains("referral.requested"),
+                "Failed referral must not create orphan notification — @TransactionalEventListener guards this");
+    }
+
+    // =========================================================================
+    // Coordinator Pending Count
+    // =========================================================================
+
+    @Test
+    void tc_pendingCount_reflectsAllAssignedShelters() {
+        // Create a DV coordinator assigned to TWO DV shelters
+        User countCoord = authHelper.setupUserWithDvAccess(
+                "count-coord@test.fabt.org", "Count Coordinator", new String[]{"COORDINATOR"});
+        HttpHeaders countCoordHeaders = authHelper.headersForUser(countCoord);
+
+        TenantContext.runWithContext(authHelper.getTestTenantId(), true, () -> {
+            // Create second DV shelter
+            UUID dvShelterId2 = createShelterWithHeaders(adminHeaders, true);
+            patchAvailabilityInTenant(dvShelterId2, "DV_SURVIVOR", 10, 3, 0, adminHeaders);
+
+            // Assign coordinator to both shelters
+            restTemplate.exchange("/api/v1/shelters/" + dvShelterId + "/coordinators",
+                    HttpMethod.POST,
+                    new HttpEntity<>("{\"userId\":\"" + countCoord.getId() + "\"}", adminHeaders),
+                    String.class);
+            restTemplate.exchange("/api/v1/shelters/" + dvShelterId2 + "/coordinators",
+                    HttpMethod.POST,
+                    new HttpEntity<>("{\"userId\":\"" + countCoord.getId() + "\"}", adminHeaders),
+                    String.class);
+
+            // Create referrals to each shelter
+            createReferral(dvShelterId, outreachHeaders);
+            createReferral(dvShelterId2, outreachHeaders);
+        });
+
+        // Pending count should be 2 (one from each shelter)
+        ResponseEntity<String> countResp = restTemplate.exchange(
+                "/api/v1/dv-referrals/pending/count", HttpMethod.GET,
+                new HttpEntity<>(countCoordHeaders), String.class);
+        assertEquals(HttpStatus.OK, countResp.getStatusCode());
+        assertTrue(countResp.getBody().contains("\"count\":2"),
+                "Pending count should reflect referrals across all assigned shelters — got: " + countResp.getBody());
+    }
+
+    // =========================================================================
     // Helpers
     // =========================================================================
+
+    private UUID createShelterInTenant(HttpHeaders headers, boolean dvShelter) {
+        return createShelterWithHeaders(headers, dvShelter);
+    }
+
+    private void patchAvailabilityInTenant(UUID shelterId, String popType, int total, int occupied, int hold, HttpHeaders headers) {
+        String body = String.format("""
+                {"populationType": "%s", "bedsTotal": %d, "bedsOccupied": %d, "bedsOnHold": %d, "acceptingNewGuests": true}
+                """, popType, total, occupied, hold);
+        restTemplate.exchange("/api/v1/shelters/" + shelterId + "/availability",
+                HttpMethod.PATCH, new HttpEntity<>(body, headers), String.class);
+    }
+
+    private UUID createShelterWithHeaders(HttpHeaders headers, boolean dvShelter) {
+        String body = String.format("""
+                {
+                  "name": "%s Shelter %s",
+                  "addressStreet": "123 Test St",
+                  "addressCity": "Raleigh",
+                  "addressState": "NC",
+                  "addressZip": "27601",
+                  "phone": "919-555-%04d",
+                  "dvShelter": %s,
+                  "constraints": {
+                    "populationTypesServed": ["%s"]
+                  },
+                  "capacities": [{"populationType": "%s", "bedsTotal": 10}]
+                }
+                """,
+                dvShelter ? "DV" : "Regular",
+                UUID.randomUUID().toString().substring(0, 8),
+                (int) (Math.random() * 9999),
+                dvShelter,
+                dvShelter ? "DV_SURVIVOR" : "SINGLE_ADULT",
+                dvShelter ? "DV_SURVIVOR" : "SINGLE_ADULT");
+
+        ResponseEntity<String> resp = restTemplate.exchange(
+                "/api/v1/shelters", HttpMethod.POST,
+                new HttpEntity<>(body, headers), String.class);
+        assertEquals(HttpStatus.CREATED, resp.getStatusCode());
+        return UUID.fromString(extractField(resp.getBody(), "id"));
+    }
 
     private UUID createShelter(boolean dvShelter) {
         String body = String.format("""

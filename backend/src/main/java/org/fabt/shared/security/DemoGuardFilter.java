@@ -60,6 +60,10 @@ public class DemoGuardFilter extends OncePerRequestFilter {
             new AllowedMutation("PATCH", "/api/v1/dv-referrals/*/reject"),
             // Coordinator availability update
             new AllowedMutation("PATCH", "/api/v1/shelters/*/availability"),
+            // Notifications (read/acted/read-all are safe — they only mark timestamps)
+            new AllowedMutation("PATCH", "/api/v1/notifications/*/read"),
+            new AllowedMutation("PATCH", "/api/v1/notifications/*/acted"),
+            new AllowedMutation("POST", "/api/v1/notifications/read-all"),
             // Webhooks
             new AllowedMutation("POST", "/api/v1/subscriptions"),
             new AllowedMutation("DELETE", "/api/v1/subscriptions/*")

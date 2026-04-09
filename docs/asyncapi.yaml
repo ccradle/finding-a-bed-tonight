@@ -296,6 +296,21 @@ channels:
       subscriptionAutoDisabledMessage:
         $ref: '#/components/messages/SubscriptionLifecycleMessage'
 
+  # -----------------------------------------------------------------------
+  # Notification events (v0.31.0 — persistent-notifications)
+  # -----------------------------------------------------------------------
+
+  notificationCreated:
+    address: notification.created
+    title: Notification Created
+    description: |
+      Published when NotificationPersistenceService.send() persists a new
+      notification row. Consumed by SSE emitters to push real-time bell
+      updates to the recipient's browser. The payload contains no client PII.
+    messages:
+      notificationCreatedMessage:
+        $ref: '#/components/messages/NotificationCreatedMessage'
+
 # ---------------------------------------------------------------------------
 # Operations
 # ---------------------------------------------------------------------------
@@ -453,6 +468,14 @@ operations:
     messages:
       - $ref: '#/channels/subscriptionAutoDisabled/messages/subscriptionAutoDisabledMessage'
 
+  onNotificationCreated:
+    action: receive
+    channel:
+      $ref: '#/channels/notificationCreated'
+    summary: Receive notification creation events (SSE push to recipient)
+    messages:
+      - $ref: '#/channels/notificationCreated/messages/notificationCreatedMessage'
+
 # ---------------------------------------------------------------------------
 # Components
 # ---------------------------------------------------------------------------
@@ -527,6 +550,17 @@ components:
       contentType: application/json
       payload:
         $ref: '#/components/schemas/SubscriptionLifecyclePayload'
+
+    NotificationCreatedMessage:
+      name: NotificationCreatedMessage
+      title: Notification Created
+      summary: |
+        Published when a persistent notification is created by
+        NotificationPersistenceService.send(). Used to drive real-time
+        SSE bell updates in the recipient's browser.
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/NotificationCreatedEvent'
 
   # -------------------------------------------------------------------------
   # Schemas
@@ -991,3 +1025,58 @@ components:
         consecutive_failures:
           type: integer
           description: Number of consecutive failures at the time of state change.
+
+    # -- notification.created (v0.31.0 — persistent-notifications) ------------
+
+    NotificationCreatedEvent:
+      allOf:
+        - $ref: '#/components/schemas/DomainEventEnvelope'
+        - type: object
+          properties:
+            type:
+              type: string
+              const: notification.created
+            payload:
+              $ref: '#/components/schemas/NotificationCreatedPayload'
+
+    NotificationCreatedPayload:
+      type: object
+      description: |
+        Published when NotificationPersistenceService.send() persists a
+        notification row. Contains only operational identifiers — no client PII.
+        SSE emitters use this event to push real-time bell updates.
+      required:
+        - notificationId
+        - type
+        - severity
+        - recipientId
+        - tenantId
+        - createdAt
+      properties:
+        notificationId:
+          type: string
+          format: uuid
+          description: Primary key of the persisted notification row.
+        type:
+          type: string
+          description: Notification type (e.g. DV_REFERRAL_REQUESTED, DV_REFERRAL_ACCEPTED).
+        severity:
+          type: string
+          enum: [INFO, ACTION_REQUIRED, CRITICAL]
+          description: "Severity level: INFO (auto-dismissed), ACTION_REQUIRED (persists until read), CRITICAL (persists until explicitly acted)."
+        recipientId:
+          type: string
+          format: uuid
+          description: User who should receive the notification.
+        tenantId:
+          type: string
+          format: uuid
+          description: Tenant (Continuum of Care) context.
+        payload:
+          type: object
+          description: "Notification-specific data (e.g. referralId, status, threshold). Zero client PII — only opaque operational identifiers. See individual notification types for schema."
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+          description: ISO-8601 timestamp when the notification was persisted.

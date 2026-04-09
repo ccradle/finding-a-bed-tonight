@@ -68,6 +68,7 @@ public class SseTokenFilter extends OncePerRequestFilter {
 
         log.warn("SSE auth via query param is deprecated — use Authorization header instead");
 
+        UUID userId = null;
         UUID tenantId = null;
         boolean dvAccess = false;
 
@@ -98,6 +99,7 @@ public class SseTokenFilter extends OncePerRequestFilter {
                     new UsernamePasswordAuthenticationToken(claims.userId(), null, authorities);
             SecurityContextHolder.getContext().setAuthentication(authentication);
 
+            userId = claims.userId();
             tenantId = claims.tenantId();
             dvAccess = claims.dvAccess();
 
@@ -108,7 +110,7 @@ public class SseTokenFilter extends OncePerRequestFilter {
 
         if (tenantId != null) {
             try {
-                TenantContext.callWithContext(tenantId, dvAccess, () -> {
+                TenantContext.callWithContext(tenantId, userId, dvAccess, () -> {
                     filterChain.doFilter(request, response);
                     return null;
                 });

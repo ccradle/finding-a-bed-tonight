@@ -110,6 +110,21 @@ public class ReferralTokenRepository {
         return count != null ? count : 0;
     }
 
+    public List<ReferralToken> findAllPending() {
+        return jdbcTemplate.query(
+                "SELECT * FROM referral_token WHERE status = 'PENDING' ORDER BY created_at",
+                ROW_MAPPER);
+    }
+
+    public int countPendingByShelterIds(List<UUID> shelterIds) {
+        if (shelterIds.isEmpty()) return 0;
+        UUID[] ids = shelterIds.toArray(UUID[]::new);
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM referral_token WHERE shelter_id = ANY(?) AND status = 'PENDING'",
+                Integer.class, (Object) ids);
+        return count != null ? count : 0;
+    }
+
     public int countPendingByShelterId(UUID shelterId) {
         Integer count = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM referral_token WHERE shelter_id = ? AND status = 'PENDING'",

@@ -717,13 +717,26 @@ All endpoints are under `/api/v1`. Authentication is via JWT Bearer token (from 
 | `POST` | `/api/v1/subscriptions/{id}/test` | COC_ADMIN+ | Send test event, returns delivery result (status, time, body) |
 | `GET` | `/api/v1/subscriptions/{id}/deliveries` | COC_ADMIN+ | Last 20 delivery attempts (redacted, 1KB truncated) |
 
-### SSE Notifications
+### Notifications
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| `GET` | `/api/v1/notifications/stream?token=<jwt>` | Any authenticated | Server-Sent Events stream. Token passed as query parameter (EventSource API does not support Authorization header). Events: `dv-referral.responded`, `dv-referral.requested`, `availability.updated`. 5-minute timeout, client auto-reconnects. |
+| `GET` | `/api/v1/notifications` | Any authenticated | List notifications for authenticated user. Supports `?unread=true` filter. Ordered by `created_at DESC` |
+| `GET` | `/api/v1/notifications/count` | Any authenticated | Returns `{"unread": N}` — used by the header bell badge |
+| `GET` | `/api/v1/notifications/stream?token=<jwt>` | Any authenticated | Server-Sent Events stream. Token passed as query parameter (EventSource API does not support Authorization header). Events: `dv-referral.responded`, `dv-referral.requested`, `availability.updated`, `surge.activated`. 5-minute timeout, client auto-reconnects |
+| `PATCH` | `/api/v1/notifications/{id}/read` | Any authenticated | Mark notification as read (204, idempotent) |
+| `PATCH` | `/api/v1/notifications/{id}/acted` | Any authenticated | Mark notification as acted (204). Required for CRITICAL severity notifications |
+| `POST` | `/api/v1/notifications/read-all` | Any authenticated | Mark all notifications as read (204). Excludes CRITICAL severity — those require explicit acknowledgement |
+
+**Severity tiers:** `INFO` (auto-dismissed), `ACTION_REQUIRED` (persists until read), `CRITICAL` (persists until explicitly acted — e.g., surge acknowledgement). Notifications are DB-backed and survive logout/restart. RLS ensures users can only read/update their own notifications.
 
 **Security note:** The `SseTokenFilter` extracts the JWT from the `?token=` query parameter and sets the SecurityContext. This filter only applies to the `/api/v1/notifications/stream` path. Token-in-URL is the standard approach for SSE (used by GitHub, Slack). Mitigated by short-lived access tokens and read-only endpoint.
+
+### DV Referral Counts
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET` | `/api/v1/dv-referrals/pending/count` | COORDINATOR+ (dvAccess) | Returns pending DV referral count for coordinator's assigned shelters. Used by the coordinator dashboard badge |
 
 ---
 

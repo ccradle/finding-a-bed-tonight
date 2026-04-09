@@ -339,3 +339,27 @@ VALUES
     ('f1000000-0000-0000-0000-000000000006', 'f0000000-0000-0000-0000-000000000002',
      'shelter.updated', 200, 98, NOW() - INTERVAL '3 hours', 1, '{"status":"ok"}')
 ON CONFLICT (id) DO NOTHING;
+
+-- =====================================================================
+-- Notifications — demo data for bell badge and notification dropdown
+-- RLS note: INSERT policy is WITH CHECK (true), so plain INSERTs work
+-- without set_config. Only SELECT/UPDATE are recipient-scoped.
+-- =====================================================================
+INSERT INTO notification (id, tenant_id, recipient_id, type, severity, payload, read_at, acted_at, created_at, expires_at)
+VALUES
+    -- Coordinator (cocadmin): new DV referral needs review — ACTION_REQUIRED, unread
+    ('a1000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001',
+     'b0000000-0000-0000-0000-000000000003', 'referral.requested', 'ACTION_REQUIRED',
+     '{"referralId": "00000000-0000-0000-0000-000000000099", "shelterId": "c0000000-0000-0000-0000-000000000001"}',
+     NULL, NULL, NOW() - INTERVAL '15 minutes', NULL),
+    -- Coordinator (cocadmin): surge event activated — CRITICAL, unread, requires acknowledgement
+    ('a1000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000001',
+     'b0000000-0000-0000-0000-000000000003', 'surge.activated', 'CRITICAL',
+     '{"surgeEventId": "00000000-0000-0000-0000-000000000088", "reason": "White Flag — temperature below 32°F"}',
+     NULL, NULL, NOW() - INTERVAL '5 minutes', NULL),
+    -- Outreach worker: referral accepted — ACTION_REQUIRED, unread
+    ('a1000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000001',
+     'b0000000-0000-0000-0000-000000000002', 'referral.responded', 'ACTION_REQUIRED',
+     '{"referralId": "00000000-0000-0000-0000-000000000097", "status": "ACCEPTED"}',
+     NULL, NULL, NOW() - INTERVAL '10 minutes', NULL)
+ON CONFLICT (id) DO NOTHING;

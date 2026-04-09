@@ -397,6 +397,26 @@ public class NotificationService {
     }
 
     /**
+     * Push a persistent notification to a specific user's SSE emitter (Design D5 write-through).
+     * Called by NotificationPersistenceService after DB write. Non-fatal if user is not connected.
+     */
+    public void pushNotification(UUID recipientId, org.fabt.notification.domain.Notification notification) {
+        EmitterEntry entry = emitters.get(recipientId);
+        if (entry == null) {
+            return; // User not connected — notification will be delivered via catch-up on next login
+        }
+        long eventId = eventIdCounter.incrementAndGet();
+        Map<String, Object> data = Map.of(
+                "notificationId", notification.getId().toString(),
+                "type", notification.getType(),
+                "severity", notification.getSeverity(),
+                "payload", notification.getPayloadValue(),
+                "createdAt", notification.getCreatedAt().toString()
+        );
+        sendEvent(entry, "notification", data, eventId);
+    }
+
+    /**
      * Send an event to a specific emitter and buffer it for replay.
      * The eventId is pre-assigned so it's consistent across the buffer and the stream.
      */
