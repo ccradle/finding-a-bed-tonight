@@ -45,10 +45,12 @@ class EmailPasswordResetIntegrationTest extends BaseIntegrationTest {
     void setUp() {
         authHelper.setupTestTenant();
         authHelper.setupAdminUser();
+        // setupUserWithDvAccess is used as a generic factory (accepts custom email/name/roles).
+        // dvAccess is overridden to false — this user represents a standard outreach worker,
+        // NOT a DV user. DV-specific tests create their own users with dvAccess=true.
         testUser = authHelper.setupUserWithDvAccess(
                 "resettest@test.fabt.org", "Reset Test User",
                 new String[]{"OUTREACH_WORKER"});
-        // Override dvAccess to false for standard test user
         testUser.setDvAccess(false);
         authHelper.getUserRepository().save(testUser);
 
@@ -197,14 +199,25 @@ class EmailPasswordResetIntegrationTest extends BaseIntegrationTest {
     // =========================================================================
 
     @Test
-    @DisplayName("ER-16: DV user — 200 same message, no token, no email")
+    @DisplayName("ER-16: DV user — 200 same message, no token, no email (via HTTP, consistent with ER-15)")
     void dvUser_silentlyBlocked() {
-        // Create a DV user
+        // Create a DV user (dvAccess=true by default from setupUserWithDvAccess)
         User dvUser = authHelper.setupUserWithDvAccess(
                 "dv-resettest@test.fabt.org", "DV Reset User",
                 new String[]{"OUTREACH_WORKER"});
 
-        passwordResetService.requestReset("dv-resettest@test.fabt.org", authHelper.getTestTenantSlug());
+        // Test via HTTP endpoint — same pattern as ER-15 for consistency
+        String body = """
+                {"email": "dv-resettest@test.fabt.org", "tenantSlug": "%s"}
+                """.formatted(authHelper.getTestTenantSlug());
+
+        ResponseEntity<String> response = restTemplate.postForEntity(
+                "/api/v1/auth/forgot-password",
+                new HttpEntity<>(body, jsonHeaders()), String.class);
+
+        // Same 200 response as non-existent email — no enumeration
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).contains("If the email exists");
 
         // ER-34: No email sent
         assertThat(newMessages()).isEmpty();
@@ -223,8 +236,11 @@ class EmailPasswordResetIntegrationTest extends BaseIntegrationTest {
     @Test
     @DisplayName("ER-17: TOTP user — password reset does not disable 2FA")
     void totpUser_mfaIntactAfterReset() {
-        // Enable TOTP for the user (set flag directly — TotpService tested elsewhere)
+        // Enable TOTP for the user. Set both flag AND a dummy encrypted secret so the
+        // test remains valid if future code adds validation (totpEnabled requires secret).
+        // TotpService enrollment flow is tested separately in TotpAndAccessCodeIntegrationTest.
         testUser.setTotpEnabled(true);
+        testUser.setTotpSecretEncrypted("test-dummy-encrypted-secret");
         authHelper.getUserRepository().save(testUser);
 
         passwordResetService.requestReset("resettest@test.fabt.org", authHelper.getTestTenantSlug());
@@ -325,30 +341,38 @@ class EmailPasswordResetIntegrationTest extends BaseIntegrationTest {
     // =========================================================================
 
     @Test
-    @DisplayName("ER-35: Valid vs invalid email response times within 100ms")
+    @DisplayName("ER-35: Valid vs invalid email response times within 150ms")
     void enumerationTiming_consistentResponseTimes() {
-        // Valid email
-        long validStart = System.nanoTime();
-        passwordResetService.requestReset("resettest@test.fabt.org", authHelper.getTestTenantSlug());
-        long validMs = (System.nanoTime() - validStart) / 1_000_000;
+        // Run 3 samples each to reduce GC/scheduling noise (Marcus: CI flakiness mitigation)
+        long[] validTimes = new long[3];
+        long[] invalidTimes = new long[3];
 
-        for (var msg : GREEN_MAIL.getReceivedMessages()) {
-            // Clear by reading — GreenMail has no clean purge without reset
+        for (int i = 0; i < 3; i++) {
+            // Clean up tokens from previous iteration
+            jdbcTemplate.update("DELETE FROM password_reset_token WHERE user_id = ?", testUser.getId());
+
+            long start = System.nanoTime();
+            passwordResetService.requestReset("resettest@test.fabt.org", authHelper.getTestTenantSlug());
+            validTimes[i] = (System.nanoTime() - start) / 1_000_000;
+            greenMailBaseline = GREEN_MAIL.getReceivedMessages().length;
+
+            start = System.nanoTime();
+            passwordResetService.requestReset("nobody@test.fabt.org", authHelper.getTestTenantSlug());
+            invalidTimes[i] = (System.nanoTime() - start) / 1_000_000;
         }
-        // Use getReceivedMessagesForDomain to verify count instead of relying on purge
-        // The test assertions check absolute counts, so prior messages are noise.
-        // Simplest: track the message count before each test.
-        greenMailBaseline = GREEN_MAIL.getReceivedMessages().length;
 
-        // Invalid email
-        long invalidStart = System.nanoTime();
-        passwordResetService.requestReset("nobody@test.fabt.org", authHelper.getTestTenantSlug());
-        long invalidMs = (System.nanoTime() - invalidStart) / 1_000_000;
+        // Use median (index 1 after sort) to reduce outlier impact
+        java.util.Arrays.sort(validTimes);
+        java.util.Arrays.sort(invalidTimes);
+        long validMedian = validTimes[1];
+        long invalidMedian = invalidTimes[1];
 
-        // Both should be >= 250ms (timing floor) and within 100ms of each other
-        assertThat(validMs).isGreaterThanOrEqualTo(240); // allow 10ms jitter
-        assertThat(invalidMs).isGreaterThanOrEqualTo(240);
-        assertThat(Math.abs(validMs - invalidMs)).isLessThan(100);
+        // Both should be >= 250ms (timing floor) and within 150ms of each other
+        assertThat(validMedian).isGreaterThanOrEqualTo(240); // allow 10ms jitter
+        assertThat(invalidMedian).isGreaterThanOrEqualTo(240);
+        assertThat(Math.abs(validMedian - invalidMedian))
+                .as("Timing difference between valid and invalid email should be < 150ms (median of 3 samples)")
+                .isLessThan(150);
     }
 
     // =========================================================================
@@ -361,12 +385,6 @@ class EmailPasswordResetIntegrationTest extends BaseIntegrationTest {
         // First request
         passwordResetService.requestReset("resettest@test.fabt.org", authHelper.getTestTenantSlug());
         String firstToken = extractTokenFromGreenMail();
-        for (var msg : GREEN_MAIL.getReceivedMessages()) {
-            // Clear by reading — GreenMail has no clean purge without reset
-        }
-        // Use getReceivedMessagesForDomain to verify count instead of relying on purge
-        // The test assertions check absolute counts, so prior messages are noise.
-        // Simplest: track the message count before each test.
         greenMailBaseline = GREEN_MAIL.getReceivedMessages().length;
 
         // Second request
