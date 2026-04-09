@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import { api } from '../services/api';
 import { enqueueAction } from '../services/offlineQueue';
+import { CoordinatorReferralBanner } from '../components/CoordinatorReferralBanner';
 import { DataAge } from '../components/DataAge';
 import { text, weight, leading } from '../theme/typography';
 import { color } from '../theme/colors';
@@ -310,6 +311,17 @@ export function CoordinatorDashboard() {
         </p>
       </div>
 
+      {/* T-43: Persistent referral banner — not dismissable, resolves when actioned */}
+      <CoordinatorReferralBanner onBannerClick={() => {
+        // T-46: Scroll to first DV shelter with pending referrals
+        const dvShelter = shelters.find(item => item.shelter.dvShelter);
+        if (dvShelter) {
+          openShelter(dvShelter.shelter.id);
+          const el = document.querySelector(`[data-testid="shelter-card-${dvShelter.shelter.id}"]`);
+          el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }} />
+
       {/* Status */}
       <div style={{ fontSize: text.sm, color: color.textTertiary, marginBottom: 10, fontWeight: weight.semibold, letterSpacing: '0.02em' }}>
         {loading
@@ -382,6 +394,13 @@ export function CoordinatorDashboard() {
                       padding: '4px 10px', borderRadius: 8, fontSize: text.xs, fontWeight: weight.extrabold,
                       backgroundColor: color.dvBg, color: color.dvText,
                     }}>{pendingReferrals.length} referral{pendingReferrals.length > 1 ? 's' : ''}</span>
+                  )}
+                  {/* T-47: DV shelter indicator on collapsed cards — expands to show details */}
+                  {s.dvShelter && !isExpanded && (
+                    <span data-testid={`dv-badge-${s.id}`} style={{
+                      padding: '4px 10px', borderRadius: 8, fontSize: text.xs, fontWeight: weight.extrabold,
+                      backgroundColor: color.dvBg, color: color.dvText,
+                    }}>DV</span>
                   )}
                 </div>
               </div>

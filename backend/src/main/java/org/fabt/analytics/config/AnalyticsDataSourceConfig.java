@@ -85,13 +85,16 @@ public class AnalyticsDataSourceConfig {
 
         private void applyRlsContext(Connection conn) throws SQLException {
             boolean dvAccess = TenantContext.getDvAccess();
+            java.util.UUID userId = TenantContext.getUserId();
+            String userIdStr = userId != null ? userId.toString() : "00000000-0000-0000-0000-000000000000";
             try {
                 try (java.sql.Statement stmt = conn.createStatement()) {
                     stmt.execute("SET ROLE fabt_app");
                 }
                 try (java.sql.PreparedStatement pstmt = conn.prepareStatement(
-                        "SELECT set_config('app.dv_access', ?, false)")) {
+                        "SELECT set_config('app.dv_access', ?, false), set_config('app.current_user_id', ?, false)")) {
                     pstmt.setString(1, String.valueOf(dvAccess));
+                    pstmt.setString(2, userIdStr);
                     pstmt.execute();
                 }
             } catch (SQLException e) {

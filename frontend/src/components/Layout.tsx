@@ -7,6 +7,7 @@ import { LocaleSelector } from './LocaleSelector';
 import { NotificationBell } from './NotificationBell';
 import { QueueStatusIndicator } from './QueueStatusIndicator';
 import { ConnectionStatusBanner } from './ConnectionStatusBanner';
+import { CriticalNotificationBanner } from './CriticalNotificationBanner';
 import { OfflineBanner } from './OfflineBanner';
 import { SessionTimeoutWarning } from './SessionTimeoutWarning';
 import { ChangePasswordModal } from './ChangePasswordModal';
@@ -245,6 +246,7 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
       </div>
 
       <OfflineBanner />
+      <CriticalNotificationBanner notifications={notifications} />
       {replayMessage && (
         <div
           role="status"

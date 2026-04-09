@@ -109,6 +109,33 @@ VALUES (
     token_version = 0,
     updated_at = NOW();
 
+-- DV shelter coordinator (COORDINATOR + dvAccess=true, password: admin123)
+-- Persona: Sandra Kim — shelter coordinator who screens DV referrals and receives notifications.
+-- This is the user who receives referral.requested notifications when a DV outreach worker
+-- submits a referral. Must be assigned to DV shelters (see coordinator_assignment below).
+INSERT INTO app_user (id, tenant_id, email, password_hash, display_name, roles, dv_access, created_at, updated_at)
+VALUES (
+    'b0000000-0000-0000-0000-000000000006',
+    'a0000000-0000-0000-0000-000000000001',
+    'dv-coordinator@dev.fabt.org',
+    '$2b$10$D0ZKzFrhx0qdM0mQy9iZQeLYJPX8/eeEfrJi4TsO5D2o62Q/Fwhva',
+    'DV Shelter Coordinator',
+    ARRAY['COORDINATOR'],
+    true,
+    NOW(), NOW()
+) ON CONFLICT (tenant_id, email) DO UPDATE SET
+    password_hash = EXCLUDED.password_hash,
+    display_name = EXCLUDED.display_name,
+    roles = EXCLUDED.roles,
+    dv_access = EXCLUDED.dv_access,
+    status = COALESCE(EXCLUDED.status, 'ACTIVE'),
+    totp_enabled = false,
+    totp_secret_encrypted = NULL,
+    recovery_codes = NULL,
+    password_changed_at = NULL,
+    token_version = 0,
+    updated_at = NOW();
+
 -- Deactivated user (for admin panel screenshots and testing)
 INSERT INTO app_user (id, tenant_id, email, password_hash, display_name, roles, dv_access, status, created_at, updated_at)
 VALUES (
@@ -219,7 +246,11 @@ INSERT INTO coordinator_assignment (user_id, shelter_id) VALUES
 ('b0000000-0000-0000-0000-000000000003', 'd0000000-0000-0000-0000-000000000003'),
 ('b0000000-0000-0000-0000-000000000003', 'd0000000-0000-0000-0000-000000000004'),
 ('b0000000-0000-0000-0000-000000000003', 'd0000000-0000-0000-0000-000000000009'),
-('b0000000-0000-0000-0000-000000000001', 'd0000000-0000-0000-0000-000000000011')
+('b0000000-0000-0000-0000-000000000001', 'd0000000-0000-0000-0000-000000000011'),
+-- DV coordinator assigned to all 3 DV shelters (receives referral notifications)
+('b0000000-0000-0000-0000-000000000006', 'd0000000-0000-0000-0000-000000000011'),
+('b0000000-0000-0000-0000-000000000006', 'd0000000-0000-0000-0000-000000000012'),
+('b0000000-0000-0000-0000-000000000006', 'd0000000-0000-0000-0000-000000000013')
 ON CONFLICT DO NOTHING;
 
 -- ============================================================================
@@ -338,4 +369,28 @@ VALUES
      'shelter.updated', 502, 10015, NOW() - INTERVAL '2 hours', 1, '502 Bad Gateway'),
     ('f1000000-0000-0000-0000-000000000006', 'f0000000-0000-0000-0000-000000000002',
      'shelter.updated', 200, 98, NOW() - INTERVAL '3 hours', 1, '{"status":"ok"}')
+ON CONFLICT (id) DO NOTHING;
+
+-- =====================================================================
+-- Notifications — demo data for bell badge and notification dropdown
+-- RLS note: INSERT policy is WITH CHECK (true), so plain INSERTs work
+-- without set_config. Only SELECT/UPDATE are recipient-scoped.
+-- =====================================================================
+INSERT INTO notification (id, tenant_id, recipient_id, type, severity, payload, read_at, acted_at, created_at, expires_at)
+VALUES
+    -- DV Coordinator: new DV referral needs review — ACTION_REQUIRED, unread
+    ('a1000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001',
+     'b0000000-0000-0000-0000-000000000006', 'referral.requested', 'ACTION_REQUIRED',
+     '{"referralId": "00000000-0000-0000-0000-000000000099", "shelterId": "d0000000-0000-0000-0000-000000000011"}',
+     NULL, NULL, NOW() - INTERVAL '15 minutes', NULL),
+    -- DV Coordinator: surge event activated — CRITICAL, unread, requires acknowledgement
+    ('a1000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000001',
+     'b0000000-0000-0000-0000-000000000006', 'surge.activated', 'CRITICAL',
+     '{"surgeEventId": "00000000-0000-0000-0000-000000000088", "reason": "White Flag — temperature below 32°F"}',
+     NULL, NULL, NOW() - INTERVAL '5 minutes', NULL),
+    -- Outreach worker: referral accepted — ACTION_REQUIRED, unread
+    ('a1000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000001',
+     'b0000000-0000-0000-0000-000000000002', 'referral.responded', 'ACTION_REQUIRED',
+     '{"referralId": "00000000-0000-0000-0000-000000000097", "status": "ACCEPTED"}',
+     NULL, NULL, NOW() - INTERVAL '10 minutes', NULL)
 ON CONFLICT (id) DO NOTHING;

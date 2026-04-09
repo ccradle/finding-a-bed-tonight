@@ -166,6 +166,24 @@ public class UserService {
         return saved;
     }
 
+    /**
+     * Find active coordinators with DV access in a tenant.
+     * Used for DV referral notifications — only DV-authorized coordinators receive them.
+     */
+    @Transactional(readOnly = true)
+    public List<User> findDvCoordinators(UUID tenantId) {
+        return userRepository.findActiveByTenantIdAndDvAccessAndRole(tenantId, "COORDINATOR");
+    }
+
+    /**
+     * Find active users with a specific role in a tenant (regardless of DV access).
+     * Used for escalation notifications to CoC admins, platform-wide broadcasts, etc.
+     */
+    @Transactional(readOnly = true)
+    public List<User> findActiveByRole(UUID tenantId, String role) {
+        return userRepository.findActiveByTenantIdAndRole(tenantId, role);
+    }
+
     private void publishAuditEvent(UUID actorUserId, UUID targetUserId, String action,
                                     Object details, String ipAddress) {
         eventPublisher.publishEvent(new AuditEventRecord(

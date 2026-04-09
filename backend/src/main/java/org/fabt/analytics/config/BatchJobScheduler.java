@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledFuture;
 
+import org.fabt.shared.web.TenantContext;
 import org.fabt.tenant.service.TenantService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,6 +55,7 @@ public class BatchJobScheduler implements SchedulingConfigurer {
     private final Map<String, ScheduledFuture<?>> scheduledFutures = new ConcurrentHashMap<>();
     private final Map<String, String> currentCrons = new ConcurrentHashMap<>();
     private final Map<String, Boolean> enabledState = new ConcurrentHashMap<>();
+    private final Map<String, Boolean> dvAccessRequired = new ConcurrentHashMap<>();
     private TaskScheduler taskScheduler;
 
     public BatchJobScheduler(JobLauncher jobLauncher) {
@@ -70,11 +72,28 @@ public class BatchJobScheduler implements SchedulingConfigurer {
      * Called by job configuration beans during startup.
      */
     public void registerJob(String jobName, Job job, String defaultCron) {
+        registerJob(jobName, job, defaultCron, false);
+    }
+
+    /**
+     * Register a Spring Batch job that requires DV access for RLS context.
+     *
+     * <p>When {@code dvAccess} is true, the job execution is wrapped in
+     * {@link TenantContext#runWithContext} with dvAccess=true. This ensures that
+     * when Spring Batch's TransactionManager acquires a connection (before the
+     * Tasklet/Step code runs), the RLS-aware DataSource reads dvAccess=true from
+     * TenantContext and sets {@code app.dv_access='true'} on the connection.</p>
+     *
+     * <p>Without this, jobs that query DV-protected tables (referral_token, shelter)
+     * see zero rows because ScopedValue is not bound when the connection is acquired.</p>
+     */
+    public void registerJob(String jobName, Job job, String defaultCron, boolean dvAccess) {
         registeredJobs.put(jobName, job);
         currentCrons.put(jobName, defaultCron);
         enabledState.put(jobName, true);
+        dvAccessRequired.put(jobName, dvAccess);
         scheduleJob(jobName, defaultCron);
-        log.info("Registered batch job '{}' with cron '{}'", jobName, defaultCron);
+        log.info("Registered batch job '{}' with cron '{}' (dvAccess={})", jobName, defaultCron, dvAccess);
     }
 
     /**
@@ -110,19 +129,32 @@ public class BatchJobScheduler implements SchedulingConfigurer {
 
     /**
      * Trigger a manual run of a batch job with optional parameters.
+     * Respects the job's dvAccess flag for proper RLS context.
      */
     public void triggerJob(String jobName, Map<String, String> params) throws Exception {
         Job job = registeredJobs.get(jobName);
         if (job == null) {
             throw new IllegalArgumentException("Unknown job: " + jobName);
         }
+        boolean dvAccess = dvAccessRequired.getOrDefault(jobName, false);
         JobParametersBuilder builder = new JobParametersBuilder();
         builder.addString("triggerTime", Instant.now().toString());
         if (params != null) {
             params.forEach(builder::addString);
         }
-        jobLauncher.run(job, builder.toJobParameters());
-        log.info("Manually triggered batch job '{}'", jobName);
+        JobParameters jobParams = builder.toJobParameters();
+        if (dvAccess) {
+            TenantContext.runWithContext(null, true, () -> {
+                try {
+                    jobLauncher.run(job, jobParams);
+                } catch (Exception e) {
+                    throw new RuntimeException("Manual trigger failed for job: " + jobName, e);
+                }
+            });
+        } else {
+            jobLauncher.run(job, jobParams);
+        }
+        log.info("Manually triggered batch job '{}' (dvAccess={})", jobName, dvAccess);
     }
 
     public Map<String, String> getCurrentCrons() {
@@ -158,6 +190,19 @@ public class BatchJobScheduler implements SchedulingConfigurer {
     }
 
     private void runJob(String jobName, Job job) {
+        boolean dvAccess = dvAccessRequired.getOrDefault(jobName, false);
+        if (dvAccess) {
+            // Wrap entire job execution in TenantContext so that when Spring Batch's
+            // TransactionManager acquires connections, the RLS-aware DataSource reads
+            // dvAccess=true from TenantContext. SimpleJobLauncher runs synchronously
+            // on the caller's thread, so ScopedValue scope covers all connection acquisitions.
+            TenantContext.runWithContext(null, dvAccess, () -> launchJob(jobName, job));
+        } else {
+            launchJob(jobName, job);
+        }
+    }
+
+    private void launchJob(String jobName, Job job) {
         try {
             JobParameters params = new JobParametersBuilder()
                     .addString("scheduledTime", Instant.now().toString())

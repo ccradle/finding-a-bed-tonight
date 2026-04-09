@@ -250,6 +250,50 @@ class SurgeIntegrationTest extends BaseIntegrationTest {
         return response.getBody().id();
     }
 
+    // -------------------------------------------------------------------------
+    // Persistent Notification Integration
+    // -------------------------------------------------------------------------
+
+    @Test
+    void test_activateSurge_createsNotificationForCoordinators() {
+        HttpHeaders headers = authHelper.cocAdminHeaders();
+        activateSurge(headers, "White Flag — below 32°F");
+
+        // Coordinator should have a CRITICAL surge notification
+        ResponseEntity<String> notifResp = restTemplate.exchange(
+                "/api/v1/notifications?unread=true", HttpMethod.GET,
+                new HttpEntity<>(authHelper.coordinatorHeaders()), String.class);
+        assertThat(notifResp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(notifResp.getBody()).contains("surge.activated");
+        assertThat(notifResp.getBody()).contains("CRITICAL");
+    }
+
+    @Test
+    void test_deactivateSurge_createsInfoNotificationForCoordinators() {
+        HttpHeaders headers = authHelper.cocAdminHeaders();
+
+        // Activate first
+        ResponseEntity<Map<String, Object>> createResponse = activateSurge(headers, "Test surge for deactivate");
+        String surgeId = (String) createResponse.getBody().get("id");
+
+        // Deactivate
+        restTemplate.exchange(
+                "/api/v1/surge-events/" + surgeId + "/deactivate",
+                HttpMethod.PATCH, new HttpEntity<>(headers),
+                new ParameterizedTypeReference<Map<String, Object>>() {});
+
+        // Coordinator should have an INFO surge.deactivated notification
+        ResponseEntity<String> notifResp = restTemplate.exchange(
+                "/api/v1/notifications?unread=true", HttpMethod.GET,
+                new HttpEntity<>(authHelper.coordinatorHeaders()), String.class);
+        assertThat(notifResp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(notifResp.getBody()).contains("surge.deactivated");
+    }
+
+    // -------------------------------------------------------------------------
+    // Helpers
+    // -------------------------------------------------------------------------
+
     private ResponseEntity<Map<String, Object>> activateSurge(HttpHeaders headers, String reason) {
         String body = """
                 {"reason": "%s"}

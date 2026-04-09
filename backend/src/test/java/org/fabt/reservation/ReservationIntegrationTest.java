@@ -8,6 +8,7 @@ import org.fabt.BaseIntegrationTest;
 import org.fabt.TestAuthHelper;
 import org.fabt.availability.TestEventListener;
 import org.fabt.auth.domain.User;
+import org.fabt.reservation.service.ReservationExpiryService;
 import org.fabt.shared.event.DomainEvent;
 import org.fabt.shelter.api.ShelterResponse;
 import org.fabt.shelter.repository.CoordinatorAssignmentRepository;
@@ -37,6 +38,9 @@ class ReservationIntegrationTest extends BaseIntegrationTest {
 
     @Autowired
     private TestEventListener eventListener;
+
+    @Autowired
+    private ReservationExpiryService reservationExpiryService;
 
     private UUID shelterId;
 
@@ -486,6 +490,40 @@ class ReservationIntegrationTest extends BaseIntegrationTest {
                 new ParameterizedTypeReference<>() {}
         );
     }
+
+    // -------------------------------------------------------------------------
+    // Persistent Notification Integration
+    // -------------------------------------------------------------------------
+
+    @Test
+    void test_reservationExpiry_notifiesOutreachWorker() {
+        HttpHeaders headers = authHelper.outreachWorkerHeaders();
+
+        // Create reservation
+        ResponseEntity<Map<String, Object>> createResponse = createReservation(
+                shelterId, headers, "SINGLE_ADULT");
+        String reservationId = (String) createResponse.getBody().get("id");
+
+        // Force expiry by setting expires_at to past
+        jdbcTemplate.update(
+                "UPDATE reservation SET expires_at = NOW() - INTERVAL '1 minute' WHERE id = ?::uuid",
+                reservationId);
+
+        // Trigger expiry job
+        reservationExpiryService.expireOverdueReservations();
+
+        // Outreach worker should have a reservation.expired notification
+        ResponseEntity<String> notifResp = restTemplate.exchange(
+                "/api/v1/notifications?unread=true", HttpMethod.GET,
+                new HttpEntity<>(headers), String.class);
+        assertThat(notifResp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(notifResp.getBody()).contains("reservation.expired");
+        assertThat(notifResp.getBody()).contains("ACTION_REQUIRED");
+    }
+
+    // -------------------------------------------------------------------------
+    // Helpers
+    // -------------------------------------------------------------------------
 
     @SuppressWarnings("unchecked")
     private int searchBedsOnHold(HttpHeaders headers, UUID shelterId, String populationType) {

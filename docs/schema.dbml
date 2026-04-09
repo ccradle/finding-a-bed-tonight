@@ -1,7 +1,7 @@
 // ============================================================================
 // Finding A Bed Tonight (FABT) — Database Schema
-// Source: Flyway migrations V1–V32 + V8.1
-// Last synced: 2026-04-01
+// Source: Flyway migrations V1–V36 + V8.1
+// Last synced: 2026-04-08
 // ============================================================================
 
 Project fabt {
@@ -669,4 +669,38 @@ Table batch_job_execution_context {
   job_execution_id   bigint      [pk, ref: - batch_job_execution.job_execution_id]
   short_context      varchar(2500) [not null]
   serialized_context text
+}
+
+// ---------------------------------------------------------------------------
+// V35/V36 — Notification (persistent, DB-backed)
+// ---------------------------------------------------------------------------
+// RLS FORCE enabled on notification.
+// Policies: SELECT by recipient (recipient_id = current_setting('app.user_id')),
+//           UPDATE by recipient (recipient_id = current_setting('app.user_id')),
+//           DELETE unrestricted, INSERT unrestricted.
+
+Table notification {
+  id            uuid        [pk, note: 'gen_random_uuid()']
+  tenant_id     uuid        [not null, ref: > tenant.id]
+  recipient_id  uuid        [not null, ref: > app_user.id, note: 'ON DELETE CASCADE']
+  type          varchar(50) [not null, note: 'e.g. referral.requested, surge.activated, escalation.1h']
+  severity      varchar(20) [not null, default: 'INFO', note: 'INFO (auto-dismissed), ACTION_REQUIRED (persist until read), CRITICAL (persist until acted)']
+  payload       jsonb       [not null, default: '{}', note: 'Operational identifiers only — zero client PII. e.g. referralId, shelterId, threshold']
+  read_at       timestamptz [note: 'Set when recipient marks notification as read']
+  acted_at      timestamptz [note: 'Set when recipient takes action on the notification']
+  created_at    timestamptz [not null, default: `now()`]
+  expires_at    timestamptz [note: 'Nullable — no expiry if null']
+
+  indexes {
+    (recipient_id, created_at) [name: 'idx_notification_unread', note: 'DESC on created_at, partial WHERE read_at IS NULL — unread inbox query']
+    (tenant_id, created_at) [name: 'idx_notification_tenant', note: 'DESC on created_at']
+    (payload) [name: 'idx_notification_payload_referral_id', note: 'V36 — expression index on (payload ->> referralId)']
+  }
+
+  note: '''
+  Persistent notification for in-app bell/inbox. Created by
+  NotificationPersistenceService.send() on domain events (e.g. DV referral
+  lifecycle). Protected by PostgreSQL RLS: recipients can only SELECT/UPDATE
+  their own notifications. DELETE and INSERT are unrestricted (service-level).
+  '''
 }

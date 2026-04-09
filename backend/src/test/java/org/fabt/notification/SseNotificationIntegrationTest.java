@@ -13,6 +13,7 @@ import java.util.stream.Stream;
 import org.fabt.BaseIntegrationTest;
 import org.fabt.TestAuthHelper;
 import org.fabt.auth.domain.User;
+import org.fabt.notification.service.NotificationPersistenceService;
 import org.fabt.notification.service.NotificationService;
 import org.fabt.shared.event.DomainEvent;
 import org.fabt.shared.event.EventBus;
@@ -47,6 +48,9 @@ class SseNotificationIntegrationTest extends BaseIntegrationTest {
 
     @Autowired
     private NotificationService notificationService;
+
+    @Autowired
+    private NotificationPersistenceService notificationPersistenceService;
 
     @Autowired
     private EventBus eventBus;
@@ -378,5 +382,113 @@ class SseNotificationIntegrationTest extends BaseIntegrationTest {
         ResponseEntity<String> response = restTemplate.getForEntity(
                 "/api/v1/notifications/stream", String.class);
         assertThat(response.getStatusCode()).isEqualTo(org.springframework.http.HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    @DisplayName("SSE catch-up delivers unread notifications from DB on connect")
+    void sseCatchupDeliversUnreadNotifications() throws Exception {
+        User coordinator = authHelper.setupCoordinatorUser();
+        UUID tenantId = testTenant.getId();
+
+        // Create persistent notifications BEFORE SSE connect
+        TenantContext.runWithContext(tenantId, false, () -> {
+            notificationPersistenceService.send(tenantId, coordinator.getId(),
+                    "referral.requested", "ACTION_REQUIRED",
+                    "{\"referralId\":\"" + UUID.randomUUID() + "\"}");
+        });
+
+        // Connect via SSE — catch-up should deliver the unread notification
+        String token = authHelper.getJwtService().generateAccessToken(coordinator);
+        HttpClient httpClient = HttpClient.newHttpClient();
+        HttpResponse<Stream<String>> response = httpClient.sendAsync(
+                HttpRequest.newBuilder()
+                        .uri(URI.create("http://localhost:" + port + "/api/v1/notifications/stream?token=" + token))
+                        .header("Accept", "text/event-stream").GET().build(),
+                HttpResponse.BodyHandlers.ofLines()).get(5, TimeUnit.SECONDS);
+
+        assertThat(response.statusCode()).isEqualTo(200);
+
+        var receivedLines = new java.util.concurrent.CopyOnWriteArrayList<String>();
+        var latch = new java.util.concurrent.CountDownLatch(1);
+        Thread.startVirtualThread(() -> {
+            response.body().forEach(line -> {
+                receivedLines.add(line);
+                // Catch-up sends events with name "notification"
+                if (line.contains("referral.requested")) latch.countDown();
+            });
+        });
+
+        // Wait for catch-up delivery (runs on virtual thread, may take a moment)
+        boolean received = latch.await(5, TimeUnit.SECONDS);
+
+        response.body().close();
+        httpClient.shutdownNow();
+        httpClient.awaitTermination(Duration.ofSeconds(2));
+
+        assertThat(received).as("Catch-up should deliver unread notification from DB").isTrue();
+        String allLines = String.join("\n", receivedLines);
+        assertThat(allLines).contains("referral.requested");
+        assertThat(allLines).contains("ACTION_REQUIRED");
+    }
+
+    @Test
+    @DisplayName("SSE catch-up delivers CRITICAL before ACTION_REQUIRED before INFO")
+    void sseCatchupDeliversInSeverityOrder() throws Exception {
+        User coordinator = authHelper.setupCoordinatorUser();
+        UUID tenantId = testTenant.getId();
+
+        // Create notifications in reverse severity order — DB should reorder
+        TenantContext.runWithContext(tenantId, false, () -> {
+            notificationPersistenceService.send(tenantId, coordinator.getId(),
+                    "test.info", "INFO", "{}");
+            notificationPersistenceService.send(tenantId, coordinator.getId(),
+                    "test.action", "ACTION_REQUIRED", "{}");
+            notificationPersistenceService.send(tenantId, coordinator.getId(),
+                    "test.critical", "CRITICAL", "{}");
+        });
+
+        // Connect — catch-up delivers all three
+        String token = authHelper.getJwtService().generateAccessToken(coordinator);
+        HttpClient httpClient = HttpClient.newHttpClient();
+        HttpResponse<Stream<String>> response = httpClient.sendAsync(
+                HttpRequest.newBuilder()
+                        .uri(URI.create("http://localhost:" + port + "/api/v1/notifications/stream?token=" + token))
+                        .header("Accept", "text/event-stream").GET().build(),
+                HttpResponse.BodyHandlers.ofLines()).get(5, TimeUnit.SECONDS);
+
+        assertThat(response.statusCode()).isEqualTo(200);
+
+        var receivedLines = new java.util.concurrent.CopyOnWriteArrayList<String>();
+        var allReceived = new java.util.concurrent.CountDownLatch(3);
+        Thread.startVirtualThread(() -> {
+            response.body().forEach(line -> {
+                receivedLines.add(line);
+                if (line.contains("test.critical") || line.contains("test.action") || line.contains("test.info")) {
+                    allReceived.countDown();
+                }
+            });
+        });
+
+        boolean received = allReceived.await(5, TimeUnit.SECONDS);
+
+        response.body().close();
+        httpClient.shutdownNow();
+        httpClient.awaitTermination(Duration.ofSeconds(2));
+
+        assertThat(received).as("All three catch-up notifications should arrive").isTrue();
+
+        // Verify severity ordering: CRITICAL appears before ACTION_REQUIRED, which appears before INFO.
+        // Use "severity":"X" pattern to avoid substring false matches (e.g., "INFO" inside "ACTION_REQUIRED").
+        String allLines = String.join("\n", receivedLines);
+        int criticalIdx = allLines.indexOf("\"severity\":\"CRITICAL\"");
+        int actionIdx = allLines.indexOf("\"severity\":\"ACTION_REQUIRED\"");
+        int infoIdx = allLines.indexOf("\"severity\":\"INFO\"");
+        // First: verify all three severities are present (prevents false-passing if one is missing)
+        assertThat(criticalIdx).as("CRITICAL must appear in catch-up").isGreaterThanOrEqualTo(0);
+        assertThat(actionIdx).as("ACTION_REQUIRED must appear in catch-up").isGreaterThanOrEqualTo(0);
+        assertThat(infoIdx).as("INFO must appear in catch-up").isGreaterThanOrEqualTo(0);
+        // Then: verify ordering — CRITICAL before ACTION_REQUIRED before INFO
+        assertThat(criticalIdx).as("CRITICAL must appear before ACTION_REQUIRED").isLessThan(actionIdx);
+        assertThat(actionIdx).as("ACTION_REQUIRED must appear before INFO").isLessThan(infoIdx);
     }
 }

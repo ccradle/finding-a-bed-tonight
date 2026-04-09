@@ -300,8 +300,9 @@ export function OutreachSearch() {
         // Network error (offline, captive portal, DNS failure) — show inside modal
         setReferralError(intl.formatMessage({ id: 'referral.networkError' }));
       } else {
-        // API error (server-side) — show inside modal too, not behind it
-        setReferralError(intl.formatMessage({ id: 'search.error' }));
+        // API error (server-side) — show server message if available (e.g., duplicate referral)
+        const apiErr = err as { message?: string };
+        setReferralError(apiErr.message || intl.formatMessage({ id: 'search.error' }));
       }
     } finally {
       setReferralSubmitting(false);
