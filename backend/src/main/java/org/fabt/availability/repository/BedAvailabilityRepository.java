@@ -43,23 +43,36 @@ public class BedAvailabilityRepository {
     /**
      * Latest snapshot per (shelter_id, population_type) for a tenant.
      *
-     * Uses a lateral join (skip-scan pattern) instead of DISTINCT ON to avoid
-     * scanning all rows. With 65K+ rows, DISTINCT ON does a full index scan
-     * (129ms) whereas this lateral approach does 24 index probes with LIMIT 1
-     * (36ms). The idx_bed_avail_tenant_latest index (V25) supports this.
-     *
-     * Little's Law impact: reducing query time from 0.17s to ~0.04s lowers
-     * peak connection demand from 12 to ~3 at 70 concurrent requests.
+     * Uses a recursive CTE to emulate a skip scan for distinct (shelter_id,
+     * population_type) combos, then a LATERAL join to fetch the latest row
+     * for each combo. PostgreSQL lacks native skip scan, so SELECT DISTINCT
+     * reads all matching rows (875K at NYC scale → 249ms). The recursive CTE
+     * hops across the idx_bed_avail_tenant_latest index with Index Only Scans,
+     * touching only one entry per combo (826 combos → 10ms). 24x speedup
+     * verified via EXPLAIN ANALYZE at NYC scale (2.4M rows).
      */
     public List<BedAvailability> findLatestByTenantId(UUID tenantId) {
         return jdbcTemplate.query(
                 """
+                WITH RECURSIVE combos AS (
+                    (SELECT shelter_id, population_type
+                     FROM bed_availability
+                     WHERE tenant_id = ?
+                     ORDER BY shelter_id, population_type
+                     LIMIT 1)
+                    UNION ALL
+                    (SELECT ba.shelter_id, ba.population_type
+                     FROM combos c, LATERAL (
+                         SELECT shelter_id, population_type
+                         FROM bed_availability
+                         WHERE tenant_id = ?
+                           AND (shelter_id, population_type) > (c.shelter_id, c.population_type)
+                         ORDER BY shelter_id, population_type
+                         LIMIT 1
+                     ) ba)
+                )
                 SELECT ba.*
-                FROM (
-                    SELECT DISTINCT shelter_id, population_type
-                    FROM bed_availability
-                    WHERE tenant_id = ?
-                ) combos
+                FROM combos
                 CROSS JOIN LATERAL (
                     SELECT *
                     FROM bed_availability ba
@@ -71,7 +84,7 @@ public class BedAvailabilityRepository {
                 ) ba
                 """,
                 ROW_MAPPER,
-                tenantId, tenantId
+                tenantId, tenantId, tenantId
         );
     }
 
