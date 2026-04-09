@@ -5,6 +5,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.31.0] — 2026-04-09 — Persistent Notifications (#77)
+
+### Added
+- **Persistent notification store** — PostgreSQL `notification` table with JSONB payload, severity tiers (INFO, ACTION_REQUIRED, CRITICAL), 4 granular RLS policies. Notifications survive logout/restart.
+- **Bell badge from DB** — REST count on mount (source of truth), SSE real-time increment/decrement, dedup by notification ID. Badge shows accurate unread count immediately on login.
+- **Coordinator referral banner** — persistent red banner with pending DV referral count, SSE real-time updates, not dismissable (resolves when referrals are actioned).
+- **CRITICAL notification banner** — persistent at top of page until acted on (Design D3), `role="alert"` for screen readers.
+- **DV referral escalation** — Spring Batch job (every 5 min): T+1h reminder to coordinator, T+2h CRITICAL to CoC admin, T+3.5h expiry warning to coordinator + worker, T+4h expired to worker. Dedup via functional index on `payload->>'referralId'`.
+- **Notification event listeners** — `@TransactionalEventListener(AFTER_COMMIT)` for referral requested/responded, surge activated/deactivated, reservation expired.
+- **Notification REST API** — 6 endpoints: list, count, stream (SSE), mark read, mark acted, mark all read. "Mark all read" excludes CRITICAL (Design D3).
+- **DV coordinator seed user** — `dv-coordinator@dev.fabt.org` (COORDINATOR + dvAccess=true), assigned to all 3 DV shelters. Receives referral notifications.
+- **Coordinator pending count endpoint** — `GET /api/v1/dv-referrals/pending/count` for dashboard banner.
+- **33 backend integration tests** — RLS policies, escalation batch job, referral/surge/reservation notifications, cleanup, cross-tenant isolation, zero-PII payloads.
+- **8 Playwright E2E tests** — bell badge, CRITICAL banner, mark-as-read, DV isolation, i18n rendering, WCAG compliance.
+- **11 i18n keys** (en + es) for surge, reservation expiry, escalation thresholds, coordinator banner, critical banner.
+
+### Changed
+- **TenantContext** extended with `userId` for notification RLS (`app.current_user_id` set on every JDBC connection).
+- **RlsDataSourceConfig** sets `app.current_user_id` (nil UUID when no user context — fails closed).
+- **BatchJobScheduler** supports `dvAccess` flag — wraps job execution in TenantContext before Spring Batch acquires connections.
+- **JsonString** `@JsonValue` annotation for correct REST serialization of JSONB payloads.
+- **DemoGuard** allowlists notification mutation endpoints (read/acted/read-all).
+- **Duplicate referral error** — descriptive "You already have a pending referral for this shelter" instead of generic 409.
+
+### Database
+- V35: `notification` table, 4 RLS policies (SELECT/UPDATE by recipient, DELETE/INSERT unrestricted), partial index on unread, tenant index
+- V36: Functional index on `notification((payload ->> 'referralId'))` for escalation dedup
+- V37: Partial index on `referral_token(status, expires_at) WHERE status = 'PENDING'` for expiry job
+
+---
+
 ## [v0.30.1] — 2026-04-08 — Surge Banner Contrast Fix (#79)
 
 ### Fixed

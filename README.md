@@ -57,16 +57,16 @@ Full setup guide: [For Developers](docs/FOR-DEVELOPERS.md#prerequisites)
 | Layer | Technology |
 |---|---|
 | Backend | Java 25, Spring Boot 4.0, Spring MVC, Spring Data JDBC, Virtual Threads |
-| Database | PostgreSQL 16, Flyway (34 migrations), Row Level Security (DV shelters) |
+| Database | PostgreSQL 16, Flyway (37 migrations), Row Level Security (DV shelters + notifications) |
 | Frontend | React 19, Vite, TypeScript, Workbox PWA (injectManifest), react-intl (EN/ES), CSS custom properties design tokens |
-| Testing | JUnit 5, Testcontainers, ArchUnit (425 tests), Playwright (299 UI tests), Vitest (20 unit tests), Karate (82 API scenarios), Gatling (8 simulations) |
+| Testing | JUnit 5, Testcontainers, ArchUnit (457 tests), Playwright (307 UI tests), Vitest (20 unit tests), Karate (82 API scenarios), Gatling (8 simulations) |
 | Infra | Docker, GitHub Actions CI/CD + E2E pipeline, Terraform (3 tiers) |
 
 ---
 
 ## What's Complete
 
-**Current version: v0.30.0** — 42 archived OpenSpec changes, 96 specs, 14 modules.
+**Current version: v0.31.0** — 43 archived OpenSpec changes, 97 specs, 14 modules.
 
 - Real-time bed search with freshness indicators and constraint filters
 - Soft-hold reservations with configurable hold duration (default 90 min)
@@ -78,6 +78,7 @@ Full setup guide: [For Developers](docs/FOR-DEVELOPERS.md#prerequisites)
 - OAuth2 SSO: Google, Microsoft, Keycloak with per-tenant provider management
 - Security hardening: JWT validation, rate limiting, security headers, OWASP ZAP baseline
 - Design token system: typography + color tokens as CSS custom properties, automatic dark mode (prefers-color-scheme), WCAG AA verified in both modes
+- Persistent notifications: DB-backed bell badge, coordinator referral banner, CRITICAL banner, DV referral escalation (1h/2h/3.5h/4h), surge alerts, reservation expiry
 - SSE real-time notifications: bell UI with WCAG disclosure pattern, connection status banner, auto-refresh on events
 - Admin user management: edit drawer, deactivation/reactivation, JWT token versioning, audit trail
 - Shelter edit: admin and coordinator edit paths, DV safeguards (role-gated, confirmation dialog, audit-logged), 211 CSV import with preview

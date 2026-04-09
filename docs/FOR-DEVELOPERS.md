@@ -30,7 +30,7 @@ Three deployment tiers allow the same codebase to serve communities of vastly di
 | Layer | Technology |
 |---|---|
 | Backend | Java 25, Spring Boot 4.0, Spring MVC, Spring Data JDBC, Virtual Threads |
-| Database | PostgreSQL 16, Flyway (33 migrations), Row Level Security (DV shelters) |
+| Database | PostgreSQL 16, Flyway (37 migrations), Row Level Security (DV shelters + notifications) |
 | Cache | Caffeine L1 / + Redis L2 (Standard/Full) |
 | Events | Spring Events (Lite) / Kafka (Full) |
 | Auth | JWT + OAuth2/OIDC + API Keys (hybrid) |
@@ -84,7 +84,7 @@ Phase 2 will add an MCP server as a thin wrapper around the REST API, enabling n
 
 ## Database Schema
 
-33 Flyway migrations (V1–V32 + V8.1):
+37 Flyway migrations (V1–V37 + V8.1):
 
 | Migration | Description |
 |---|---|
@@ -910,7 +910,7 @@ finding-a-bed-tonight/
 │       ├── main/resources/
 │       │   ├── application.yml                        # Base config (port 8080, OTel, Resilience4J)
 │       │   ├── application-observability.yml          # Management port 9091 (for dev Prometheus scrape)
-│       │   ├── db/migration/                          # 33 Flyway migrations (V1–V32 + V8.1)
+│       │   ├── db/migration/                          # 37 Flyway migrations (V1–V37 + V8.1)
 │       │   ├── logback-spring.xml                     # Structured JSON logging (Logstash encoder)
 │       │   └── messages/                              # i18n error messages (EN, ES)
 │       └── test/java/org/fabt/                        # 378 tests (unit + integration)
