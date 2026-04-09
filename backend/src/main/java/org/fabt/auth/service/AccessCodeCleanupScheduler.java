@@ -7,9 +7,8 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * Scheduled cleanup of expired one-time access codes.
+ * Scheduled cleanup of expired auth tokens (access codes + password reset tokens).
  * Runs hourly to prevent table bloat from accumulated expired tokens.
- * Similar to DV referral token purge pattern.
  */
 @Component
 public class AccessCodeCleanupScheduler {
@@ -23,11 +22,14 @@ public class AccessCodeCleanupScheduler {
     }
 
     @Scheduled(fixedRate = 3600_000) // Every hour
-    public void purgeExpiredCodes() {
-        int deleted = jdbcTemplate.update(
+    public void purgeExpiredTokens() {
+        int accessCodes = jdbcTemplate.update(
                 "DELETE FROM one_time_access_code WHERE expires_at < NOW() OR used = true");
-        if (deleted > 0) {
-            log.info("Purged {} expired/used one-time access codes", deleted);
+        int resetTokens = jdbcTemplate.update(
+                "DELETE FROM password_reset_token WHERE expires_at < NOW() OR used = true");
+        if (accessCodes + resetTokens > 0) {
+            log.info("Purged {} expired/used access codes, {} password reset tokens",
+                    accessCodes, resetTokens);
         }
     }
 }
