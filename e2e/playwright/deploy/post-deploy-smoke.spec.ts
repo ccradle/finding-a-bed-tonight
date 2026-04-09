@@ -16,10 +16,10 @@ const LOGIN = `${BASE}/login`;
 
 test.describe('Post-deploy smoke tests', () => {
 
-  test('1. Version shows v0.30', async ({ page }) => {
+  test('1. Version shows v0.31', async ({ page }) => {
     await page.goto(LOGIN);
     const version = page.getByTestId('app-version');
-    await expect(version).toContainText('v0.30', { timeout: 10_000 });
+    await expect(version).toContainText('v0.31', { timeout: 10_000 });
   });
 
   test('2. Outreach worker login + search returns results', async ({ page }) => {
@@ -95,7 +95,64 @@ test.describe('Post-deploy smoke tests', () => {
     await expect(page.locator('text=/demo/i')).toBeVisible({ timeout: 10_000 });
   });
 
-  test('5. SSE connects without reconnecting banner', async ({ page }) => {
+  test('5. DV coordinator can login and sees notification bell', async ({ page }) => {
+    await page.goto(LOGIN);
+    await page.getByTestId('login-tenant-slug').fill('dev-coc');
+    await page.getByTestId('login-email').fill('dv-coordinator@dev.fabt.org');
+    await page.getByTestId('login-password').fill('admin123');
+    await page.getByTestId('login-submit').click();
+
+    // DV coordinator lands at /coordinator
+    await expect(page).toHaveURL(/coordinator/, { timeout: 15_000 });
+
+    // Bell should be visible (persistent notifications feature)
+    const bell = page.getByTestId('notification-bell-button');
+    await expect(bell).toBeVisible({ timeout: 5_000 });
+  });
+
+  test('6. Notification count endpoint responds', async ({ page }) => {
+    // Login as dv-coordinator to get a token, then check the API
+    await page.goto(LOGIN);
+    await page.getByTestId('login-tenant-slug').fill('dev-coc');
+    await page.getByTestId('login-email').fill('dv-coordinator@dev.fabt.org');
+    await page.getByTestId('login-password').fill('admin123');
+    await page.getByTestId('login-submit').click();
+    await expect(page).toHaveURL(/coordinator/, { timeout: 15_000 });
+
+    // The notification count endpoint should respond (exercised by the bell on mount)
+    // Verify the bell has an aria-label (REST count loaded successfully)
+    const bell = page.getByTestId('notification-bell-button');
+    await expect(bell).toBeVisible();
+    const ariaLabel = await bell.getAttribute('aria-label');
+    expect(ariaLabel).toBeTruthy();
+    expect(ariaLabel).toContain('Notifications');
+  });
+
+  test('7. Notification API returns 200 (Flyway V35 migration ran)', async ({ page }) => {
+    // Direct API verification — catches Flyway migration failure that UI tests would miss.
+    // Login first to get auth context, then call the endpoint directly.
+    await page.goto(LOGIN);
+    await page.getByTestId('login-tenant-slug').fill('dev-coc');
+    await page.getByTestId('login-email').fill('dv-coordinator@dev.fabt.org');
+    await page.getByTestId('login-password').fill('admin123');
+    await page.getByTestId('login-submit').click();
+    await expect(page).toHaveURL(/coordinator/, { timeout: 15_000 });
+
+    // Extract the access token from localStorage
+    const token = await page.evaluate(() => localStorage.getItem('fabt_access_token'));
+    expect(token).toBeTruthy();
+
+    // Call the notification count endpoint directly
+    const response = await page.request.get(`${BASE}/api/v1/notifications/count`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    expect(response.status()).toBe(200);
+    const body = await response.json();
+    expect(body).toHaveProperty('unread');
+    expect(typeof body.unread).toBe('number');
+  });
+
+  test('8. SSE connects without reconnecting banner (outreach)', async ({ page }) => {
     await page.goto(LOGIN);
     await page.getByTestId('login-tenant-slug').fill('dev-coc');
     await page.getByTestId('login-email').fill('outreach@dev.fabt.org');
