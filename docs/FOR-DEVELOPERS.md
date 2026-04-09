@@ -646,6 +646,8 @@ All endpoints are under `/api/v1`. Authentication is via JWT Bearer token (from 
 | `GET` | `/api/v1/users/{id}` | COC_ADMIN+ | Get user by ID |
 | `PUT` | `/api/v1/users/{id}` | COC_ADMIN+ | Update user (displayName, email, roles, dvAccess). Role/dvAccess changes increment tokenVersion, invalidating existing JWTs |
 | `PATCH` | `/api/v1/users/{id}/status` | COC_ADMIN+ | Deactivate or reactivate user. Body: `{"status": "DEACTIVATED"}` or `{"status": "ACTIVE"}`. Disconnects SSE on deactivation |
+| `GET` | `/api/v1/users/{id}/shelters` | COC_ADMIN+ | List shelters assigned to a user. Returns `[{id, name}]`. Tenant-scoped. DV shelters visible only if caller has dvAccess |
+| `GET` | `/api/v1/shelters/{id}/coordinators` | COC_ADMIN+ | List coordinator user IDs assigned to a shelter. Returns `[uuid]` |
 
 ### Audit Events
 
