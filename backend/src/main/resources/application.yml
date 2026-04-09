@@ -107,6 +107,7 @@ resilience4j:
       webhook-delivery:
         sliding-window-size: 10
         failure-rate-threshold: 50
+        minimum-number-of-calls: 5
         wait-duration-in-open-state: 30s
         permitted-number-of-calls-in-half-open-state: 3
       fabt-jwks-endpoint:
@@ -128,6 +129,16 @@ resilience4j:
         wait-duration: 2s
         retry-exceptions:
           - java.lang.Exception
+      webhook-delivery:
+        max-attempts: 3
+        wait-duration: 1s
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 3
+        retry-exceptions:
+          - java.io.IOException
+          - java.net.SocketTimeoutException
+          - org.springframework.web.client.ResourceAccessException
+          - org.springframework.web.client.HttpServerErrorException
 
 fabt:
   deployment-tier: ${FABT_DEPLOYMENT_TIER:lite}
