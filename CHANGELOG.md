@@ -5,6 +5,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.31.2] — 2026-04-09 — DV Referral Expiry Fix
+
+### Fixed
+- **DV referral tokens stuck in PENDING** — `@Transactional` on `expireTokens()` eagerly acquired a JDBC connection before `TenantContext.runWithContext()` set dvAccess=true. The RLS-aware DataSource read dvAccess=false, making DV shelter referral tokens invisible to the UPDATE query. Tokens remained PENDING indefinitely (3 stuck on demo site, oldest 7 days).
+- **DV terminal tokens never purged** — same root cause in `purgeTerminalTokens()`. EXPIRED DV tokens were never hard-deleted by the hourly purge job.
+
+### Changed
+- Removed `@Transactional` from `expireTokens()` and `purgeTerminalTokens()` — single-statement SQL is already atomic. JdbcTemplate now acquires connections lazily inside `runWithContext` where dvAccess=true.
+- Added fail-fast assertion: `if (!TenantContext.getDvAccess()) throw IllegalStateException` — prevents silent zero-row failures.
+- Added diagnostic logging: every scheduled run now logs dvAccess state and affected row count, even when 0 rows.
+
+### Added
+- `DvReferralExpiryRlsTest` — integration test calling `expireTokens()` without outer TenantContext (as `@Scheduled` does). Proves DV tokens are correctly expired.
+- Troubleshooting entry in FOR-DEVELOPERS.md: `@Transactional + runWithContext` pattern rule.
+
+---
+
 ## [v0.31.1] — 2026-04-09 — Notification RLS Hotfix
 
 ### Fixed
