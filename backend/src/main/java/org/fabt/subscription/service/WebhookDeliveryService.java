@@ -23,10 +23,14 @@ import org.fabt.shared.web.TenantContext;
 import org.fabt.subscription.domain.Subscription;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import org.springframework.context.event.EventListener;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 
 /**
@@ -41,17 +45,21 @@ public class WebhookDeliveryService {
 
     private static final Logger log = LoggerFactory.getLogger(WebhookDeliveryService.class);
     private static final String HMAC_ALGORITHM = "HmacSHA256";
+    private static final int MAX_RETRIES = 2;
+    private static final long[] RETRY_DELAYS_MS = { 1_000, 3_000 };
 
     private final SubscriptionService subscriptionService;
     private final ObjectMapper objectMapper;
     private final RestClient restClient;
     private final ObservabilityMetrics metrics;
     private final ExecutorService deliveryExecutor;
+    private final CircuitBreaker circuitBreaker;
 
     public WebhookDeliveryService(SubscriptionService subscriptionService,
                                   ObjectMapper objectMapper,
                                   RestClient.Builder restClientBuilder,
-                                  ObservabilityMetrics metrics) {
+                                  ObservabilityMetrics metrics,
+                                  CircuitBreakerRegistry circuitBreakerRegistry) {
         this.subscriptionService = subscriptionService;
         this.objectMapper = objectMapper;
         // Timeouts: 10s connect, 30s read per design D3
@@ -63,6 +71,7 @@ public class WebhookDeliveryService {
                 .build();
         this.metrics = metrics;
         this.deliveryExecutor = Executors.newVirtualThreadPerTaskExecutor();
+        this.circuitBreaker = circuitBreakerRegistry.circuitBreaker("webhook-delivery");
     }
 
     /**
@@ -143,21 +152,87 @@ public class WebhookDeliveryService {
         }
     }
 
+    /**
+     * Delivers a single event to a subscription with retry and circuit breaker.
+     *
+     * <p>Retry: up to 2 retries with exponential backoff (1s, 3s) on retryable failures
+     * (5xx, timeout, network). Does NOT retry 4xx client errors.</p>
+     *
+     * <p>Circuit breaker: uses resilience4j "webhook-delivery" instance. When open,
+     * deliveries fail fast (CallNotPermittedException) — subscriptions still accumulate
+     * consecutive failures and auto-disable at 5.</p>
+     */
     private void deliverSingle(DomainEvent event, Subscription subscription) {
+        // Circuit breaker fast-fail — don't attempt delivery if circuit is open
         try {
-            Timer.Sample timerSample = Timer.start();
-            try {
-                deliver(event, subscription);
-                metrics.webhookDeliveryCounter(event.type(), "success").increment();
-            } finally {
-                timerSample.stop(metrics.webhookDeliveryTimer(event.type()));
-            }
-        } catch (Exception e) {
-            metrics.webhookDeliveryCounter(event.type(), "failure").increment();
-            log.warn("Failed to deliver event {} to subscription {}: {}",
-                    event.id(), subscription.getId(), e.getMessage());
-            subscriptionService.markFailing(subscription.getId(), e.getMessage());
+            circuitBreaker.acquirePermission();
+        } catch (CallNotPermittedException e) {
+            metrics.webhookDeliveryCounter(event.type(), "circuit_open").increment();
+            log.debug("Circuit breaker open — skipping delivery of event {} to subscription {}",
+                    event.id(), subscription.getId());
+            subscriptionService.markFailing(subscription.getId(), "Circuit breaker open");
+            return;
         }
+
+        Exception lastException = null;
+        boolean success = false;
+
+        for (int attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+            try {
+                Timer.Sample timerSample = Timer.start();
+                try {
+                    deliver(event, subscription);
+                    metrics.webhookDeliveryCounter(event.type(), "success").increment();
+                } finally {
+                    timerSample.stop(metrics.webhookDeliveryTimer(event.type()));
+                }
+                if (attempt > 0) {
+                    log.info("Webhook delivery succeeded on retry {} for event {} to subscription {}",
+                            attempt, event.id(), subscription.getId());
+                }
+                circuitBreaker.onSuccess(0, java.util.concurrent.TimeUnit.MILLISECONDS);
+                success = true;
+                break;
+            } catch (Exception e) {
+                lastException = e;
+                // Don't retry 4xx client errors — only retryable (5xx, timeout, network)
+                if (isClientError(e)) {
+                    log.warn("Non-retryable 4xx delivering event {} to subscription {}: {}",
+                            event.id(), subscription.getId(), e.getMessage());
+                    break;
+                }
+                if (attempt < MAX_RETRIES) {
+                    log.debug("Webhook attempt {} failed for event {} to subscription {}, retrying in {}ms",
+                            attempt + 1, event.id(), subscription.getId(), RETRY_DELAYS_MS[attempt]);
+                    try {
+                        Thread.sleep(RETRY_DELAYS_MS[attempt]);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (!success) {
+            circuitBreaker.onError(0, java.util.concurrent.TimeUnit.MILLISECONDS, lastException);
+            metrics.webhookDeliveryCounter(event.type(), "failure").increment();
+            log.warn("Failed to deliver event {} to subscription {} after {} attempts: {}",
+                    event.id(), subscription.getId(), MAX_RETRIES + 1,
+                    lastException != null ? lastException.getMessage() : "unknown");
+            subscriptionService.markFailing(subscription.getId(),
+                    lastException != null ? lastException.getMessage() : "unknown");
+        }
+    }
+
+    private boolean isClientError(Exception e) {
+        if (e instanceof HttpClientErrorException hce) {
+            return hce.getStatusCode().is4xxClientError();
+        }
+        String msg = e.getMessage();
+        if (msg == null) return false;
+        return msg.contains(" 400 ") || msg.contains(" 401 ") || msg.contains(" 403 ")
+                || msg.contains(" 404 ") || msg.contains(" 405 ") || msg.contains(" 422 ");
     }
 
     private boolean matchesFilter(DomainEvent event, Subscription subscription) {
