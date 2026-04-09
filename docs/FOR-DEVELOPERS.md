@@ -138,6 +138,10 @@ Phase 2 will add an MCP server as a thin wrapper around the REST API, enabling n
 
 ## Recent Changes
 
+### DV Referral Expiry Fix (v0.31.2)
+
+`@Transactional` on `expireTokens()` and `purgeTerminalTokens()` caused DV referral tokens to remain PENDING indefinitely. Root cause: `@Transactional` eagerly acquires a JDBC connection before `runWithContext()` sets dvAccess=true. See Troubleshooting section for the full pattern rule.
+
 ### Color System & Dark Mode (v0.21.0)
 
 CSS custom property color tokens with automatic dark mode (`prefers-color-scheme: dark`). Architecture follows the **Radix/Carbon split pattern**:
