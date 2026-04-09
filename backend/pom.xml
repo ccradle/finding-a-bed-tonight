@@ -200,6 +200,13 @@
             <version>1.4.1</version>
             <scope>test</scope>
         </dependency>
+        <!-- GreenMail (embedded SMTP for email integration tests — no Docker needed) -->
+        <dependency>
+            <groupId>com.icegreen</groupId>
+            <artifactId>greenmail-junit5</artifactId>
+            <version>2.1.2</version>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-csv</artifactId>
