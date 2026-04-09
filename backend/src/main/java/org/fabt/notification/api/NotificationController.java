@@ -115,8 +115,11 @@ public class NotificationController {
     @Operation(
             summary = "List notifications for authenticated user",
             description = "Returns notifications ordered by severity DESC, created_at DESC. "
-                    + "Supports pagination: ?page=0&size=20. Use ?unread=true to filter to unread only. "
-                    + "Response includes hasMore flag for 'Load more' UI."
+                    + "Supports pagination: ?page=0&size=20 (default size=20, max=50). "
+                    + "Use ?unread=true to filter to unread only. "
+                    + "Response format: {\"items\": [...], \"page\": 0, \"size\": 20, \"hasMore\": true}. "
+                    + "Breaking change in v0.31.3: response was previously a raw JSON array. "
+                    + "API key consumers must update their parsing to extract the 'items' field."
     )
     @GetMapping
     public Map<String, Object> list(
