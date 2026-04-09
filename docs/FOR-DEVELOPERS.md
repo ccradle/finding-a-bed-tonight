@@ -600,6 +600,9 @@ All endpoints are under `/api/v1`. Authentication is via JWT Bearer token (from 
 | `POST` | `/api/v1/auth/refresh` | None | Refresh an access token using a refresh token |
 | `PUT` | `/api/v1/auth/password` | Bearer | Change own password (current + new, min 12 chars). Invalidates all tokens. 409 for SSO-only users |
 | `POST` | `/api/v1/users/{id}/reset-password` | Admin | Admin resets user password. Same-tenant only. Invalidates user's tokens |
+| `POST` | `/api/v1/auth/forgot-password` | None | Request email password reset. Body: `{email, tenantSlug}`. Always 200 (no enumeration). DV users silently blocked. Rate limited: 3/hour |
+| `POST` | `/api/v1/auth/reset-password` | None | Reset password via email token. Body: `{token, newPassword}` (min 12 chars). Token is SHA-256 hashed (not BCrypt), 30-min expiry, single-use. Increments tokenVersion. |
+| `GET` | `/api/v1/auth/capabilities` | None | Returns `{emailResetAvailable, totpAvailable, accessCodeAvailable}`. Frontend gates "Forgot Password?" on emailResetAvailable |
 
 ### Tenants
 
@@ -646,6 +649,8 @@ All endpoints are under `/api/v1`. Authentication is via JWT Bearer token (from 
 | `GET` | `/api/v1/users/{id}` | COC_ADMIN+ | Get user by ID |
 | `PUT` | `/api/v1/users/{id}` | COC_ADMIN+ | Update user (displayName, email, roles, dvAccess). Role/dvAccess changes increment tokenVersion, invalidating existing JWTs |
 | `PATCH` | `/api/v1/users/{id}/status` | COC_ADMIN+ | Deactivate or reactivate user. Body: `{"status": "DEACTIVATED"}` or `{"status": "ACTIVE"}`. Disconnects SSE on deactivation |
+| `GET` | `/api/v1/users/{id}/shelters` | COC_ADMIN+ | List shelters assigned to a user. Returns `[{id, name}]`. Tenant-scoped. DV shelters visible only if caller has dvAccess |
+| `GET` | `/api/v1/shelters/{id}/coordinators` | COC_ADMIN+ | List coordinator user IDs assigned to a shelter. Returns `[uuid]` |
 
 ### Audit Events
 
@@ -1385,6 +1390,16 @@ Flyway will apply all migrations automatically on application startup.
 3. **Never:** `@Transactional` + `runWithContext()` inside the method body.
 
 **History:** This bug caused DV referral tokens to remain PENDING indefinitely (v0.31.1, April 2026). Fixed by removing `@Transactional` from `expireTokens()` and `purgeTerminalTokens()`.
+
+### SSE notifications reconnect every ~60 seconds behind Cloudflare
+
+**Symptom:** Browser shows brief "Reconnecting..." message periodically. Nginx logs show a new `GET /api/v1/notifications/stream` request every ~60 seconds.
+
+**Root cause:** Cloudflare's free-tier proxy terminates idle HTTP connections after 100 seconds. The SSE keepalive heartbeat (every 20 seconds) prevents Cloudflare from treating the connection as idle in most cases, but under certain conditions (HTTP/2 multiplexing, connection coalescing), Cloudflare may still reset the stream.
+
+**Impact:** Low. The frontend `useNotifications` hook automatically reconnects, re-fetches the unread count from REST, and deduplicates catch-up events by notification ID. The user sees a brief reconnect flash but no data loss.
+
+**Known behavior, not a bug.** The SSE catch-up mechanism was designed for exactly this scenario. No action required unless users report it as disruptive.
 
 ---
 

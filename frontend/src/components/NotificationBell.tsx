@@ -11,6 +11,9 @@ interface NotificationBellProps {
   onMarkRead: (id: string) => void;
   onMarkAllRead: () => void;
   onDismiss: (id: string) => void;
+  onLoadMore?: () => void;
+  hasMore?: boolean;
+  loadingMore?: boolean;
 }
 
 function getNotificationMessageId(notification: Notification): string {
@@ -91,6 +94,9 @@ export function NotificationBell({
   onMarkRead,
   onMarkAllRead,
   onDismiss,
+  onLoadMore,
+  hasMore,
+  loadingMore,
 }: NotificationBellProps) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -342,6 +348,28 @@ export function NotificationBell({
                 </li>
               ))}
             </ul>
+          )}
+          {hasMore && onLoadMore && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onLoadMore(); }}
+              disabled={loadingMore}
+              data-testid="notification-load-more"
+              style={{
+                width: '100%',
+                padding: '10px',
+                backgroundColor: color.bgSecondary,
+                color: loadingMore ? color.textMuted : color.primaryText,
+                border: 'none',
+                borderTop: `1px solid ${color.border}`,
+                cursor: loadingMore ? 'wait' : 'pointer',
+                fontSize: text.sm,
+                fontWeight: weight.medium,
+                borderRadius: '0 0 8px 8px',
+              }}
+            >
+              {loadingMore ? '...' : <FormattedMessage id="notifications.loadMore" />}
+            </button>
           )}
         </div>
       )}

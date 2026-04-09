@@ -22,6 +22,13 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+/**
+ * Auth-module controller for user CRUD.
+ * Mapped to /api/v1/users — shares URL prefix with UserShelterController (shelter module)
+ * which serves GET /{id}/shelters for coordinator assignment views.
+ *
+ * @see org.fabt.shelter.api.UserShelterController
+ */
 @RestController
 @RequestMapping("/api/v1/users")
 @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")

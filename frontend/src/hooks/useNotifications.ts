@@ -17,10 +17,14 @@ interface UseNotificationsReturn {
   markRead: (id: string) => Promise<void>;
   markAllRead: () => Promise<void>;
   dismiss: (id: string) => void;
+  loadMore: () => Promise<void>;
+  hasMore: boolean;
+  loadingMore: boolean;
   connected: boolean;
 }
 
 const MAX_NOTIFICATIONS = 50;
+const PAGE_SIZE = 20;
 
 /** Custom events dispatched on window for page-level refresh triggers */
 export const SSE_REFERRAL_UPDATE = 'fabt:referral-update';
@@ -54,6 +58,10 @@ export function useNotifications(): UseNotificationsReturn {
   const retryCountRef = useRef(0);
   // T-39: Set of notification IDs already seen (dedup catch-up + real-time)
   const seenIdsRef = useRef<Set<string>>(new Set());
+  // Pagination state
+  const [hasMoreState, setHasMoreState] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const pageRef = useRef(0);
 
   // Badge count = REST baseline + SSE delta
   const unreadCount = Math.max(0, restUnreadCount + sseDelta);
@@ -87,16 +95,18 @@ export function useNotifications(): UseNotificationsReturn {
     Promise.all([
       fetch(`${baseUrl}/api/v1/notifications/count`, { headers, signal: controller.signal })
         .then((r) => r.ok ? r.json() : Promise.reject()),
-      fetch(`${baseUrl}/api/v1/notifications?unread=true`, { headers, signal: controller.signal })
+      fetch(`${baseUrl}/api/v1/notifications?unread=true&page=0&size=${PAGE_SIZE}`, { headers, signal: controller.signal })
         .then((r) => r.ok ? r.json() : Promise.reject()),
     ])
-      .then(([countData, listData]: [{ unread: number }, Array<Record<string, unknown>>]) => {
+      .then(([countData, listData]: [{ unread: number }, { items: Array<Record<string, unknown>>; hasMore: boolean }]) => {
         setRestUnreadCount(countData.unread);
         restCountLoaded.current = true;
         setSseDelta(0);
+        setHasMoreState(listData.hasMore);
+        pageRef.current = 0;
 
         // Populate notifications from REST — each item has id, type, severity, payload, createdAt
-        const restNotifications: Notification[] = (listData || []).map((item) => {
+        const restNotifications: Notification[] = (listData.items || []).map((item) => {
           const id = String(item.id || '');
           seenIdsRef.current.add(id); // Mark as seen for SSE dedup
           return {
@@ -145,12 +155,45 @@ export function useNotifications(): UseNotificationsReturn {
   }, []);
 
   const dismiss = useCallback(async (id: string) => {
-    setNotifications((prev) => prev.filter((n) => n.id !== id));
-    setSseDelta((d) => d - 1);
+    let wasUnread = false;
+    setNotifications((prev) => {
+      const target = prev.find((n) => n.id === id);
+      if (target && !target.read) wasUnread = true;
+      return prev.filter((n) => n.id !== id);
+    });
+    if (wasUnread) setSseDelta((d) => d - 1);
     try {
       await api.patch<void>(`/api/v1/notifications/${id}/read`);
     } catch { /* best-effort — local state already updated */ }
   }, []);
+
+  const loadMore = useCallback(async () => {
+    if (!hasMoreState || loadingMore) return;
+    setLoadingMore(true);
+    const nextPage = pageRef.current + 1;
+    try {
+      const data = await api.get<{ items: Array<Record<string, unknown>>; hasMore: boolean }>(
+        `/api/v1/notifications?unread=true&page=${nextPage}&size=${PAGE_SIZE}`
+      );
+      pageRef.current = nextPage;
+      setHasMoreState(data.hasMore);
+      const newNotifications: Notification[] = (data.items || [])
+        .filter((item) => !seenIdsRef.current.has(String(item.id || '')))
+        .map((item) => {
+          const id = String(item.id || '');
+          seenIdsRef.current.add(id);
+          return {
+            id,
+            eventType: String(item.type || 'notification'),
+            data: item as Record<string, unknown>,
+            timestamp: item.createdAt ? new Date(String(item.createdAt)).getTime() : Date.now(),
+            read: !!item.readAt,
+          };
+        });
+      setNotifications((prev) => [...prev, ...newNotifications]);
+    } catch { /* best-effort */ }
+    finally { setLoadingMore(false); }
+  }, [hasMoreState, loadingMore]);
 
   // T-39: Deduplicated add — ignores catch-up notifications already seen via SSE
   const addNotification = useCallback((eventType: string, data: Record<string, unknown>, eventId: string) => {
@@ -294,6 +337,9 @@ export function useNotifications(): UseNotificationsReturn {
     markRead,
     markAllRead,
     dismiss,
+    loadMore,
+    hasMore: hasMoreState,
+    loadingMore,
     connected,
   };
 }

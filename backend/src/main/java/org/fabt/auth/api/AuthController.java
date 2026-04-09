@@ -23,6 +23,7 @@ import org.springframework.context.ApplicationEventPublisher;
 
 import org.fabt.auth.service.AccessCodeService;
 import org.fabt.auth.service.JwtService;
+import org.fabt.auth.service.PasswordResetService;
 import org.fabt.auth.service.PasswordService;
 import org.fabt.auth.service.TotpService;
 import org.fabt.tenant.domain.Tenant;
@@ -50,6 +51,7 @@ public class AuthController {
     private final JwtService jwtService;
     private final TotpService totpService;
     private final AccessCodeService accessCodeService;
+    private final PasswordResetService passwordResetService;
     private final ObjectMapper objectMapper;
     private final ApplicationEventPublisher eventPublisher;
 
@@ -71,6 +73,7 @@ public class AuthController {
                           JwtService jwtService,
                           TotpService totpService,
                           AccessCodeService accessCodeService,
+                          PasswordResetService passwordResetService,
                           ObjectMapper objectMapper,
                           ApplicationEventPublisher eventPublisher) {
         this.tenantService = tenantService;
@@ -79,6 +82,7 @@ public class AuthController {
         this.jwtService = jwtService;
         this.totpService = totpService;
         this.accessCodeService = accessCodeService;
+        this.passwordResetService = passwordResetService;
         this.objectMapper = objectMapper;
         this.eventPublisher = eventPublisher;
     }
@@ -182,18 +186,21 @@ public class AuthController {
                     + "Always returns 200 regardless of whether the email exists (no account enumeration).")
     @PostMapping("/forgot-password")
     public ResponseEntity<?> forgotPassword(@RequestBody Map<String, String> body) {
-        // Always return 200 — no account enumeration
+        String message = "If the email exists, a reset link has been sent.";
+
         if (mailHost == null || mailHost.isBlank()) {
-            // SMTP not configured — silently succeed (no email sent)
             log.debug("Forgot password requested but SMTP not configured");
-            return ResponseEntity.ok(Map.of("message", "If the email exists, a reset link has been sent."));
+            return ResponseEntity.ok(Map.of("message", message));
         }
 
-        // TODO: Implement email delivery when SMTP is configured
-        // For now, log and return success
         String email = body.get("email");
-        log.info("Password reset requested for email: {} (email delivery not yet implemented)", email);
-        return ResponseEntity.ok(Map.of("message", "If the email exists, a reset link has been sent."));
+        String tenantSlug = body.get("tenantSlug");
+        if (email != null && tenantSlug != null) {
+            passwordResetService.requestReset(email.trim(), tenantSlug.trim());
+        }
+
+        // Always 200 — no account enumeration (D8)
+        return ResponseEntity.ok(Map.of("message", message));
     }
 
     @Operation(
@@ -201,11 +208,15 @@ public class AuthController {
             description = "Accepts a password reset token and new password. "
                     + "Invalidates the token and all existing JWTs for the user.")
     @PostMapping("/reset-password")
-    public ResponseEntity<?> resetPassword(@RequestBody Map<String, String> body) {
-        // TODO: Implement when email reset tokens are persisted
-        return ResponseEntity.status(503).body(Map.of(
-                "error", "not_available",
-                "message", "Email-based password reset is not yet available. Contact your administrator for an access code."));
+    public ResponseEntity<?> resetPassword(@Valid @RequestBody EmailResetRequest request) {
+        boolean success = passwordResetService.resetPassword(request.token().trim(), request.newPassword());
+        if (!success) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "invalid_token",
+                    "message", "Invalid or expired reset token"));
+        }
+
+        return ResponseEntity.ok(Map.of("message", "Password has been reset. Please sign in with your new password."));
     }
 
     @Operation(

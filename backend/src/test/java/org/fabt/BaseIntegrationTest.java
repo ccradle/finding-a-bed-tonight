@@ -1,5 +1,7 @@
 package org.fabt;
 
+import com.icegreen.greenmail.util.GreenMail;
+import com.icegreen.greenmail.util.ServerSetup;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.resttestclient.TestRestTemplate;
@@ -23,6 +25,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 public abstract class BaseIntegrationTest {
 
     static final PostgreSQLContainer POSTGRES;
+    protected static final GreenMail GREEN_MAIL;
 
     static {
         POSTGRES = new PostgreSQLContainer("postgres:16-alpine")
@@ -31,6 +34,10 @@ public abstract class BaseIntegrationTest {
                 .withPassword("fabt_test")
                 .withCommand("postgres -c max_connections=200");
         POSTGRES.start();
+
+        // Embedded SMTP server for email integration tests (no Docker needed)
+        GREEN_MAIL = new GreenMail(new ServerSetup(0, "localhost", ServerSetup.PROTOCOL_SMTP));
+        GREEN_MAIL.start();
     }
 
     @DynamicPropertySource
@@ -50,6 +57,9 @@ public abstract class BaseIntegrationTest {
         registry.add("spring.flyway.password", POSTGRES::getPassword);
         // Encryption key for TOTP + webhook secrets (SecretEncryptionService reads fabt.encryption-key with fabt.totp.encryption-key fallback)
         registry.add("fabt.totp.encryption-key", () -> "dGVzdC1vbmx5LXRvdHAtZW5jcnlwdGlvbi1rZXktMzI=");
+        // GreenMail embedded SMTP — enables EmailService bean (@ConditionalOnProperty spring.mail.host)
+        registry.add("spring.mail.host", () -> "localhost");
+        registry.add("spring.mail.port", () -> String.valueOf(GREEN_MAIL.getSmtp().getPort()));
         // API key rate limit: default 5/min applies. Tests that make >5 API key requests
         // should inject ApiKeyAuthenticationFilter and call rateLimitBuckets.invalidateAll()
         // in @BeforeEach, or use @SpringBootTest(properties = "fabt.api-key.rate-limit=1000").

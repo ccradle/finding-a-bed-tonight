@@ -3,7 +3,6 @@ package org.fabt.subscription.service;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -23,11 +22,17 @@ import org.fabt.shared.web.TenantContext;
 import org.fabt.subscription.domain.Subscription;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
+import io.github.resilience4j.retry.Retry;
+import io.github.resilience4j.retry.RetryRegistry;
 import org.springframework.context.event.EventListener;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
 
 /**
  * Delivers domain events to webhook subscribers concurrently on virtual threads.
@@ -47,11 +52,15 @@ public class WebhookDeliveryService {
     private final RestClient restClient;
     private final ObservabilityMetrics metrics;
     private final ExecutorService deliveryExecutor;
+    private final CircuitBreaker circuitBreaker;
+    private final Retry retry;
 
     public WebhookDeliveryService(SubscriptionService subscriptionService,
                                   ObjectMapper objectMapper,
                                   RestClient.Builder restClientBuilder,
-                                  ObservabilityMetrics metrics) {
+                                  ObservabilityMetrics metrics,
+                                  CircuitBreakerRegistry circuitBreakerRegistry,
+                                  RetryRegistry retryRegistry) {
         this.subscriptionService = subscriptionService;
         this.objectMapper = objectMapper;
         // Timeouts: 10s connect, 30s read per design D3
@@ -63,6 +72,8 @@ public class WebhookDeliveryService {
                 .build();
         this.metrics = metrics;
         this.deliveryExecutor = Executors.newVirtualThreadPerTaskExecutor();
+        this.circuitBreaker = circuitBreakerRegistry.circuitBreaker("webhook-delivery");
+        this.retry = retryRegistry.retry("webhook-delivery");
     }
 
     /**
@@ -143,20 +154,48 @@ public class WebhookDeliveryService {
         }
     }
 
+    /**
+     * Delivers a single event to a subscription with resilience4j retry + circuit breaker.
+     *
+     * <p>Retry: resilience4j "webhook-delivery" instance (3 attempts, 1s + 3s exponential backoff).
+     * Only retries IOException, SocketTimeoutException, ResourceAccessException,
+     * HttpServerErrorException. Does NOT retry 4xx client errors.</p>
+     *
+     * <p>Circuit breaker: resilience4j "webhook-delivery" instance (sliding window 10,
+     * 50% failure rate, 30s open). When open, deliveries fail fast — subscriptions
+     * still accumulate consecutive failures and auto-disable at 5.</p>
+     */
     private void deliverSingle(DomainEvent event, Subscription subscription) {
+        Runnable deliveryWithRetry = Retry.decorateRunnable(retry, () -> {
+            deliver(event, subscription);
+        });
+
+        Runnable deliveryWithCircuitBreakerAndRetry = CircuitBreaker.decorateRunnable(
+                circuitBreaker, deliveryWithRetry);
+
+        Timer.Sample timerSample = Timer.start();
         try {
-            Timer.Sample timerSample = Timer.start();
-            try {
-                deliver(event, subscription);
-                metrics.webhookDeliveryCounter(event.type(), "success").increment();
-            } finally {
-                timerSample.stop(metrics.webhookDeliveryTimer(event.type()));
-            }
-        } catch (Exception e) {
+            deliveryWithCircuitBreakerAndRetry.run();
+            metrics.webhookDeliveryCounter(event.type(), "success").increment();
+        } catch (CallNotPermittedException e) {
+            metrics.webhookDeliveryCounter(event.type(), "circuit_open").increment();
+            log.debug("Circuit breaker open — skipping event {} to subscription {}",
+                    event.id(), subscription.getId());
+            subscriptionService.markFailing(subscription.getId(), "Circuit breaker open");
+        } catch (RestClientResponseException e) {
+            // 4xx errors propagate through retry (not in retry-exceptions list)
             metrics.webhookDeliveryCounter(event.type(), "failure").increment();
-            log.warn("Failed to deliver event {} to subscription {}: {}",
+            log.warn("Failed to deliver event {} to subscription {}: {} {}",
+                    event.id(), subscription.getId(), e.getStatusCode(), e.getMessage());
+            subscriptionService.markFailing(subscription.getId(), e.getMessage());
+        } catch (Exception e) {
+            // All retries exhausted for retryable errors
+            metrics.webhookDeliveryCounter(event.type(), "failure").increment();
+            log.warn("Failed to deliver event {} to subscription {} after retries: {}",
                     event.id(), subscription.getId(), e.getMessage());
             subscriptionService.markFailing(subscription.getId(), e.getMessage());
+        } finally {
+            timerSample.stop(metrics.webhookDeliveryTimer(event.type()));
         }
     }
 

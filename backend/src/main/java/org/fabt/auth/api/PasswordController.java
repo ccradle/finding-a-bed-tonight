@@ -72,13 +72,15 @@ public class PasswordController {
         }
 
         user.setPasswordHash(passwordService.hash(request.newPassword()));
+        user.setTokenVersion(user.getTokenVersion() + 1); // D5: invalidate all existing JWTs
         user.setPasswordChangedAt(Instant.now());
         user.setUpdatedAt(Instant.now());
         userRepository.save(user);
 
         counter("fabt.auth.password_change.count", "outcome", "success").increment();
         counter("fabt.auth.token_invalidated.count", "reason", "password_change").increment();
-        log.info("Password changed for user {} in tenant {}", userId, user.getTenantId());
+        log.info("Password changed for user {} in tenant {} (tokenVersion now {})",
+                userId, user.getTenantId(), user.getTokenVersion());
 
         return ResponseEntity.ok(new MessageBody("Password changed. Please sign in again."));
     }
@@ -121,13 +123,15 @@ public class PasswordController {
                 .orElse("UNKNOWN");
 
         user.setPasswordHash(passwordService.hash(request.newPassword()));
+        user.setTokenVersion(user.getTokenVersion() + 1); // D5: invalidate all existing JWTs
         user.setPasswordChangedAt(Instant.now());
         user.setUpdatedAt(Instant.now());
         userRepository.save(user);
 
         counter("fabt.auth.password_reset.count", "admin_role", adminRole).increment();
         counter("fabt.auth.token_invalidated.count", "reason", "admin_reset").increment();
-        log.info("Password reset by admin for user {} in tenant {} (admin role: {})", id, tenantId, adminRole);
+        log.info("Password reset by admin for user {} in tenant {} (admin role: {}, tokenVersion now {})",
+                id, tenantId, adminRole, user.getTokenVersion());
 
         return ResponseEntity.ok(new MessageBody("Password reset. The user will need to sign in again."));
     }

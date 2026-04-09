@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useState, useEffect, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FormattedMessage, useIntl } from 'react-intl';
 import { api, ApiError } from '../services/api';
@@ -6,6 +6,7 @@ import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { enqueueAction } from '../services/offlineQueue';
 import { text, weight } from '../theme/typography';
 import { color } from '../theme/colors';
+import { CoordinatorCombobox, type CoordinatorOption } from '../components/CoordinatorCombobox';
 
 const POPULATION_TYPES = [
   'SINGLE_ADULT',
@@ -86,6 +87,31 @@ export function ShelterForm({ initialData, readOnlyFields = [], onSaveComplete }
   const [loading, setLoading] = useState(false);
   const [showDvConfirm, setShowDvConfirm] = useState(false);
   const [pendingDvValue, setPendingDvValue] = useState(false);
+
+  // Coordinator assignment state (edit mode only)
+  const [eligibleCoordinators, setEligibleCoordinators] = useState<CoordinatorOption[]>([]);
+  const [assignedCoordinators, setAssignedCoordinators] = useState<CoordinatorOption[]>([]);
+  const [originalAssignedIds, setOriginalAssignedIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!isEditMode) return;
+    // Fetch eligible users (COORDINATOR + COC_ADMIN roles) and current assignments in parallel
+    Promise.all([
+      api.get<Array<{ id: string; displayName: string; email: string; roles: string[]; dvAccess: boolean; status: string }>>('/api/v1/users'),
+      api.get<string[]>(`/api/v1/shelters/${initialData.id}/coordinators`),
+    ]).then(([users, assignedUserIds]) => {
+      const eligible = users
+        .filter((u) => u.status !== 'DEACTIVATED' &&
+          (u.roles.includes('COORDINATOR') || u.roles.includes('COC_ADMIN')))
+        .map((u) => ({ id: u.id, displayName: u.displayName, email: u.email, dvAccess: u.dvAccess }));
+      setEligibleCoordinators(eligible);
+
+      const assignedIdSet = new Set(assignedUserIds);
+      const assigned = eligible.filter((u) => assignedIdSet.has(u.id));
+      setAssignedCoordinators(assigned);
+      setOriginalAssignedIds(new Set(assigned.map((c) => c.id)));
+    }).catch(() => { /* best-effort */ });
+  }, [isEditMode, initialData?.id]);
 
   const isFieldReadOnly = (field: string) => readOnlyFields.includes(field);
 
@@ -172,6 +198,21 @@ export function ShelterForm({ initialData, readOnlyFields = [], onSaveComplete }
     try {
       if (isEditMode) {
         await api.put(`/api/v1/shelters/${initialData.id}`, payload);
+
+        // Diff coordinator assignments and apply changes
+        const currentIds = new Set(assignedCoordinators.map((c) => c.id));
+        const toAdd = assignedCoordinators.filter((c) => !originalAssignedIds.has(c.id));
+        const toRemove = [...originalAssignedIds].filter((id) => !currentIds.has(id));
+
+        const assignmentResults = await Promise.allSettled([
+          ...toAdd.map((c) => api.post(`/api/v1/shelters/${initialData.id}/coordinators`, { userId: c.id })),
+          ...toRemove.map((id) => api.delete(`/api/v1/shelters/${initialData.id}/coordinators/${id}`)),
+        ]);
+        const assignmentFailures = assignmentResults.filter((r) => r.status === 'rejected');
+        if (assignmentFailures.length > 0) {
+          setError('Shelter saved but some coordinator assignment changes failed. Please retry.');
+        }
+
         if (onSaveComplete) {
           onSaveComplete();
         } else {
@@ -652,7 +693,17 @@ export function ShelterForm({ initialData, readOnlyFields = [], onSaveComplete }
           + Add Capacity
         </button>
 
-        <div>
+        {/* Coordinator Assignment (edit mode only) */}
+        {isEditMode && (
+          <CoordinatorCombobox
+            options={eligibleCoordinators}
+            selected={assignedCoordinators}
+            onChange={setAssignedCoordinators}
+            isDvShelter={dvShelter}
+          />
+        )}
+
+        <div style={{ marginTop: '24px' }}>
           <button
             type="submit"
             data-testid="shelter-save"

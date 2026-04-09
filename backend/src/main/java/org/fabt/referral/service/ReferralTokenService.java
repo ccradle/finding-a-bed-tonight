@@ -229,7 +229,11 @@ public class ReferralTokenService {
                         "expireTokens requires dvAccess=true — DV referral tokens are invisible without it");
             }
             List<UUID> expiredIds = repository.expirePendingTokensReturningIds();
-            log.info("expireTokens: dvAccess={}, expired={}", TenantContext.getDvAccess(), expiredIds.size());
+            if (expiredIds.isEmpty()) {
+                log.debug("expireTokens: dvAccess={}, expired=0", TenantContext.getDvAccess());
+            } else {
+                log.info("expireTokens: dvAccess={}, expired={}", TenantContext.getDvAccess(), expiredIds.size());
+            }
             if (!expiredIds.isEmpty()) {
                 expiredIds.forEach(id -> dvReferralCounter("expired").increment());
 

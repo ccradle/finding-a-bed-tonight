@@ -102,7 +102,7 @@ public class NotificationPersistenceService {
      */
     @Transactional(readOnly = true)
     public List<Notification> findUnreadForCatchup(UUID recipientId, int limit) {
-        return notificationRepository.findUnreadByRecipientId(recipientId, limit);
+        return notificationRepository.findUnreadByRecipientId(recipientId, limit, 0);
     }
 
     @Transactional(readOnly = true)
@@ -112,10 +112,15 @@ public class NotificationPersistenceService {
 
     @Transactional(readOnly = true)
     public List<Notification> findByRecipientId(UUID recipientId, boolean unreadOnly, int limit) {
+        return findByRecipientId(recipientId, unreadOnly, limit, 0);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Notification> findByRecipientId(UUID recipientId, boolean unreadOnly, int limit, int offset) {
         if (unreadOnly) {
-            return notificationRepository.findUnreadByRecipientId(recipientId, limit);
+            return notificationRepository.findUnreadByRecipientId(recipientId, limit, offset);
         }
-        return notificationRepository.findByRecipientId(recipientId, limit);
+        return notificationRepository.findByRecipientId(recipientId, limit, offset);
     }
 
     @Transactional

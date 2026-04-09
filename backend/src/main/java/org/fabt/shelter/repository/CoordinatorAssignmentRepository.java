@@ -3,6 +3,7 @@ package org.fabt.shelter.repository;
 import java.util.List;
 import java.util.UUID;
 
+import org.fabt.shelter.api.ShelterSummary;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -46,11 +47,36 @@ public class CoordinatorAssignmentRepository {
         return count != null && count > 0;
     }
 
+    public List<UUID> findUserIdsByShelterId(UUID shelterId) {
+        return jdbcTemplate.query(
+                "SELECT user_id FROM coordinator_assignment WHERE shelter_id = ?",
+                (rs, rowNum) -> rs.getObject("user_id", UUID.class),
+                shelterId
+        );
+    }
+
     public List<UUID> findShelterIdsByUserId(UUID userId) {
         return jdbcTemplate.query(
                 "SELECT shelter_id FROM coordinator_assignment WHERE user_id = ?",
                 (rs, rowNum) -> rs.getObject("shelter_id", UUID.class),
                 userId
+        );
+    }
+
+    public List<ShelterSummary> findShelterSummariesByUserId(UUID userId, UUID tenantId) {
+        return jdbcTemplate.query(
+                """
+                SELECT s.id, s.name
+                FROM coordinator_assignment ca
+                JOIN shelter s ON s.id = ca.shelter_id
+                WHERE ca.user_id = ? AND s.tenant_id = ?
+                ORDER BY s.name
+                """,
+                (rs, rowNum) -> new ShelterSummary(
+                        rs.getObject("id", UUID.class),
+                        rs.getString("name")
+                ),
+                userId, tenantId
         );
     }
 }
