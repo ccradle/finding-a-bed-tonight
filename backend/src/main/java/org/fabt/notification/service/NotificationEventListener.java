@@ -27,7 +27,7 @@ import org.springframework.transaction.event.TransactionalEventListener;
  * the parent transaction.
  *
  * <p>Architecture: lives in the notification module, depends on auth service
- * (not repository) for recipient lookup — compliant with ArchUnit module boundaries.</p>
+ * (not repository) for recipient lookup — consistent with ArchUnit module boundaries.</p>
  */
 @Component
 public class NotificationEventListener {
