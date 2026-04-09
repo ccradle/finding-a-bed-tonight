@@ -1,5 +1,7 @@
 import { useState, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 import { FormattedMessage, useIntl } from 'react-intl';
+import { api } from '../services/api';
 import { text, weight } from '../theme/typography';
 import { color } from '../theme/colors';
 
@@ -21,11 +23,7 @@ export function ForgotPasswordPage() {
 
     setLoading(true);
     try {
-      await fetch('/api/v1/auth/forgot-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim(), tenantSlug: tenantSlug.trim() }),
-      });
+      await api.post('/api/v1/auth/forgot-password', { email: email.trim(), tenantSlug: tenantSlug.trim() });
     } catch {
       // Silently succeed — no error shown to prevent enumeration
     }
@@ -55,14 +53,14 @@ export function ForgotPasswordPage() {
               <FormattedMessage id="forgotPassword.checkEmailDetail" />
             </p>
             <div style={{ textAlign: 'center' }}>
-              <a href="/login" style={{
+              <Link to="/login" style={{
                 display: 'inline-block', padding: '12px 24px', borderRadius: 10,
                 backgroundColor: color.primary, color: color.textInverse,
                 fontSize: text.base, fontWeight: weight.bold, textDecoration: 'none',
                 minHeight: 44,
               }}>
                 <FormattedMessage id="forgotPassword.backToLogin" />
-              </a>
+              </Link>
             </div>
           </div>
         ) : (
@@ -121,17 +119,17 @@ export function ForgotPasswordPage() {
               }}
             >
               {loading
-                ? '...'
+                ? intl.formatMessage({ id: 'forgotPassword.sending' })
                 : intl.formatMessage({ id: 'forgotPassword.submit' })}
             </button>
 
             <div style={{ textAlign: 'center' }}>
-              <a href="/login/access-code" style={{ fontSize: text.sm, color: color.primaryText, textDecoration: 'none', marginRight: 16 }}>
+              <Link to="/login/access-code" style={{ fontSize: text.sm, color: color.primaryText, textDecoration: 'none', marginRight: 16 }}>
                 <FormattedMessage id="login.useAccessCode" />
-              </a>
-              <a href="/login" style={{ fontSize: text.sm, color: color.primaryText, textDecoration: 'none' }}>
+              </Link>
+              <Link to="/login" style={{ fontSize: text.sm, color: color.primaryText, textDecoration: 'none' }}>
                 <FormattedMessage id="forgotPassword.backToLogin" />
-              </a>
+              </Link>
             </div>
           </form>
         )}

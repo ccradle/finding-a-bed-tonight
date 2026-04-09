@@ -1,6 +1,7 @@
-import { useState, type FormEvent } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useState, useEffect, type FormEvent } from 'react';
+import { useSearchParams, Link } from 'react-router-dom';
 import { FormattedMessage, useIntl } from 'react-intl';
+import { api } from '../services/api';
 import { text, weight } from '../theme/typography';
 import { color } from '../theme/colors';
 
@@ -18,6 +19,11 @@ export function ResetPasswordPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  // Marcus: clear token from URL to prevent exposure via browser history/sharing
+  useEffect(() => {
+    if (token) window.history.replaceState({}, '', '/login/reset-password');
+  }, [token]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -38,20 +44,11 @@ export function ResetPasswordPage() {
 
     setLoading(true);
     try {
-      const resp = await fetch('/api/v1/auth/reset-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, newPassword }),
-      });
-
-      if (resp.ok) {
-        setSuccess(true);
-      } else {
-        const data = await resp.json().catch(() => ({}));
-        setError(data.message || intl.formatMessage({ id: 'resetPassword.error' }));
-      }
-    } catch {
-      setError(intl.formatMessage({ id: 'resetPassword.error' }));
+      await api.post<{ message: string }>('/api/v1/auth/reset-password', { token, newPassword });
+      setSuccess(true);
+    } catch (err: unknown) {
+      const message = err instanceof Error && 'message' in err ? (err as { message: string }).message : null;
+      setError(message || intl.formatMessage({ id: 'resetPassword.error' }));
     }
     setLoading(false);
   };
@@ -75,14 +72,14 @@ export function ResetPasswordPage() {
               <FormattedMessage id="resetPassword.success" />
             </p>
             <div style={{ textAlign: 'center' }}>
-              <a href="/login" style={{
+              <Link to="/login" style={{
                 display: 'inline-block', padding: '12px 24px', borderRadius: 10,
                 backgroundColor: color.primary, color: color.textInverse,
                 fontSize: text.base, fontWeight: weight.bold, textDecoration: 'none',
                 minHeight: 44,
               }}>
                 <FormattedMessage id="resetPassword.signIn" />
-              </a>
+              </Link>
             </div>
           </div>
         ) : (
@@ -154,7 +151,7 @@ export function ResetPasswordPage() {
               }}
             >
               {loading
-                ? '...'
+                ? intl.formatMessage({ id: 'resetPassword.resetting' })
                 : intl.formatMessage({ id: 'resetPassword.submit' })}
             </button>
           </form>
