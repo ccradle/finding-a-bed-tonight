@@ -25,13 +25,13 @@ public interface NotificationRepository extends CrudRepository<Notification, UUI
 
     @Modifying
     @Transactional
-    @Query("UPDATE notification SET read_at = NOW() WHERE id = :id AND read_at IS NULL")
-    int markRead(@Param("id") UUID id);
+    @Query("UPDATE notification SET read_at = NOW() WHERE id = :id AND recipient_id = :recipientId AND read_at IS NULL")
+    int markRead(@Param("id") UUID id, @Param("recipientId") UUID recipientId);
 
     @Modifying
     @Transactional
-    @Query("UPDATE notification SET acted_at = NOW(), read_at = COALESCE(read_at, NOW()) WHERE id = :id")
-    int markActed(@Param("id") UUID id);
+    @Query("UPDATE notification SET acted_at = NOW(), read_at = COALESCE(read_at, NOW()) WHERE id = :id AND recipient_id = :recipientId")
+    int markActed(@Param("id") UUID id, @Param("recipientId") UUID recipientId);
 
     @Modifying
     @Transactional

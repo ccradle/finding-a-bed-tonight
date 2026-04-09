@@ -9,7 +9,6 @@ import org.fabt.notification.domain.Notification;
 import org.fabt.notification.repository.NotificationRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,39 +27,19 @@ public class NotificationPersistenceService {
 
     private final NotificationRepository notificationRepository;
     private final NotificationService notificationService;
-    private final JdbcTemplate jdbcTemplate;
 
     public NotificationPersistenceService(NotificationRepository notificationRepository,
-                                          NotificationService notificationService,
-                                          JdbcTemplate jdbcTemplate) {
+                                          NotificationService notificationService) {
         this.notificationRepository = notificationRepository;
         this.notificationService = notificationService;
-        this.jdbcTemplate = jdbcTemplate;
     }
 
     /**
      * Create a persistent notification and push via SSE if recipient is connected.
      * This is the single entry point for all notification creation.
-     *
-     * <p><b>RLS note:</b> Spring Data JDBC uses {@code INSERT ... RETURNING *}, which
-     * triggers PostgreSQL's SELECT RLS policy on the RETURNING clause. The notification
-     * SELECT policy requires {@code recipient_id = app.current_user_id}. We set
-     * {@code app.current_user_id} to the recipient's UUID (transaction-local) before
-     * the INSERT so the RETURNING clause can read back the inserted row.</p>
-     *
-     * <p>The {@code set_config(..., true)} is transaction-local — reverts on commit,
-     * does not leak to other connections or transactions.</p>
      */
     @Transactional
     public Notification send(UUID tenantId, UUID recipientId, String type, String severity, String payload) {
-        // Set app.current_user_id to recipient for this transaction so INSERT RETURNING works.
-        // PostgreSQL docs: "If a RETURNING clause is used, SELECT RLS policies will also be checked."
-        // The SELECT policy requires recipient_id = current_user_id.
-        // is_local=true: transaction-local, reverts on commit.
-        jdbcTemplate.queryForObject(
-                "SELECT set_config('app.current_user_id', ?, true)",
-                String.class, recipientId.toString());
-
         Notification notification = new Notification(tenantId, recipientId, type, severity, payload);
         Notification saved = notificationRepository.save(notification);
 
@@ -140,18 +119,18 @@ public class NotificationPersistenceService {
     }
 
     @Transactional
-    public void markRead(UUID id) {
-        int updated = notificationRepository.markRead(id);
+    public void markRead(UUID id, UUID recipientId) {
+        int updated = notificationRepository.markRead(id, recipientId);
         if (updated == 0) {
-            log.debug("markRead no-op: notification {} not found or not owned by current user (RLS)", id);
+            log.debug("markRead no-op: notification {} not found or not owned by user {}", id, recipientId);
         }
     }
 
     @Transactional
-    public void markActed(UUID id) {
-        int updated = notificationRepository.markActed(id);
+    public void markActed(UUID id, UUID recipientId) {
+        int updated = notificationRepository.markActed(id, recipientId);
         if (updated == 0) {
-            log.debug("markActed no-op: notification {} not found or not owned by current user (RLS)", id);
+            log.debug("markActed no-op: notification {} not found or not owned by user {}", id, recipientId);
         }
     }
 
@@ -165,37 +144,13 @@ public class NotificationPersistenceService {
     /**
      * Cleanup: delete read notifications older than 90 days.
      * Unread CRITICAL notifications are never auto-deleted (Design D8).
-     *
-     * <p>RLS note: the notification DELETE policy is unrestricted ({@code USING (true)}),
-     * so this system job can delete across all users without TenantContext. PostgreSQL
-     * uses the DELETE policy (not SELECT) to determine row visibility for DELETE.</p>
-     *
-     * <p>NOTE: For multi-instance deployments, add ShedLock.</p>
+     * NOTE: For multi-instance deployments, add ShedLock.
      */
     @Scheduled(fixedRate = 86_400_000) // daily
-    @Transactional
     public void cleanupOldNotifications() {
         java.sql.Timestamp cutoff = java.sql.Timestamp.from(
                 Instant.now().minus(CLEANUP_RETENTION_DAYS, ChronoUnit.DAYS));
-
-        // Root cause (Elena/Alex): The DELETE's WHERE clause needs to READ row values
-        // (read_at, created_at, severity) to evaluate which rows match. PostgreSQL evaluates
-        // these column reads through the SELECT RLS policy (recipient_id = current_user_id).
-        // Without a user context, current_user_id is nil UUID, so ALL rows are invisible.
-        // The DELETE policy USING (true) only controls WHICH VISIBLE rows can be deleted —
-        // it doesn't bypass SELECT filtering for WHERE clause evaluation.
-        //
-        // Fix: @Transactional pins one connection for the method. RESET ROLE to the table
-        // owner (bypasses RLS — ENABLE without FORCE means owner is exempt), DELETE, then
-        // re-apply fabt_app. All three execute on the SAME connection.
-        try {
-            jdbcTemplate.execute("RESET ROLE");
-            int deleted = jdbcTemplate.update(
-                    "DELETE FROM notification WHERE read_at IS NOT NULL AND created_at < ? AND severity != 'CRITICAL'",
-                    cutoff);
-            log.info("Notification cleanup: deleted {} read notifications older than {} days", deleted, CLEANUP_RETENTION_DAYS);
-        } finally {
-            jdbcTemplate.execute("SET ROLE fabt_app");
-        }
+        int deleted = notificationRepository.deleteOldRead(cutoff);
+        log.info("Notification cleanup: deleted {} read notifications older than {} days", deleted, CLEANUP_RETENTION_DAYS);
     }
 }

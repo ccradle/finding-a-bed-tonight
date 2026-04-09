@@ -17,7 +17,6 @@ import org.fabt.referral.domain.ReferralToken;
 import org.fabt.referral.service.ReferralTokenService;
 import org.fabt.shared.web.TenantContext;
 import org.fabt.analytics.config.BatchJobScheduler;
-import javax.sql.DataSource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -78,8 +77,6 @@ public class ReferralEscalationJobConfig {
     private final UserService userService;
     private final ObjectMapper objectMapper;
     private final BatchJobScheduler batchJobScheduler;
-    private final JdbcTemplate jdbcTemplate;
-    private final DataSource dataSource;
 
     public ReferralEscalationJobConfig(
             JobRepository jobRepository,
@@ -89,9 +86,7 @@ public class ReferralEscalationJobConfig {
             NotificationRepository notificationRepository,
             UserService userService,
             ObjectMapper objectMapper,
-            BatchJobScheduler batchJobScheduler,
-            JdbcTemplate jdbcTemplate,
-            DataSource dataSource) {
+            BatchJobScheduler batchJobScheduler) {
         this.jobRepository = jobRepository;
         this.transactionManager = transactionManager;
         this.referralTokenService = referralTokenService;
@@ -100,8 +95,6 @@ public class ReferralEscalationJobConfig {
         this.userService = userService;
         this.objectMapper = objectMapper;
         this.batchJobScheduler = batchJobScheduler;
-        this.jdbcTemplate = jdbcTemplate;
-        this.dataSource = dataSource;
     }
 
     @Bean
@@ -211,37 +204,9 @@ public class ReferralEscalationJobConfig {
         return created;
     }
 
-    /**
-     * Dedup: check if this escalation threshold has already been notified for this referral (T-27).
-     *
-     * <p>Uses a RAW connection from the DataSource (not DataSourceUtils) with RESET ROLE
-     * to bypass SELECT RLS policy. The raw connection guarantees RESET ROLE + SELECT happen
-     * on the same connection, regardless of Spring transaction binding.</p>
-     *
-     * <p>LESSON LEARNED: DataSourceUtils.getConnection() may not return the step's
-     * transaction-bound connection in production (BatchJobScheduler thread vs Spring Batch
-     * step thread). This caused the dedup to silently fail — 46+ duplicate escalation.1h
-     * notifications per referral in production. See Lesson #83 in CLAUDE-CODE-BRIEF.md.</p>
-     */
+    /** Dedup: check if this escalation threshold has already been notified for this referral (T-27). */
     private boolean isNew(String type, String referralId) {
-        // Raw connection from pool — RESET ROLE + SELECT on the SAME connection.
-        try (java.sql.Connection conn = dataSource.getConnection()) {
-            conn.createStatement().execute("RESET ROLE");
-            try (var ps = conn.prepareStatement(
-                    "SELECT COUNT(*) > 0 FROM notification WHERE type = ? AND payload ->> 'referralId' = ?")) {
-                ps.setString(1, type);
-                ps.setString(2, referralId);
-                var rs = ps.executeQuery();
-                rs.next();
-                boolean exists = rs.getBoolean(1);
-                return !exists;
-            }
-        } catch (java.sql.SQLException e) {
-            log.error("Dedup check failed for type={}, referralId={}: {}", type, referralId, e.getMessage());
-            return true; // Fail open — create the notification rather than silently skip
-        }
-        // Connection auto-closed by try-with-resources. RlsDataSourceConfig re-applies
-        // SET ROLE fabt_app on next checkout from the pool.
+        return !notificationRepository.existsByTypeAndReferralId(type, referralId);
     }
 
     private String toJson(Map<String, Object> map) {

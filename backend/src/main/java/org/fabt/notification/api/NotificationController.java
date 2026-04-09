@@ -140,8 +140,9 @@ public class NotificationController {
             description = "Sets read_at timestamp. Idempotent — returns 204 even if already read."
     )
     @PatchMapping("/{id}/read")
-    public ResponseEntity<Void> markRead(@PathVariable UUID id) {
-        notificationPersistenceService.markRead(id);
+    public ResponseEntity<Void> markRead(@PathVariable UUID id, Authentication authentication) {
+        UUID userId = (UUID) authentication.getPrincipal();
+        notificationPersistenceService.markRead(id, userId);
         return ResponseEntity.noContent().build();
     }
 
@@ -150,8 +151,9 @@ public class NotificationController {
             description = "Sets acted_at and read_at timestamps. For CRITICAL notifications that require action."
     )
     @PatchMapping("/{id}/acted")
-    public ResponseEntity<Void> markActed(@PathVariable UUID id) {
-        notificationPersistenceService.markActed(id);
+    public ResponseEntity<Void> markActed(@PathVariable UUID id, Authentication authentication) {
+        UUID userId = (UUID) authentication.getPrincipal();
+        notificationPersistenceService.markActed(id, userId);
         return ResponseEntity.noContent().build();
     }
 
