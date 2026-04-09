@@ -17,6 +17,7 @@ import { TwoOneOneImportPage } from './pages/TwoOneOneImportPage';
 import { TotpEnrollmentPage } from './pages/TotpEnrollmentPage';
 import { AccessCodeLoginPage } from './pages/AccessCodeLoginPage';
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
+import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import enMessages from './i18n/en.json';
 import esMessages from './i18n/es.json';
 
@@ -39,6 +40,7 @@ function AppRoutes({ locale, onLocaleChange }: { locale: string; onLocaleChange:
       <Route path="/login" element={<LoginPage />} />
       <Route path="/login/access-code" element={<AccessCodeLoginPage />} />
       <Route path="/login/forgot-password" element={<ForgotPasswordPage />} />
+      <Route path="/login/reset-password" element={<ResetPasswordPage />} />
       <Route path="/settings/totp" element={
         <AuthGuard allowedRoles={['OUTREACH_WORKER', 'COORDINATOR', 'COC_ADMIN', 'PLATFORM_ADMIN']}>
           <Layout locale={locale} onLocaleChange={onLocaleChange}>
