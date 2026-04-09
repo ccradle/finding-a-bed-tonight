@@ -19,7 +19,6 @@ import org.fabt.shared.web.TenantContext;
 import org.fabt.analytics.config.BatchJobScheduler;
 import javax.sql.DataSource;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.datasource.DataSourceUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.batch.core.job.Job;
@@ -215,21 +214,19 @@ public class ReferralEscalationJobConfig {
     /**
      * Dedup: check if this escalation threshold has already been notified for this referral (T-27).
      *
-     * <p>Uses RESET ROLE to bypass SELECT RLS policy. Without this, the SELECT policy
-     * (recipient_id = current_user_id) hides all notification rows because the escalation
-     * job has no user context (current_user_id = nil UUID). Same root cause as the cleanup
-     * job — see Lesson #80 in CLAUDE-CODE-BRIEF.md.</p>
+     * <p>Uses a RAW connection from the DataSource (not DataSourceUtils) with RESET ROLE
+     * to bypass SELECT RLS policy. The raw connection guarantees RESET ROLE + SELECT happen
+     * on the same connection, regardless of Spring transaction binding.</p>
      *
-     * <p>Safe because: (a) the escalation tasklet runs within a @Transactional step
-     * (same connection for RESET ROLE + SELECT + SET ROLE), and (b) this is a system-only
-     * read operation, not user-facing.</p>
+     * <p>LESSON LEARNED: DataSourceUtils.getConnection() may not return the step's
+     * transaction-bound connection in production (BatchJobScheduler thread vs Spring Batch
+     * step thread). This caused the dedup to silently fail — 46+ duplicate escalation.1h
+     * notifications per referral in production. See Lesson #83 in CLAUDE-CODE-BRIEF.md.</p>
      */
     private boolean isNew(String type, String referralId) {
-        // Get the TRANSACTION-BOUND connection — same connection the step's transaction uses.
-        // DataSourceUtils.getConnection() returns the connection bound to the current thread
-        // by Spring's TransactionManager. RESET ROLE on THIS connection actually takes effect.
-        java.sql.Connection conn = DataSourceUtils.getConnection(dataSource);
-        try {
+        // Raw connection from pool — RESET ROLE + SELECT + SET ROLE on the SAME connection.
+        // Connection is closed in finally block (returned to pool), not managed by Spring.
+        try (java.sql.Connection conn = dataSource.getConnection()) {
             conn.createStatement().execute("RESET ROLE");
             try (var ps = conn.prepareStatement(
                     "SELECT COUNT(*) > 0 FROM notification WHERE type = ? AND payload ->> 'referralId' = ?")) {
@@ -243,14 +240,9 @@ public class ReferralEscalationJobConfig {
         } catch (java.sql.SQLException e) {
             log.error("Dedup check failed for type={}, referralId={}: {}", type, referralId, e.getMessage());
             return true; // Fail open — create the notification rather than silently skip
-        } finally {
-            try {
-                conn.createStatement().execute("SET ROLE fabt_app");
-            } catch (java.sql.SQLException e) {
-                log.error("Failed to restore fabt_app role: {}", e.getMessage());
-            }
-            // Do NOT release — DataSourceUtils manages the connection lifecycle within the transaction
         }
+        // Connection auto-closed by try-with-resources. RlsDataSourceConfig re-applies
+        // SET ROLE fabt_app on next checkout from the pool.
     }
 
     private String toJson(Map<String, Object> map) {
