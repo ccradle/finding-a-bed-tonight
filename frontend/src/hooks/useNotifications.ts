@@ -19,6 +19,7 @@ interface UseNotificationsReturn {
   dismiss: (id: string) => void;
   loadMore: () => Promise<void>;
   hasMore: boolean;
+  loadingMore: boolean;
   connected: boolean;
 }
 
@@ -59,6 +60,7 @@ export function useNotifications(): UseNotificationsReturn {
   const seenIdsRef = useRef<Set<string>>(new Set());
   // Pagination state
   const [hasMoreState, setHasMoreState] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const pageRef = useRef(0);
 
   // Badge count = REST baseline + SSE delta
@@ -153,15 +155,21 @@ export function useNotifications(): UseNotificationsReturn {
   }, []);
 
   const dismiss = useCallback(async (id: string) => {
-    setNotifications((prev) => prev.filter((n) => n.id !== id));
-    setSseDelta((d) => d - 1);
+    let wasUnread = false;
+    setNotifications((prev) => {
+      const target = prev.find((n) => n.id === id);
+      if (target && !target.read) wasUnread = true;
+      return prev.filter((n) => n.id !== id);
+    });
+    if (wasUnread) setSseDelta((d) => d - 1);
     try {
       await api.patch<void>(`/api/v1/notifications/${id}/read`);
     } catch { /* best-effort — local state already updated */ }
   }, []);
 
   const loadMore = useCallback(async () => {
-    if (!hasMoreState) return;
+    if (!hasMoreState || loadingMore) return;
+    setLoadingMore(true);
     const nextPage = pageRef.current + 1;
     try {
       const data = await api.get<{ items: Array<Record<string, unknown>>; hasMore: boolean }>(
@@ -184,7 +192,8 @@ export function useNotifications(): UseNotificationsReturn {
         });
       setNotifications((prev) => [...prev, ...newNotifications]);
     } catch { /* best-effort */ }
-  }, [hasMoreState]);
+    finally { setLoadingMore(false); }
+  }, [hasMoreState, loadingMore]);
 
   // T-39: Deduplicated add — ignores catch-up notifications already seen via SSE
   const addNotification = useCallback((eventType: string, data: Record<string, unknown>, eventId: string) => {
@@ -330,6 +339,7 @@ export function useNotifications(): UseNotificationsReturn {
     dismiss,
     loadMore,
     hasMore: hasMoreState,
+    loadingMore,
     connected,
   };
 }

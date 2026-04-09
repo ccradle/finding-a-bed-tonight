@@ -77,7 +77,7 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
 
   const intl = useIntl();
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
-  const { notifications, unreadCount, markRead, markAllRead, dismiss, loadMore, hasMore, connected } = useNotifications();
+  const { notifications, unreadCount, markRead, markAllRead, dismiss, loadMore, hasMore, loadingMore, connected } = useNotifications();
   const [queueSize, setQueueSize] = useState(0);
   const [appVersion, setAppVersion] = useState<string | null>(null);
   const [kebabOpen, setKebabOpen] = useState(false);
@@ -314,6 +314,7 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
             onDismiss={dismiss}
             onLoadMore={loadMore}
             hasMore={hasMore}
+            loadingMore={loadingMore}
           />
 
           {/* Desktop-only inline buttons */}

@@ -204,10 +204,14 @@ export function ShelterForm({ initialData, readOnlyFields = [], onSaveComplete }
         const toAdd = assignedCoordinators.filter((c) => !originalAssignedIds.has(c.id));
         const toRemove = [...originalAssignedIds].filter((id) => !currentIds.has(id));
 
-        await Promise.all([
+        const assignmentResults = await Promise.allSettled([
           ...toAdd.map((c) => api.post(`/api/v1/shelters/${initialData.id}/coordinators`, { userId: c.id })),
           ...toRemove.map((id) => api.delete(`/api/v1/shelters/${initialData.id}/coordinators/${id}`)),
         ]);
+        const assignmentFailures = assignmentResults.filter((r) => r.status === 'rejected');
+        if (assignmentFailures.length > 0) {
+          setError('Shelter saved but some coordinator assignment changes failed. Please retry.');
+        }
 
         if (onSaveComplete) {
           onSaveComplete();

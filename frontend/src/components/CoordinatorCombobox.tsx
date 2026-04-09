@@ -131,7 +131,7 @@ export function CoordinatorCombobox({ options, selected, onChange, isDvShelter }
               {c.displayName}
               {isDvShelter && !c.dvAccess && (
                 <span
-                  title={intl.formatMessage({ id: 'shelter.dvAccessWarning' })}
+                  role="img"
                   style={{ color: color.warning, fontSize: text.xs, marginLeft: '2px' }}
                   aria-label={intl.formatMessage({ id: 'shelter.dvAccessWarning' })}
                 >
