@@ -115,14 +115,24 @@ public class NotificationController {
     @Operation(
             summary = "List notifications for authenticated user",
             description = "Returns notifications ordered by severity DESC, created_at DESC. "
-                    + "Use ?unread=true to filter to unread only."
+                    + "Supports pagination: ?page=0&size=20. Use ?unread=true to filter to unread only. "
+                    + "Response includes hasMore flag for 'Load more' UI."
     )
     @GetMapping
-    public List<Notification> list(
+    public Map<String, Object> list(
             Authentication authentication,
-            @RequestParam(value = "unread", required = false, defaultValue = "false") boolean unreadOnly) {
+            @RequestParam(value = "unread", required = false, defaultValue = "false") boolean unreadOnly,
+            @RequestParam(value = "page", required = false, defaultValue = "0") int page,
+            @RequestParam(value = "size", required = false, defaultValue = "20") int size) {
         UUID userId = (UUID) authentication.getPrincipal();
-        return notificationPersistenceService.findByRecipientId(userId, unreadOnly, DEFAULT_LIMIT);
+        int effectiveSize = Math.min(Math.max(size, 1), DEFAULT_LIMIT);
+        int offset = page * effectiveSize;
+        // Fetch one extra to determine hasMore
+        List<Notification> results = notificationPersistenceService.findByRecipientId(
+                userId, unreadOnly, effectiveSize + 1, offset);
+        boolean hasMore = results.size() > effectiveSize;
+        List<Notification> items = hasMore ? results.subList(0, effectiveSize) : results;
+        return Map.of("items", items, "page", page, "size", effectiveSize, "hasMore", hasMore);
     }
 
     @Operation(

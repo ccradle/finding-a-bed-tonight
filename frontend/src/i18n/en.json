@@ -370,6 +370,7 @@
   "notifications.escalation3_5h": "Referral expires in 30 minutes",
   "notifications.escalation4h": "Referral expired — find another bed",
   "notifications.markAllRead": "Mark all as read",
+  "notifications.loadMore": "Load more",
   "notifications.criticalBanner": "{count, plural, one {# urgent notification requires action} other {# urgent notifications require action}}",
   "coordinator.referralBanner": "{count, plural, one {# referral waiting for review} other {# referrals waiting for review}}",
 

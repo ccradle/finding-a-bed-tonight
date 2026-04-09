@@ -14,11 +14,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 public interface NotificationRepository extends CrudRepository<Notification, UUID> {
 
-    @Query("SELECT * FROM notification WHERE recipient_id = :recipientId AND read_at IS NULL ORDER BY CASE severity WHEN 'CRITICAL' THEN 0 WHEN 'ACTION_REQUIRED' THEN 1 ELSE 2 END, created_at DESC LIMIT :limit")
-    List<Notification> findUnreadByRecipientId(@Param("recipientId") UUID recipientId, @Param("limit") int limit);
+    @Query("SELECT * FROM notification WHERE recipient_id = :recipientId AND read_at IS NULL ORDER BY CASE severity WHEN 'CRITICAL' THEN 0 WHEN 'ACTION_REQUIRED' THEN 1 ELSE 2 END, created_at DESC LIMIT :limit OFFSET :offset")
+    List<Notification> findUnreadByRecipientId(@Param("recipientId") UUID recipientId, @Param("limit") int limit, @Param("offset") int offset);
 
-    @Query("SELECT * FROM notification WHERE recipient_id = :recipientId ORDER BY CASE severity WHEN 'CRITICAL' THEN 0 WHEN 'ACTION_REQUIRED' THEN 1 ELSE 2 END, created_at DESC LIMIT :limit")
-    List<Notification> findByRecipientId(@Param("recipientId") UUID recipientId, @Param("limit") int limit);
+    @Query("SELECT * FROM notification WHERE recipient_id = :recipientId ORDER BY CASE severity WHEN 'CRITICAL' THEN 0 WHEN 'ACTION_REQUIRED' THEN 1 ELSE 2 END, created_at DESC LIMIT :limit OFFSET :offset")
+    List<Notification> findByRecipientId(@Param("recipientId") UUID recipientId, @Param("limit") int limit, @Param("offset") int offset);
 
     @Query("SELECT COUNT(*) FROM notification WHERE recipient_id = :recipientId AND read_at IS NULL")
     int countUnreadByRecipientId(@Param("recipientId") UUID recipientId);

@@ -370,6 +370,7 @@
   "notifications.escalation3_5h": "Referencia expira en 30 minutos",
   "notifications.escalation4h": "Referencia expirada — busque otra cama",
   "notifications.markAllRead": "Marcar todo como leído",
+  "notifications.loadMore": "Cargar más",
   "notifications.criticalBanner": "{count, plural, one {# notificación urgente requiere acción} other {# notificaciones urgentes requieren acción}}",
   "coordinator.referralBanner": "{count, plural, one {# referencia esperando revisión} other {# referencias esperando revisión}}",
 
