@@ -29,7 +29,7 @@ class WebhookResilienceTest extends BaseIntegrationTest {
     void circuitBreaker_configured() {
         CircuitBreaker cb = circuitBreakerRegistry.circuitBreaker("webhook-delivery");
         assertThat(cb).isNotNull();
-        assertThat(cb.getCircuitBreakerConfig().getSlidingWindowSize()).isEqualTo(10);
+        assertThat(cb.getCircuitBreakerConfig().getSlidingWindowSize()).isEqualTo(20);
         assertThat(cb.getCircuitBreakerConfig().getFailureRateThreshold()).isEqualTo(50f);
         assertThat(cb.getCircuitBreakerConfig().getWaitIntervalFunctionInOpenState()).isNotNull();
     }
@@ -66,8 +66,11 @@ class WebhookResilienceTest extends BaseIntegrationTest {
     @DisplayName("webhook-delivery circuit breaker has correct minimumNumberOfCalls (not default 100)")
     void circuitBreaker_minimumNumberOfCalls_configured() {
         CircuitBreaker cb = circuitBreakerRegistry.circuitBreaker("webhook-delivery");
-        // Default is 100 — we set 5 in application.yml to trip faster for webhook failures
-        assertThat(cb.getCircuitBreakerConfig().getMinimumNumberOfCalls()).isEqualTo(5);
+        // Default is 100. We set 10: high enough to avoid false trips from one bad
+        // subscription among many (Charlotte: 10+ subs), low enough to protect the
+        // system from widespread outages. With slidingWindowSize=20, one bad endpoint
+        // among 9 healthy ones generates ~10% failure rate (below 50% threshold).
+        assertThat(cb.getCircuitBreakerConfig().getMinimumNumberOfCalls()).isEqualTo(10);
     }
 
     @Test

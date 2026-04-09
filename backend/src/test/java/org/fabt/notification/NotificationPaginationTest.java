@@ -1,7 +1,9 @@
 package org.fabt.notification;
 
+import java.util.List;
 import java.util.Map;
 
+import tools.jackson.databind.ObjectMapper;
 import org.fabt.BaseIntegrationTest;
 import org.fabt.TestAuthHelper;
 import org.fabt.auth.domain.User;
@@ -28,6 +30,8 @@ class NotificationPaginationTest extends BaseIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     private User coordinator;
 
@@ -64,7 +68,7 @@ class NotificationPaginationTest extends BaseIntegrationTest {
 
     @Test
     @DisplayName("Page 0, size 3 → 3 items, hasMore=true")
-    void firstPage_size3_hasMore() {
+    void firstPage_size3_hasMore() throws Exception {
         ResponseEntity<String> resp = restTemplate.exchange(
                 "/api/v1/notifications?page=0&size=3",
                 HttpMethod.GET,
@@ -72,30 +76,40 @@ class NotificationPaginationTest extends BaseIntegrationTest {
                 String.class);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(resp.getBody()).contains("\"hasMore\":true");
-        assertThat(resp.getBody()).contains("\"size\":3");
-        // Count items in the response
-        int itemCount = resp.getBody().split("\"id\"").length - 1;
-        assertThat(itemCount).isEqualTo(3);
+        var json = objectMapper.readValue(resp.getBody(), Map.class);
+        assertThat(json.get("hasMore")).isEqualTo(true);
+        assertThat(json.get("size")).isEqualTo(3);
+        assertThat((List<?>) json.get("items")).hasSize(3);
     }
 
     @Test
-    @DisplayName("Page 1, size 3 → 3 items, hasMore=true (4 remaining)")
-    void secondPage_size3_hasMore() {
-        ResponseEntity<String> resp = restTemplate.exchange(
+    @DisplayName("Page 0 and page 1 return different items (no overlap)")
+    void pages_doNotOverlap() throws Exception {
+        ResponseEntity<String> resp0 = restTemplate.exchange(
+                "/api/v1/notifications?page=0&size=3",
+                HttpMethod.GET,
+                new HttpEntity<>(authHelper.coordinatorHeaders()),
+                String.class);
+        ResponseEntity<String> resp1 = restTemplate.exchange(
                 "/api/v1/notifications?page=1&size=3",
                 HttpMethod.GET,
                 new HttpEntity<>(authHelper.coordinatorHeaders()),
                 String.class);
 
-        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(resp.getBody()).contains("\"hasMore\":true");
-        assertThat(resp.getBody()).contains("\"page\":1");
+        var json0 = objectMapper.readValue(resp0.getBody(), Map.class);
+        var json1 = objectMapper.readValue(resp1.getBody(), Map.class);
+        List<Map<String, Object>> items0 = (List<Map<String, Object>>) json0.get("items");
+        List<Map<String, Object>> items1 = (List<Map<String, Object>>) json1.get("items");
+
+        var ids0 = items0.stream().map(i -> i.get("id").toString()).toList();
+        var ids1 = items1.stream().map(i -> i.get("id").toString()).toList();
+        // No overlap between pages
+        assertThat(ids0).doesNotContainAnyElementsOf(ids1);
     }
 
     @Test
     @DisplayName("Page 2, size 3 → 1 item, hasMore=false (last page)")
-    void lastPage_size3_noMore() {
+    void lastPage_size3_noMore() throws Exception {
         ResponseEntity<String> resp = restTemplate.exchange(
                 "/api/v1/notifications?page=2&size=3",
                 HttpMethod.GET,
@@ -103,9 +117,9 @@ class NotificationPaginationTest extends BaseIntegrationTest {
                 String.class);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(resp.getBody()).contains("\"hasMore\":false");
-        int itemCount = resp.getBody().split("\"id\"").length - 1;
-        assertThat(itemCount).isEqualTo(1);
+        var json = objectMapper.readValue(resp.getBody(), Map.class);
+        assertThat(json.get("hasMore")).isEqualTo(false);
+        assertThat((List<?>) json.get("items")).hasSize(1);
     }
 
     @Test
@@ -130,10 +144,10 @@ class NotificationPaginationTest extends BaseIntegrationTest {
 
     @Test
     @DisplayName("Unread filter with pagination")
-    void unreadFilter_withPagination() {
-        // Mark 3 of the 7 as read
+    void unreadFilter_withPagination() throws Exception {
+        // Mark 3 of the 7 as read (ORDER BY ensures deterministic selection)
         jdbcTemplate.update(
-                "UPDATE notification SET read_at = NOW() WHERE id IN (SELECT id FROM notification WHERE recipient_id = ? AND read_at IS NULL LIMIT 3)",
+                "UPDATE notification SET read_at = NOW() WHERE id IN (SELECT id FROM notification WHERE recipient_id = ? AND read_at IS NULL ORDER BY created_at LIMIT 3)",
                 coordinator.getId());
 
         ResponseEntity<String> resp = restTemplate.exchange(
@@ -143,8 +157,9 @@ class NotificationPaginationTest extends BaseIntegrationTest {
                 String.class);
 
         assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
-        // Should have fewer than 7 items since some are read
-        int itemCount = resp.getBody().split("\"id\"").length - 1;
-        assertThat(itemCount).isLessThan(7);
+        var json = objectMapper.readValue(resp.getBody(), Map.class);
+        List<?> items = (List<?>) json.get("items");
+        // 7 created, 3 marked read → 4 unread
+        assertThat(items).hasSize(4);
     }
 }
