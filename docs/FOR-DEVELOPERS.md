@@ -1367,5 +1367,20 @@ cd backend && mvn spring-boot:run
 
 Flyway will apply all migrations automatically on application startup.
 
+### @Scheduled + @Transactional + TenantContext.runWithContext = silent RLS failure
+
+**Symptom:** A `@Scheduled` method that queries DV-protected tables (referral_token, shelter) silently returns zero rows. No errors in logs. DV data appears invisible.
+
+**Root cause:** `@Transactional` eagerly acquires a JDBC connection via `DataSourceTransactionManager.doBegin()` BEFORE the method body runs. `RlsAwareDataSource.applyRlsContext()` reads `TenantContext.getDvAccess()` at connection time — which is `false` because `runWithContext()` hasn't been called yet. The connection gets `app.dv_access='false'`, making DV shelters invisible via RLS.
+
+**Pattern rule:** Never use `@Transactional` on a method that calls `TenantContext.runWithContext()` internally. The context must be set BEFORE the transaction starts.
+
+**Correct patterns:**
+1. **Single-statement SQL:** Remove `@Transactional` (atomic by default). JdbcTemplate acquires the connection lazily inside `runWithContext`. Add a fail-fast assertion: `if (!TenantContext.getDvAccess()) throw`.
+2. **Multi-statement SQL:** Use `BatchJobScheduler.registerJob()` with `dvAccess=true`, which wraps the entire job in `TenantContext` before Spring Batch starts transactions.
+3. **Never:** `@Transactional` + `runWithContext()` inside the method body.
+
+**History:** This bug caused DV referral tokens to remain PENDING indefinitely (v0.31.1, April 2026). Fixed by removing `@Transactional` from `expireTokens()` and `purgeTerminalTokens()`.
+
 ---
 
