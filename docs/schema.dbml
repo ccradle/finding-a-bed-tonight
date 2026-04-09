@@ -674,10 +674,11 @@ Table batch_job_execution_context {
 // ---------------------------------------------------------------------------
 // V35/V36 — Notification (persistent, DB-backed)
 // ---------------------------------------------------------------------------
-// RLS FORCE enabled on notification.
-// Policies: SELECT by recipient (recipient_id = current_setting('app.user_id')),
-//           UPDATE by recipient (recipient_id = current_setting('app.user_id')),
-//           DELETE unrestricted, INSERT unrestricted.
+// RLS ENABLED on notification (V38: simplified from per-user to unrestricted).
+// All 4 policies USING (true) — service layer enforces per-user filtering.
+// Per-user isolation via WHERE recipient_id = ? in all repository queries.
+// Reason: per-user RLS caused 3 production bugs (INSERT RETURNING, cleanup,
+// escalation dedup). See V38 migration for details.
 
 Table notification {
   id            uuid        [pk, note: 'gen_random_uuid()']
@@ -700,7 +701,7 @@ Table notification {
   note: '''
   Persistent notification for in-app bell/inbox. Created by
   NotificationPersistenceService.send() on domain events (e.g. DV referral
-  lifecycle). Protected by PostgreSQL RLS: recipients can only SELECT/UPDATE
-  their own notifications. DELETE and INSERT are unrestricted (service-level).
+  lifecycle). RLS enabled but unrestricted (V38) — service layer enforces
+  per-user access via WHERE recipient_id = ? in all queries.
   '''
 }

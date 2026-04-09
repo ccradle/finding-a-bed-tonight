@@ -5,6 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.31.1] — 2026-04-09 — Notification RLS Hotfix
+
+### Fixed
+- **Escalation dedup failure** — per-user RLS policy blocked the dedup SELECT, causing 144 duplicate escalation notifications in 2 hours on demo site. Root cause: per-user RLS has no "see all" value for system operations.
+- **Cleanup job silent failure** — DELETE WHERE clause evaluation went through per-user SELECT RLS policy, matching zero rows.
+- **INSERT RETURNING failure** — Spring Data JDBC's `save()` triggers SELECT policy on RETURNING clause.
+
+### Changed
+- **V38 migration**: replaced per-user SELECT + UPDATE RLS policies with unrestricted `USING (true)`. Service layer enforces per-user access via `WHERE recipient_id = ?` in all repository queries.
+- **markRead/markActed**: controller now extracts userId from JWT and passes to repository (replaces RLS as security boundary).
+- **Removed all RESET ROLE hacks**: eliminated raw connections, set_config overrides, and @Transactional workarounds from NotificationPersistenceService and ReferralEscalationJobConfig.
+
+---
+
 ## [v0.31.0] — 2026-04-09 — Persistent Notifications (#77)
 
 ### Added
