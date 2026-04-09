@@ -1386,5 +1386,15 @@ Flyway will apply all migrations automatically on application startup.
 
 **History:** This bug caused DV referral tokens to remain PENDING indefinitely (v0.31.1, April 2026). Fixed by removing `@Transactional` from `expireTokens()` and `purgeTerminalTokens()`.
 
+### SSE notifications reconnect every ~60 seconds behind Cloudflare
+
+**Symptom:** Browser shows brief "Reconnecting..." message periodically. Nginx logs show a new `GET /api/v1/notifications/stream` request every ~60 seconds.
+
+**Root cause:** Cloudflare's free-tier proxy terminates idle HTTP connections after 100 seconds. The SSE keepalive heartbeat (every 20 seconds) prevents Cloudflare from treating the connection as idle in most cases, but under certain conditions (HTTP/2 multiplexing, connection coalescing), Cloudflare may still reset the stream.
+
+**Impact:** Low. The frontend `useNotifications` hook automatically reconnects, re-fetches the unread count from REST, and deduplicates catch-up events by notification ID. The user sees a brief reconnect flash but no data loss.
+
+**Known behavior, not a bug.** The SSE catch-up mechanism was designed for exactly this scenario. No action required unless users report it as disruptive.
+
 ---
 

@@ -164,13 +164,14 @@ class DvReferralIntegrationTest extends BaseIntegrationTest {
         ResponseEntity<String> createResp = createReferral(dvShelterId, outreachHeaders);
         String tokenId = extractField(createResp.getBody(), "id");
 
-        // Force expiry by updating expires_at to past
+        // Force expiry by updating expires_at to past (needs dvAccess for RLS)
         TenantContext.runWithContext(authHelper.getTestTenantId(), true, () -> {
             jdbcTemplate.update(
                     "UPDATE referral_token SET expires_at = NOW() - INTERVAL '1 minute' WHERE id = ?::uuid",
                     tokenId);
-            referralTokenService.expireTokens();
         });
+        // Call expireTokens() WITHOUT outer TenantContext — matches production @Scheduled invocation
+        referralTokenService.expireTokens();
 
         // Verify status changed
         ResponseEntity<String> mineResp = restTemplate.exchange(
@@ -410,7 +411,9 @@ class DvReferralIntegrationTest extends BaseIntegrationTest {
         // Allow SSE connection to establish
         Thread.sleep(300);
 
-        // Force expiry and trigger scheduled task
+        // Force expiry — outer TenantContext needed here because this test verifies SSE event
+        // delivery, which requires tenantId for routing. The RLS fix (no @Transactional) is
+        // verified separately in DvReferralExpiryRlsTest.
         TenantContext.runWithContext(authHelper.getTestTenantId(), true, () -> {
             jdbcTemplate.update(
                     "UPDATE referral_token SET expires_at = NOW() - INTERVAL '1 minute' WHERE id = ?::uuid",
@@ -450,7 +453,9 @@ class DvReferralIntegrationTest extends BaseIntegrationTest {
                 coordA.getId(), authHelper.getTestTenantId(),
                 new String[]{"COORDINATOR"}, true, null);
 
-        // Force expiry in default tenant
+        // Force expiry in default tenant — outer TenantContext needed here because this test
+        // verifies SSE tenant isolation, which requires tenantId for event routing. The RLS fix
+        // is verified separately in DvReferralExpiryRlsTest.
         TenantContext.runWithContext(authHelper.getTestTenantId(), true, () -> {
             jdbcTemplate.update(
                     "UPDATE referral_token SET expires_at = NOW() - INTERVAL '1 minute' WHERE status = 'PENDING'");
