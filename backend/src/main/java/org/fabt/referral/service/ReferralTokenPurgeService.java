@@ -34,17 +34,21 @@ public class ReferralTokenPurgeService {
 
     /**
      * Runs every hour. Hard-deletes terminal tokens older than 24 hours.
+     *
+     * <p><b>No @Transactional.</b> Single atomic DELETE statement. See ReferralTokenService.expireTokens()
+     * Javadoc for why @Transactional + runWithContext inside is incompatible with RLS.</p>
      */
     @Scheduled(fixedRate = 3_600_000)
-    @Transactional
     public void purgeTerminalTokens() {
         // System process needs dvAccess to see DV-shelter-linked tokens via RLS
         TenantContext.runWithContext(TenantContext.getTenantId(), true, () -> {
+            if (!TenantContext.getDvAccess()) {
+                throw new IllegalStateException(
+                        "purgeTerminalTokens requires dvAccess=true — DV referral tokens are invisible without it");
+            }
             Instant cutoff = Instant.now().minus(PURGE_AGE);
             int purged = repository.purgeTerminalTokens(cutoff);
-            if (purged > 0) {
-                log.info("Purged {} DV referral tokens (terminal state older than 24h)", purged);
-            }
+            log.info("purgeTerminalTokens: dvAccess={}, purged={}", TenantContext.getDvAccess(), purged);
         });
     }
 }

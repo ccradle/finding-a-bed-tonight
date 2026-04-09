@@ -214,12 +214,22 @@ public class ReferralTokenService {
     /**
      * Expire pending tokens past their expiry time. Called by @Scheduled every 60 seconds.
      * System process — binds TenantContext with dvAccess=true for RLS access to DV-linked tokens (D14).
+     *
+     * <p><b>No @Transactional.</b> The underlying SQL is a single atomic UPDATE ... RETURNING.
+     * @Transactional eagerly acquires a JDBC connection (via DataSourceTransactionManager.doBegin())
+     * BEFORE the method body calls runWithContext(). The RLS-aware DataSource would read
+     * dvAccess=false at connection time, making DV shelter referrals invisible. See
+     * BatchJobScheduler for the correct pattern: context BEFORE transaction.</p>
      */
     @Scheduled(fixedRate = 60_000)
-    @Transactional
     public void expireTokens() {
         TenantContext.runWithContext(TenantContext.getTenantId(), true, () -> {
+            if (!TenantContext.getDvAccess()) {
+                throw new IllegalStateException(
+                        "expireTokens requires dvAccess=true — DV referral tokens are invisible without it");
+            }
             List<UUID> expiredIds = repository.expirePendingTokensReturningIds();
+            log.info("expireTokens: dvAccess={}, expired={}", TenantContext.getDvAccess(), expiredIds.size());
             if (!expiredIds.isEmpty()) {
                 expiredIds.forEach(id -> dvReferralCounter("expired").increment());
 
