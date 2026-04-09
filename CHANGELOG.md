@@ -5,6 +5,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.32.0] — 2026-04-09 — Charlotte Pilot Readiness
+
+### Added
+- **Coordinator-shelter assignment UI** (#91) — searchable combobox + removable chips on shelter edit (W3C APG), read-only chips on user edit drawer. `GET /users/{id}/shelters`, `GET /shelters/{id}/coordinators` endpoints.
+- **Notification pagination** (#83) — `GET /notifications?page=0&size=20` with `{items, page, size, hasMore}` response. "Load more" button in bell dropdown.
+- **Email password reset** (#36) — `POST /forgot-password` + `POST /reset-password`. SHA-256 token hashing (OWASP), 256-bit SecureRandom tokens, 30-min expiry. DV users blocked (NNEDV). Generic email (no platform name). GreenMail test infrastructure.
+- **Webhook retry + circuit breaker** (#51) — resilience4j Retry (3 attempts, exponential backoff) + CircuitBreaker (sliding window 20, 50% threshold). Config-driven via application.yml.
+
+### Fixed
+- **DV referral expiry** (v0.31.2) — `@Transactional` on `expireTokens()` acquired JDBC connection before dvAccess=true was set, making DV tokens invisible. 3 stuck tokens on demo site (oldest 7 days).
+- **Notification dismiss** — X button now calls mark-read API (was client-only, CRITICAL notifications reappeared on refresh).
+- **tokenVersion on password change** — `PasswordController.changePassword()` and admin `resetPassword()` now increment tokenVersion to invalidate all existing JWTs immediately.
+
+### Changed
+- Notification `GET /notifications` response changed from `List<Notification>` to `{items, page, size, hasMore}` (breaking API change, documented in @Operation).
+- Scheduled job logging: `log.debug` for zero-result runs, `log.info` when rows affected (reduces log volume).
+- `EmailService` conditionally loaded (`@ConditionalOnProperty("spring.mail.host")`).
+
+---
+
 ## [v0.31.2] — 2026-04-09 — DV Referral Expiry Fix
 
 ### Fixed

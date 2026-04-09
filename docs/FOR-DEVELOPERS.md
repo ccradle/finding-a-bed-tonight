@@ -600,6 +600,9 @@ All endpoints are under `/api/v1`. Authentication is via JWT Bearer token (from 
 | `POST` | `/api/v1/auth/refresh` | None | Refresh an access token using a refresh token |
 | `PUT` | `/api/v1/auth/password` | Bearer | Change own password (current + new, min 12 chars). Invalidates all tokens. 409 for SSO-only users |
 | `POST` | `/api/v1/users/{id}/reset-password` | Admin | Admin resets user password. Same-tenant only. Invalidates user's tokens |
+| `POST` | `/api/v1/auth/forgot-password` | None | Request email password reset. Body: `{email, tenantSlug}`. Always 200 (no enumeration). DV users silently blocked. Rate limited: 3/hour |
+| `POST` | `/api/v1/auth/reset-password` | None | Reset password via email token. Body: `{token, newPassword}` (min 12 chars). Token is SHA-256 hashed (not BCrypt), 30-min expiry, single-use. Increments tokenVersion. |
+| `GET` | `/api/v1/auth/capabilities` | None | Returns `{emailResetAvailable, totpAvailable, accessCodeAvailable}`. Frontend gates "Forgot Password?" on emailResetAvailable |
 
 ### Tenants
 
