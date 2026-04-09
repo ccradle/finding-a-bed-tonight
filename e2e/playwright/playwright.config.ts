@@ -21,6 +21,11 @@ export default defineConfig({
     baseURL: process.env.BASE_URL || 'http://localhost:5173',
     trace: isCI ? 'on-first-retry' : 'off',
     screenshot: 'only-on-failure',
+    // Block service workers — prevents stale cached JS from prior builds.
+    // The PWA service worker (Workbox NetworkFirst) can serve old JavaScript
+    // bundles that don't include the latest code changes, causing tests to
+    // pass against stale code. See feedback_stale_sw_on_deploy.md.
+    serviceWorkers: 'block',
   },
   projects: [
     {
