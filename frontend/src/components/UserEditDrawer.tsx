@@ -36,6 +36,9 @@ export function UserEditDrawer({ user, onClose, onSaved }: UserEditDrawerProps) 
   const [showDeactivateConfirm, setShowDeactivateConfirm] = useState(false);
   const [statusChanging, setStatusChanging] = useState(false);
 
+  // Assigned shelters (read-only view)
+  const [assignedShelters, setAssignedShelters] = useState<Array<{ id: string; name: string }>>([]);
+
   // Populate form when user changes
   useEffect(() => {
     if (user) {
@@ -46,6 +49,10 @@ export function UserEditDrawer({ user, onClose, onSaved }: UserEditDrawerProps) 
       setError(null);
       setSuccess(null);
       setShowDeactivateConfirm(false);
+      // Fetch assigned shelters
+      api.get<Array<{ id: string; name: string }>>(`/api/v1/users/${user.id}/shelters`)
+        .then(setAssignedShelters)
+        .catch(() => setAssignedShelters([]));
     }
   }, [user]);
 
@@ -219,6 +226,43 @@ export function UserEditDrawer({ user, onClose, onSaved }: UserEditDrawerProps) 
               <FormattedMessage id="admin.dvAccess" />
             </span>
           </label>
+
+          {/* Assigned Shelters (read-only) */}
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: text.sm, fontWeight: weight.semibold, color: color.textSecondary, marginBottom: 8 }}>
+              <FormattedMessage id="admin.assignedShelters" />
+            </div>
+            {assignedShelters.length === 0 ? (
+              <p style={{ color: color.textMuted, fontSize: text.sm, margin: 0 }} data-testid="user-no-shelters">
+                <FormattedMessage id="admin.noSheltersAssigned" />
+              </p>
+            ) : (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }} data-testid="user-assigned-shelters">
+                {assignedShelters.map((s) => (
+                  <a
+                    key={s.id}
+                    href={`/coordinator/shelters/${s.id}/edit?from=/admin`}
+                    style={{
+                      display: 'inline-block',
+                      padding: '4px 10px',
+                      borderRadius: 16,
+                      fontSize: text.sm,
+                      fontWeight: weight.medium,
+                      color: color.primaryText,
+                      backgroundColor: color.primaryLight,
+                      border: `1px solid ${color.border}`,
+                      textDecoration: 'none',
+                      minHeight: 32,
+                      lineHeight: '24px',
+                    }}
+                    data-testid={`user-shelter-chip-${s.id}`}
+                  >
+                    {s.name}
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
 
           {/* Error / Success */}
           {error && (

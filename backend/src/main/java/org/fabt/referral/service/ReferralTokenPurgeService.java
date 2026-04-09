@@ -48,7 +48,11 @@ public class ReferralTokenPurgeService {
             }
             Instant cutoff = Instant.now().minus(PURGE_AGE);
             int purged = repository.purgeTerminalTokens(cutoff);
-            log.info("purgeTerminalTokens: dvAccess={}, purged={}", TenantContext.getDvAccess(), purged);
+            if (purged > 0) {
+                log.info("purgeTerminalTokens: dvAccess={}, purged={}", TenantContext.getDvAccess(), purged);
+            } else {
+                log.debug("purgeTerminalTokens: dvAccess={}, purged=0", TenantContext.getDvAccess());
+            }
         });
     }
 }

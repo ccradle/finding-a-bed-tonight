@@ -281,6 +281,20 @@ public class ShelterController {
     }
 
     @Operation(
+            summary = "List coordinators assigned to a shelter",
+            description = "Returns the user IDs of coordinators assigned to the specified shelter. " +
+                    "Requires COC_ADMIN or PLATFORM_ADMIN role."
+    )
+    @GetMapping("/{id}/coordinators")
+    @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+    public ResponseEntity<List<java.util.UUID>> listCoordinators(
+            @Parameter(description = "UUID of the shelter") @PathVariable java.util.UUID id) {
+        shelterService.findById(id)
+                .orElseThrow(() -> new java.util.NoSuchElementException("Shelter not found: " + id));
+        return ResponseEntity.ok(coordinatorAssignmentRepository.findUserIdsByShelterId(id));
+    }
+
+    @Operation(
             summary = "Assign a coordinator user to a shelter",
             description = "Creates an assignment linking a user (who should have the COORDINATOR role) " +
                     "to the specified shelter. Once assigned, the coordinator can update that shelter's " +
