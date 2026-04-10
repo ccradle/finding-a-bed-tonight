@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   # -------------------------------------------------------------------------
   # DV Canary — MUST pass before any other E2E tests run.
