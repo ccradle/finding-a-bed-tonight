@@ -18,7 +18,7 @@
 | Field | Value |
 |---|---|
 | **Product Name** | Finding A Bed Tonight (FABT) |
-| **Product Version** | v0.30.0 |
+| **Product Version** | v0.32.1 |
 | **Report Date** | April 8, 2026 |
 | **Product Description** | Open-source emergency shelter bed availability platform. React 19 progressive web application with Spring Boot 4.0 backend (Java 25, virtual threads). Used by outreach workers, shelter coordinators, and CoC administrators to find, hold, and manage emergency shelter beds in real time. |
 | **Contact** | GitHub: github.com/ccradle/finding-a-bed-tonight |

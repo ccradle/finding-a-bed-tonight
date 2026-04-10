@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.32.1] — 2026-04-09 — Bed Search Performance Optimization
+
+### Changed
+- **Bed search query optimized** — rewrote `findLatestByTenantId()` from `SELECT DISTINCT` subquery to recursive CTE skip scan. Uses existing indexes (no schema change). Verified functionally equivalent across multiple tenants. All 44 availability tests pass.
+
+---
+
 ## [v0.32.0] — 2026-04-09 — Charlotte Pilot Readiness
 
 ### Added
