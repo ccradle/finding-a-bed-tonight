@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [Unreleased] — Platform Hardening Phase 1 Follow-up
+## [v0.32.2] — 2026-04-10 — Webhook Read Timeout Fix
 
 ### Fixed
 - **Webhook delivery read timeout** — `WebhookDeliveryService` documented a 30s read timeout in design D3 but only the connect timeout (10s) was actually wired into `JdkClientHttpRequestFactory`. JDK `HttpClient` has no per-client read timeout, so a hanging webhook subscriber would block a virtual thread until the JVM died. Marcus Webb's lens: documented timeouts that don't exist are a security gap. Discovered while writing `WebhookTimeoutTest` — exactly what the test was for.

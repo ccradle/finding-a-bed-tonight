@@ -675,8 +675,20 @@ Rate limited: 10 attempts per 15 minutes per IP (`rate-limit-admin-reset` bucket
 
 ### Webhook delivery failures
 **Symptom:** `fabt.webhook.delivery.count{status="failure"}` increasing
-**Cause:** Callback URL unreachable, SSL certificate issues, or 410 Gone (permanent deactivation)
-**Resolution:** Check subscription callback URLs. 410 responses auto-deactivate the subscription. Other failures are logged with the error. Retry (with exponential backoff) is planned but not yet implemented.
+**Cause:** Callback URL unreachable, SSL certificate issues, slow endpoint exceeding the read timeout, or 410 Gone (permanent deactivation).
+**Resolution:** Check subscription callback URLs. 410 responses auto-deactivate the subscription. Other failures are retried automatically by resilience4j (3 attempts, exponential backoff 1s × 3 — see `webhook-delivery` retry config in `application.yml`); after 5 consecutive failures the subscription is auto-disabled and `subscription.status` becomes `DEACTIVATED`. The admin can re-enable via `PATCH /api/v1/subscriptions/{id}/status` (resets the failure counter).
+
+**If a partner reports timeouts on a slow callback endpoint:**
+The default read timeout is 30 seconds (10s connect + 30s read). For partners with legitimately slow endpoints, override per-deployment via env vars:
+
+```bash
+FABT_WEBHOOK_CONNECT_TIMEOUT_SECONDS=10   # default 10
+FABT_WEBHOOK_READ_TIMEOUT_SECONDS=60      # default 30 — bump for slow partners
+```
+
+These map to `fabt.webhook.connect-timeout-seconds` and `fabt.webhook.read-timeout-seconds`. Setting the read timeout too high can starve the virtual-thread pool under load, so prefer fixing the partner's endpoint when possible.
+
+**Webhook delivery test:** use `POST /api/v1/subscriptions/{id}/test` to send a synthetic event to a subscription's callback URL. The response includes the actual status code, response time, and (truncated, redacted) body. This is the right way to verify a subscription is wired correctly without waiting for a real domain event.
 
 ### Reservation expiry not firing
 **Symptom:** Reservations stuck in HELD status past their `expires_at` time

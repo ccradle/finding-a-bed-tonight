@@ -726,6 +726,17 @@ All endpoints are under `/api/v1`. Authentication is via JWT Bearer token (from 
 | `POST` | `/api/v1/subscriptions/{id}/test` | COC_ADMIN+ | Send test event, returns delivery result (status, time, body) |
 | `GET` | `/api/v1/subscriptions/{id}/deliveries` | COC_ADMIN+ | Last 20 delivery attempts (redacted, 1KB truncated) |
 
+**Webhook delivery timeouts (configurable since v0.32.2):**
+
+| Property | Env var | Default | Purpose |
+|---|---|---|---|
+| `fabt.webhook.connect-timeout-seconds` | `FABT_WEBHOOK_CONNECT_TIMEOUT_SECONDS` | `10` | TCP connect timeout to subscriber endpoint |
+| `fabt.webhook.read-timeout-seconds` | `FABT_WEBHOOK_READ_TIMEOUT_SECONDS` | `30` | Read timeout for the response — protects virtual threads from hanging endpoints |
+
+The read timeout is enforced via `JdkClientHttpRequestFactory.setReadTimeout()` on the shared `RestClient`. JDK `HttpClient` has no per-client read timeout, so without this fix a slow subscriber would block a virtual thread until the JVM died (Marcus Webb finding, fixed 2026-04-09 in PR #96 and tested by `WebhookTestEventDeliveryTest` + `WebhookTimeoutTest`). Both timeouts can be raised per deployment for partners with legitimately slow endpoints, but prefer fixing the partner's endpoint when possible.
+
+**Webhook resilience (since v0.30.0):** 3-attempt retry with exponential backoff (1s × 3) via resilience4j; 50% failure threshold over a sliding window of 20 calls trips the circuit breaker (open for 30s). Auto-disable triggers after 5 consecutive failures (`subscription.status = DEACTIVATED`). Re-enable via `PATCH /api/v1/subscriptions/{id}/status` resets the failure counter.
+
 ### Notifications
 
 | Method | Path | Auth | Description |
