@@ -167,4 +167,59 @@ test.describe('Post-deploy smoke tests', () => {
     const reconnecting = page.getByTestId('connection-status-reconnecting');
     await expect(reconnecting).not.toBeVisible();
   });
+
+  test('9. Admin can see assigned shelters on user edit drawer', async ({ page }) => {
+    await page.goto(LOGIN);
+    await page.getByTestId('login-tenant-slug').fill('dev-coc');
+    await page.getByTestId('login-email').fill('admin@dev.fabt.org');
+    await page.getByTestId('login-password').fill('admin123');
+    await page.getByTestId('login-submit').click();
+
+    // Navigate to Users tab
+    await page.locator('[data-tab-key="users"]').waitFor({ timeout: 15_000 });
+    await page.locator('[data-tab-key="users"]').click();
+    await page.waitForTimeout(1000);
+
+    // Click the Edit button on the dv-coordinator row to open the drawer
+    const dvCoordRow = page.locator('tr', { hasText: 'dv-coordinator@dev.fabt.org' });
+    await dvCoordRow.locator('button', { hasText: 'Edit' }).click();
+    await page.waitForTimeout(1000);
+
+    // Should see "Assigned Shelters" section with chips OR "No shelters assigned"
+    const shelterChips = page.getByTestId('user-assigned-shelters');
+    const noShelters = page.getByTestId('user-no-shelters');
+    const either = await shelterChips.isVisible() || await noShelters.isVisible();
+    expect(either).toBeTruthy();
+  });
+
+  test('10. Admin can see coordinator combobox on shelter edit', async ({ page }) => {
+    await page.goto(LOGIN);
+    await page.getByTestId('login-tenant-slug').fill('dev-coc');
+    await page.getByTestId('login-email').fill('admin@dev.fabt.org');
+    await page.getByTestId('login-password').fill('admin123');
+    await page.getByTestId('login-submit').click();
+
+    // Navigate to Shelters tab
+    await page.locator('[data-tab-key="shelters"]').waitFor({ timeout: 15_000 });
+    await page.locator('[data-tab-key="shelters"]').click();
+    await page.waitForTimeout(1000);
+
+    // Click Edit on first shelter to navigate to shelter edit page
+    const editLink = page.locator('table tbody tr').first().locator('a', { hasText: 'Edit' });
+    await editLink.click();
+    await page.waitForURL(/\/edit/, { timeout: 10_000 });
+
+    // The coordinator combobox input should be visible in edit mode
+    const combobox = page.getByTestId('coordinator-combobox-input');
+    await expect(combobox).toBeVisible({ timeout: 5_000 });
+  });
+
+  test('11. Forgot password page renders', async ({ page }) => {
+    await page.goto(`${BASE}/login/forgot-password`);
+
+    // Form fields should be visible
+    await expect(page.getByTestId('forgot-password-tenant')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId('forgot-password-email')).toBeVisible();
+    await expect(page.getByTestId('forgot-password-submit')).toBeVisible();
+  });
 });
