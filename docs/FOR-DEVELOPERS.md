@@ -497,7 +497,7 @@ Key accessibility features:
 - **Focus management** — route changes announced via aria-live, focus moved to main content
 - **i18n** — `lang` attribute switches between `en`/`es` for screen reader voice selection
 
-See **[docs/WCAG-ACR.md](docs/WCAG-ACR.md)** for the full conformance report, remediation plan, and testing methodology.
+See **[docs/WCAG-ACR.md](WCAG-ACR.md)** for the full conformance report, remediation plan, and testing methodology.
 
 ### DV Privacy — Opaque Referral
 
