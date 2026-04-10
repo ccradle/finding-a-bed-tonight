@@ -27,9 +27,11 @@ import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import io.github.resilience4j.retry.Retry;
 import io.github.resilience4j.retry.RetryRegistry;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.event.EventListener;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
@@ -60,15 +62,23 @@ public class WebhookDeliveryService {
                                   RestClient.Builder restClientBuilder,
                                   ObservabilityMetrics metrics,
                                   CircuitBreakerRegistry circuitBreakerRegistry,
-                                  RetryRegistry retryRegistry) {
+                                  RetryRegistry retryRegistry,
+                                  @Value("${fabt.webhook.connect-timeout-seconds:10}") int connectTimeoutSeconds,
+                                  @Value("${fabt.webhook.read-timeout-seconds:30}") int readTimeoutSeconds) {
         this.subscriptionService = subscriptionService;
         this.objectMapper = objectMapper;
-        // Timeouts: 10s connect, 30s read per design D3
+        // Timeouts per design D3: connect (default 10s) protects against unreachable
+        // endpoints, read (default 30s) protects against hanging endpoints. The read
+        // timeout MUST be set on the request factory — JDK HttpClient has no per-client
+        // read timeout, so without setReadTimeout() a slow endpoint blocks the virtual
+        // thread indefinitely (Marcus Webb finding, 2026-04-09).
+        JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(
+                HttpClient.newBuilder()
+                        .connectTimeout(Duration.ofSeconds(connectTimeoutSeconds))
+                        .build());
+        requestFactory.setReadTimeout(Duration.ofSeconds(readTimeoutSeconds));
         this.restClient = restClientBuilder
-                .requestFactory(new org.springframework.http.client.JdkClientHttpRequestFactory(
-                        HttpClient.newBuilder()
-                                .connectTimeout(Duration.ofSeconds(10))
-                                .build()))
+                .requestFactory(requestFactory)
                 .build();
         this.metrics = metrics;
         this.deliveryExecutor = Executors.newVirtualThreadPerTaskExecutor();
