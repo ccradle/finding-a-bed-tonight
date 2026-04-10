@@ -122,7 +122,7 @@ Phase 2 will add an MCP server as a thin wrapper around the REST API, enabling n
 
 ### Entity Relationship Diagram
 
-![ERD](docs/erd.svg)
+![ERD](erd.svg)
 
 ### Documentation
 
