@@ -150,6 +150,13 @@ fabt:
     noaa:
       coordinates: ${FABT_NOAA_LAT:35.8776},${FABT_NOAA_LON:-78.7875}
       station-id: ${FABT_NOAA_STATION:KRDU}
+  webhook:
+    # Webhook delivery timeouts (design D3). The read timeout protects virtual
+    # threads against hanging callback endpoints — without it, a misbehaving
+    # subscriber can pin a delivery thread until the JVM dies. Override per
+    # tenant via FABT_WEBHOOK_*_SECONDS env vars only if a partner needs longer.
+    connect-timeout-seconds: ${FABT_WEBHOOK_CONNECT_TIMEOUT_SECONDS:10}
+    read-timeout-seconds: ${FABT_WEBHOOK_READ_TIMEOUT_SECONDS:30}
 
 # Rate limiting — brute force protection on auth endpoints
 # Uses JCache (JSR-107) backed by Caffeine for bucket4j

@@ -5,6 +5,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased] — Platform Hardening Phase 1 Follow-up
+
+### Fixed
+- **Webhook delivery read timeout** — `WebhookDeliveryService` documented a 30s read timeout in design D3 but only the connect timeout (10s) was actually wired into `JdkClientHttpRequestFactory`. JDK `HttpClient` has no per-client read timeout, so a hanging webhook subscriber would block a virtual thread until the JVM died. Marcus Webb's lens: documented timeouts that don't exist are a security gap. Discovered while writing `WebhookTimeoutTest` — exactly what the test was for.
+
+### Added
+- **Configurable webhook timeouts** — both timeouts are now constructor-injected and configurable:
+  - `fabt.webhook.connect-timeout-seconds` (env: `FABT_WEBHOOK_CONNECT_TIMEOUT_SECONDS`, default `10`)
+  - `fabt.webhook.read-timeout-seconds` (env: `FABT_WEBHOOK_READ_TIMEOUT_SECONDS`, default `30`)
+  - Defaults preserve the original D3 contract. Slow legacy partners can be granted extended timeouts via env var without code changes.
+- **`WebhookTestEventDeliveryTest`** (T-25) — 4 integration tests covering the `POST /api/v1/subscriptions/{id}/test` endpoint: HMAC signing format, X-Test-Event header, JSON body shape, success/failure recording, 404 on missing subscription. Uses WireMock to verify the full transport path.
+- **`WebhookTimeoutTest`** (T-25a) — 2 integration tests verifying the read timeout fires (1s configured timeout vs 3s WireMock delay → completes in ~1.1s, failure recorded, never reports the upstream's would-be 200) and that fast endpoints under the timeout still succeed.
+- **WireMock 3.13.2** test dependency (`org.wiremock:wiremock-standalone`, test scope). Spring Framework explicitly recommends mock web servers over `MockRestServiceServer` for RestClient testing because they exercise the real transport layer and can simulate timeouts. Validated against Java 25 / Spring Boot 4. Matches portfolio standard `PLATFORM-STANDARDS.md §10`.
+
+### Changed
+- `WebhookDeliveryService` constructor signature: added `@Value("${fabt.webhook.connect-timeout-seconds:10}")` and `@Value("${fabt.webhook.read-timeout-seconds:30}")` parameters. Spring DI handles defaults — existing test contexts continue to work without overrides.
+
+### Test Results
+- Backend: **502 passed**, 0 failures, 0 errors (up from 425 at v0.30.0)
+- ArchUnit: **22 passed** — modular monolith boundaries intact
+- Webhook test classes: 20 (existing) + 4 (T-25) + 2 (T-25a) + 6 (resilience) = 32, all green
+
+### Spec
+- `openspec/changes/platform-hardening/`: tasks T-25, T-25a, T-43, T-PD-2, T-9a, T-24g marked done with evidence; T-24b and T-64l marked REJECTED with rationale (the implementation pattern eliminated the cases the tests would have covered); design D3a documents the timeout configurability decision.
+
+---
+
 ## [v0.32.1] — 2026-04-09 — Bed Search Performance Optimization
 
 ### Changed

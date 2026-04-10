@@ -207,6 +207,16 @@
             <version>2.1.2</version>
             <scope>test</scope>
         </dependency>
+        <!-- WireMock — mock HTTP server for webhook delivery integration tests (T-25, T-25a).
+             Spring Framework recommends mock web servers over MockRestServiceServer for
+             RestClient testing because they exercise the real transport layer and can
+             simulate timeouts. Standard per portfolio PLATFORM-STANDARDS.md §10. -->
+        <dependency>
+            <groupId>org.wiremock</groupId>
+            <artifactId>wiremock-standalone</artifactId>
+            <version>3.13.2</version>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-csv</artifactId>
