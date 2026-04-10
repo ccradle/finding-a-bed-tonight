@@ -483,7 +483,7 @@ Three `@Scheduled` monitors run inside the application:
 2. **DV canary check** (every 15min) — logs CRITICAL if a DV shelter leaks into non-DV search results
 3. **Temperature/surge gap** (every 1hr) — logs WARNING if temperature <32°F with no active surge
 
-See [docs/runbook.md](docs/runbook.md) for investigation and response procedures.
+See [docs/runbook.md](runbook.md) for investigation and response procedures.
 
 ### Accessibility — WCAG 2.1 AA
 
