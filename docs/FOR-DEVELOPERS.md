@@ -128,11 +128,11 @@ Phase 2 will add an MCP server as a thin wrapper around the REST API, enabling n
 
 | Document | Description |
 |---|---|
-| [docs/schema.dbml](docs/schema.dbml) | DBML source — paste into [dbdiagram.io](https://dbdiagram.io) to edit |
-| [docs/erd.svg](docs/erd.svg) | ERD diagram generated from schema.dbml via @softwaretechnik/dbml-renderer |
-| [docs/asyncapi.yaml](docs/asyncapi.yaml) | AsyncAPI 3.0 spec — EventBus contract for all 3 deployment tiers |
-| [docs/architecture.drawio](docs/architecture.drawio) | Architecture diagram — includes observability stack, NOAA API. Open in [draw.io](https://app.diagrams.net) |
-| [docs/runbook.md](docs/runbook.md) | Operational runbook — monitor investigation, Grafana panels, Prometheus queries, management port production security |
+| [docs/schema.dbml](schema.dbml) | DBML source — paste into [dbdiagram.io](https://dbdiagram.io) to edit |
+| [docs/erd.svg](erd.svg) | ERD diagram generated from schema.dbml via @softwaretechnik/dbml-renderer |
+| [docs/asyncapi.yaml](asyncapi.yaml) | AsyncAPI 3.0 spec — EventBus contract for all 3 deployment tiers |
+| [docs/architecture.drawio](architecture.drawio) | Architecture diagram — includes observability stack, NOAA API. Open in [draw.io](https://app.diagrams.net) |
+| [docs/runbook.md](runbook.md) | Operational runbook — monitor investigation, Grafana panels, Prometheus queries, management port production security |
 
 ---
 
