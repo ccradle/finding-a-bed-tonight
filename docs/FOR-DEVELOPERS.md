@@ -487,7 +487,7 @@ See [docs/runbook.md](runbook.md) for investigation and response procedures.
 
 ### Accessibility — WCAG 2.1 AA
 
-FABT is designed to meet WCAG 2.1 Level AA (the standard mandated by the ADA Title II final rule for state and local government web content). A self-assessed **[Accessibility Conformance Report](docs/WCAG-ACR.md)** (VPAT 2.5 WCAG edition) documents conformance for all 50 Level A and AA criteria.
+FABT is designed to meet WCAG 2.1 Level AA (the standard mandated by the ADA Title II final rule for state and local government web content). A self-assessed **[Accessibility Conformance Report](WCAG-ACR.md)** (VPAT 2.5 WCAG edition) documents conformance for all 50 Level A and AA criteria.
 
 Key accessibility features:
 - **axe-core CI gate** — 8-page automated scan blocks builds on any WCAG violation
