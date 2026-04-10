@@ -806,7 +806,7 @@ The read timeout is enforced via `JdkClientHttpRequestFactory.setReadTimeout()` 
 
 **WCAG 2.1 Level AA** — Web Content Accessibility Guidelines version 2.1 at Level AA conformance — the standard mandated by ADA Title II for state and local government web content (effective April 2026).
 
-**ACR (Accessibility Conformance Report)** — Self-assessed document (VPAT 2.5 WCAG edition) detailing how FABT meets each of the 50 WCAG 2.1 Level A and AA success criteria. See [docs/WCAG-ACR.md](docs/WCAG-ACR.md).
+**ACR (Accessibility Conformance Report)** — Self-assessed document (VPAT 2.5 WCAG edition) detailing how FABT meets each of the 50 WCAG 2.1 Level A and AA success criteria. See [docs/WCAG-ACR.md](WCAG-ACR.md).
 
 **SPM (System Performance Measures)** — Seven HUD-mandated metrics for CoC performance evaluation. FABT provides complementary utilization and demand data but does not replicate client-level SPMs (which require HMIS enrollment data).
 
