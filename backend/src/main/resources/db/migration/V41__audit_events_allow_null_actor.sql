@@ -1,0 +1,21 @@
+-- =====================================================================
+-- V41: Allow NULL actor_user_id on audit_events for system actions
+-- =====================================================================
+-- Context:
+--   The original V29 schema declared actor_user_id NOT NULL on the
+--   assumption that every audit row had a human actor. The bed-hold-integrity
+--   change (Issue #102 RCA) introduces system-driven audit events written
+--   by the reconciliation tasklet — these have no human actor and need
+--   to record actor_user_id = NULL.
+--
+--   Existing callers (TotpController.disableTotpForUser,
+--   TotpController.regenerateBackupCodes) already pass null as actor in
+--   the AuditEventRecord constructor — those calls would fail under the
+--   old NOT NULL constraint if the audit listener actually executed
+--   them in production. This migration aligns the schema with the
+--   already-intended semantics.
+--
+-- Cross-link: https://github.com/ccradle/finding-a-bed-tonight/issues/102
+-- =====================================================================
+
+ALTER TABLE audit_events ALTER COLUMN actor_user_id DROP NOT NULL;
