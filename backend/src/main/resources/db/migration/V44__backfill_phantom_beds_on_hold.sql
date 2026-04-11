@@ -1,5 +1,5 @@
 -- =====================================================================
--- V40: One-time backfill for phantom beds_on_hold (Issue #102 RCA)
+-- V44: One-time backfill for phantom beds_on_hold (Issue #102 RCA)
 -- =====================================================================
 -- Context:
 --   bed_availability.beds_on_hold is a denormalized cache derived from
@@ -17,7 +17,7 @@
 --   * Idempotent — re-running on a clean (zero-drift) database is a no-op
 --     because the WHERE clause matches no rows
 --   * Audit-traceable — every corrective snapshot is tagged
---     updated_by = 'V40-rca-backfill' so it can be queried separately
+--     updated_by = 'V44-rca-backfill' so it can be queried separately
 --     from coordinator and reservation-driven snapshots
 --
 -- Pairs with:
@@ -53,8 +53,8 @@ SELECT l.shelter_id,
        COALESCE(h.held_count, 0)             AS beds_on_hold,
        l.accepting_new_guests,
        clock_timestamp()                     AS snapshot_ts,
-       'V40-rca-backfill'                    AS updated_by,
-       'reconciliation: drift corrected (V40 backfill)' AS notes,
+       'V44-rca-backfill'                    AS updated_by,
+       'reconciliation: drift corrected (V44 backfill)' AS notes,
        COALESCE(l.overflow_beds, 0)          AS overflow_beds
 FROM latest l
 LEFT JOIN held_counts h

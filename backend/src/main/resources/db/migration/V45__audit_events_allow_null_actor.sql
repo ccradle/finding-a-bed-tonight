@@ -1,5 +1,5 @@
 -- =====================================================================
--- V41: Allow NULL actor_user_id on audit_events for system actions
+-- V45: Allow NULL actor_user_id on audit_events for system actions
 -- =====================================================================
 -- Context:
 --   The original V29 schema declared actor_user_id NOT NULL on the
@@ -14,6 +14,15 @@
 --   old NOT NULL constraint if the audit listener actually executed
 --   them in production. This migration aligns the schema with the
 --   already-intended semantics.
+--
+-- Idempotency note:
+--   coc-admin-escalation's V42 makes the same schema change (drops
+--   NOT NULL on actor_user_id) for the same reason. ALTER COLUMN ...
+--   DROP NOT NULL is a Postgres no-op when the column is already
+--   nullable, so this migration is safe to run on a database that
+--   already has coc-admin-escalation's V42 applied. Whichever branch
+--   merges to main first wins; the other's equivalent migration runs
+--   as a no-op without errors.
 --
 -- Cross-link: https://github.com/ccradle/finding-a-bed-tonight/issues/102
 -- =====================================================================
