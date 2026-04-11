@@ -85,7 +85,7 @@ export function getNotificationMessageId(notification: Notification): string {
   // but consistency across the two helpers prevents a latent footgun
   // if a future refactor introduces legitimate falsy values.
   //
-  // FIXME(session7+): if BOTH data.status and payload.status are missing,
+  // TODO(session7+, task #126): if BOTH data.status and payload.status are missing,
   // the `===  'ACCEPTED'` check below falls through to
   // 'notifications.referralRejected', which is misleading for a truly
   // malformed notification (neither accepted nor rejected). Consider
