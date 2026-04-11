@@ -16,10 +16,10 @@ const LOGIN = `${BASE}/login`;
 
 test.describe('Post-deploy smoke tests', () => {
 
-  test('1. Version shows v0.32', async ({ page }) => {
+  test('1. Version shows v0.34', async ({ page }) => {
     await page.goto(LOGIN);
     const version = page.getByTestId('app-version');
-    await expect(version).toContainText('v0.32', { timeout: 10_000 });
+    await expect(version).toContainText('v0.34', { timeout: 10_000 });
   });
 
   test('2. Outreach worker login + search returns results', async ({ page }) => {
