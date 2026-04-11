@@ -588,7 +588,7 @@ docker compose --profile observability up -d
 
 The `/actuator/prometheus` endpoint on the main port (`:8080`) requires authentication. When `--observability` is used, actuator endpoints are also served on a **separate management port** (`:9091`) without auth, allowing Prometheus to scrape.
 
-**Production:** Bind the management port to `127.0.0.1` and firewall it to the monitoring network only. Do not expose publicly. See [docs/runbook.md](docs/runbook.md) for full production security guidance.
+**Production:** Bind the management port to `127.0.0.1` and firewall it to the monitoring network only. Do not expose publicly. See [docs/runbook.md](runbook.md) for full production security guidance.
 
 ---
 
@@ -604,13 +604,13 @@ Three pre-built Grafana dashboards are included in `grafana/dashboards/`. They a
 | **CoC Analytics** | `fabt-coc-analytics.json` | Utilization gauge, zero-result search rate, capacity trend, batch job execution (success/failure/duration), daily aggregation lag |
 | **Virtual Threads** | `fabt-virtual-thread-performance.json` | Virtual thread pool utilization, connection pool active/idle/pending, BoundedFanOut concurrency, carrier thread pinning |
 
-All dashboards read from the Prometheus data source scraping `:9091/actuator/prometheus`. See [docs/runbook.md](docs/runbook.md) for Prometheus query examples and alerting guidance.
+All dashboards read from the Prometheus data source scraping `:9091/actuator/prometheus`. See [docs/runbook.md](runbook.md) for Prometheus query examples and alerting guidance.
 
 ---
 
 ## OAuth2 Single Sign-On
 
-The platform supports OAuth2 login via Google, Microsoft, and Keycloak (or any OIDC-compliant IdP). Providers are configured per-tenant and loaded dynamically from the database. Password login and SSO login are architecturally independent — an IdP outage does not affect password-authenticated users. See [docs/runbook.md](docs/runbook.md) for degradation behavior.
+The platform supports OAuth2 login via Google, Microsoft, and Keycloak (or any OIDC-compliant IdP). Providers are configured per-tenant and loaded dynamically from the database. Password login and SSO login are architecturally independent — an IdP outage does not affect password-authenticated users. See [docs/runbook.md](runbook.md) for degradation behavior.
 
 ### Setup
 
