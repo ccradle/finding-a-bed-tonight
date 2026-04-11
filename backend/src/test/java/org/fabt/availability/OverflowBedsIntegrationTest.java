@@ -168,8 +168,12 @@ class OverflowBedsIntegrationTest extends BaseIntegrationTest {
     @Test
     @DisplayName("Overflow does NOT alter beds_available derivation")
     void overflow_doesNot_alterBedsAvailable() {
+        // Issue #102 RCA: bedsOnHold is server-managed via the reservation table; the
+        // value supplied here is ignored. The test's intent is "overflow does not enter
+        // the bedsAvailable derivation", so hold=0 is sufficient. Updated from the prior
+        // (30, 20, 2, 15) inputs which relied on the old coordinator-supplied hold.
         submitAvailability(shelterId, authHelper.coordinatorHeaders(),
-                "SINGLE_ADULT", 30, 20, 2, 15);
+                "SINGLE_ADULT", 30, 20, 0, 15);
 
         // Verify via shelter detail API (not search — avoids cache issues in shared context)
         ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
@@ -189,7 +193,7 @@ class OverflowBedsIntegrationTest extends BaseIntegrationTest {
 
         assertThat(((Number) sa.get("bedsAvailable")).intValue())
                 .as("bedsAvailable should be total-occupied-onHold, NOT including overflow")
-                .isEqualTo(8); // 30 - 20 - 2
+                .isEqualTo(10); // 30 - 20 - 0
         assertThat(((Number) sa.get("overflowBeds")).intValue())
                 .as("overflowBeds should be reported separately")
                 .isEqualTo(15);

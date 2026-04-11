@@ -160,10 +160,32 @@ class BedAvailabilityHardeningTest extends BaseIntegrationTest {
 
     @Test
     void tc_1_7_decreaseTotalBelowOccupiedPlusHold_rejected() {
+        // Issue #102 RCA (v0.34.0): beds_on_hold is server-managed. This test originally
+        // sent hold=3 directly in the PATCH and expected INV-5 to fire on the resulting
+        // total=6, occupied=5, hold=3 snapshot. Coordinator-supplied hold values are now
+        // ignored — only the actual reservation count counts. To still exercise the same
+        // INV-5 enforcement path, place real holds first then try to reduce total. TC-2.8
+        // covers the broader scenario; this is its tightest sibling.
         patchAvailability(10, 5, 0);
-        ResponseEntity<String> r = patchAvailability(6, 5, 3);
-        assertEquals(HttpStatus.UNPROCESSABLE_CONTENT, r.getStatusCode(),
-                "TC-1.7: total < occupied + hold must be rejected with 422");
+        // Place 3 real holds → actual hold = 3
+        ResponseEntity<String> h1 = placeHold();
+        ResponseEntity<String> h2 = placeHold();
+        ResponseEntity<String> h3 = placeHold();
+        try {
+            // Coordinator tries to reduce total to 6: 5 (occupied) + 3 (actual hold) = 8 > 6
+            ResponseEntity<String> r = patchAvailability(6, 5, 0);
+            assertEquals(HttpStatus.UNPROCESSABLE_CONTENT, r.getStatusCode(),
+                    "TC-1.7: total < occupied + actual_hold must be rejected with 422");
+        } finally {
+            // Cleanup
+            for (ResponseEntity<String> h : new ResponseEntity[]{h1, h2, h3}) {
+                String id = extractId(h.getBody());
+                if (id != null) {
+                    restTemplate.exchange("/api/v1/reservations/" + id + "/cancel",
+                            HttpMethod.PATCH, new HttpEntity<>(outreachHeaders()), String.class);
+                }
+            }
+        }
     }
 
     @Test
