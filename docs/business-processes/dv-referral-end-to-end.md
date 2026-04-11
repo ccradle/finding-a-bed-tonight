@@ -36,12 +36,12 @@ Four people participate in a DV referral. Only three of them touch the system.
 
 | Actor | Role | Touches the system? |
 |---|---|---|
-| **Survivor** | The person seeking shelter. Never named in the system. Never contacted directly by the system. | **No.** |
-| **DV outreach worker** | Field worker (usually mobile) who meets the survivor where they are. Submits the referral on the survivor's behalf. Holds the information about who the survivor is. | Yes — creates the referral, receives the coordinator's response, conducts the warm handoff phone call. |
+| **Person** | The person seeking shelter. Referred to as "the survivor" in legal and clinical contexts (VAWA and the DV field use "survivor" as the preferred person-first term); this document uses "Person" in diagrams where the framing of victimhood is unnecessary, and "survivor" in narrative paragraphs where legal or clinical precision matters. Never named in the system. Never contacted directly by the system. | **No.** |
+| **DV outreach worker** | Field worker (usually mobile) who meets the Person where they are. Submits the referral on the Person's behalf. Holds the information about who the Person is. | Yes — creates the referral, receives the coordinator's response, conducts the warm handoff phone call. |
 | **DV shelter coordinator** | On-duty staff at a DV-designated shelter. Screens incoming referrals for safety. Accepts or rejects the referral. | Yes — reviews the referral, screens for safety, accepts or rejects. |
 | **CoC admin (optional)** | Continuum-of-Care administrator. Monitors pending referrals across the region. Intervenes if a referral stalls past the escalation thresholds. | **Only on the stall path** (see [`dv-referral-escalation.md`](dv-referral-escalation.md)). |
 
-The survivor is the most important actor and the least visible to the system. That is by design.
+The Person is the most important actor and the least visible to the system. That is by design.
 
 ---
 
@@ -49,22 +49,52 @@ The survivor is the most important actor and the least visible to the system. Th
 
 The happy path is what happens when everyone does their part on time. No stalls. No escalation. No admin intervention.
 
+### Referral lifecycle — state diagram
+
+Before the step-by-step walkthrough, here is the state machine that every DV referral follows. The happy path is the green-through line; the other transitions are what *can* happen if things go differently.
+
+```mermaid
+%% Referral lifecycle state machine. The happy path is
+%% PENDING -> ACCEPTED -> PURGED. Every other transition
+%% is a branch described elsewhere (REJECTED and EXPIRED
+%% below; ESCALATED in dv-referral-escalation.md).
+stateDiagram-v2
+  direction LR
+  [*] --> PENDING: outreach worker submits
+  PENDING --> ACCEPTED: coordinator accepts
+  PENDING --> REJECTED: coordinator rejects<br/>(safety screen)
+  PENDING --> EXPIRED: no response in time
+  PENDING --> ESCALATED: stall path →<br/>dv-referral-escalation.md
+  ESCALATED --> ACCEPTED: admin or coordinator<br/>accepts
+  ESCALATED --> REJECTED: admin or coordinator<br/>rejects
+  ESCALATED --> EXPIRED: no response in time
+  ACCEPTED --> PURGED: within 24h
+  REJECTED --> PURGED: within 24h
+  EXPIRED --> PURGED: within 24h
+  PURGED --> [*]
+```
+
+A referral spends most of its life in `PENDING` — that is where it waits for a coordinator to screen it. Every terminal state (`ACCEPTED`, `REJECTED`, `EXPIRED`) flows into `PURGED` within 24 hours. The `PURGED` state is the end; the row is deleted from the database and only the audit event remains.
+
+### Happy path — sequence diagram
+
 ```mermaid
 %% DV referral end-to-end sequence — happy path only.
 %% Stall path (escalation) is covered in dv-referral-escalation.md.
-%% The three shaded phases map to the three time windows:
-%% creation is immediate, screening is minutes-to-hours,
-%% arrival is hours, purge is within 24h of completion.
+%% Humans are drawn as stick figures (actor); systems and
+%% locations as rectangles (participant). The Person never
+%% talks to the system directly — the outreach worker is
+%% the interface on the Person's behalf.
 sequenceDiagram
-  participant S as Survivor
-  participant OW as Outreach worker
+  actor P as Person
+  actor OW as Outreach worker
   participant BE as Backend
   participant DB as Database
-  participant Coord as DV coordinator
+  actor Coord as DV coordinator
   participant Shelter as Shelter
 
-  Note over S,OW: Phase 1 — Meeting the survivor
-  S->>OW: Asks for shelter
+  Note over P,OW: Phase 1 — Meeting the Person
+  P->>OW: Asks for shelter
   OW->>OW: Confirms DV situation<br/>(no system call)
 
   Note over OW,DB: Phase 2 — Creating the referral
@@ -83,8 +113,8 @@ sequenceDiagram
   Note over OW,Shelter: Phase 4 — Warm handoff
   OW->>Coord: Phone call (outside system)
   Coord->>OW: Address shared verbally
-  OW->>S: Directions to shelter
-  S->>Shelter: Arrives, is welcomed
+  OW->>P: Directions to shelter
+  P->>Shelter: Arrives, is welcomed
 
   Note over DB: Phase 5 — Purge
   BE->>DB: Purge referral_token<br/>within 24h of ACCEPTED
@@ -93,9 +123,9 @@ sequenceDiagram
 
 Each step is described below in narrative form. At the end of each step, a small table names the backing endpoint, the audit event type, and the database effect — so a developer reading this document or an auditor cross-referencing with the database can confirm exactly what happened.
 
-### Step 1 — Meeting the survivor
+### Step 1 — Meeting the Person
 
-The outreach worker meets the survivor in the field. This is the most important moment in the whole flow and the system is not involved in it. The worker confirms — through trained conversation, not a form — that the survivor is fleeing domestic violence and wants shelter tonight. The worker does not write the survivor's name down, does not take a photograph, does not collect documents. The worker holds the information about who the survivor is in their head. This is not a technology decision; it is a trauma-informed practice decision, and the technology is built to support it.
+The outreach worker meets the Person in the field. This is the most important moment in the whole flow and the system is not involved in it. The worker confirms — through trained conversation, not a form — that the survivor is fleeing domestic violence and wants shelter tonight. The worker does not write the survivor's name down, does not take a photograph, does not collect documents. The worker holds the information about who the survivor is in their head. This is not a technology decision; it is a trauma-informed practice decision, and the technology is built to support it.
 
 *Nothing is recorded in FABT during this step.*
 
