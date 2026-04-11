@@ -169,6 +169,14 @@ public class SecurityConfig {
                         // Shelter operations — any authenticated role (fine-grained control via @PreAuthorize)
                         .requestMatchers(HttpMethod.GET, "/api/v1/shelters/**").authenticated()
                         .requestMatchers(HttpMethod.PATCH, "/api/v1/shelters/*/availability").hasAnyRole("COORDINATOR", "COC_ADMIN", "PLATFORM_ADMIN")
+                        // Manual offline hold (Issue #102 / bed-hold-integrity): coordinators can create
+                        // offline holds at their assigned shelters. Filter chain admits the role; the
+                        // fine-grained shelter-assignment check is enforced in ManualHoldController via
+                        // CoordinatorAssignmentRepository.isAssigned. Two-layer authz contract — filter
+                        // is the coarse first pass, controller is the fine second pass. The filter must
+                        // never be more restrictive than the controller body. Must precede the broader
+                        // POST /shelters/** rule below since matchers are first-match-wins.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/shelters/*/manual-hold").hasAnyRole("COORDINATOR", "COC_ADMIN", "PLATFORM_ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/v1/shelters/**").hasAnyRole("COC_ADMIN", "PLATFORM_ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/api/v1/shelters/**").hasAnyRole("COORDINATOR", "COC_ADMIN", "PLATFORM_ADMIN")
 

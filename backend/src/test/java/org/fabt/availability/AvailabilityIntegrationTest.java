@@ -162,8 +162,12 @@ class AvailabilityIntegrationTest extends BaseIntegrationTest {
 
     @Test
     void test_shelterDetail_includesAvailability() {
+        // Issue #102 RCA: bedsOnHold is server-managed via the reservation table. The
+        // test's intent is "shelter detail API includes availability data", so the
+        // exact hold value is incidental. Updated from hold=2 (which is now ignored)
+        // to hold=0; the assertion follows.
         HttpHeaders coordHeaders = authHelper.coordinatorHeaders();
-        submitAvailability(shelterId, coordHeaders, "SINGLE_ADULT", 50, 30, 2);
+        submitAvailability(shelterId, coordHeaders, "SINGLE_ADULT", 50, 30, 0);
 
         HttpHeaders outreachHeaders = authHelper.outreachWorkerHeaders();
         ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
@@ -184,7 +188,7 @@ class AvailabilityIntegrationTest extends BaseIntegrationTest {
                 .filter(a -> "SINGLE_ADULT".equals(a.get("populationType")))
                 .findFirst().orElseThrow();
         assertThat(singleAdult.get("populationType")).isEqualTo("SINGLE_ADULT");
-        assertThat(singleAdult.get("bedsAvailable")).isEqualTo(18); // 50 - 30 - 2
+        assertThat(singleAdult.get("bedsAvailable")).isEqualTo(20); // 50 - 30 - 0
     }
 
     // -------------------------------------------------------------------------

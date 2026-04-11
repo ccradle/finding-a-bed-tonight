@@ -302,6 +302,99 @@ ON CONFLICT DO NOTHING;
 -- 343/439 = 78.1% ✓ | DV shelters: 3 distinct, 49 total DV beds > suppression thresholds ✓
 
 -- =====================================================================
+-- Reservations — back every bed_availability row with beds_on_hold > 0
+-- with real HELD reservation rows (Issue #102 RCA, bed-hold-integrity).
+--
+-- Without this seed block the runtime invariant
+--   beds_on_hold === COUNT(reservation WHERE shelter+population HELD)
+-- is violated at startup, the new reconciliation tasklet would correct
+-- the cache to zero on first run, and the demo would lose the visible
+-- "held bed" state. Pairs with the V45 backfill migration.
+--
+-- expires_at values are spread across the hold lifecycle so the demo
+-- naturally shows the countdown timer at multiple stages without an
+-- operator having to create new reservations. All values are in the
+-- future so the auto-expiry job does not clean these up during a demo.
+--
+-- Wrapped in a single transaction with the matching bed_availability
+-- snapshot insert below: if the script crashes between the two blocks,
+-- the DB is left in the same drift state we started with rather than
+-- a half-committed reverse-drift state. Per Elena Vasquez (war room
+-- 2026-04-11) — atomicity matters even in seed scripts.
+-- =====================================================================
+BEGIN;
+
+INSERT INTO reservation (id, shelter_id, tenant_id, population_type, user_id, status, expires_at, notes)
+VALUES
+    -- Capital Blvd Family — beds_on_hold = 1
+    ('b1000000-0000-0000-0000-000000000001', 'd0000000-0000-0000-0000-000000000002',
+     'a0000000-0000-0000-0000-000000000001', 'FAMILY_WITH_CHILDREN',
+     'b0000000-0000-0000-0000-000000000001', 'HELD',
+     NOW() + INTERVAL '85 minutes', 'Seed: hold for demo realism (near full lifecycle)'),
+
+    -- Downtown Warming Station — beds_on_hold = 3 (three holds at varied lifecycle stages)
+    ('b1000000-0000-0000-0000-000000000002', 'd0000000-0000-0000-0000-000000000006',
+     'a0000000-0000-0000-0000-000000000001', 'SINGLE_ADULT',
+     'b0000000-0000-0000-0000-000000000001', 'HELD',
+     NOW() + INTERVAL '15 minutes', 'Seed: hold for demo realism (near expiry)'),
+    ('b1000000-0000-0000-0000-000000000003', 'd0000000-0000-0000-0000-000000000006',
+     'a0000000-0000-0000-0000-000000000001', 'SINGLE_ADULT',
+     'b0000000-0000-0000-0000-000000000001', 'HELD',
+     NOW() + INTERVAL '45 minutes', 'Seed: hold for demo realism (mid-window)'),
+    ('b1000000-0000-0000-0000-000000000004', 'd0000000-0000-0000-0000-000000000006',
+     'a0000000-0000-0000-0000-000000000001', 'SINGLE_ADULT',
+     'b0000000-0000-0000-0000-000000000001', 'HELD',
+     NOW() + INTERVAL '80 minutes', 'Seed: hold for demo realism (early in window)'),
+
+    -- Helping Hand Recovery — beds_on_hold = 1
+    ('b1000000-0000-0000-0000-000000000005', 'd0000000-0000-0000-0000-000000000010',
+     'a0000000-0000-0000-0000-000000000001', 'SINGLE_ADULT',
+     'b0000000-0000-0000-0000-000000000001', 'HELD',
+     NOW() + INTERVAL '10 minutes', 'Seed: hold for demo realism (near expiry, sobriety required)')
+ON CONFLICT (id) DO NOTHING;
+-- Reservation count: 1 + 3 + 1 = 5 ✓ (matches sum of seeded beds_on_hold values)
+
+-- =====================================================================
+-- Component 6 ordering fix (Issue #102 RCA, war room 2026-04-11):
+-- Write fresh bed_availability snapshots for the 3 orphan pairs *after*
+-- the seed reservations land. Without this block, V45__backfill runs
+-- during Spring context init BEFORE this script — at migration time the
+-- reservation table has zero HELD rows, so V45 writes corrective
+-- snapshots of beds_on_hold=0 for these 3 pairs. Then this script
+-- inserts 5 HELD reservations, creating reverse drift (snapshot=0,
+-- held=1/3/1). The reconciliation tasklet catches it within 5 minutes,
+-- but those 5 minutes are a phantom-LOW window where outreach workers
+-- see fewer beds than they should. This block closes the window.
+--
+-- Uses clock_timestamp() (NOT NOW()) so the new rows are strictly later
+-- than the V45 backfill rows (which also use clock_timestamp() but ran
+-- during backend startup, before this script). beds_total/beds_occupied
+-- mirror the upstream orphan rows at lines 273/282/291 to preserve the
+-- existing demo state. accepting_new_guests is set explicitly per Elena.
+-- =====================================================================
+INSERT INTO bed_availability (
+    shelter_id, tenant_id, population_type, beds_total, beds_occupied,
+    beds_on_hold, accepting_new_guests, snapshot_ts, updated_by, notes, overflow_beds
+)
+VALUES
+    -- Capital Blvd Family — 1 HELD seed reservation
+    ('d0000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000001',
+     'FAMILY_WITH_CHILDREN', 30, 27, 1, true, clock_timestamp(),
+     'seed-component-6-bed-hold-fix', 'Seed: matches Component 6 reservations', 0),
+    -- Downtown Warming Station — 3 HELD seed reservations
+    ('d0000000-0000-0000-0000-000000000006', 'a0000000-0000-0000-0000-000000000001',
+     'SINGLE_ADULT', 100, 82, 3, true, clock_timestamp(),
+     'seed-component-6-bed-hold-fix', 'Seed: matches Component 6 reservations', 0),
+    -- Helping Hand Recovery — 1 HELD seed reservation
+    ('d0000000-0000-0000-0000-000000000010', 'a0000000-0000-0000-0000-000000000001',
+     'SINGLE_ADULT', 20, 18, 1, true, clock_timestamp(),
+     'seed-component-6-bed-hold-fix', 'Seed: matches Component 6 reservations', 0)
+ON CONFLICT DO NOTHING;
+
+COMMIT;
+-- =====================================================================
+
+-- =====================================================================
 -- API Keys — demo keys for admin screenshots (platform-hardening)
 -- DEV ONLY — these keys have known hashes committed to the repo.
 -- NEVER use these keys in production. The demo guard blocks all

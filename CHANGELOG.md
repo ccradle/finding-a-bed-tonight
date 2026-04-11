@@ -5,6 +5,197 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.34.0] — 2026-04-11 — bed-hold-integrity (Issue #102 RCA)
+
+> v0.33.0 (coc-admin-escalation) has not yet shipped at the time of this
+> release. bed-hold-integrity branched directly from v0.32.3. Both
+> branches' database migrations renumbered their `V4x` files to avoid
+> collision when the branches eventually land on main. See the
+> [bed-hold-integrity IMPLEMENTATION-NOTES](../openspec/changes/bed-hold-integrity/IMPLEMENTATION-NOTES.md)
+> for the migration rename rationale.
+
+### Fixed
+
+- **CRITICAL — phantom `beds_on_hold` drift corrupting bed search**
+  (Issue [#102](https://github.com/ccradle/finding-a-bed-tonight/issues/102)).
+  `bed_availability.beds_on_hold` is the denormalized count that drives the
+  bed search formula `beds_available = beds_total - beds_occupied - beds_on_hold`.
+  Three independent write paths could write the cache out of sync with the
+  source of truth (`COUNT(*)` of `HELD` reservations): delta-math-against-stale-
+  baseline in `ReservationService.adjustAvailability`, lower-bound-only
+  validation in the `PATCH /availability` path, and seed file inserting
+  `beds_on_hold > 0` rows without matching reservation rows. Once drift was
+  introduced, no path corrected it. Live demo had 17 shelter+population pairs
+  with phantom holds totalling 24 beds through v0.32.3. **Program-harm risk in
+  real-tenant deployments:** outreach workers searching for beds are silently
+  routed away from shelters that actually have capacity — a person seeking
+  shelter is told "no" when there's a bed available. Sam Okafor's framing:
+  the worst kind of bug for FABT, silently invisible, biased toward affecting
+  the most vulnerable populations.
+- **CRITICAL — coordinator `/manual-hold` endpoint returned 403 at the
+  Spring Security filter level.** `SecurityConfig.java:172` had a POST
+  `/api/v1/shelters/**` catch-all that only admitted `COC_ADMIN` and
+  `PLATFORM_ADMIN`. The new `POST /api/v1/shelters/{id}/manual-hold` endpoint
+  matched this wildcard, so every coordinator call was rejected at the filter
+  chain before `@PreAuthorize` or the controller's `isAssigned` check could
+  run. Discovered during the pre-ship smoke test for bed-hold-integrity; the
+  original IMPLEMENTATION-NOTES documented it as a "test infra wrinkle" when
+  it was actually a production bug. Had this shipped unfixed, every
+  coordinator in every real-tenant deployment who tried to create an offline
+  hold (phone reservation, expected guest) would have been silently 403'd.
+  See [IMPLEMENTATION-NOTES §A](../openspec/changes/bed-hold-integrity/IMPLEMENTATION-NOTES.md).
+
+### Added — structural fix bundle
+
+- **Single write-path discipline for `beds_on_hold`**
+  (`ReservationService.recomputeBedsOnHold`). Replaces delta math in all
+  four call sites (`createReservation`, `confirmReservation`,
+  `cancelReservation`, `expireReservation`). Every write reads the actual
+  `COUNT(HELD)` from the reservation table and writes a fresh
+  `bed_availability` snapshot — no more trust in stale baselines.
+- **`POST /api/v1/shelters/{id}/manual-hold` endpoint**
+  (`ManualHoldController`) — creates a real `reservation` row for the
+  legitimate "coordinator marks beds as held for offline reasons" use case
+  (phone reservations, expected guests). Goes through
+  `recomputeBedsOnHold` so `beds_on_hold` stays consistent. Idempotency
+  key derived from `(userId, shelterId, populationType, current_minute)`
+  hashed via `UUID.nameUUIDFromBytes` to fit the 36-char column width.
+  `DemoGuardFilter` friendly-blocks this path in demo profile (would
+  interfere with other visitors' bed search results).
+- **`AvailabilityController` PATCH ignores client-supplied `bedsOnHold`**.
+  Field is deprecated (Javadoc on `AvailabilityUpdateRequest.bedsOnHold`),
+  logged as WARN if non-null and non-zero, will be hard-rejected in
+  v0.35.0. Eliminates drift source #2.
+- **Spring Batch reconciliation tasklet
+  (`BedHoldsReconciliationJobConfig`)** — 5-minute cadence, defense in depth.
+  `findDriftedRows()` SELECT-JOINs latest snapshots with HELD counts; every
+  drifted pair gets a corrective `recomputeBedsOnHold` call plus a
+  `BED_HOLDS_RECONCILED` audit row. Wrapped in per-row
+  `TenantContext.runWithContext(tenantId, true, ...)` so DV shelter rows
+  are visible under RLS and corrections bind the right tenant. Uses
+  `ResourcelessTransactionManager` on the step so per-row failures don't
+  mark the outer transaction rollback-only (the
+  `feedback_transactional_eventlistener` gotcha applies here too).
+- **`AuditEventTypes.BED_HOLDS_RECONCILED` constant** — shared audit event
+  action string used by both the reconciliation tasklet AND the V45 backfill
+  migration.
+- **`V44__audit_events_allow_null_actor.sql`** — drops `NOT NULL` on
+  `audit_events.actor_user_id` so system-actor audit writes can use `NULL`.
+  Idempotent with coc-admin-escalation's V42.
+- **`V45__backfill_phantom_beds_on_hold.sql`** — one-time correction
+  migration. Writes corrective `bed_availability` snapshots for every
+  drifted `(shelter, population)` pair, plus matching
+  `BED_HOLDS_RECONCILED` audit rows (compound CTE with `INSERT ...
+  RETURNING` → audit row join). Per Casey Drummond's chain-of-custody ask
+  in the war room — the backfill is a system-initiated state change and
+  must be auditable.
+- **Seed `infra/scripts/seed-data.sql` backs 3 orphan `beds_on_hold > 0`
+  rows with 5 HELD reservations**, plus a Component 6 ordering fix block
+  that writes fresh `bed_availability` snapshots after the reservation
+  inserts. Without the ordering fix, V45 runs during Spring context init
+  before the seed reservations exist, writes corrective snapshots of 0,
+  then the seed reservations get inserted → reverse drift that
+  reconciliation catches 5 minutes later but leaves a 5-minute phantom-LOW
+  window on every `--fresh` restart. The ordering fix block uses
+  `clock_timestamp()` (strictly later than V45's rows) and is wrapped in
+  a single `BEGIN; ... COMMIT;` transaction with the reservation inserts
+  per Elena Vasquez (war room).
+- **`BedHoldsInvariantTest`** — Riley Cho's gating test class. Asserts
+  `beds_on_hold === COUNT(HELD reservations)` after every lifecycle event
+  (create, cancel, expire, confirm, manual hold, explicit recompute).
+  Load-bearing regression guard — any future refactor that reintroduces
+  delta math fails this test loudly.
+- **`BedHoldsReconciliationJobTest`** — 4 tests covering the tasklet end
+  to end: seeded drift correction, audit row write, no-drift-no-work,
+  per-row failure continuation.
+- **`OfflineHoldEndpointTest`** — 5 tests covering the new `/manual-hold`
+  endpoint. **The `coordinator_creates_offline_hold_succeeds_when_assigned`
+  test uses real `coordinatorHeaders()` (not admin bypass)** — this is the
+  production-path coverage that was originally missing and that caught the
+  SecurityConfig filter bug. The
+  `coordinator_not_assigned_to_shelter_403` test now asserts that the
+  `fabt.http.access_denied.count` counter incremented by 1, which proves
+  the rejection came from the controller's `isAssigned` branch
+  (GlobalExceptionHandler increments the counter) and not from the
+  SecurityConfig filter chain (does not). Regression guard for Marcus
+  Webb's concern that the two 403 paths were indistinguishable.
+- **`ManualHoldController.create()` Javadoc** documents the two-layer
+  authorization contract (filter chain admits roles, controller body
+  enforces shelter assignment) so a future refactor of either layer can
+  see the contract it's breaking.
+
+### Changed
+
+- `SecurityConfig.java:172` — added explicit
+  `POST /api/v1/shelters/*/manual-hold` matcher admitting `COORDINATOR`,
+  `COC_ADMIN`, `PLATFORM_ADMIN` BEFORE the broader `POST /shelters/**`
+  rule. Spring matchers are first-match-wins.
+- `DemoGuardFilter.getBlockMessage` — friendly-block message for
+  `/api/v1/shelters/{id}/manual-hold` ("Manual offline holds are disabled
+  in the demo environment — would interfere with other visitors' bed
+  search results"). Path is intentionally NOT allowlisted (cross-visitor
+  impact, like reassign).
+- Three pre-existing tests updated for server-managed `bedsOnHold`:
+  `BedAvailabilityHardeningTest.tc_1_7_*` rewritten to place real
+  reservations first; `OverflowBedsIntegrationTest.overflow_doesNot_*`
+  and `AvailabilityIntegrationTest.test_shelterDetail_*` changed hold
+  inputs from non-zero to zero since the cached value is no longer
+  client-supplied.
+
+### Migration ordering and sequencing
+
+- V44 and V45 renumbered from the IMPLEMENTATION-NOTES' original V40/V41
+  to avoid collision with coc-admin-escalation's V40-V43 on shared
+  volumes. V44/V45 were also **swapped** late in the cycle after the war
+  room: V44 is now the `NOT NULL` drop (previously V45), V45 is now the
+  backfill (previously V44). This ordering is required so V45's audit
+  row inserts can use `actor_user_id = NULL`. Flyway runs migrations in
+  version order, so V44 → V45 is guaranteed.
+
+### Pre-existing non-blockers tracked separately
+
+4 Playwright failures discovered during the pre-ship verification are
+pre-existing on main and do not block this release. Tracked in
+[#103](https://github.com/ccradle/finding-a-bed-tonight/issues/103):
+`notifications.spec.ts:101` test isolation, `persistent-notifications.spec.ts:54`
+seed dependency, two `totp-and-access-code.spec.ts` copy/testid drifts,
+plus a Playwright-config Vitest contamination from the v0.32.3 hotfix.
+
+### Affected versions (phantom beds_on_hold)
+
+- **Introduced:** gradually over multiple releases, starting from the
+  initial seed-data.sql orphan rows. Delta math in `adjustAvailability`
+  has been the primary propagator since the reservation lifecycle was
+  added.
+- **Detected in:** v0.32.3 live demo (2026-04-11 founder RCA —
+  [GH #102](https://github.com/ccradle/finding-a-bed-tonight/issues/102)).
+- **Fixed in:** v0.34.0 (this release).
+
+### Deployment notes
+
+- V44 + V45 migrations run automatically during backend startup.
+- V45 backfill on the live demo is expected to correct **17 drifted
+  pairs** (24 total phantom beds) and write 17 `BED_HOLDS_RECONCILED`
+  audit rows with `correction_source = 'V45_backfill'`.
+- Post-deploy verification includes a real-coordinator curl against
+  `POST /api/v1/shelters/{id}/manual-hold` to confirm the SecurityConfig
+  fix is live. See `docs/runbook.md` for the exact command.
+- Rollback: redeploy v0.32.3 backend jar. V44 and V45 leave append-only
+  state (no UPDATE, no DELETE), so rolling back the code does not
+  corrupt existing data — it just re-introduces the original drift until
+  the next forward deploy.
+
+### Disclosure
+
+If any coordinator was trained on `/manual-hold` between the merge of
+`bed-hold-integrity` and the v0.34.0 deploy, notify them that the
+coordinator path was unavailable in that window and verify they can
+reach the endpoint now. See
+[`docs/runbook.md`](docs/runbook.md) "Disclosures" section for the
+trainer email template (same pattern as the v0.32.3 hotfix disclosure).
+
+---
+
 ## [v0.32.3] — 2026-04-11 — Notification Bell Accept/Reject Render Fix (Hotfix)
 
 ### Fixed

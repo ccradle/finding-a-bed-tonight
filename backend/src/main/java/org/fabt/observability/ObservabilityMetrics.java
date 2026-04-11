@@ -58,6 +58,24 @@ public class ObservabilityMetrics {
                 .register(registry);
     }
 
+    // --- Bed-holds reconciliation metrics (Issue #102 RCA, bed-hold-integrity) ---
+
+    public Counter bedHoldReconciliationRunsCounter() {
+        return Counter.builder("fabt.bed.hold.reconciliation.batch.runs.total")
+                .register(registry);
+    }
+
+    public Timer bedHoldReconciliationDurationTimer() {
+        return Timer.builder("fabt.bed.hold.reconciliation.batch.duration")
+                .publishPercentileHistogram()
+                .register(registry);
+    }
+
+    public Counter bedHoldReconciliationCorrectionsCounter() {
+        return Counter.builder("fabt.bed.hold.reconciliation.corrections.total")
+                .register(registry);
+    }
+
     public Counter webhookDeliveryCounter(String eventType, String status) {
         return Counter.builder("fabt.webhook.delivery.count")
                 .tag("event_type", eventType)
