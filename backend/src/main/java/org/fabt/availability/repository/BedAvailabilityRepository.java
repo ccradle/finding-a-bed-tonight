@@ -136,6 +136,75 @@ public class BedAvailabilityRepository {
     }
 
     /**
+     * Drift row returned by {@link #findDriftedRows()}: shelter+population pairs where the
+     * latest {@code bed_availability} snapshot's {@code beds_on_hold} disagrees with the
+     * actual count of {@code HELD} reservations from the source-of-truth reservation table.
+     *
+     * <p>The record lives here (in the availability repository package) so the
+     * reconciliation tasklet can consume it without needing to import any reservation
+     * domain types — the SQL JOIN is the only place reservation data crosses into
+     * availability code.</p>
+     */
+    public record DriftRow(UUID tenantId, UUID shelterId, String populationType,
+                           int snapshotValue, int actualCount) {
+        public int delta() { return actualCount - snapshotValue; }
+    }
+
+    /**
+     * Find every (shelter_id, population_type) pair where the latest snapshot's
+     * {@code beds_on_hold} value differs from the actual count of HELD reservations
+     * for that pair. Drives the bed-holds reconciliation tasklet (Issue #102 RCA).
+     *
+     * <p>Implemented as a CTE that picks the latest snapshot per pair via
+     * {@code DISTINCT ON}, joins against a {@code COUNT(*)} of HELD reservations
+     * grouped by the same key, and filters to mismatches. The query touches both
+     * tables at the SQL level — the Java code does not import any reservation
+     * domain or repository types, preserving the ArchUnit module boundary.</p>
+     *
+     * <p><b>NYC-scale TODO:</b> the {@code DISTINCT ON} variant reads every
+     * {@code bed_availability} row to find the latest per pair (250ms at NYC's
+     * 2.4M-row scale, per the {@link #findLatestByTenantId} benchmarks). For
+     * the demo/single-CoC scale this is fine; for a multi-CoC NYC pilot, swap
+     * the {@code latest} CTE for the recursive skip-scan pattern used in
+     * {@link #findLatestByTenantId} (24x speedup verified).</p>
+     */
+    public List<DriftRow> findDriftedRows() {
+        return jdbcTemplate.query(
+                """
+                WITH latest AS (
+                    SELECT DISTINCT ON (shelter_id, population_type)
+                           tenant_id, shelter_id, population_type, beds_on_hold
+                    FROM bed_availability
+                    ORDER BY shelter_id, population_type, snapshot_ts DESC
+                ),
+                held_counts AS (
+                    SELECT shelter_id, population_type, COUNT(*)::int AS held_count
+                    FROM reservation
+                    WHERE status = 'HELD'
+                    GROUP BY shelter_id, population_type
+                )
+                SELECT l.tenant_id,
+                       l.shelter_id,
+                       l.population_type,
+                       l.beds_on_hold                    AS snapshot_value,
+                       COALESCE(h.held_count, 0)::int    AS actual_count
+                FROM latest l
+                LEFT JOIN held_counts h
+                       ON h.shelter_id = l.shelter_id
+                      AND h.population_type = l.population_type
+                WHERE l.beds_on_hold <> COALESCE(h.held_count, 0)
+                """,
+                (rs, rowNum) -> new DriftRow(
+                        rs.getObject("tenant_id", UUID.class),
+                        rs.getObject("shelter_id", UUID.class),
+                        rs.getString("population_type"),
+                        rs.getInt("snapshot_value"),
+                        rs.getInt("actual_count")
+                )
+        );
+    }
+
+    /**
      * Count all snapshots for a shelter + population type (for testing append-only semantics).
      */
     public int countByShelterId(UUID shelterId) {
