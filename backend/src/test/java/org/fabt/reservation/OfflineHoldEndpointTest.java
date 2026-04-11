@@ -3,6 +3,8 @@ package org.fabt.reservation;
 import java.util.Map;
 import java.util.UUID;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.fabt.BaseIntegrationTest;
 import org.fabt.TestAuthHelper;
 import org.fabt.reservation.service.ReservationExpiryService;
@@ -32,6 +34,7 @@ class OfflineHoldEndpointTest extends BaseIntegrationTest {
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private ReservationExpiryService reservationExpiryService;
     @Autowired private CoordinatorAssignmentRepository coordinatorAssignmentRepository;
+    @Autowired private MeterRegistry meterRegistry;
 
     private UUID shelterId;
 
@@ -48,14 +51,29 @@ class OfflineHoldEndpointTest extends BaseIntegrationTest {
         submitAvailability(shelterId, authHelper.coordinatorHeaders(), "SINGLE_ADULT", 50, 10, 0);
     }
 
-    // NOTE: The "assigned-coordinator can create offline hold via the HTTP path"
-    // success case is currently covered indirectly. The integration test
-    // infrastructure for coordinator+assigned-shelter has a known wrinkle (the
-    // controller sees isAssigned=false even when the row is in the DB and visible
-    // to the test thread immediately after assign()) that needs separate
-    // investigation. The success path is exercised via cocAdmin headers (admins
-    // bypass the assignment check); the negative coordinator path is still
-    // validated below.
+    // Production-path coverage: an assigned coordinator can successfully create
+    // an offline hold via the HTTP path. Added 2026-04-11 (war room) after the
+    // SecurityConfig.java:172 fix — previously the SecurityConfig POST
+    // /shelters/** rule excluded COORDINATOR, so coordinator calls were 403'd
+    // at the filter chain before reaching the controller. The cocAdmin-only
+    // coverage masked that production bug. Riley Cho's gating ask: the
+    // coordinator success path MUST be tested with real coordinatorHeaders(),
+    // not an admin bypass.
+    @Test
+    void coordinator_creates_offline_hold_succeeds_when_assigned() {
+        ResponseEntity<Map<String, Object>> response = postManualHold(
+                authHelper.coordinatorHeaders(),
+                "SINGLE_ADULT",
+                "Phone call from intake — assigned coordinator path");
+        assertThat(response.getStatusCode())
+                .as("Assigned coordinator must reach the controller and create the hold "
+                        + "(regression guard for SecurityConfig filter rule — Issue #102 RCA)")
+                .isEqualTo(HttpStatus.CREATED);
+        assertThat(response.getBody().get("status")).isEqualTo("HELD");
+        assertThat((String) response.getBody().get("notes"))
+                .contains("Manual offline hold");
+        assertThat(response.getBody().get("expiresAt")).isNotNull();
+    }
 
     @Test
     void coc_admin_creates_offline_hold_succeeds() {
@@ -116,6 +134,18 @@ class OfflineHoldEndpointTest extends BaseIntegrationTest {
         UUID otherShelterId = createTestShelter(authHelper.cocAdminHeaders());
         // Note: no assignCoordinator() call for this shelter
 
+        // Capture the access_denied counter value BEFORE the call. This lets
+        // the test distinguish a controller-level 403 (GlobalExceptionHandler
+        // increments the counter via its @ExceptionHandler) from a filter-level
+        // 403 (SecurityConfig's inline accessDeniedHandler writes the same
+        // JSON shape but does NOT increment this counter). The distinction
+        // matters: if this test ever fails the counter-increment assertion,
+        // the coordinator request was rejected at the filter chain instead
+        // of at the controller's isAssigned() branch — which is exactly the
+        // regression that Issue #102 RCA caught (SecurityConfig.java:172).
+        // Per Riley Cho, war room 2026-04-11.
+        double counterBefore = accessDeniedCount();
+
         String body = """
                 {
                     "populationType": "SINGLE_ADULT",
@@ -131,6 +161,26 @@ class OfflineHoldEndpointTest extends BaseIntegrationTest {
         assertThat(response.getStatusCode())
                 .as("Coordinator not assigned to shelter must be rejected")
                 .isEqualTo(HttpStatus.FORBIDDEN);
+
+        double counterAfter = accessDeniedCount();
+        assertThat(counterAfter - counterBefore)
+                .as("Rejection MUST come from the controller body (isAssigned branch), "
+                        + "not from the SecurityConfig filter chain. "
+                        + "GlobalExceptionHandler.handleAccessDenied increments this "
+                        + "counter; the filter's inline accessDeniedHandler does not. "
+                        + "Regression guard for Issue #102 RCA.")
+                .isEqualTo(1.0);
+    }
+
+    private double accessDeniedCount() {
+        // Sum across all tagged variants (role, path_prefix) — the counter
+        // is registered in GlobalExceptionHandler with tags so there may be
+        // multiple meter instances.
+        return meterRegistry.find("fabt.http.access_denied.count")
+                .counters()
+                .stream()
+                .mapToDouble(Counter::count)
+                .sum();
     }
 
     @Test

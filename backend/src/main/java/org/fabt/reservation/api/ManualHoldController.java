@@ -43,6 +43,31 @@ public class ManualHoldController {
         this.coordinatorAssignmentRepository = coordinatorAssignmentRepository;
     }
 
+    /**
+     * Two-layer authorization contract:
+     *
+     * <ol>
+     *   <li><b>Filter chain (coarse pass)</b> -- {@code SecurityConfig} rule
+     *       for {@code POST /api/v1/shelters/{id}/manual-hold} admits roles
+     *       {@code COORDINATOR}, {@code COC_ADMIN}, {@code PLATFORM_ADMIN}.
+     *       Anonymous and other roles are rejected with 401/403 before this
+     *       method runs.
+     *   <li><b>Controller body (fine pass)</b> -- admins ({@code COC_ADMIN},
+     *       {@code PLATFORM_ADMIN}) bypass the assignment check. Coordinators
+     *       must be assigned to the target shelter via
+     *       {@code coordinator_assignment};
+     *       {@code CoordinatorAssignmentRepository.isAssigned} returning
+     *       {@code false} throws {@link AccessDeniedException} which
+     *       {@code GlobalExceptionHandler} converts to a 403.
+     * </ol>
+     *
+     * <p>The two layers must agree on the role list. If a future refactor
+     * narrows the SecurityConfig rule (e.g., removes COORDINATOR) the
+     * controller will silently become unreachable for that role -- exactly
+     * the regression that Issue #102's manual-test smoke caught and that
+     * {@code OfflineHoldEndpointTest.coordinator_creates_offline_hold_succeeds_when_assigned}
+     * is now gating against.
+     */
     @Operation(
             summary = "Create an offline hold (manual coordinator override)",
             description = "Creates a real HELD reservation for a bed at this shelter and " +
