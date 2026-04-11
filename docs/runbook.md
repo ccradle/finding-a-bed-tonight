@@ -458,6 +458,61 @@ The `bed_availability` table is the **single source of truth** for bed counts. T
 3. Check for active held reservations: `SELECT COUNT(*) FROM reservation WHERE shelter_id = '<id>' AND status = 'HELD';`
 4. If values don't match, the invariant checker in tests (`AvailabilityInvariantChecker`) can help diagnose
 
+### Drift query (v0.34.0 — bed-hold-integrity)
+
+The canonical smoking-gun query for phantom `beds_on_hold` drift (Issue #102). Run against prod or dev; expect zero rows in a healthy system:
+
+```sql
+WITH latest AS (
+  SELECT DISTINCT ON (shelter_id, population_type)
+    shelter_id, population_type, beds_on_hold, updated_by
+  FROM bed_availability
+  ORDER BY shelter_id, population_type, snapshot_ts DESC
+),
+held_counts AS (
+  SELECT shelter_id, population_type, COUNT(*)::int AS held_count
+  FROM reservation WHERE status = 'HELD'
+  GROUP BY shelter_id, population_type
+)
+SELECT l.shelter_id, l.population_type, l.beds_on_hold, COALESCE(h.held_count, 0), l.updated_by
+FROM latest l
+LEFT JOIN held_counts h ON h.shelter_id = l.shelter_id AND h.population_type = l.population_type
+WHERE l.beds_on_hold <> COALESCE(h.held_count, 0);
+```
+
+If this query ever returns rows in production, the reconciliation tasklet (`BedHoldsReconciliationJobConfig`, 5-min cadence) will correct them on the next cycle and write `BED_HOLDS_RECONCILED` audit rows. If the query returns rows AFTER two full reconciliation cycles (> 10 min), investigate the tasklet logs and filter for `bedHoldsReconciliation` lines.
+
+### v0.34.0 post-deploy smoke: coordinator `/manual-hold` curl
+
+The new `POST /api/v1/shelters/{id}/manual-hold` endpoint is gated on shelter assignment for the `COORDINATOR` role. An earlier implementation draft had a `SecurityConfig.java:172` filter rule that excluded `COORDINATOR` from `POST /shelters/**`, which silently 403'd every coordinator call before the controller ran. That bug was caught in the pre-ship smoke and fixed in v0.34.0. The runbook curl below is the regression guard for any future SecurityConfig refactor that narrows the rule again. **Run after every release that touches the bed-hold-integrity paths**; add to the standard `post-deploy-smoke-v0.XX.X.log` sequence.
+
+```bash
+# Step 1: Log in as a real coordinator with dv_access=true (dv-coordinator@dev.fabt.org
+# on the demo site is the canonical test account).
+TOKEN=$(curl -s -X POST -H "Content-Type: application/json" \
+  -d '{"email":"dv-coordinator@dev.fabt.org","password":"admin123","tenantSlug":"dev-coc"}' \
+  https://findabed.org/api/v1/auth/login | grep -oE '"accessToken":"[^"]*"' | sed 's/"accessToken":"//;s/"$//')
+
+# Step 2: POST to an ASSIGNED DV shelter — expect HTTP 201.
+curl -s -w "\nHTTP=%{http_code}\n" -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"populationType":"DV_SURVIVOR","reason":"post-deploy smoke"}' \
+  https://findabed.org/api/v1/shelters/d0000000-0000-0000-0000-000000000011/manual-hold
+
+# Expected:
+#   {"id":"...","shelterId":"d0000000-...-000011","populationType":"DV_SURVIVOR","status":"HELD",...}
+#   HTTP=201
+
+# Step 3 (optional): POST to an UNASSIGNED shelter — expect HTTP 403.
+# The 403 must come from the controller's isAssigned branch (proof: the
+# fabt_http_access_denied_count_total counter in /actuator/prometheus
+# increments by 1 with tag role=ROLE_COORDINATOR). If the counter does NOT
+# increment, the rejection came from the filter chain — rollback immediately.
+```
+
+If Step 2 returns 403 instead of 201, the SecurityConfig fix has regressed. **Rollback to the previous release immediately and file an incident.** The live demo cannot ship with a broken coordinator path.
+
 ---
 
 ## Management Port Security (Production)
@@ -805,3 +860,31 @@ The secondary effect: on the same version range, persistent `availability.update
 **What NOT to do.** Do not publish a broad public notice — this is a demo, no real survivors were affected, and a broad notice would overclaim the incident's scope. A targeted email to the specific people who were trained during the window is the right blast radius.
 
 **Tracking.** This disclosure note is the operational record of the incident. The CHANGELOG entry for v0.32.3 has the technical details (affected versions, bug introduction commit, fix mechanism). The commit `8ebb666` is the code-level bisection point. No postmortem document is required beyond these two artifacts for a demo-site visual bug.
+
+---
+
+### v0.34.0 coordinator `/manual-hold` endpoint unavailable on bugfix branch (fixed 2026-04-11)
+
+**What the bug was.** During development of the bed-hold-integrity change (Issue #102 RCA), the new `POST /api/v1/shelters/{id}/manual-hold` endpoint was unreachable for `COORDINATOR`-role users due to a `SecurityConfig.java:172` filter rule that excluded `COORDINATOR` from `POST /shelters/**`. Every coordinator call was silently 403'd at the Spring Security filter chain, before the controller's `@PreAuthorize` or `CoordinatorAssignmentRepository.isAssigned` check could run. The integration test gave a false pass because the test-level `coordinator_not_assigned_to_shelter_403` expectation matched the filter-level 403 response (both returned the same JSON shape). The IMPLEMENTATION-NOTES documented this initially as a "test infrastructure wrinkle" — that framing was wrong; it was a production bug that would have silently 403'd every real coordinator in every real-tenant deployment.
+
+**What we did wrong during development.** The `OfflineHoldEndpointTest.coordinator_creates_offline_hold_succeeds` test was originally written to use `cocAdminHeaders()` as a workaround for the "test infra wrinkle" — which meant the production-path coverage for the COORDINATOR role didn't exist in the gating test suite. That's how the bug slipped through 517/517 green tests.
+
+**Who is at risk of a broken mental model.** Nobody on the live findabed.org demo: this bug was caught during pre-ship smoke testing on the `bugfix/issue-102-phantom-beds-on-hold` branch and never deployed. The coordinator path has been production-validated at 2026-04-11 22:21 UTC against the new v0.34.0 code. **But** — if any coordinator was trained or onboarded on `/manual-hold` between the `bugfix/issue-102-phantom-beds-on-hold` branch being merged and v0.34.0 deploying — the window during which the feature existed in source control but hadn't been fixed — that's the population to flag. Probably zero people, but the discipline is the disclosure.
+
+**Disclosure template for trainers / operators.** If you demonstrated the new coordinator `/manual-hold` flow between [date the feature was merged to main] and the v0.34.0 deploy, and any coordinator saw a 403 error, suggested email copy:
+
+> Subject: Quick note on the manual offline hold feature you saw in our last session
+>
+> Hi [name],
+>
+> During the demo, you may have seen a "Insufficient permissions" error when I tried to show the coordinator path for creating a manual offline hold. That was a real bug in the draft code of our v0.34.0 release — the filter chain for that endpoint was rejecting coordinator accounts even when they had a valid shelter assignment.
+>
+> The bug was caught in our pre-ship smoke test and is now fixed. As of the v0.34.0 deploy, a coordinator assigned to a shelter can create an offline hold for that shelter via the POST /api/v1/shelters/{id}/manual-hold endpoint. The demo flow I walked you through is now the real production flow.
+>
+> Happy to do a quick re-run of the manual hold creation if it would help solidify what the feature actually does.
+>
+> [your name]
+
+**Regression guard.** The post-deploy smoke test in the "Bed Availability Invariants → v0.34.0 post-deploy smoke" section of this runbook exists to catch any future SecurityConfig narrowing that reintroduces this bug. It is non-optional and should be added to the standard post-deploy smoke sequence. The `OfflineHoldEndpointTest.coordinator_creates_offline_hold_succeeds_when_assigned` test exists in the v0.34.0 backend test suite with an assertion on the `fabt.http.access_denied.count` counter to distinguish a filter-level 403 from a controller-level 403 — this is the test-suite-level regression guard for the same bug class.
+
+**Tracking.** CHANGELOG v0.34.0 entry has the technical details. `SecurityConfig.java:172` is the code-level fix location. `openspec/changes/bed-hold-integrity/IMPLEMENTATION-NOTES.md` § A has the full RCA narrative. No postmortem document is required — the fix shipped in the same change as the feature.
