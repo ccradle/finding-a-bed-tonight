@@ -1,4 +1,5 @@
 import { test, expect } from '../fixtures/auth.fixture';
+import { cleanupTestData } from '../helpers/test-cleanup';
 
 /**
  * T-43 — coc-admin-escalation banner CTA spec.
@@ -16,6 +17,11 @@ import { test, expect } from '../fixtures/auth.fixture';
  * coc-escalation-banner --trace on</code>
  */
 test.describe('coc-admin-escalation: CriticalNotificationBanner CTA', () => {
+
+  // Drop any test-created shelters + referral tokens so this spec doesn't
+  // crowd later specs' search results (dv-outreach-worker depends on seed
+  // DV shelters being findable by testid).
+  test.afterAll(async () => { await cleanupTestData(); });
 
   test('T-43a: CTA appears when an escalation.* CRITICAL notification exists', async ({ coordinatorPage }) => {
     // Note: the auth fixture's "coordinatorPage" is actually logged in as

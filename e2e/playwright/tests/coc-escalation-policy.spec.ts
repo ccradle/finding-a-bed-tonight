@@ -1,5 +1,6 @@
 import { test, expect } from '../fixtures/auth.fixture';
 import { setupTestReferral, getEscalationPolicy, resetDvReferralPolicyToDefault } from '../helpers/dv-escalation-helpers';
+import { cleanupTestData } from '../helpers/test-cleanup';
 
 /**
  * T-46 — coc-admin-escalation policy editor + frozen-at-creation spec.
@@ -30,6 +31,10 @@ test.describe('coc-admin-escalation: escalation policy editor', () => {
   test.beforeEach(async () => {
     await resetDvReferralPolicyToDefault();
   });
+
+  // Drop any test-created shelters + referral tokens so this spec doesn't
+  // crowd later specs' search results.
+  test.afterAll(async () => { await cleanupTestData(); });
 
   test('T-46a: editor loads the current policy and shows the seeded thresholds', async ({ coordinatorPage }) => {
     await coordinatorPage.goto('/admin#dvEscalations');

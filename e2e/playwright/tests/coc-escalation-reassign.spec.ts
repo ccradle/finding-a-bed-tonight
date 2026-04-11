@@ -1,5 +1,6 @@
 import { test, expect } from '../fixtures/auth.fixture';
 import { setupTestReferral } from '../helpers/dv-escalation-helpers';
+import { cleanupTestData } from '../helpers/test-cleanup';
 
 /**
  * T-45 — coc-admin-escalation reassign spec.
@@ -13,6 +14,10 @@ import { setupTestReferral } from '../helpers/dv-escalation-helpers';
  * coc-escalation-reassign --trace on</code>
  */
 test.describe('coc-admin-escalation: reassign sub-modal', () => {
+
+  // Drop any test-created shelters + referral tokens so this spec doesn't
+  // crowd later specs' search results.
+  test.afterAll(async () => { await cleanupTestData(); });
 
   test('T-45a: COORDINATOR_GROUP reassign with reason completes successfully', async ({ coordinatorPage }) => {
     const { referralId } = await setupTestReferral('reassign-coord-group');

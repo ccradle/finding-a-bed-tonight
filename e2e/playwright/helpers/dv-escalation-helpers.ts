@@ -45,8 +45,12 @@ export async function loginAsSeedUser(role: SeedUser): Promise<string> {
  */
 export async function createTestDvShelter(adminToken: string, label: string): Promise<string> {
   const uniqueSuffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  // Prefix is 'E2E Test DV ' so TestResetController's DELETE pattern
+  // (WHERE name LIKE 'E2E Test%') picks these up via cleanupTestData().
+  // Without the prefix, accumulated test shelters crowd dv-outreach-worker's
+  // bed-search results and break the seed-shelter assertions downstream.
   const shelterBody = {
-    name: `Test DV ${label} ${uniqueSuffix}`,
+    name: `E2E Test DV ${label} ${uniqueSuffix}`,
     addressStreet: '123 Test St',
     addressCity: 'Raleigh',
     addressState: 'NC',

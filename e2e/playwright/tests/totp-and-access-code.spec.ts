@@ -101,10 +101,20 @@ base.describe('Forgot Password', () => {
     await page.goto('/login/forgot-password');
     await page.waitForTimeout(1000);
 
-    // Should show guidance to contact admin
-    await expect(page.locator('text=/administrator/i')).toBeVisible();
+    // The forgot-password page was replaced in commit c065a44 (2026-04-09)
+    // with the email-reset flow. Earlier versions guided users to contact
+    // an administrator; the new page instead collects org+email and offers
+    // an access-code fallback link. The test's intent ("the page directs
+    // users to an access-code path if they can't use email reset") is
+    // still valid — assert the form fields and the access-code link are
+    // present, rather than the stale 'administrator' text.
+    const orgInput = page.locator('[data-testid="forgot-password-tenant"]');
+    await expect(orgInput).toBeVisible();
 
-    // Should have link to access code login
+    const emailInput = page.locator('[data-testid="forgot-password-email"]');
+    await expect(emailInput).toBeVisible();
+
+    // Should have link to access code login as a fallback path.
     const accessCodeLink = page.locator('a[href="/login/access-code"]');
     await expect(accessCodeLink).toBeVisible();
   });
@@ -119,14 +129,24 @@ authTest.describe('Admin Access Code', () => {
     await adminPage.goto('/admin');
     await adminPage.waitForTimeout(2000);
 
-    // Find an access code button for any user
-    const codeBtn = adminPage.locator('[data-testid^="generate-access-code-"]');
+    // Target a SPECIFIC seed user (outreach@dev.fabt.org) rather than
+    // codeBtn.first(). Previous version used .first() which picked up the
+    // alphabetically-first user — often a deactivated `coord-e2e-*` orphan
+    // from coordinator-assignment tests running earlier in the suite. The
+    // backend returns a 409 Resource conflict when generating a code for a
+    // deactivated user, the modal opens but generatedCode stays null, and
+    // the test fails on `generated-access-code` not being visible. Targeting
+    // a known-active seed user is deterministic and survives test pollution.
+    const codeBtn = adminPage.locator('[data-testid="generate-access-code-outreach@dev.fabt.org"]');
     if (await codeBtn.count() === 0) {
-      authTest.skip(true, 'No users visible in admin panel');
+      authTest.skip(true, 'outreach@dev.fabt.org not visible in admin panel');
       return;
     }
 
-    await codeBtn.first().click();
+    // Scroll the button into view — the users table can be long once the
+    // coordinator-assignment tests have populated it with test users.
+    await codeBtn.scrollIntoViewIfNeeded();
+    await codeBtn.click();
     await adminPage.waitForTimeout(2000);
 
     // Modal should appear with generated code

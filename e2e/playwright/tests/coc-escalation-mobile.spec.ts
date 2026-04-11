@@ -1,5 +1,6 @@
 import { test, expect } from '../fixtures/auth.fixture';
 import { setupTestReferral } from '../helpers/dv-escalation-helpers';
+import { cleanupTestData } from '../helpers/test-cleanup';
 
 /**
  * T-47 — coc-admin-escalation mobile responsive spec.
@@ -19,6 +20,10 @@ import { setupTestReferral } from '../helpers/dv-escalation-helpers';
 test.describe('coc-admin-escalation: mobile responsive', () => {
 
   test.use({ viewport: { width: 375, height: 667 } });
+
+  // Drop any test-created shelters + referral tokens so this spec doesn't
+  // crowd later specs' search results.
+  test.afterAll(async () => { await cleanupTestData(); });
 
   test('T-47a: queue renders as card list (not table) on mobile', async ({ coordinatorPage }) => {
     const { referralId } = await setupTestReferral('mobile-cards');

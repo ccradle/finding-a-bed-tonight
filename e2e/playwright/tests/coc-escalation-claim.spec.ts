@@ -1,5 +1,6 @@
 import { test, expect } from '../fixtures/auth.fixture';
 import { setupTestReferral } from '../helpers/dv-escalation-helpers';
+import { cleanupTestData } from '../helpers/test-cleanup';
 
 /**
  * T-44 — coc-admin-escalation claim/release/override spec.
@@ -18,6 +19,10 @@ import { setupTestReferral } from '../helpers/dv-escalation-helpers';
  * coc-escalation-claim --trace on</code>
  */
 test.describe('coc-admin-escalation: claim / release / override', () => {
+
+  // Drop any test-created shelters + referral tokens so this spec doesn't
+  // crowd later specs' search results.
+  test.afterAll(async () => { await cleanupTestData(); });
 
   test('T-44a: admin claims a referral via inline button → row updates', async ({ coordinatorPage }) => {
     const { referralId } = await setupTestReferral('claim-inline');
