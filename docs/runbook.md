@@ -771,3 +771,37 @@ These map to `fabt.webhook.connect-timeout-seconds` and `fabt.webhook.read-timeo
 **Symptom:** SSE connections drop every 60-90 seconds despite 30s keepalive
 **Cause:** Proxy idle timeout is shorter than keepalive interval, or keepalive failing silently
 **Resolution:** Check for keepalive errors in logs (`"Keepalive failed for user"`). Verify proxy idle timeout is > 30 seconds.
+
+---
+
+## Disclosures
+
+### v0.32.3 notification-bell accept/reject render bug (fixed 2026-04-11)
+
+**What the bug did.** Between the v0.31.0 deploy (around 2026-04-08) and the v0.32.3 hotfix deploy (2026-04-11), every user who logged into findabed.org and opened the notification bell saw **"A shelter rejected your referral"** as the text for every persisted `dv-referral.responded` notification — regardless of whether the shelter had actually accepted or rejected. The backend correctly recorded the status; the frontend rendered the wrong text because it was reading a field on the wrong shape of the notification row. Live SSE push notifications received during an active session were unaffected — the bug only manifested for notifications loaded from the database after a fresh login.
+
+The secondary effect: on the same version range, persistent `availability.updated` notifications displayed without a shelter name (just "A shelter updated availability" with no attribution), because of the same payload-shape bug in a sibling render path.
+
+**Who is at risk of a broken mental model.** This is the demo site with synthetic data — no real survivors are involved. But:
+
+- **Trainers** (Devon Kessler persona, real external trainers) who walked cohorts through the DV referral flow during this window may have shown the wrong text to learners.
+- **Funders and board members** who did a self-guided tour of the demo to understand the program may have believed the system was rejecting referrals that were actually accepted.
+- **Onboarding CoC admins** and **partner organization leads** who were evaluating FABT during this window may have formed the wrong impression of how the workflow reports outcomes.
+
+**Disclosure template for trainers.** If you trained anyone between 2026-04-08 and the v0.32.3 deploy, a short email is recommended. Suggested copy:
+
+> Subject: Quick correction on the DV referral notifications you saw in training
+>
+> Hi [name],
+>
+> A small visual bug in the demo site made every "shelter responded" notification display as "rejected" even when the referral was actually accepted. I wanted to flag this directly because you saw the notification bell during our session on [date] and the text did not match what the system actually did.
+>
+> The backend was always recording the correct outcome. The notification bell in the demo UI was rendering the wrong text for any notification loaded after a fresh login. This has been fixed today (v0.32.3). If you log in again, you will see the correct "A shelter accepted your referral" text for accepted referrals.
+>
+> Sorry for the confusion. Happy to do a quick re-run of the flow if that would help.
+>
+> [your name]
+
+**What NOT to do.** Do not publish a broad public notice — this is a demo, no real survivors were affected, and a broad notice would overclaim the incident's scope. A targeted email to the specific people who were trained during the window is the right blast radius.
+
+**Tracking.** This disclosure note is the operational record of the incident. The CHANGELOG entry for v0.32.3 has the technical details (affected versions, bug introduction commit, fix mechanism). The commit `8ebb666` is the code-level bisection point. No postmortem document is required beyond these two artifacts for a demo-site visual bug.
