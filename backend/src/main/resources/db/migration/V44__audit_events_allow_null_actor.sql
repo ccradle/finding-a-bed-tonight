@@ -1,12 +1,12 @@
 -- =====================================================================
--- V45: Allow NULL actor_user_id on audit_events for system actions
+-- V44: Allow NULL actor_user_id on audit_events for system actions
 -- =====================================================================
 -- Context:
 --   The original V29 schema declared actor_user_id NOT NULL on the
 --   assumption that every audit row had a human actor. The bed-hold-integrity
 --   change (Issue #102 RCA) introduces system-driven audit events written
---   by the reconciliation tasklet — these have no human actor and need
---   to record actor_user_id = NULL.
+--   by the reconciliation tasklet AND by the V45 one-time backfill
+--   migration — both have no human actor and need actor_user_id = NULL.
 --
 --   Existing callers (TotpController.disableTotpForUser,
 --   TotpController.regenerateBackupCodes) already pass null as actor in
@@ -14,6 +14,11 @@
 --   old NOT NULL constraint if the audit listener actually executed
 --   them in production. This migration aligns the schema with the
 --   already-intended semantics.
+--
+-- Ordering:
+--   V44 (this migration) must run BEFORE V45 (backfill) because V45
+--   writes audit_events rows with actor_user_id = NULL. Flyway runs
+--   migrations in version order, so V44 → V45 is guaranteed.
 --
 -- Idempotency note:
 --   coc-admin-escalation's V42 makes the same schema change (drops

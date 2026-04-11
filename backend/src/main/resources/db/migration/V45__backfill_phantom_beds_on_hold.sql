@@ -1,5 +1,5 @@
 -- =====================================================================
--- V44: One-time backfill for phantom beds_on_hold (Issue #102 RCA)
+-- V45: One-time backfill for phantom beds_on_hold (Issue #102 RCA)
 -- =====================================================================
 -- Context:
 --   bed_availability.beds_on_hold is a denormalized cache derived from
@@ -12,13 +12,31 @@
 -- application-level fix that disciplines all future writes through a
 -- single recompute path (ReservationService.recomputeBedsOnHold).
 --
+-- Ordering:
+--   V44 (audit_events_allow_null_actor) must run before this migration
+--   because the audit rows written below use actor_user_id = NULL.
+--   Flyway runs migrations in version order, so V44 → V45 is guaranteed.
+--
 -- Behavior:
 --   * Append-only — INSERT only, no UPDATE, no DELETE
 --   * Idempotent — re-running on a clean (zero-drift) database is a no-op
 --     because the WHERE clause matches no rows
 --   * Audit-traceable — every corrective snapshot is tagged
---     updated_by = 'V44-rca-backfill' so it can be queried separately
---     from coordinator and reservation-driven snapshots
+--     updated_by = 'V45-rca-backfill' AND has a matching BED_HOLDS_RECONCILED
+--     audit_events row with actor_user_id = NULL (per Casey Drummond, war room
+--     2026-04-11, chain-of-custody requirement)
+--
+-- Dev environment note (Elena Vasquez, war room 2026-04-11):
+--   On a fresh dev database, V45 runs during Spring context init BEFORE
+--   dev-start.sh loads seed-data.sql. At migration time the reservation
+--   table has zero HELD rows for the seed's orphan pairs, so V45 writes
+--   "corrective" snapshots of beds_on_hold = 0 for those pairs — which
+--   are not actual corrections but audit noise unique to dev. Seed
+--   Component 6 immediately follows with fresh matching snapshots
+--   (see seed-data.sql "Component 6 ordering fix" block) so the
+--   latest-row state is correct after seed load. The transient V45 rows
+--   and their audit_events entries are expected dev-environment
+--   artifacts, not drift evidence.
 --
 -- Pairs with:
 --   * Application change: bed-hold-integrity (single write path)
@@ -28,9 +46,9 @@
 -- Cross-link: https://github.com/ccradle/finding-a-bed-tonight/issues/102
 -- =====================================================================
 
-INSERT INTO bed_availability
-    (shelter_id, tenant_id, population_type, beds_total, beds_occupied,
-     beds_on_hold, accepting_new_guests, snapshot_ts, updated_by, notes, overflow_beds)
+-- Single compound statement: (a) compute drift, (b) insert corrective
+-- snapshots, (c) insert matching audit rows — all in one query plan so
+-- the audit rows mirror exactly what was actually inserted.
 WITH latest AS (
     SELECT DISTINCT ON (shelter_id, population_type)
            id, shelter_id, tenant_id, population_type,
@@ -44,21 +62,59 @@ held_counts AS (
     FROM reservation
     WHERE status = 'HELD'
     GROUP BY shelter_id, population_type
+),
+drifted AS (
+    SELECT l.shelter_id,
+           l.tenant_id,
+           l.population_type,
+           l.beds_total,
+           l.beds_occupied,
+           l.beds_on_hold                        AS beds_on_hold_before,
+           COALESCE(h.held_count, 0)             AS beds_on_hold_after,
+           l.accepting_new_guests,
+           COALESCE(l.overflow_beds, 0)          AS overflow_beds
+    FROM latest l
+    LEFT JOIN held_counts h
+           ON h.shelter_id = l.shelter_id
+          AND h.population_type = l.population_type
+    WHERE l.beds_on_hold <> COALESCE(h.held_count, 0)
+),
+inserted_snapshots AS (
+    INSERT INTO bed_availability
+        (shelter_id, tenant_id, population_type, beds_total, beds_occupied,
+         beds_on_hold, accepting_new_guests, snapshot_ts, updated_by, notes, overflow_beds)
+    SELECT shelter_id,
+           tenant_id,
+           population_type,
+           beds_total,
+           beds_occupied,
+           beds_on_hold_after,
+           accepting_new_guests,
+           clock_timestamp(),
+           'V45-rca-backfill',
+           'reconciliation: drift corrected (V45 backfill)',
+           overflow_beds
+    FROM drifted
+    ON CONFLICT ON CONSTRAINT uq_bed_avail_shelter_pop_ts DO NOTHING
+    RETURNING shelter_id, population_type
 )
-SELECT l.shelter_id,
-       l.tenant_id,
-       l.population_type,
-       l.beds_total,
-       l.beds_occupied,
-       COALESCE(h.held_count, 0)             AS beds_on_hold,
-       l.accepting_new_guests,
-       clock_timestamp()                     AS snapshot_ts,
-       'V44-rca-backfill'                    AS updated_by,
-       'reconciliation: drift corrected (V44 backfill)' AS notes,
-       COALESCE(l.overflow_beds, 0)          AS overflow_beds
-FROM latest l
-LEFT JOIN held_counts h
-       ON h.shelter_id = l.shelter_id
-      AND h.population_type = l.population_type
-WHERE l.beds_on_hold <> COALESCE(h.held_count, 0)
-ON CONFLICT ON CONSTRAINT uq_bed_avail_shelter_pop_ts DO NOTHING;
+-- One BED_HOLDS_RECONCILED audit row per actually-inserted snapshot
+-- (INSERT ... RETURNING filters out any rows ON CONFLICT skipped).
+-- actor_user_id is NULL because the system is the actor — V44 already
+-- dropped the NOT NULL constraint to enable this.
+INSERT INTO audit_events (action, actor_user_id, details)
+SELECT 'BED_HOLDS_RECONCILED',
+       NULL,
+       jsonb_build_object(
+           'shelter_id', d.shelter_id::text,
+           'population_type', d.population_type,
+           'snapshot_value_before', d.beds_on_hold_before,
+           'actual_count', d.beds_on_hold_after,
+           'delta', d.beds_on_hold_after - d.beds_on_hold_before,
+           'correction_source', 'V45_backfill',
+           'github_issue', 'https://github.com/ccradle/finding-a-bed-tonight/issues/102'
+       )
+FROM inserted_snapshots i
+JOIN drifted d
+  ON d.shelter_id = i.shelter_id
+ AND d.population_type = i.population_type;
