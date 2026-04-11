@@ -302,6 +302,54 @@ ON CONFLICT DO NOTHING;
 -- 343/439 = 78.1% ✓ | DV shelters: 3 distinct, 49 total DV beds > suppression thresholds ✓
 
 -- =====================================================================
+-- Reservations — back every bed_availability row with beds_on_hold > 0
+-- with real HELD reservation rows (Issue #102 RCA, bed-hold-integrity).
+--
+-- Without this seed block the runtime invariant
+--   beds_on_hold === COUNT(reservation WHERE shelter+population HELD)
+-- is violated at startup, the new reconciliation tasklet would correct
+-- the cache to zero on first run, and the demo would lose the visible
+-- "held bed" state. Pairs with the V40 backfill migration.
+--
+-- expires_at values are spread across the hold lifecycle so the demo
+-- naturally shows the countdown timer at multiple stages without an
+-- operator having to create new reservations. All values are in the
+-- future so the auto-expiry job does not clean these up during a demo.
+--
+-- Inserted AFTER the bed_availability rows so the runtime invariant
+-- holds at the first reconciliation pass after startup.
+-- =====================================================================
+INSERT INTO reservation (id, shelter_id, tenant_id, population_type, user_id, status, expires_at, notes)
+VALUES
+    -- Capital Blvd Family — beds_on_hold = 1
+    ('b1000000-0000-0000-0000-000000000001', 'd0000000-0000-0000-0000-000000000002',
+     'a0000000-0000-0000-0000-000000000001', 'FAMILY_WITH_CHILDREN',
+     'b0000000-0000-0000-0000-000000000001', 'HELD',
+     NOW() + INTERVAL '85 minutes', 'Seed: hold for demo realism (near full lifecycle)'),
+
+    -- Downtown Warming Station — beds_on_hold = 3 (three holds at varied lifecycle stages)
+    ('b1000000-0000-0000-0000-000000000002', 'd0000000-0000-0000-0000-000000000006',
+     'a0000000-0000-0000-0000-000000000001', 'SINGLE_ADULT',
+     'b0000000-0000-0000-0000-000000000001', 'HELD',
+     NOW() + INTERVAL '15 minutes', 'Seed: hold for demo realism (near expiry)'),
+    ('b1000000-0000-0000-0000-000000000003', 'd0000000-0000-0000-0000-000000000006',
+     'a0000000-0000-0000-0000-000000000001', 'SINGLE_ADULT',
+     'b0000000-0000-0000-0000-000000000001', 'HELD',
+     NOW() + INTERVAL '45 minutes', 'Seed: hold for demo realism (mid-window)'),
+    ('b1000000-0000-0000-0000-000000000004', 'd0000000-0000-0000-0000-000000000006',
+     'a0000000-0000-0000-0000-000000000001', 'SINGLE_ADULT',
+     'b0000000-0000-0000-0000-000000000001', 'HELD',
+     NOW() + INTERVAL '80 minutes', 'Seed: hold for demo realism (early in window)'),
+
+    -- Helping Hand Recovery — beds_on_hold = 1
+    ('b1000000-0000-0000-0000-000000000005', 'd0000000-0000-0000-0000-000000000010',
+     'a0000000-0000-0000-0000-000000000001', 'SINGLE_ADULT',
+     'b0000000-0000-0000-0000-000000000001', 'HELD',
+     NOW() + INTERVAL '10 minutes', 'Seed: hold for demo realism (near expiry, sobriety required)')
+ON CONFLICT (id) DO NOTHING;
+-- Reservation count: 1 + 3 + 1 = 5 ✓ (matches sum of seeded beds_on_hold values)
+
+-- =====================================================================
 -- API Keys — demo keys for admin screenshots (platform-hardening)
 -- DEV ONLY — these keys have known hashes committed to the repo.
 -- NEVER use these keys in production. The demo guard blocks all
