@@ -2,8 +2,11 @@ package org.fabt.auth.service;
 
 import java.time.Instant;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import org.fabt.auth.api.CreateUserRequest;
@@ -76,6 +79,120 @@ public class UserService {
             throw new NoSuchElementException("User not found: " + id);
         }
         return user;
+    }
+
+    /**
+     * Lookup variant of {@link #getUser} that returns {@link Optional#empty}
+     * instead of throwing when the user does not exist or belongs to a
+     * different tenant. Used by the admin escalated-queue / claim endpoints
+     * which need to render an admin display name without crashing if the
+     * row was deleted between the queue refresh and the claim action.
+     */
+    @Transactional(readOnly = true)
+    public Optional<User> findById(UUID id) {
+        UUID tenantId = TenantContext.getTenantId();
+        return userRepository.findById(id)
+                .filter(u -> u.getTenantId().equals(tenantId));
+    }
+
+    /**
+     * Display-name lookup that exposes only primitives across module
+     * boundaries. The referral module's escalated-queue controller calls
+     * this instead of {@link #findAllById} so it never imports
+     * {@code org.fabt.auth.domain.User} (ArchUnit boundary).
+     */
+    @Transactional(readOnly = true)
+    public java.util.Map<UUID, String> findDisplayNamesByIds(Collection<UUID> ids) {
+        if (ids == null || ids.isEmpty()) return java.util.Map.of();
+        UUID tenantId = TenantContext.getTenantId();
+        java.util.Map<UUID, String> out = new java.util.HashMap<>();
+        for (User u : (List<User>) userRepository.findAllById(ids)) {
+            if (u.getTenantId().equals(tenantId)) {
+                out.put(u.getId(), u.getDisplayName());
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Return the IDs of all active users matching {@code role} in the given
+     * tenant. The escalation batch job calls this via the referral module,
+     * which is forbidden from importing {@link User} directly.
+     */
+    @Transactional(readOnly = true)
+    public List<UUID> findActiveUserIdsByRole(UUID tenantId, String role) {
+        return userRepository.findActiveByTenantIdAndRole(tenantId, role)
+                .stream().map(User::getId).toList();
+    }
+
+    /**
+     * Return the IDs of all active DV-flagged coordinators in the given
+     * tenant. Same boundary reasoning as {@link #findActiveUserIdsByRole}.
+     */
+    @Transactional(readOnly = true)
+    public List<UUID> findDvCoordinatorIds(UUID tenantId) {
+        return userRepository.findActiveByTenantIdAndDvAccessAndRole(tenantId, "COORDINATOR")
+                .stream().map(User::getId).toList();
+    }
+
+    /**
+     * Whether {@code userId} is acting in a CoC-admin or platform-admin
+     * capacity. Pushes Casey Drummond's chain-of-custody role check into the
+     * auth module so the referral module's audit-type selection doesn't have
+     * to import {@link User}.
+     */
+    @Transactional(readOnly = true)
+    public boolean isAdminActor(UUID userId) {
+        if (userId == null) return false;
+        return findById(userId)
+                .map(User::getRoles)
+                .map(roles -> {
+                    for (String r : roles) {
+                        if ("COC_ADMIN".equals(r) || "PLATFORM_ADMIN".equals(r)) return true;
+                    }
+                    return false;
+                })
+                .orElse(false);
+    }
+
+    /**
+     * Whether {@code userId} exists and belongs to the caller's tenant.
+     * Boundary-clean primitive: returns a boolean so the referral module
+     * doesn't need to import {@link User} (Marcus Webb #2 + Alex Chen, war
+     * room round 3).
+     */
+    @Transactional(readOnly = true)
+    public boolean existsByIdInCurrentTenant(UUID userId) {
+        if (userId == null) return false;
+        return findById(userId).isPresent();
+    }
+
+    /**
+     * Returns the role list for a user as a {@code List<String>}, or an
+     * empty list if the user doesn't exist or belongs to a different tenant.
+     * Used by audit-trail enrichment so the referral module can record the
+     * actor's roles at action time without importing {@link User} (Casey
+     * Drummond #2, frozen-at-action-time chain of custody).
+     */
+    @Transactional(readOnly = true)
+    public List<String> getRolesByUserId(UUID userId) {
+        if (userId == null) return List.of();
+        return findById(userId)
+                .map(User::getRoles)
+                .map(java.util.Arrays::asList)
+                .orElse(List.of());
+    }
+
+    /**
+     * Batch-fetch users by ID, restricted to current tenant (Sam Okafor optimization).
+     */
+    @Transactional(readOnly = true)
+    public List<User> findAllById(Collection<UUID> ids) {
+        if (ids.isEmpty()) return List.of();
+        UUID tenantId = TenantContext.getTenantId();
+        return ((List<User>) userRepository.findAllById(ids)).stream()
+                .filter(u -> u.getTenantId().equals(tenantId))
+                .toList();
     }
 
     @Transactional

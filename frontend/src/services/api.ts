@@ -134,7 +134,14 @@ async function request<T>(
     return undefined as T;
   }
 
-  return response.json();
+  // Handle empty 2xx bodies (e.g. backend endpoints that return
+  // ResponseEntity.ok().build() — claim/release/reassign/accept/deny).
+  // response.json() throws "Unexpected end of JSON input" on an empty
+  // string, silently breaking any caller that awaits a callback after
+  // the POST resolves. Read as text first and return undefined when
+  // there is no body to parse.
+  const text = await response.text();
+  return (text ? JSON.parse(text) : undefined) as T;
 }
 
 export const api = {

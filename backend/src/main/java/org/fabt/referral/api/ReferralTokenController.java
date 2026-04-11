@@ -1,9 +1,12 @@
 package org.fabt.referral.api;
 
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -12,9 +15,11 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import jakarta.validation.Valid;
 
+import org.fabt.auth.service.UserService;
 import org.fabt.referral.domain.ReferralToken;
 import org.fabt.referral.service.ReferralTokenService;
 import org.fabt.shelter.repository.CoordinatorAssignmentRepository;
+import org.fabt.shelter.service.ShelterService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -37,15 +42,144 @@ import org.springframework.web.bind.annotation.RestController;
 public class ReferralTokenController {
 
     private final ReferralTokenService referralTokenService;
+    private final ShelterService shelterService;
+    private final UserService userService;
     private final CoordinatorAssignmentRepository coordinatorAssignmentRepository;
     private final MeterRegistry meterRegistry;
 
     public ReferralTokenController(ReferralTokenService referralTokenService,
+                                   ShelterService shelterService,
+                                   UserService userService,
                                    CoordinatorAssignmentRepository coordinatorAssignmentRepository,
                                    MeterRegistry meterRegistry) {
         this.referralTokenService = referralTokenService;
+        this.shelterService = shelterService;
+        this.userService = userService;
         this.coordinatorAssignmentRepository = coordinatorAssignmentRepository;
         this.meterRegistry = meterRegistry;
+    }
+
+    @Operation(
+            summary = "Get escalated DV referrals queue",
+            description = "Returns all pending DV referrals in the tenant, sorted by urgency. " +
+                    "Authorized for CoC admins and platform admins. Contains zero PII."
+    )
+    @GetMapping("/escalated")
+    @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+    public ResponseEntity<List<EscalatedReferralDto>> getEscalatedQueue() {
+        List<ReferralToken> tokens = referralTokenService.getEscalatedQueue();
+
+        // Sam Okafor Optimization: Batch-fetch shelter and admin display names
+        // to avoid N+1. Both lookups return primitives (String/UUID maps), not
+        // domain entities, so the referral module never imports auth/User —
+        // ArchUnit boundary enforced (Alex Chen).
+        Set<UUID> shelterIds = tokens.stream().map(ReferralToken::getShelterId).collect(Collectors.toSet());
+        Map<UUID, String> shelterNames = shelterService.findAllById(shelterIds).stream()
+                .collect(Collectors.toMap(s -> s.getId(), s -> s.getName()));
+
+        Set<UUID> adminIds = tokens.stream()
+                .map(ReferralToken::getClaimedByAdminId)
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toSet());
+        Map<UUID, String> adminNames = userService.findDisplayNamesByIds(adminIds);
+
+        List<EscalatedReferralDto> dtos = tokens.stream()
+                .map(t -> toEscalatedDto(t,
+                        shelterNames.get(t.getShelterId()),
+                        // adminNames is Map.of() (immutable) when no rows are
+                        // claimed; immutable maps reject .get(null), so guard.
+                        t.getClaimedByAdminId() == null ? null : adminNames.get(t.getClaimedByAdminId())))
+                .toList();
+
+        return ResponseEntity.ok(dtos);
+    }
+
+    @Operation(
+            summary = "Claim an escalated referral",
+            description = "Sets a soft-lock claim on a pending referral for the configured " +
+                    "claim duration (default 10 minutes). If already claimed by another admin, " +
+                    "requires the Override-Claim header (or override=true query param) to steal."
+    )
+    @PostMapping("/{id}/claim")
+    @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+    public ResponseEntity<EscalatedReferralDto> claim(
+            @PathVariable UUID id,
+            @RequestParam(required = false, defaultValue = "false") boolean override,
+            @org.springframework.web.bind.annotation.RequestHeader(value = "Override-Claim", required = false)
+                    Boolean overrideHeader,
+            Authentication authentication) {
+        UUID adminId = UUID.fromString(authentication.getName());
+        boolean effectiveOverride = override || Boolean.TRUE.equals(overrideHeader);
+        try {
+            ReferralToken token = referralTokenService.claimToken(id, adminId, effectiveOverride);
+            String shelterName = shelterService.findById(token.getShelterId())
+                    .map(s -> s.getName()).orElse(null);
+            String adminName = userService.findDisplayNamesByIds(java.util.Set.of(adminId))
+                    .get(adminId);
+            return ResponseEntity.ok(toEscalatedDto(token, shelterName, adminName));
+        } catch (ReferralTokenService.ClaimConflictException conflict) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).build();
+        }
+    }
+
+    @Operation(summary = "Release a referral claim manually")
+    @PostMapping("/{id}/release")
+    @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+    public ResponseEntity<Void> release(
+            @PathVariable UUID id,
+            @RequestParam(required = false, defaultValue = "false") boolean override,
+            @org.springframework.web.bind.annotation.RequestHeader(value = "Override-Claim", required = false)
+                    Boolean overrideHeader,
+            Authentication authentication) {
+        UUID adminId = UUID.fromString(authentication.getName());
+        boolean effectiveOverride = override || Boolean.TRUE.equals(overrideHeader);
+        referralTokenService.releaseToken(id, adminId, effectiveOverride);
+        return ResponseEntity.ok().build();
+    }
+
+    @Operation(
+            summary = "Reassign an escalated referral",
+            description = "Three target types: COORDINATOR_GROUP (re-pages the shelter's "
+                    + "coordinators), COC_ADMIN_GROUP (re-pages all CoC admins as CRITICAL), "
+                    + "and SPECIFIC_USER (notifies a single named user AND breaks the "
+                    + "escalation chain — the system stops auto-escalating because that user "
+                    + "took manual ownership). Writes DV_REFERRAL_REASSIGNED audit event."
+    )
+    @PostMapping("/{id}/reassign")
+    @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+    public ResponseEntity<Void> reassign(
+            @PathVariable UUID id,
+            @Valid @RequestBody ReassignReferralRequest request,
+            Authentication authentication) {
+        UUID actorUserId = UUID.fromString(authentication.getName());
+        referralTokenService.reassignToken(id, actorUserId, request);
+        return ResponseEntity.ok().build();
+    }
+
+    private EscalatedReferralDto toEscalatedDto(ReferralToken t, String shelterName, String adminName) {
+        String resolvedShelterName = shelterName != null ? shelterName : "Unknown Shelter";
+        String resolvedAdminName = adminName != null
+                ? adminName
+                : (t.getClaimedByAdminId() != null ? "Unknown Admin" : null);
+
+        // Coordinator mapping (MVP placeholder - Session 4 will batch-fetch
+        // coordinator assignments via shelter module).
+        String coordName = "Unassigned";
+        UUID coordId = null;
+
+        long remaining = 0;
+        if (t.getExpiresAt() != null) {
+            remaining = java.time.Duration.between(Instant.now(), t.getExpiresAt()).toMinutes();
+        }
+
+        return new EscalatedReferralDto(
+                t.getId(), t.getShelterId(), resolvedShelterName,
+                t.getPopulationType(), t.getHouseholdSize(), t.getUrgency(),
+                t.getCreatedAt(), t.getExpiresAt(), remaining,
+                coordId, coordName,
+                t.getClaimedByAdminId(), resolvedAdminName, t.getClaimExpiresAt(),
+                t.isEscalationChainBroken()
+        );
     }
 
     @Operation(

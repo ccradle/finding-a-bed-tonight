@@ -15,7 +15,13 @@
 
 CREATE TABLE escalation_policy (
     id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tenant_id    UUID REFERENCES tenant(id),  -- NULL = platform default policy
+    -- ON DELETE RESTRICT (explicit): a tenant with escalation history may not
+    -- be hard-deleted. The escalation_policy rows ARE the chain-of-custody
+    -- record for "what policy was active when?" — cascading or nulling them
+    -- on tenant delete would silently corrupt that history. Operators who
+    -- truly need to remove a tenant must first decide what to do with the
+    -- audit trail (Casey Drummond / Elena Vasquez round-table call).
+    tenant_id    UUID REFERENCES tenant(id) ON DELETE RESTRICT,  -- NULL = platform default policy
     event_type   VARCHAR(64) NOT NULL,
     version      INTEGER NOT NULL,
     thresholds   JSONB NOT NULL,
@@ -74,20 +80,32 @@ CREATE POLICY escalation_policy_insert ON escalation_policy
 -- row with their tenant_id and version=1.
 --
 -- Threshold semantics (all ISO 8601 durations from referral creation):
---   PT1H     — 1 hour:    coordinator reminder (ACTION_REQUIRED)
---   PT2H     — 2 hours:   CoC admin escalation (CRITICAL)
---   PT3H30M  — 3.5 hours: all-hands (CRITICAL to coordinators + outreach)
---   PT4H     — 4 hours:   final expiry warning (INFO to outreach worker)
+--   1h    (PT1H)    — coordinator reminder       (ACTION_REQUIRED → COORDINATOR)
+--   2h    (PT2H)    — CoC admin escalation       (CRITICAL        → COC_ADMIN)
+--   3_5h  (PT3H30M) — all-hands 30 min warning   (CRITICAL        → COORDINATOR, OUTREACH_WORKER)
+--   4h    (PT4H)    — final expiry warning       (ACTION_REQUIRED → OUTREACH_WORKER)
+--
+-- The "id" field is the short label for the notification type column. The
+-- batch job emits `notification.type = 'escalation.' + id`, e.g. `escalation.1h`.
+-- Frontend NotificationBell.tsx switches on the full type string — the seed
+-- ids 1h/2h/3_5h/4h MUST remain stable across versions or the icon and label
+-- mappings go dark. Custom policies (PATCH /api/v1/admin/escalation-policy)
+-- may add new ids; existing ids must not be renamed without a frontend update.
+--
+-- Severity for `4h` is ACTION_REQUIRED (NOT INFO) — the original hardcoded
+-- batch job in v0.32.x emitted ACTION_REQUIRED for 4h. The Session 1 seed
+-- accidentally drifted to INFO; corrected here so that Session 2's "behavior
+-- identical to before the refactor" requirement is actually true.
 INSERT INTO escalation_policy (tenant_id, event_type, version, thresholds, created_by)
 VALUES (
     NULL,
     'dv-referral',
     1,
     '[
-      {"at":"PT1H",   "severity":"ACTION_REQUIRED","recipients":["COORDINATOR"]},
-      {"at":"PT2H",   "severity":"CRITICAL",       "recipients":["COC_ADMIN"]},
-      {"at":"PT3H30M","severity":"CRITICAL",       "recipients":["COORDINATOR","OUTREACH_WORKER"]},
-      {"at":"PT4H",   "severity":"INFO",           "recipients":["OUTREACH_WORKER"]}
+      {"id":"1h",   "at":"PT1H",   "severity":"ACTION_REQUIRED","recipients":["COORDINATOR"]},
+      {"id":"2h",   "at":"PT2H",   "severity":"CRITICAL",       "recipients":["COC_ADMIN"]},
+      {"id":"3_5h", "at":"PT3H30M","severity":"CRITICAL",       "recipients":["COORDINATOR","OUTREACH_WORKER"]},
+      {"id":"4h",   "at":"PT4H",   "severity":"ACTION_REQUIRED","recipients":["OUTREACH_WORKER"]}
     ]'::jsonb,
     NULL  -- system-seeded, no human actor
 );
