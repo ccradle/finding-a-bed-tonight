@@ -1,0 +1,219 @@
+import { describe, it, expect } from 'vitest';
+import {
+  parseNotificationPayload,
+  getNotificationMessageId,
+  getNotificationMessageValues,
+} from './notificationMessages';
+import type { Notification } from '../hooks/useNotifications';
+
+/**
+ * Regression guards for the v0.32.3 notification rendering hotfix.
+ *
+ * The bug (reported 2026-04-11, introduced in commit 8ebb666, shipped in
+ * v0.31.0 through v0.32.2): every persistent `referral.responded`
+ * notification rendered as "rejected" regardless of actual status,
+ * because `getNotificationMessageId` read `data.status` but the status
+ * for persistent notifications lives inside `data.payload` as a
+ * JSON-stringified field.
+ *
+ * These tests exercise BOTH notification data shapes in BOTH directions
+ * (accepted + rejected) across BOTH event type spellings
+ * (`dv-referral.responded` live push + `referral.responded` persistent).
+ * If someone reintroduces the single-shape read, all four `.referral*`
+ * tests fail loudly.
+ */
+
+/** Build a live-SSE-shaped notification (fields directly on data). */
+function liveNotification(eventType: string, data: Record<string, unknown>): Notification {
+  return {
+    id: 'test-id',
+    eventType,
+    data,
+    timestamp: Date.now(),
+    read: false,
+  };
+}
+
+/** Build a persistent-shape notification (fields inside a JSON-string payload). */
+function persistentNotification(
+  eventType: string,
+  payload: Record<string, unknown>,
+): Notification {
+  return {
+    id: 'test-id',
+    eventType,
+    data: { payload: JSON.stringify(payload) },
+    timestamp: Date.now(),
+    read: false,
+  };
+}
+
+describe('parseNotificationPayload', () => {
+  it('returns the parsed JSON object when data.payload is a valid JSON string', () => {
+    const parsed = parseNotificationPayload({
+      payload: '{"status":"ACCEPTED","shelterName":"Harbor House"}',
+    });
+    expect(parsed).toEqual({ status: 'ACCEPTED', shelterName: 'Harbor House' });
+  });
+
+  it('returns an empty object when data.payload is missing', () => {
+    expect(parseNotificationPayload({})).toEqual({});
+  });
+
+  it('returns an empty object when data.payload is not a string (already an object)', () => {
+    // Some call paths may unbundle the payload before it reaches the helper;
+    // treat non-string payloads as "no parseable string here."
+    expect(parseNotificationPayload({ payload: { status: 'ACCEPTED' } })).toEqual({});
+  });
+
+  it('returns an empty object (not throw) when data.payload is malformed JSON', () => {
+    expect(parseNotificationPayload({ payload: '{not valid json' })).toEqual({});
+  });
+
+  // The following edge cases were flagged by Marcus Webb in the v0.32.3
+  // hotfix war room. JSON.parse can return non-object values for legitimate
+  // JSON inputs ("null", "42", "true", '"hello"', "[1,2,3]"). Each must
+  // fall through to the safe empty-object return — NOT crash the caller
+  // when it tries to read `payload.status` off the result.
+
+  it('returns an empty object (not crash) when JSON.parse returns null', () => {
+    // Without the non-object guard, the caller would do `null.status` → TypeError.
+    expect(parseNotificationPayload({ payload: 'null' })).toEqual({});
+  });
+
+  it('returns an empty object when JSON.parse returns an array', () => {
+    expect(parseNotificationPayload({ payload: '[1,2,3]' })).toEqual({});
+  });
+
+  it('returns an empty object when JSON.parse returns a string literal', () => {
+    expect(parseNotificationPayload({ payload: '"hello"' })).toEqual({});
+  });
+
+  it('returns an empty object when JSON.parse returns a number', () => {
+    expect(parseNotificationPayload({ payload: '42' })).toEqual({});
+  });
+
+  it('returns an empty object when JSON.parse returns a boolean', () => {
+    expect(parseNotificationPayload({ payload: 'true' })).toEqual({});
+  });
+});
+
+describe('getNotificationMessageId — referral.responded (the bug class)', () => {
+  // Persistent notifications (DB-backed) — the shape the v0.32.3 bug missed.
+  // These four tests are the load-bearing regression guard. They must pass
+  // for both event type spellings and in both directions.
+
+  it('persistent ACCEPTED (dv-referral.responded) → referralAccepted', () => {
+    const n = persistentNotification('dv-referral.responded', { status: 'ACCEPTED' });
+    expect(getNotificationMessageId(n)).toBe('notifications.referralAccepted');
+  });
+
+  it('persistent ACCEPTED (referral.responded) → referralAccepted', () => {
+    const n = persistentNotification('referral.responded', { status: 'ACCEPTED' });
+    expect(getNotificationMessageId(n)).toBe('notifications.referralAccepted');
+  });
+
+  it('persistent REJECTED (dv-referral.responded) → referralRejected', () => {
+    const n = persistentNotification('dv-referral.responded', { status: 'REJECTED' });
+    expect(getNotificationMessageId(n)).toBe('notifications.referralRejected');
+  });
+
+  it('persistent REJECTED (referral.responded) → referralRejected', () => {
+    const n = persistentNotification('referral.responded', { status: 'REJECTED' });
+    expect(getNotificationMessageId(n)).toBe('notifications.referralRejected');
+  });
+
+  // Live SSE domain events — the shape that worked before the bug and
+  // must continue to work after the fix.
+
+  it('live ACCEPTED (dv-referral.responded) → referralAccepted', () => {
+    const n = liveNotification('dv-referral.responded', { status: 'ACCEPTED' });
+    expect(getNotificationMessageId(n)).toBe('notifications.referralAccepted');
+  });
+
+  it('live REJECTED (dv-referral.responded) → referralRejected', () => {
+    const n = liveNotification('dv-referral.responded', { status: 'REJECTED' });
+    expect(getNotificationMessageId(n)).toBe('notifications.referralRejected');
+  });
+
+  // Edge case flagged by Riley Cho in the v0.32.3 hotfix war room: when
+  // status is missing from BOTH shapes (truly malformed notification),
+  // the current implementation falls through to 'referralRejected' as
+  // the else-branch default. This test pins that behavior so a future
+  // refactor knows it's intentional-by-default. The FIXME comment in
+  // notificationMessages.ts proposes routing to 'notifications.unknown'
+  // in a future iteration; if that change ships, update this test to
+  // assert the new behavior.
+
+  it('missing status on both data and payload → falls through to referralRejected (FIXME: should be unknown)', () => {
+    const n = liveNotification('referral.responded', {}); // no status anywhere
+    expect(getNotificationMessageId(n)).toBe('notifications.referralRejected');
+  });
+
+  it('missing status on persistent payload (empty object) → falls through to referralRejected (FIXME)', () => {
+    const n = persistentNotification('referral.responded', {}); // payload is "{}"
+    expect(getNotificationMessageId(n)).toBe('notifications.referralRejected');
+  });
+});
+
+describe('getNotificationMessageId — other event types (no regression)', () => {
+  it('referral.requested → referralRequested', () => {
+    expect(getNotificationMessageId(liveNotification('referral.requested', {}))).toBe(
+      'notifications.referralRequested',
+    );
+  });
+
+  it('availability.updated → availabilityUpdated', () => {
+    expect(getNotificationMessageId(liveNotification('availability.updated', {}))).toBe(
+      'notifications.availabilityUpdated',
+    );
+  });
+
+  it('surge.activated → surgeActivated', () => {
+    expect(getNotificationMessageId(liveNotification('surge.activated', {}))).toBe(
+      'notifications.surgeActivated',
+    );
+  });
+
+  it('escalation.2h → escalation2h', () => {
+    expect(getNotificationMessageId(liveNotification('escalation.2h', {}))).toBe(
+      'notifications.escalation2h',
+    );
+  });
+
+  it('unknown event type → unknown', () => {
+    expect(getNotificationMessageId(liveNotification('something.unheard-of', {}))).toBe(
+      'notifications.unknown',
+    );
+  });
+});
+
+describe('getNotificationMessageValues', () => {
+  it('extracts shelterName from live SSE direct data', () => {
+    const n = liveNotification('availability.updated', { shelterName: 'Harbor House' });
+    expect(getNotificationMessageValues(n).shelterName).toBe('Harbor House');
+  });
+
+  it('extracts shelterName from persistent payload JSON string', () => {
+    const n = persistentNotification('availability.updated', { shelterName: 'Harbor House' });
+    expect(getNotificationMessageValues(n).shelterName).toBe('Harbor House');
+  });
+
+  it('extracts status from live SSE direct data', () => {
+    const n = liveNotification('referral.responded', { status: 'ACCEPTED' });
+    expect(getNotificationMessageValues(n).status).toBe('ACCEPTED');
+  });
+
+  it('extracts status from persistent payload JSON string', () => {
+    const n = persistentNotification('referral.responded', { status: 'ACCEPTED' });
+    expect(getNotificationMessageValues(n).status).toBe('ACCEPTED');
+  });
+
+  it('returns empty strings (not undefined) when fields are missing', () => {
+    const n = liveNotification('something', {});
+    const values = getNotificationMessageValues(n);
+    expect(values.shelterName).toBe('');
+    expect(values.status).toBe('');
+    expect(values.count).toBe('');
+  });
+});

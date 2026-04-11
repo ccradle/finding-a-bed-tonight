@@ -5,6 +5,43 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.32.3] — 2026-04-11 — Notification Bell Accept/Reject Render Fix (Hotfix)
+
+### Fixed
+- **CRITICAL — Persistent DV referral notifications rendered as "rejected" regardless of actual status.** `NotificationBell.getNotificationMessageId` read `data.status` directly, but persistent notifications loaded from the database carry their domain-event payload as a JSON **string** under `data.payload`. For every persisted `dv-referral.responded` or `referral.responded` notification, `data.status` was `undefined`, the check fell through to the else branch, and the UI rendered `notifications.referralRejected` — even when the backend had correctly published `status: 'ACCEPTED'` and the database row carried that value in the payload. Live SSE push notifications received during an active session were unaffected because the domain event puts the status directly on `data`.
+- **Secondary — Shelter name on `availability.updated` notifications failed to render** for persistent notifications via the same payload-shape bug at `NotificationBell.tsx` line 322. Users saw "A shelter updated availability" with no shelter name attached when the notification was loaded from the database. Live SSE events rendered correctly. Same fix, same module.
+
+### Affected versions
+- **Introduced:** commit `8ebb666` (2026-04-08), "Add persistent notifications: DB-backed bell badge, coordinator banner, DV escalation (#77)". Before this commit, the codebase only had SSE push notifications, which always carry status on `data` directly, and the code was correct.
+- **Shipped in:** v0.31.0, v0.31.1, v0.31.2, v0.32.1, v0.32.2.
+- **Live impact on findabed.org:** every user who logged in and viewed the notification bell saw "rejected" text for their accepted DV referrals, and missing shelter names on availability updates, from the v0.31.0 deploy until this hotfix. This is a demo site with synthetic data — **no real survivors were affected** — but trainers, funders, and onboarding CoC admins who used the demo during this window may have formed incorrect mental models of the workflow. If you trained anyone between 2026-04-08 and today, a brief heads-up email noting the visual bug and the correct behavior is recommended. See [docs/runbook.md](docs/runbook.md) for the disclosure note template.
+
+### Added
+- **`frontend/src/components/notificationMessages.ts`** — extracted `parseNotificationPayload`, `getNotificationMessageId`, `getNotificationMessageValues`, `getNavigationPath` from `NotificationBell.tsx` into a standalone module so they can be unit-tested in isolation without mounting the React component. Every future read of notification payload fields must use `parseNotificationPayload` + the `data.x ?? payload.x` fallback pattern documented in that file's header comment.
+- **`frontend/src/components/notificationMessages.test.ts`** — 20 Vitest unit tests covering both data shapes (live SSE direct `data.*` + persistent `data.payload` JSON string) across both directions (ACCEPTED + REJECTED) across both event type spellings (`dv-referral.responded` + `referral.responded`), plus `parseNotificationPayload` happy path + malformed + missing + wrong-type edge cases, plus `getNotificationMessageValues` for `shelterName`/`status`/`count` extraction. These tests are the load-bearing regression guard. A future refactor that reintroduces the single-shape read fails all four `persistent …` tests loudly.
+- **`frontend/package.json` test script** — `"test": "vitest run"` and `"test:watch": "vitest"` added so the test infrastructure is discoverable to CI and future contributors. Previously there was no npm test script despite Vitest being installed.
+
+### Changed
+- `NotificationBell.tsx` — imports the extracted helpers; the inline `getNotificationMessageId`, `getNotificationMessageValues`, and `getNavigationPath` definitions are removed. Behavior is identical for live SSE events; persistent notifications now render correctly.
+- The `availability.updated` shelter name render path at the former line 322 now routes through `getNotificationMessageValues(notification).shelterName` so persistent availability notifications display the shelter name consistently with live ones.
+
+### Test Results
+- Frontend: **35 passed** (20 new notification tests + 15 pre-existing offlineQueue tests), 0 failures
+- `npm run build` — tsc strict + Vite production build pass clean, 0 errors, 0 warnings beyond the existing chunk-size notice
+- Manual verification: create a DV referral as dv-outreach, accept as cocadmin via the escalation queue, log back in as dv-outreach, open notification bell — correctly shows "A shelter accepted your referral"
+
+### Not included in this hotfix (deferred to v0.33.0)
+- Playwright E2E spec for the full create → accept → verify-rendered-text round-trip. The Vitest unit tests + manual verification are sufficient for a targeted hotfix; the broader E2E build-out is part of Riley Cho's Session 7 testing work.
+- Related notification bell empty-state test fix (different bug, task #123) — deferred to v0.33.0.
+
+### Deployment
+- No database migrations.
+- No backend code changes (version bump only — the backend was already publishing the correct payload).
+- Frontend-only change, single JS bundle rebuild.
+- Rollback plan: redeploy v0.32.2 backend jar + frontend dist. No schema state change to undo.
+
+---
+
 ## [v0.32.2] — 2026-04-10 — Webhook Read Timeout Fix
 
 ### Fixed

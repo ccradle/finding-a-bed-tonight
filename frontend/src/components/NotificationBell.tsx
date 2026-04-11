@@ -4,6 +4,11 @@ import { useNavigate } from 'react-router-dom';
 import { text, weight } from '../theme/typography';
 import { color } from '../theme/colors';
 import type { Notification } from '../hooks/useNotifications';
+import {
+  getNotificationMessageId,
+  getNotificationMessageValues,
+  getNavigationPath,
+} from './notificationMessages';
 
 interface NotificationBellProps {
   notifications: Notification[];
@@ -14,76 +19,6 @@ interface NotificationBellProps {
   onLoadMore?: () => void;
   hasMore?: boolean;
   loadingMore?: boolean;
-}
-
-function getNotificationMessageId(notification: Notification): string {
-  const { eventType, data } = notification;
-  switch (eventType) {
-    case 'dv-referral.responded':
-    case 'referral.responded':
-      return data.status === 'ACCEPTED'
-        ? 'notifications.referralAccepted'
-        : 'notifications.referralRejected';
-    case 'dv-referral.requested':
-    case 'referral.requested':
-      return 'notifications.referralRequested';
-    case 'availability.updated':
-      return 'notifications.availabilityUpdated';
-    case 'surge.activated':
-      return 'notifications.surgeActivated';
-    case 'surge.deactivated':
-      return 'notifications.surgeDeactivated';
-    case 'reservation.expired':
-      return 'notifications.reservationExpired';
-    case 'escalation.1h':
-      return 'notifications.escalation1h';
-    case 'escalation.2h':
-      return 'notifications.escalation2h';
-    case 'escalation.3_5h':
-      return 'notifications.escalation3_5h';
-    case 'escalation.4h':
-      return 'notifications.escalation4h';
-    default:
-      return 'notifications.unknown';
-  }
-}
-
-function getNotificationMessageValues(notification: Notification): Record<string, string> {
-  const { data } = notification;
-
-  // Persistent notifications (type "notification" from SSE) have payload as a JSON string.
-  // Domain events (dv-referral.responded, etc.) have data fields directly.
-  let payload: Record<string, unknown> = {};
-  if (typeof data.payload === 'string') {
-    try { payload = JSON.parse(data.payload); } catch { /* malformed payload */ }
-  }
-
-  return {
-    shelterName: String(data.shelterName || payload.shelterName || ''),
-    status: String(data.status || payload.status || ''),
-    count: String(data.count || ''),
-  };
-}
-
-function getNavigationPath(eventType: string): string {
-  switch (eventType) {
-    case 'dv-referral.responded':
-    case 'availability.updated':
-    case 'referral.responded':
-    case 'reservation.expired':
-      return '/outreach';
-    case 'dv-referral.requested':
-    case 'referral.requested':
-    case 'escalation.1h':
-    case 'escalation.2h':
-    case 'escalation.3_5h':
-    case 'escalation.4h':
-    case 'surge.activated':
-    case 'surge.deactivated':
-      return '/coordinator';
-    default:
-      return '/';
-  }
 }
 
 const PANEL_ID = 'notification-panel';
@@ -319,11 +254,18 @@ export function NotificationBell({
                         values={getNotificationMessageValues(notification)}
                       />
                     </div>
-                    {notification.data.shelterName != null && notification.eventType === 'availability.updated' && (
-                      <div style={{ fontSize: text.xs, color: color.textMuted, marginTop: '2px' }}>
-                        {String(notification.data.shelterName)}
-                      </div>
-                    )}
+                    {notification.eventType === 'availability.updated' && (() => {
+                      // Use the helper so persistent notifications (where
+                      // shelterName is inside data.payload JSON string)
+                      // render it too — same bug class as referral.responded
+                      // fixed in v0.32.3.
+                      const shelterName = getNotificationMessageValues(notification).shelterName;
+                      return shelterName ? (
+                        <div style={{ fontSize: text.xs, color: color.textMuted, marginTop: '2px' }}>
+                          {shelterName}
+                        </div>
+                      ) : null;
+                    })()}
                   </div>
                   <button
                     onClick={(e) => { e.stopPropagation(); onDismiss(notification.id); }}
