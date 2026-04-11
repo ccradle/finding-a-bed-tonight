@@ -274,7 +274,7 @@ corrupt v0.32.3 behavior.
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
-| V45 backfill writes corrective snapshots but drift count wrong | LOW | MEDIUM | EXPLAIN ANALYZE already validated on local dev; V45 SQL is a compound CTE with INSERT ... RETURNING that guarantees audit rows mirror actual inserts |
+| V45 backfill writes corrective snapshots but drift count wrong | LOW | MEDIUM | EXPLAIN ANALYZE already validated on local dev; V45 SQL is a compound CTE with INSERT ... RETURNING, so audit rows are derived from the actually-inserted snapshots by construction |
 | Reconciliation tasklet fails to register | LOW | MEDIUM | `BedHoldsReconciliationJobTest` (4 tests) validates; deploy log grep for "Registered batch job 'bedHoldsReconciliation'" catches silent failure |
 | SecurityConfig fix does not ship due to Docker layer cache | LOW | HIGH | The `--no-cache` build on step 6 prevents stale layers. The coordinator `/manual-hold` curl is the final regression guard |
 | Coordinator sees 403 on `/manual-hold` | VERY LOW | HIGH | Gated by the curl smoke above. Rollback if seen |
