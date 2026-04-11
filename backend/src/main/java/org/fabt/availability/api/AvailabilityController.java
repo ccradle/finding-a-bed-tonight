@@ -75,19 +75,24 @@ public class AvailabilityController {
 
         String updatedBy = authentication.getName();
 
-        // Coordinator hold protection (TC-2.7): beds_on_hold cannot be reduced
-        // below the count of active HELD reservations for this shelter + population type.
-        int requestedHold = request.bedsOnHoldOrDefault();
+        // beds_on_hold is server-managed (Issue #102 RCA, deprecated v0.34.0).
+        // Any non-null, non-zero value sent by a coordinator is ignored — the snapshot
+        // is written with the actual count of HELD reservations from the source of truth.
+        // A WARN is logged so legacy clients can be identified and migrated. A null or
+        // zero value is silently accepted (common in legacy clients and the no-op case).
+        // Hard rejection is planned for v0.35.0.
+        Integer requestedHold = request.bedsOnHold();
         int activeHeldCount = reservationService.countActiveHolds(id, request.populationType());
-        int effectiveHold = Math.max(requestedHold, activeHeldCount);
-        if (effectiveHold != requestedHold) {
-            log.warn("Coordinator beds_on_hold overridden from {} to {} due to {} active reservation(s) " +
-                    "for shelter {} / {}", requestedHold, effectiveHold, activeHeldCount, id, request.populationType());
+        if (requestedHold != null && requestedHold != 0) {
+            log.warn("Ignored coordinator-supplied beds_on_hold={} for shelter {} / {} — "
+                    + "server-managed via reservation table (deprecated v0.34.0, will be "
+                    + "hard-rejected v0.35.0)",
+                    requestedHold, id, request.populationType());
         }
 
         AvailabilitySnapshot snapshot = availabilityRetryService.createSnapshotWithRetry(
                 id, request.populationType(),
-                request.bedsTotal(), request.bedsOccupied(), effectiveHold,
+                request.bedsTotal(), request.bedsOccupied(), activeHeldCount,
                 request.acceptingNewGuests(), request.notes(), updatedBy,
                 request.overflowBedsOrDefault()
         );

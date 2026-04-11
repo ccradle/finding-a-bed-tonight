@@ -13,6 +13,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import org.fabt.availability.domain.BedAvailability;
 import org.fabt.availability.repository.BedAvailabilityRepository;
+import org.fabt.availability.service.AvailabilityInvariantViolation;
 import org.fabt.availability.service.AvailabilityService;
 import org.fabt.observability.ObservabilityMetrics;
 import org.fabt.reservation.domain.Reservation;
@@ -115,37 +116,20 @@ public class ReservationService implements HeldReservationCleaner {
         reservation.setIdempotencyKey(idempotencyKey);
         Reservation saved = reservationRepository.insert(reservation);
 
-        // Re-read latest snapshot to get the most current state (concurrent hold protection).
-        // Another thread may have placed a hold between our initial read and now.
-        List<BedAvailability> refreshed = availabilityRepository.findLatestByShelterId(shelterId);
-        BedAvailability freshState = refreshed.stream()
-                .filter(ba -> ba.getPopulationType().equals(populationType))
-                .findFirst()
-                .orElse(current);
-
-        int bedsTotal = freshState != null ? freshState.getBedsTotal() : 0;
-        int bedsOccupied = freshState != null ? freshState.getBedsOccupied() : 0;
-        int currentHold = freshState != null ? freshState.getBedsOnHold() : 0;
-        int freshOverflow = freshState != null && freshState.getOverflowBeds() != null
-                ? freshState.getOverflowBeds() : 0;
-        int newBedsOnHold = currentHold + 1;
-
-        // Verify invariant (INV-5: occupied + hold <= total + overflow)
-        // Overflow beds are temporary capacity that can absorb holds
-        if (bedsOccupied + newBedsOnHold > bedsTotal + freshOverflow) {
-            // Race condition lost or beds became unavailable — cancel the reservation
+        // Recompute beds_on_hold from the source of truth (the reservation table, which now
+        // includes the just-inserted row). The recompute path replaces the previous delta-math
+        // approach and is the single write path for beds_on_hold (Issue #102 RCA).
+        // INV-5 enforcement happens inside createSnapshot — if the truth would exceed capacity,
+        // an AvailabilityInvariantViolation is thrown. We translate it to the existing
+        // IllegalStateException for backward compat with callers/tests, and explicitly mark
+        // the reservation CANCELLED before rethrowing (the @Transactional boundary will roll
+        // both back; the explicit cancel mirrors the prior code's defensive shape).
+        try {
+            applyRecompute(shelterId, populationType, 0, "reservation:create", "system:reservation");
+        } catch (AvailabilityInvariantViolation e) {
             reservationRepository.updateStatus(saved.getId(), ReservationStatus.CANCELLED);
             throw new IllegalStateException("No beds available for population type: " + populationType);
         }
-
-        availabilityService.createSnapshot(
-                shelterId, populationType,
-                bedsTotal, bedsOccupied, newBedsOnHold,
-                freshState != null ? freshState.isAcceptingNewGuests() : true,
-                "reservation:create",
-                "system:reservation",
-                freshOverflow
-        );
 
         // Publish event
         publishEvent("reservation.created", tenantId, saved);
@@ -176,8 +160,14 @@ public class ReservationService implements HeldReservationCleaner {
             throw new IllegalStateException("Reservation already transitioned");
         }
 
-        // Create availability snapshot: beds_on_hold -1, beds_occupied +1
-        adjustAvailability(reservation, -1, +1, "reservation:confirm");
+        // Reservation is now CONFIRMED — the active HELD count is one less. Recompute
+        // beds_on_hold from the reservation table and apply +1 to beds_occupied. The hold
+        // decrement is implicit in the recompute (no delta math); the occupied increment is
+        // explicit because beds_occupied has no source-of-truth count — it is accumulated
+        // state, only mutated through reservation confirms, surge updates, and coordinator
+        // PATCH calls.
+        applyRecompute(reservation.getShelterId(), reservation.getPopulationType(),
+                +1, "reservation:confirm", "system:reservation");
 
         reservation.setStatus(ReservationStatus.CONFIRMED);
         reservation.setConfirmedAt(Instant.now());
@@ -185,6 +175,45 @@ public class ReservationService implements HeldReservationCleaner {
         metrics.reservationCounter("CONFIRMED").increment();
 
         return reservation;
+    }
+
+    /**
+     * Create an "offline hold" — a coordinator-driven manual hold for off-system
+     * bed allocations such as phone reservations or expected guests. Inserts a real
+     * {@code reservation} row through the standard lifecycle so all downstream
+     * invariants apply (recompute, auto-expiry, audit).
+     *
+     * <p>Idempotency is provided by a derived key
+     * {@code (userId, shelterId, populationType, "manual-hold", current_minute)}
+     * so that accidental duplicate clicks within the same minute return the
+     * existing hold instead of creating a duplicate. This protection is local to
+     * the manual-hold path and does not interfere with the X-Idempotency-Key
+     * header used by the regular reservation create flow.</p>
+     */
+    @Transactional
+    public Reservation createManualHold(UUID shelterId, String populationType, UUID userId, String reason) {
+        // Derive an idempotency key from (user, shelter, population, "manual-hold", current_minute)
+        // so duplicate clicks within the same minute return the existing hold instead of stacking.
+        // The reservation.idempotency_key column is VARCHAR(36), so we hash the derived material
+        // into a deterministic UUID via UUID#nameUUIDFromBytes (RFC 4122 v3, MD5-based — collision
+        // resistance is sufficient for a same-minute idempotency key).
+        long minuteBucket = Instant.now().getEpochSecond() / 60;
+        String derivedSource = "manual-hold:" + userId + ":" + shelterId + ":" + populationType
+                + ":" + minuteBucket;
+        String idempotencyKey = UUID.nameUUIDFromBytes(
+                derivedSource.getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
+
+        String notes;
+        if (reason != null && !reason.isBlank()) {
+            notes = "Manual offline hold: " + reason;
+        } else {
+            notes = "Manual offline hold";
+        }
+
+        // Delegate to the standard create path. It handles the advisory lock,
+        // capacity check, the source-of-truth recompute, and idempotent replay
+        // via the existing X-Idempotency-Key plumbing in the repository.
+        return createReservation(shelterId, populationType, notes, userId, idempotencyKey);
     }
 
     @Transactional
@@ -208,8 +237,9 @@ public class ReservationService implements HeldReservationCleaner {
             throw new IllegalStateException("Reservation already transitioned");
         }
 
-        // Create availability snapshot: beds_on_hold -1
-        adjustAvailability(reservation, -1, 0, "reservation:cancel");
+        // Reservation is now CANCELLED — recompute beds_on_hold from the reservation table.
+        applyRecompute(reservation.getShelterId(), reservation.getPopulationType(),
+                0, "reservation:cancel", "system:reservation");
 
         reservation.setStatus(ReservationStatus.CANCELLED);
         reservation.setCancelledAt(Instant.now());
@@ -234,7 +264,9 @@ public class ReservationService implements HeldReservationCleaner {
 
         // Set tenant context for downstream calls
         TenantContext.runWithContext(reservation.getTenantId(), false, () -> {
-            adjustAvailability(reservation, -1, 0, "reservation:expire");
+            // Reservation is now EXPIRED — recompute beds_on_hold from the reservation table.
+            applyRecompute(reservation.getShelterId(), reservation.getPopulationType(),
+                    0, "reservation:expire", "system:reservation");
             publishEvent("reservation.expired", reservation.getTenantId(), reservation);
             metrics.reservationCounter("EXPIRED").increment();
         });
@@ -276,23 +308,64 @@ public class ReservationService implements HeldReservationCleaner {
         return reservationRepository.countActiveByShelterId(shelterId, populationType);
     }
 
-    private void adjustAvailability(Reservation reservation, int holdDelta, int occupiedDelta, String actor) {
-        List<BedAvailability> latest = availabilityRepository.findLatestByShelterId(reservation.getShelterId());
+    /**
+     * Single write path for {@code bed_availability.beds_on_hold} (Issue #102 RCA).
+     *
+     * <p>Reads the actual count of {@code HELD} reservations from the source-of-truth
+     * {@code reservation} table and writes a fresh availability snapshot, preserving
+     * {@code beds_total}, {@code beds_occupied}, {@code accepting_new_guests}, and
+     * {@code overflow_beds} from the latest snapshot. No delta math on
+     * {@code beds_on_hold} ever — the snapshot value equals the count, by construction.</p>
+     *
+     * <p>Public so the bed-holds reconciliation tasklet and any future call site can
+     * reach this method through the Spring proxy boundary. Internal callers in this
+     * service should call {@link #applyRecompute} directly to avoid self-invocation
+     * proxy bypass.</p>
+     *
+     * <p>Throws {@link AvailabilityInvariantViolation} (via {@code createSnapshot})
+     * if the actual count would violate INV-5
+     * ({@code beds_occupied + beds_on_hold &lt;= beds_total + overflow_beds}). The
+     * caller's {@code @Transactional} boundary will roll back any reservation insert
+     * that triggered this state.</p>
+     */
+    @Transactional
+    public void recomputeBedsOnHold(UUID shelterId, String populationType,
+                                    String notes, String updatedBy) {
+        applyRecompute(shelterId, populationType, 0, notes, updatedBy);
+    }
+
+    /**
+     * Recompute beds_on_hold from the reservation table and apply an explicit delta to
+     * beds_occupied. The hold value is sourced from {@code countActiveByShelterId} (truth)
+     * — never from delta math against the cached snapshot. The occupied delta is the only
+     * way to mutate {@code beds_occupied}, which has no source-of-truth count: it is
+     * accumulated state, only changed by reservation confirms, surge updates, and
+     * coordinator PATCH calls.
+     *
+     * <p>Private and called from internal lifecycle methods (createReservation,
+     * confirmReservation, cancelReservation, expireReservation) so that Spring's
+     * self-invocation rules do not bypass the surrounding transactional boundary.</p>
+     */
+    private void applyRecompute(UUID shelterId, String populationType,
+                                int occupiedDelta, String notes, String updatedBy) {
+        int actualHeldCount = reservationRepository.countActiveByShelterId(shelterId, populationType);
+
+        List<BedAvailability> latest = availabilityRepository.findLatestByShelterId(shelterId);
         BedAvailability current = latest.stream()
-                .filter(ba -> ba.getPopulationType().equals(reservation.getPopulationType()))
+                .filter(ba -> ba.getPopulationType().equals(populationType))
                 .findFirst()
                 .orElse(null);
 
         int bedsTotal = current != null ? current.getBedsTotal() : 0;
         int bedsOccupied = (current != null ? current.getBedsOccupied() : 0) + occupiedDelta;
-        int bedsOnHold = Math.max(0, (current != null ? current.getBedsOnHold() : 0) + holdDelta);
         boolean accepting = current != null ? current.isAcceptingNewGuests() : true;
         int currentOverflow = current != null && current.getOverflowBeds() != null
                 ? current.getOverflowBeds() : 0;
 
         availabilityService.createSnapshot(
-                reservation.getShelterId(), reservation.getPopulationType(),
-                bedsTotal, bedsOccupied, bedsOnHold, accepting, actor, "system:reservation",
+                shelterId, populationType,
+                bedsTotal, bedsOccupied, actualHeldCount,
+                accepting, notes, updatedBy,
                 currentOverflow
         );
     }

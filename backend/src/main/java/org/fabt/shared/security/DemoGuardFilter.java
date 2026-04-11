@@ -164,6 +164,12 @@ public class DemoGuardFilter extends OncePerRequestFilter {
 
     private static String getBlockMessage(String path) {
         if (path.startsWith("/api/v1/users")) return "User management is disabled in the demo environment.";
+        // Manual offline holds have cross-visitor impact (a held bed disappears from
+        // other visitors' bed search results), so they are intentionally not allowlisted
+        // and surface a friendly message instead of the generic shelter block.
+        if (path.matches("/api/v1/shelters/[^/]+/manual-hold")) {
+            return "Manual offline holds are disabled in the demo environment — would interfere with other visitors' bed search results.";
+        }
         if (path.startsWith("/api/v1/shelters")) return "Shelter modification is disabled in the demo environment.";
         if (path.startsWith("/api/v1/auth/password")) return "Password changes are disabled in the demo environment.";
         if (path.startsWith("/api/v1/surge")) return "Surge management is disabled in the demo environment.";
