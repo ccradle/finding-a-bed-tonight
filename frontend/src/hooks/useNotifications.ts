@@ -31,6 +31,14 @@ export const SSE_REFERRAL_UPDATE = 'fabt:referral-update';
 export const SSE_REFERRAL_EXPIRED = 'fabt:referral-expired';
 export const SSE_AVAILABILITY_UPDATE = 'fabt:availability-update';
 
+/** coc-admin-escalation Session 5 — admin queue + policy live updates.
+ * The DvEscalationsTab subscribes to these via the useDvEscalationQueue hook.
+ * Single SSE connection per session — these events are dispatched as window
+ * custom events from the existing useNotifications onmessage handler, NOT via
+ * a parallel EventSource (D20 conformance with archived sse-stability spec). */
+export const SSE_DV_QUEUE_UPDATE = 'fabt:dv-queue-update';
+export const SSE_DV_POLICY_UPDATE = 'fabt:dv-policy-update';
+
 /**
  * SSE notification stream with persistent DB-backed badge count.
  *
@@ -303,6 +311,33 @@ export function useNotifications(): UseNotificationsReturn {
               const availData = JSON.parse(ev.data);
               addNotification(ev.event, availData, ev.id);
               window.dispatchEvent(new Event(SSE_AVAILABILITY_UPDATE));
+            } catch { /* malformed event */ }
+            break;
+
+          // coc-admin-escalation Session 5: four new event types for the
+          // admin queue + policy editor. Dispatched as window custom events
+          // (NOT bell notifications) so the DvEscalationsTab can refetch the
+          // queue without polluting the global notification list. The badge
+          // already increments via the persisted 'notification' SSE event
+          // (CRITICAL escalations) — these queue-update events are extra
+          // fan-out to drive the admin tab UI in real time.
+          case 'referral.claimed':
+          case 'referral.released':
+          case 'referral.queue-changed':
+            try {
+              const queueData = JSON.parse(ev.data);
+              window.dispatchEvent(new CustomEvent(SSE_DV_QUEUE_UPDATE, {
+                detail: { eventType: ev.event, ...queueData },
+              }));
+            } catch { /* malformed event */ }
+            break;
+
+          case 'referral.policy-updated':
+            try {
+              const policyData = JSON.parse(ev.data);
+              window.dispatchEvent(new CustomEvent(SSE_DV_POLICY_UPDATE, {
+                detail: policyData,
+              }));
             } catch { /* malformed event */ }
             break;
 

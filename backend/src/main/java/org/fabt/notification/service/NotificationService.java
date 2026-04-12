@@ -194,6 +194,18 @@ public class NotificationService {
             case "dv-referral.requested" -> notifyReferralRequest(event);
             case "dv-referral.expired" -> notifyReferralExpired(event);
             case "availability.updated" -> notifyAvailabilityUpdate(event);
+
+            // coc-admin-escalation Session 3-5 (war room round 8 fix): the four
+            // admin-queue events were emitted by ReferralTokenService and
+            // EscalationPolicyController but had no consumer here, so they
+            // were silently dropped. The frontend `useNotifications` hook
+            // already has cases ready to receive them — once relayed, the
+            // admin queue UI gets real-time updates.
+            case "referral.claimed" -> notifyAdminQueueEvent("referral.claimed", event);
+            case "referral.released" -> notifyAdminQueueEvent("referral.released", event);
+            case "referral.queue-changed" -> notifyAdminQueueEvent("referral.queue-changed", event);
+            case "referral.policy-updated" -> notifyAdminQueueEvent("referral.policy-updated", event);
+
             default -> { /* Other events not pushed via SSE */ }
         }
     }
@@ -298,6 +310,43 @@ public class NotificationService {
             if (!hasRole(entry.roles(), "COORDINATOR")) return;
 
             sendAndBufferEvent(entry, "dv-referral.expired", ssePayload, tenantId, false);
+        });
+    }
+
+    /**
+     * Shared fan-out for the four admin-queue event types (T-44 SSE chain,
+     * coc-admin-escalation Session 3-5):
+     * <ul>
+     *   <li>{@code referral.claimed} — admin claimed a referral</li>
+     *   <li>{@code referral.released} — manual or auto-release</li>
+     *   <li>{@code referral.queue-changed} — accept/reject/expire/reassign</li>
+     *   <li>{@code referral.policy-updated} — escalation policy PATCHed</li>
+     * </ul>
+     *
+     * <p><b>Recipients:</b> all CoC admins (and platform admins) in the tenant
+     * with {@code dvAccess=true}. The four events all serve the admin queue
+     * surface; non-admin users have no UI for them.</p>
+     *
+     * <p><b>Payload:</b> forwarded verbatim from the source DomainEvent. The
+     * frontend's {@code useDvEscalationQueue} hook does not inspect payload
+     * fields — on any of these events it just schedules a debounced REST
+     * refetch — so payload reshape is unnecessary.</p>
+     *
+     * <p><b>requiresDvAccess=true:</b> the buffered-event replay path
+     * filters by dvAccess on reconnect; tagging these as DV-only matches
+     * the dispatch filter and prevents non-DV admins from receiving stale
+     * events on reconnect.</p>
+     */
+    private void notifyAdminQueueEvent(String eventType, DomainEvent event) {
+        UUID tenantId = event.tenantId();
+        Map<String, Object> ssePayload = event.payload();
+
+        emitters.forEach((userId, entry) -> {
+            if (!entry.tenantId().equals(tenantId)) return;
+            if (!entry.dvAccess()) return;
+            if (!hasRole(entry.roles(), "COC_ADMIN") && !hasRole(entry.roles(), "PLATFORM_ADMIN")) return;
+
+            sendAndBufferEvent(entry, eventType, ssePayload, tenantId, true);
         });
     }
 

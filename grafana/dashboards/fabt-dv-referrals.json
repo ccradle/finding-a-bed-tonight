@@ -155,6 +155,114 @@
           }
         ]
       }
+    },
+    {
+      "title": "Escalation Batch Duration p95 (coc-admin-escalation, T-52)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(fabt_escalation_batch_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p95",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(fabt_escalation_batch_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p50",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 2, "fillOpacity": 10 },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "description": "Wall clock of the DV referral escalation batch tasklet (fires every 5 minutes, dvAccess=true). Sudden growth points to escalation_policy cache miss rate or increased pending backlog. Baseline added 2026-04-12 — there is no pre-refactor p95 to compare against."
+    },
+    {
+      "title": "Escalation Policy Cache Hit Rate (coc-admin-escalation, T-53)",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 16 },
+      "targets": [
+        {
+          "expr": "sum(rate(cache_gets_total{cache=~\"fabt.escalation.policy.*\",result=\"hit\"}[5m])) / sum(rate(cache_gets_total{cache=~\"fabt.escalation.policy.*\"}[5m])) * 100",
+          "legendFormat": "Hit %",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 70 },
+              { "color": "green", "value": 90 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "description": "Combined hit rate across both Caffeine caches (policyById + currentPolicyByTenant). Expected >90% in steady state because policies are immutable once inserted and the batch job scans pending referrals every 5 minutes. A sustained drop below 70% means the currentPolicyByTenant TTL is expiring before reuse — investigate tenant churn or tighten the TTL."
+    },
+    {
+      "title": "Claim Duration p95 by Outcome (coc-admin-escalation, T-53)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 16 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(fabt_dv_referral_claim_duration_seconds_bucket[5m])) by (outcome, le))",
+          "legendFormat": "{{outcome}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 2, "fillOpacity": 10 },
+          "unit": "s"
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "success" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "green", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "conflict" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "yellow", "mode": "fixed" } }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "error" },
+            "properties": [{ "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }]
+          }
+        ]
+      },
+      "description": "POST /api/v1/dv-referrals/{id}/claim response time split by outcome. success = row acquired; conflict = another admin holds the claim and no override supplied; error = any other throwable (DB down, RLS misconfig, non-pending token). A sustained conflict series means multiple admins are competing for the same referrals — workflow signal."
+    },
+    {
+      "title": "Claim Auto-Release Rate (coc-admin-escalation, T-53)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 24 },
+      "targets": [
+        {
+          "expr": "rate(fabt_dv_referral_claim_auto_release_count_total[5m])",
+          "legendFormat": "Auto-released/sec",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "orange" },
+          "custom": { "lineWidth": 2, "fillOpacity": 15 },
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "description": "Rate of DV referral claims auto-released by the minute-interval sweep after their 10-minute claim-duration elapsed without a manual release. A rising rate indicates admins are claiming but not releasing — either overload, distraction, or UX friction on the release button (Keisha Thompson + Devon Kessler training signal)."
     }
   ],
   "refresh": "30s",

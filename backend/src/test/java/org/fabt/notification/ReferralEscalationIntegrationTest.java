@@ -7,7 +7,7 @@ import java.util.UUID;
 import org.fabt.BaseIntegrationTest;
 import org.fabt.TestAuthHelper;
 import org.fabt.auth.domain.User;
-import org.fabt.notification.batch.ReferralEscalationJobConfig;
+import org.fabt.notification.service.EscalationPolicyService;
 import org.fabt.shared.web.TenantContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -37,6 +37,9 @@ class ReferralEscalationIntegrationTest extends BaseIntegrationTest {
 
     @Autowired
     private Tasklet escalationTasklet;
+
+    @Autowired
+    private EscalationPolicyService escalationPolicyService;
 
     private UUID dvShelterId;
     private HttpHeaders outreachHeaders;
@@ -72,6 +75,13 @@ class ReferralEscalationIntegrationTest extends BaseIntegrationTest {
         // Must use RESET ROLE to bypass notification SELECT RLS policy (Lesson #80).
         // referral_token DELETE also needs dvAccess via shelter RLS cascade.
         // Use raw DataSource connection to ensure RESET ROLE + DELETEs on same connection.
+        //
+        // Also wipe any tenant-specific escalation policy left behind by sibling
+        // tests (e.g. ReferralEscalationFrozenPolicyTest publishes a custom v2)
+        // and clear the in-memory policy cache so new referrals snapshot the
+        // seeded platform default. Without this, the test snapshots whatever
+        // sibling test polluted the cache and the threshold timing assertions
+        // become unstable.
         try (var conn = jdbcTemplate.getDataSource().getConnection()) {
             conn.createStatement().execute("RESET ROLE");
             try (var ps = conn.prepareStatement("DELETE FROM referral_token WHERE tenant_id = ?")) {
@@ -82,10 +92,15 @@ class ReferralEscalationIntegrationTest extends BaseIntegrationTest {
                 ps.setObject(1, authHelper.getTestTenantId());
                 ps.executeUpdate();
             }
+            try (var ps = conn.prepareStatement("DELETE FROM escalation_policy WHERE tenant_id = ?")) {
+                ps.setObject(1, authHelper.getTestTenantId());
+                ps.executeUpdate();
+            }
             conn.createStatement().execute("SET ROLE fabt_app");
         } catch (java.sql.SQLException e) {
             throw new RuntimeException("setUp cleanup failed", e);
         }
+        escalationPolicyService.clearCaches_testOnly();
 
         // Create DV shelter (needs dvAccess context for shelter RLS)
         TenantContext.runWithContext(authHelper.getTestTenantId(), true, () -> {

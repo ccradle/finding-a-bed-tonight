@@ -1,5 +1,6 @@
-import { useState, lazy, Suspense } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { FormattedMessage } from 'react-intl';
+import { useLocation } from 'react-router-dom';
 import { color } from '../../theme/colors';
 import { text, weight } from '../../theme/typography';
 import { ReservationSettings, Spinner, TabErrorBoundary } from './components';
@@ -17,12 +18,14 @@ const ObservabilityTab = lazy(() => import('./tabs/ObservabilityTab'));
 const OAuth2ProvidersTab = lazy(() => import('./tabs/OAuth2ProvidersTab'));
 const HmisExportTab = lazy(() => import('./tabs/HmisExportTab'));
 const AnalyticsTab = lazy(() => import('./tabs/AnalyticsTab'));
+const DvEscalationsTab = lazy(() => import('./tabs/DvEscalationsTab'));
 
 // Future: filter by user role for per-tab permissions (see design D5)
 const TABS: { key: TabKey; labelId: string }[] = [
   { key: 'users', labelId: 'admin.users' },
   { key: 'shelters', labelId: 'admin.shelters' },
   { key: 'surge', labelId: 'admin.surge' },
+  { key: 'dvEscalations', labelId: 'admin.dvEscalations' },
   { key: 'apiKeys', labelId: 'admin.apiKeys' },
   { key: 'imports', labelId: 'admin.imports' },
   { key: 'subscriptions', labelId: 'admin.subscriptions' },
@@ -43,11 +46,44 @@ const TAB_COMPONENTS: Record<TabKey, React.LazyExoticComponent<React.ComponentTy
   oauth2Providers: OAuth2ProvidersTab,
   hmisExport: HmisExportTab,
   analytics: AnalyticsTab,
+  dvEscalations: DvEscalationsTab,
 };
 
+/**
+ * Map a hash string (with or without leading '#') to a TabKey, or null if
+ * the hash doesn't correspond to a registered tab. Used by T-41 (Session 6)
+ * so the CriticalNotificationBanner CTA's link to {@code /admin#dvEscalations}
+ * actually pre-selects the DV Escalations tab when the user lands.
+ */
+function tabKeyFromHash(hash: string): TabKey | null {
+  const trimmed = hash.replace(/^#/, '');
+  if (!trimmed) return null;
+  const match = TABS.find((t) => t.key === trimmed);
+  return match ? match.key : null;
+}
+
 export function AdminPanel() {
-  const [activeTab, setActiveTab] = useState<TabKey>('users');
+  // T-41 (Session 6): react to URL hash changes via react-router's useLocation
+  // hook. This is more robust than `window.addEventListener('hashchange', ...)`
+  // because react-router's `navigate('/admin#foo')` uses pushState which does
+  // NOT reliably fire the native `hashchange` event across browsers (war room
+  // round 9 — Riley Cho caught T-43c failing because of this exact gotcha).
+  // useLocation() re-runs on every router navigation, including hash-only
+  // changes, so the effect below fires correctly.
+  const location = useLocation();
+
+  const [activeTab, setActiveTab] = useState<TabKey>(
+    () => tabKeyFromHash(typeof window !== 'undefined' ? window.location.hash : '') ?? 'users'
+  );
   const ActiveTabComponent = TAB_COMPONENTS[activeTab];
+
+  // React to subsequent hash changes — e.g. user already on /admin clicks the
+  // banner CTA, the URL gains '#dvEscalations'. The pathname is unchanged so
+  // the AdminPanel component does NOT remount; this effect bridges the gap.
+  useEffect(() => {
+    const fromHash = tabKeyFromHash(location.hash);
+    if (fromHash) setActiveTab(fromHash);
+  }, [location.hash]);
 
   return (
     <div style={{ maxWidth: 900, margin: '0 auto' }}>

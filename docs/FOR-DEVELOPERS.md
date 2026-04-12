@@ -30,12 +30,12 @@ Three deployment tiers allow the same codebase to serve communities of vastly di
 | Layer | Technology |
 |---|---|
 | Backend | Java 25, Spring Boot 4.0, Spring MVC, Spring Data JDBC, Virtual Threads |
-| Database | PostgreSQL 16, Flyway (37 migrations), Row Level Security (DV shelters + notifications) |
+| Database | PostgreSQL 16, Flyway (47 migrations), Row Level Security (DV shelters + notifications) |
 | Cache | Caffeine L1 / + Redis L2 (Standard/Full) |
 | Events | Spring Events (Lite) / Kafka (Full) |
 | Auth | JWT + OAuth2/OIDC + API Keys (hybrid) |
 | Frontend | React 19, Vite, TypeScript, Workbox PWA (injectManifest), react-intl (EN/ES), CSS custom properties design tokens |
-| Testing | JUnit 5, Testcontainers, ArchUnit (425 tests), Playwright (299 UI tests), Vitest (20 unit tests), Karate (82 API scenarios), Gatling (8 simulations) |
+| Testing | JUnit 5, Testcontainers, ArchUnit (586 tests), Playwright (338 UI tests), Vitest (42 unit tests), Karate (82 API scenarios), Gatling (8 simulations) |
 | Infra | Docker, GitHub Actions CI/CD + E2E pipeline, Terraform (3 tiers) |
 
 ---
@@ -323,7 +323,7 @@ cd backend
 mvn test
 
 # Run E2E tests (requires dev-start.sh stack running)
-cd ../e2e/playwright && BASE_URL=http://localhost:8081 npx playwright test    # 299 UI tests (run through nginx)
+cd ../e2e/playwright && BASE_URL=http://localhost:8081 npx playwright test    # 338 UI tests (run through nginx)
 cd ../e2e/karate && mvn test                   # 82 API scenarios across 29 features
 cd ../e2e/gatling && mvn gatling:test           # Gatling performance simulations
 
@@ -511,7 +511,53 @@ FABT implements a **privacy-preserving referral system** for domestic violence s
 
 DV shelter address visibility is controlled by a configurable tenant-level policy (`dv_address_visibility`). Default: admins and assigned coordinators see the address; outreach workers do not. Policy changeable via API only (PLATFORM_ADMIN + confirmation header — endpoint should not be exposed outside the firewall).
 
-See **[docs/DV-OPAQUE-REFERRAL.md](docs/DV-OPAQUE-REFERRAL.md)** for the full legal basis, architecture, address visibility policies, VAWA compliance checklist, and operational notes. See the **[DV Referral Demo Walkthrough](https://ccradle.github.io/findABed/demo/dvindex.html)** for annotated screenshots of the full flow.
+See **[docs/DV-OPAQUE-REFERRAL.md](DV-OPAQUE-REFERRAL.md)** for the full legal basis, architecture, address visibility policies, VAWA self-assessment checklist, and operational notes. See the **[DV Referral Demo Walkthrough](https://ccradle.github.io/findABed/demo/dvindex.html)** for annotated screenshots of the full flow.
+
+### DV Escalation Policy and Frozen-at-Creation (v0.35.0, coc-admin-escalation)
+
+FABT escalates pending DV referrals through a **per-tenant, versioned, append-only** policy stored in the `escalation_policy` table. Each tenant configures thresholds (e.g. 1h → COORDINATOR, 2h → COC_ADMIN CRITICAL) so operational rhythm matches local reality — faith-run shelters, 24/7 staffed facilities, and hospital-discharge workflows all have different tolerance windows. A hardcoded 1h/2h/3.5h/4h chain trained every non-Wake-County partner to ignore CRITICAL alerts inside 30 days; per-tenant policy fixes that.
+
+**Frozen-at-creation semantics (the load-bearing invariant):** when a referral is created, the `referral_token` row records the **policy version ID** that was active at that instant (`frozen_policy_id`). The escalation batch job uses the **frozen** thresholds for each existing referral, NOT the current tenant policy. Existing referrals therefore keep the rules they were created under even if an admin edits the policy mid-flight. This is a chain-of-custody requirement, not a convenience — auditors need to answer "what rules governed this referral?" with a single row lookup, not by replaying `escalation_policy` history against a wall-clock. You can reproduce the audit query yourself during incident reviews:
+
+```sql
+SELECT ep.thresholds
+FROM escalation_policy ep
+WHERE ep.id = (
+  SELECT rt.frozen_policy_id FROM referral_token rt WHERE rt.id = '<referral-id>'
+);
+```
+
+Exhaustively tested in `ReferralEscalationFrozenPolicyTest`. The richer operator/auditor narrative lives in `docs/FOR-COC-ADMINS.md` (expanded in v0.35.0).
+
+**Admin queue (CoC admin workflow):** CoC admins see all pending DV referrals in their tenant via `GET /api/v1/dv-referrals/escalated` and act on them through four endpoints:
+
+| Action | Endpoint | Concurrency model |
+|---|---|---|
+| Claim | `POST /{id}/claim` | Single `UPDATE ... RETURNING *` — TOCTOU-safe. Soft-lock for 10 min (configurable). Second admin's claim returns 409 without an `Override-Claim: true` header. |
+| Release | `POST /{id}/release` | Symmetric to claim. Manual release or auto-release when the soft-lock expires. |
+| Reassign | `POST /{id}/reassign` | Three targets: `COORDINATOR_GROUP` (re-page the shelter's coordinators), `COC_ADMIN_GROUP` (re-page all CoC admins as CRITICAL), `SPECIFIC_USER` (notify one person AND **break the escalation chain** — the tasklet stops auto-escalating because a named human took ownership). Reason text is required and written to the audit trail. |
+| Approve/Deny | `PATCH /{id}/accept`, `PATCH /{id}/reject` | Terminal state. Triggers hard-delete purge after the 24-hour window. |
+
+Cross-tenant isolation is enforced at the SQL layer (the repository query predicates on `tenant_id = ?`) because `referral_token` RLS only checks `dv_access`, not tenant. **Heads-up for deployments:** admin accounts that operate the escalation queue MUST have `dv_access=true`. The seed was flipped in v0.35.0 for the dev `cocadmin` user; real-tenant CoC admin accounts are granted via the admin Users tab.
+
+**Per-tenant policy editor:** the admin UI at `/admin#dvEscalations → Escalation Policy` renders the current policy (platform default or tenant override) and PATCHes a new version on save. The backend validates threshold IDs are unique within the policy, durations are monotonic, severities are in the whitelist, and recipients map to valid roles. Validation is enforced in `EscalationPolicyService.validateThresholds(...)` at the service layer, **not** in Bean Validation on the DTO — a direct service caller (a test, a script, a future internal job) therefore cannot bypass the validation by skipping the controller. Two `Caffeine` caches front the storage — `policyById` for frozen-policy lookups from the batch tasklet, and `currentPolicyByTenant` for new-referral creation. Cache invalidation is explicit on PATCH.
+
+**SSE fan-out for coordinated views:** four domain events keep every admin's queue live — `referral.claimed`, `referral.released`, `referral.queue-changed`, `referral.policy-updated`. `NotificationService.notifyAdminQueueEvent` routes them to users with `COC_ADMIN`/`PLATFORM_ADMIN` role AND `dv_access=true`. On the frontend, `useDvEscalationQueue` listens for these events via window `CustomEvents` dispatched by the existing `useNotifications` SSE connection — one SSE connection per session, not one per feature — and debounces a REST refetch by 250ms so a burst of events collapses into one network round-trip. The hook also runs a 30-second live-countdown interval to keep `remainingMinutes` honest when no SSE events arrive; the interval is gated by `document.visibilityState === 'visible'` and re-fires a catch-up refetch on `visibilitychange`. Without that gating, 18 partner agencies × admins idle in background tabs would burn ~1080 REST calls/hour per admin for nothing — the `visibilitychange` listener is load-bearing, not cleanup-target.
+
+**Key files:**
+
+| File | Purpose |
+|---|---|
+| `backend/src/main/java/org/fabt/notification/service/EscalationPolicyService.java` | Versioning, validation, two-cache lookup |
+| `backend/src/main/java/org/fabt/referral/batch/ReferralEscalationJobConfig.java` | Spring Batch tasklet that creates escalation notifications using frozen thresholds |
+| `backend/src/main/java/org/fabt/referral/service/ReferralTokenService.java` | `claimToken` / `releaseToken` / `reassignToken` with atomic `UPDATE ... RETURNING` |
+| `backend/src/main/resources/db/migration/V46__create_escalation_policy.sql` | Table shape + platform default seed |
+| `frontend/src/pages/admin/tabs/DvEscalationsTab.tsx` | Orchestrator (desktop table + mobile cards + detail modal + policy editor) |
+| `openspec/changes/coc-admin-escalation/` | Full spec, design decisions (D1–D20), and 13 requirements / 62 scenarios |
+
+**ArchUnit boundary crossings:** the referral module imports boundary-clean primitives from `UserService` — `existsByIdInCurrentTenant`, `getRolesByUserId`, `findActiveUserIdsByRole`, `findDvCoordinatorIds`, `findDisplayNamesByIds`, `isAdminActor` — and **must never** import `User` directly. ArchUnit enforces this in `ArchitectureTest`. If you need a new cross-module call, add it as a primitive on `UserService`, not as a domain-entity import. The odd-looking method surface is load-bearing, not a candidate for a "cleaner" refactor.
+
+See **[docs/runbook.md](runbook.md)** for operational guidance on policy-update rollout, claim-conflict alerting, and the batch job tuning knobs.
 
 ### Tracing
 
@@ -542,7 +588,7 @@ docker compose --profile observability up -d
 
 The `/actuator/prometheus` endpoint on the main port (`:8080`) requires authentication. When `--observability` is used, actuator endpoints are also served on a **separate management port** (`:9091`) without auth, allowing Prometheus to scrape.
 
-**Production:** Bind the management port to `127.0.0.1` and firewall it to the monitoring network only. Do not expose publicly. See [docs/runbook.md](docs/runbook.md) for full production security guidance.
+**Production:** Bind the management port to `127.0.0.1` and firewall it to the monitoring network only. Do not expose publicly. See [docs/runbook.md](runbook.md) for full production security guidance.
 
 ---
 
@@ -558,13 +604,13 @@ Three pre-built Grafana dashboards are included in `grafana/dashboards/`. They a
 | **CoC Analytics** | `fabt-coc-analytics.json` | Utilization gauge, zero-result search rate, capacity trend, batch job execution (success/failure/duration), daily aggregation lag |
 | **Virtual Threads** | `fabt-virtual-thread-performance.json` | Virtual thread pool utilization, connection pool active/idle/pending, BoundedFanOut concurrency, carrier thread pinning |
 
-All dashboards read from the Prometheus data source scraping `:9091/actuator/prometheus`. See [docs/runbook.md](docs/runbook.md) for Prometheus query examples and alerting guidance.
+All dashboards read from the Prometheus data source scraping `:9091/actuator/prometheus`. See [docs/runbook.md](runbook.md) for Prometheus query examples and alerting guidance.
 
 ---
 
 ## OAuth2 Single Sign-On
 
-The platform supports OAuth2 login via Google, Microsoft, and Keycloak (or any OIDC-compliant IdP). Providers are configured per-tenant and loaded dynamically from the database. Password login and SSO login are architecturally independent — an IdP outage does not affect password-authenticated users. See [docs/runbook.md](docs/runbook.md) for degradation behavior.
+The platform supports OAuth2 login via Google, Microsoft, and Keycloak (or any OIDC-compliant IdP). Providers are configured per-tenant and loaded dynamically from the database. Password login and SSO login are architecturally independent — an IdP outage does not affect password-authenticated users. See [docs/runbook.md](runbook.md) for degradation behavior.
 
 ### Setup
 
@@ -872,7 +918,7 @@ finding-a-bed-tonight/
 │       │   │   └── service/BedSearchService.java      # Cache-aside, ranking, constraint filtering
 │       │   ├── reservation/                           # Reservation module — soft-hold lifecycle
 │       │   ├── referral/                              # DV opaque referral module — zero-PII tokens
-│       │   │   ├── api/ReferralTokenController.java   # Create, accept, reject, list (designed for VAWA compliance)
+│       │   │   ├── api/ReferralTokenController.java   # Create, accept, reject, list (designed to support VAWA requirements)
 │       │   │   ├── domain/ReferralToken.java          # PENDING → ACCEPTED/REJECTED/EXPIRED → purged
 │       │   │   ├── repository/ReferralTokenRepository.java
 │       │   │   ├── service/ReferralTokenService.java  # Lifecycle, dvAccess defense-in-depth (D14)

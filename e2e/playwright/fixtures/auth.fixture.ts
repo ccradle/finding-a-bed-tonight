@@ -10,6 +10,11 @@ const USERS = {
   cocadmin: { email: 'cocadmin@dev.fabt.org', password: 'admin123' },
   outreach: { email: 'outreach@dev.fabt.org', password: 'admin123' },
   dvOutreach: { email: 'dv-outreach@dev.fabt.org', password: 'admin123' },
+  // COORDINATOR role — the user who actually receives referral.requested and
+  // surge.activated notifications per commit 9384fd1 (2026-04-08). Distinct
+  // from `cocadmin` (COC_ADMIN role) which the legacy `coordinatorPage`
+  // fixture confusingly points at.
+  dvCoordinator: { email: 'dv-coordinator@dev.fabt.org', password: 'admin123' },
 };
 
 type Role = keyof typeof USERS;
@@ -89,6 +94,7 @@ export const test = base.extend<{
   coordinatorPage: Page;
   adminPage: Page;
   dvOutreachPage: Page;
+  dvCoordinatorPage: Page;
 }>({
   outreachPage: async ({ browser }, use) => {
     const stateFile = path.join(__dirname, '..', 'auth', 'outreach.json');
@@ -135,6 +141,25 @@ export const test = base.extend<{
       const setupContext = await browser.newContext();
       const setupPage = await setupContext.newPage();
       await loginAndSaveState(setupPage, 'dvOutreach');
+      await setupContext.close();
+    }
+    const context = await browser.newContext({ storageState: stateFile });
+    const page = await context.newPage();
+    await use(page);
+    await context.close();
+  },
+  // The REAL coordinator — dv-coordinator@dev.fabt.org, COORDINATOR role,
+  // dvAccess=true, assigned to all three seed DV shelters. This is the user
+  // who receives referral.requested and surge.activated seed notifications
+  // per commit 9384fd1 (2026-04-08). Use this fixture anywhere you need an
+  // actual coordinator, not the misnamed `coordinatorPage` which points at
+  // cocadmin (COC_ADMIN role). That misnaming is tracked as Session 7+ debt.
+  dvCoordinatorPage: async ({ browser }, use) => {
+    const stateFile = path.join(__dirname, '..', 'auth', 'dvCoordinator.json');
+    if (!isAuthStateValid(stateFile)) {
+      const setupContext = await browser.newContext();
+      const setupPage = await setupContext.newPage();
+      await loginAndSaveState(setupPage, 'dvCoordinator');
       await setupContext.close();
     }
     const context = await browser.newContext({ storageState: stateFile });

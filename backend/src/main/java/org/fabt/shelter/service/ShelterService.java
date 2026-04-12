@@ -7,6 +7,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -270,6 +271,20 @@ public class ShelterService {
     public Optional<Shelter> findById(UUID id) {
         UUID tenantId = TenantContext.getTenantId();
         return shelterRepository.findByTenantIdAndId(tenantId, id);
+    }
+
+    /**
+     * Batch-fetch shelters by ID, restricted to current tenant (Sam Okafor optimization).
+     */
+    @Transactional(readOnly = true)
+    public List<Shelter> findAllById(Set<UUID> ids) {
+        if (ids.isEmpty()) return List.of();
+        UUID tenantId = TenantContext.getTenantId();
+        // Iterable cast for CrudRepository.findAllById
+        List<Shelter> all = (List<Shelter>) shelterRepository.findAllById(ids);
+        return all.stream()
+                .filter(s -> s.getTenantId().equals(tenantId))
+                .toList();
     }
 
     @Transactional(readOnly = true)

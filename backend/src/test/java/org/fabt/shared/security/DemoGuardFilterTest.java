@@ -316,4 +316,95 @@ class DemoGuardFilterTest {
         assertThat(response.getContentAsString()).contains("\"status\":403");
         assertThat(response.getContentAsString()).contains("\"timestamp\":");
     }
+
+    // ---------------------------------------------------------------
+    // coc-admin-escalation (v0.33.0) — claim/release allowed,
+    // reassign/policy-update blocked with friendly messages.
+    // ---------------------------------------------------------------
+
+    @Test
+    void post_dv_referral_claim_allowed() throws ServletException, IOException {
+        // Demo visitors can claim a row to experience the CoC admin
+        // workflow. The 10-min soft-lock auto-expires so state noise
+        // is self-healing for the next visitor.
+        request.setMethod("POST");
+        request.setRequestURI("/api/v1/dv-referrals/123e4567-e89b-12d3-a456-426614174000/claim");
+
+        filter.doFilterInternal(request, response, chain);
+
+        verify(chain).doFilter(request, response);
+    }
+
+    @Test
+    void post_dv_referral_release_allowed() throws ServletException, IOException {
+        // Symmetric to claim. Releasing returns the referral to the
+        // queue for the next visitor.
+        request.setMethod("POST");
+        request.setRequestURI("/api/v1/dv-referrals/123e4567-e89b-12d3-a456-426614174000/release");
+
+        filter.doFilterInternal(request, response, chain);
+
+        verify(chain).doFilter(request, response);
+    }
+
+    @Test
+    void post_dv_referral_reassign_blocked_with_friendly_message() throws ServletException, IOException {
+        // Reassign to SPECIFIC_USER would break the escalation chain
+        // for the next visitor — deliberately blocked. The friendly
+        // message tells the visitor that claim and release are still
+        // available so they understand why this specific button is
+        // disabled rather than seeing a generic error.
+        request.setMethod("POST");
+        request.setRequestURI("/api/v1/dv-referrals/123e4567-e89b-12d3-a456-426614174000/reassign");
+
+        filter.doFilterInternal(request, response, chain);
+
+        verifyNoInteractions(chain);
+        assertThat(response.getStatus()).isEqualTo(403);
+        assertThat(response.getContentAsString()).contains("demo_restricted");
+        assertThat(response.getContentAsString()).contains("Reassigning escalated referrals is disabled");
+        assertThat(response.getContentAsString()).contains("claim and release referrals to experience the queue workflow");
+    }
+
+    @Test
+    void patch_escalation_policy_blocked_with_friendly_message() throws ServletException, IOException {
+        // Policy updates affect ALL tenants on the demo site, so a
+        // demo visitor changing thresholds would silently disrupt
+        // every other visitor's experience. Hard block with a clear
+        // message naming the cross-tenant impact.
+        request.setMethod("PATCH");
+        request.setRequestURI("/api/v1/admin/escalation-policy/dv-referral");
+
+        filter.doFilterInternal(request, response, chain);
+
+        verifyNoInteractions(chain);
+        assertThat(response.getStatus()).isEqualTo(403);
+        assertThat(response.getContentAsString()).contains("demo_restricted");
+        assertThat(response.getContentAsString()).contains("Escalation policy changes are disabled");
+        assertThat(response.getContentAsString()).contains("affect all tenants");
+    }
+
+    @Test
+    void get_escalation_policy_allowed_read_only() throws ServletException, IOException {
+        // Reading the policy is fine — every GET passes the
+        // READ_METHODS guard at the top of the filter.
+        request.setMethod("GET");
+        request.setRequestURI("/api/v1/admin/escalation-policy/dv-referral");
+
+        filter.doFilterInternal(request, response, chain);
+
+        verify(chain).doFilter(request, response);
+    }
+
+    @Test
+    void get_escalated_queue_allowed_read_only() throws ServletException, IOException {
+        // CoC admin escalation queue endpoint — read-only, always
+        // allowed. Demo visitors can browse the queue.
+        request.setMethod("GET");
+        request.setRequestURI("/api/v1/dv-referrals/escalated");
+
+        filter.doFilterInternal(request, response, chain);
+
+        verify(chain).doFilter(request, response);
+    }
 }

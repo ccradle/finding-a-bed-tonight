@@ -1,0 +1,55 @@
+-- =====================================================================
+-- V50: Flip cocadmin dv_access to true (coc-admin-escalation, v0.35.0)
+-- =====================================================================
+-- Context:
+--   The DV Escalation queue (v0.35.0, coc-admin-escalation) requires
+--   dv_access=true on the CoC admin's user record. The backend's
+--   app.dv_access session variable comes from the JWT claim, and the
+--   referral_token RLS policy checks it. A CoC admin without
+--   dv_access=true sees an empty queue even when referrals exist.
+--
+--   The v0.35.0 seed update (infra/scripts/seed-data.sql) flips this flag
+--   for the dev cocadmin user — but seed-data.sql only runs on initial
+--   Postgres init. On the Oracle demo VM, cocadmin already exists with
+--   the old dv_access=false value. A normal deploy (docker compose up -d
+--   with the new JAR) will NOT fix it.
+--
+--   This migration fixes ONLY the known dev seed cocadmin user by
+--   hardcoded UUID. Real-tenant CoC admins must be granted DV access via
+--   the admin UI (Admin panel → Users tab → Edit → DV Access checkbox)
+--   on a per-user basis, NOT by a broad UPDATE — other tenants may
+--   intentionally have dv_access=false for jurisdictions without DV
+--   shelters (Casey Drummond guardrail, war-room round 5).
+--
+-- Ordering:
+--   V50 is the last migration in the coc-admin-escalation v0.35.0
+--   bundle. Must run AFTER V46 (escalation_policy) and V47 (referral_token
+--   admin columns) so the feature the dv_access flag enables actually
+--   exists. Flyway's version-ordered application guarantees this.
+--
+--   V50 originally drafted as V44 in the old project_v033_deploy_plan.md
+--   memory — renumbered to V50 after bed-hold-integrity claimed V44/V45
+--   and the four coc-admin-escalation migrations shifted to V46-V49.
+--
+-- Properties:
+--   * Idempotent: WHERE dv_access = false no-ops if already true. Safe
+--     to re-run.
+--   * Surgical: hardcoded UUID. Only touches the one known seed user.
+--   * Audit trail: leaves a row in flyway_schema_history with success=t.
+--   * Fresh-install safe: on a brand-new Postgres, seed-data.sql already
+--     sets dv_access=true for cocadmin, so this migration's WHERE clause
+--     matches zero rows. Harmless.
+--
+-- Propagation delay (documented in docs/runbook.md):
+--   If a cocadmin is actively logged in at deploy time, their existing
+--   access token has dvAccess=false baked in for up to 15 minutes. The
+--   JWT refresh flow re-reads from the DB and re-signs with dvAccess=true.
+--   Worst case: user logs out + back in to force an immediate refresh.
+--
+-- Cross-link: https://github.com/ccradle/finding-a-bed-tonight/issues/82
+-- =====================================================================
+
+UPDATE app_user
+SET dv_access = true
+WHERE id = 'b0000000-0000-0000-0000-000000000003'
+  AND dv_access = false;

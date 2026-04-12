@@ -25,6 +25,43 @@ public class ReferralToken {
     private UUID respondedBy;
     private Instant expiresAt;
     private String rejectionReason;
+    /**
+     * Snapshot of {@code escalation_policy.id} active when this token was
+     * created (Flyway V41, frozen-at-creation pattern). The escalation batch
+     * job uses THIS column (not the current tenant policy) so mid-day policy
+     * changes apply only to new referrals — Casey Drummond's chain-of-custody
+     * requirement.
+     *
+     * <p>NULL on existing rows from before V41; the batch job falls back to
+     * the platform default policy via {@code EscalationPolicyService}. NULL is
+     * a backwards-compatibility hatch, NOT a normal operating state — every
+     * new referral created after V41 should have this populated.</p>
+     */
+    private UUID escalationPolicyId;
+
+    /**
+     * FK to app_user.id. Set when a CoC admin claims a pending referral.
+     * Soft-lock, not a hard lock. (Flyway V41, D4)
+     */
+    private UUID claimedByAdminId;
+
+    /**
+     * When the soft-lock claim auto-releases. (Flyway V41, D4)
+     */
+    private Instant claimExpiresAt;
+
+    /**
+     * Set TRUE when a CoC admin reassigns this referral to a SPECIFIC_USER
+     * via the admin reassign endpoint. Semantically: "an admin took manual
+     * ownership; the system should not auto-escalate further." The escalation
+     * batch tasklet skips referrals with this flag set.
+     *
+     * <p>COORDINATOR_GROUP / COC_ADMIN_GROUP reassigns leave this FALSE — they
+     * page the group again, but no single person owns it so escalation
+     * continues normally. SPECIFIC_USER is the only path that sets it.
+     * (Flyway V43, D5, Session 4)</p>
+     */
+    private boolean escalationChainBroken;
 
     public ReferralToken() {}
 
@@ -78,4 +115,12 @@ public class ReferralToken {
     public void setExpiresAt(Instant expiresAt) { this.expiresAt = expiresAt; }
     public String getRejectionReason() { return rejectionReason; }
     public void setRejectionReason(String rejectionReason) { this.rejectionReason = rejectionReason; }
+    public UUID getEscalationPolicyId() { return escalationPolicyId; }
+    public void setEscalationPolicyId(UUID escalationPolicyId) { this.escalationPolicyId = escalationPolicyId; }
+    public UUID getClaimedByAdminId() { return claimedByAdminId; }
+    public void setClaimedByAdminId(UUID claimedByAdminId) { this.claimedByAdminId = claimedByAdminId; }
+    public Instant getClaimExpiresAt() { return claimExpiresAt; }
+    public void setClaimExpiresAt(Instant claimExpiresAt) { this.claimExpiresAt = claimExpiresAt; }
+    public boolean isEscalationChainBroken() { return escalationChainBroken; }
+    public void setEscalationChainBroken(boolean escalationChainBroken) { this.escalationChainBroken = escalationChainBroken; }
 }

@@ -58,6 +58,16 @@ public class DemoGuardFilter extends OncePerRequestFilter {
             new AllowedMutation("POST", "/api/v1/dv-referrals"),
             new AllowedMutation("PATCH", "/api/v1/dv-referrals/*/accept"),
             new AllowedMutation("PATCH", "/api/v1/dv-referrals/*/reject"),
+            // CoC admin escalation queue actions (v0.33.0). Demo visitors
+            // can claim a row and release it again to experience the
+            // workflow; the 10-min soft-lock auto-expires so state noise
+            // is self-healing. Reassign and policy-update are deliberately
+            // NOT allowlisted — reassign to SPECIFIC_USER breaks the
+            // escalation chain for the next visitor, and policy updates
+            // affect all tenants. Both fall through to the fail-secure
+            // default and produce friendly block messages.
+            new AllowedMutation("POST", "/api/v1/dv-referrals/*/claim"),
+            new AllowedMutation("POST", "/api/v1/dv-referrals/*/release"),
             // Coordinator availability update
             new AllowedMutation("PATCH", "/api/v1/shelters/*/availability"),
             // Notifications (read/acted/read-all are safe — they only mark timestamps)
@@ -178,6 +188,20 @@ public class DemoGuardFilter extends OncePerRequestFilter {
         if (path.startsWith("/api/v1/batch")) return "Batch job management is disabled in the demo environment.";
         if (path.startsWith("/api/v1/hmis")) return "HMIS push is disabled in the demo environment.";
         if (path.startsWith("/api/v1/api-keys")) return "API key management is disabled in the demo environment.";
+        // coc-admin-escalation friendly messages (v0.33.0). Claim and
+        // release ARE allowlisted above — these branches only fire for
+        // reassign and the escalation policy editor, which are blocked
+        // because they have wider-than-single-row impact (chain breaks
+        // for the next visitor; policy applies to all tenants).
+        if (path.startsWith("/api/v1/admin/escalation-policy")) {
+            return "Escalation policy changes are disabled in the demo environment "
+                    + "(they affect all tenants and would disrupt other visitors).";
+        }
+        if (path.contains("/dv-referrals/") && path.endsWith("/reassign")) {
+            return "Reassigning escalated referrals is disabled in the demo environment — "
+                    + "this view is read-only for reassign actions. You can still claim "
+                    + "and release referrals to experience the queue workflow.";
+        }
         return "This operation is disabled in the demo environment.";
     }
 

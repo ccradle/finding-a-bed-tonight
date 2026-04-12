@@ -156,7 +156,7 @@
     --color-error: #ff8389;             /* Carbon Red-40: on dark bg = 6.3:1 ✓ */
     --color-error-bg: #3b1219;          /* error text on this = 4.6:1 ✓ */
     --color-error-border: #991b1b;
-    --color-error-mid: #f87171;
+    --color-error-mid: #b91c1c;         /* badge fills — white text on this = 6.7:1 ✓ (was #f87171 = 2.76:1 ✗) */
 
     /* Status: Warning */
     --color-warning: #f1c21b;           /* Carbon Yellow-30: on dark bg = 12.0:1 ✓ */

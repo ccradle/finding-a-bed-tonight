@@ -61,6 +61,10 @@ VALUES (
     updated_at = NOW();
 
 -- CoC Admin (password: admin123)
+-- dv_access=true: CoC admins running the DV escalation queue (T-13 onward)
+-- need DV access to see referral_token rows protected by the dv_shelter_access
+-- RLS policy. Without this flag, the admin queue is empty even though the
+-- admin is authorized (war room round 9 fix — coc-admin-escalation Session 6).
 INSERT INTO app_user (id, tenant_id, email, password_hash, display_name, roles, dv_access, created_at, updated_at)
 VALUES (
     'b0000000-0000-0000-0000-000000000003',
@@ -69,7 +73,7 @@ VALUES (
     '$2b$10$D0ZKzFrhx0qdM0mQy9iZQeLYJPX8/eeEfrJi4TsO5D2o62Q/Fwhva',
     'Dev CoC Admin',
     ARRAY['COC_ADMIN'],
-    false,
+    true,
     NOW(), NOW()
 ) ON CONFLICT (tenant_id, email) DO UPDATE SET
     password_hash = EXCLUDED.password_hash,
@@ -485,5 +489,16 @@ VALUES
     ('a1000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000001',
      'b0000000-0000-0000-0000-000000000002', 'referral.responded', 'ACTION_REQUIRED',
      '{"referralId": "00000000-0000-0000-0000-000000000097", "status": "ACCEPTED"}',
-     NULL, NULL, NOW() - INTERVAL '10 minutes', NULL)
+     NULL, NULL, NOW() - INTERVAL '10 minutes', NULL),
+    -- CoC admin: escalation.2h CRITICAL (coc-admin-escalation Session 6 T-43).
+    -- Drives the CriticalNotificationBanner CTA test — the CTA appears only
+    -- when at least one CRITICAL notification has type starting with
+    -- 'escalation.'. Recipient is cocadmin@dev.fabt.org (id 003 per the
+    -- app_user insert above). Payload uses placeholder referralId because
+    -- the test only asserts banner state, not the destination of any
+    -- individual referral.
+    ('a1000000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-000000000001',
+     'b0000000-0000-0000-0000-000000000003', 'escalation.2h', 'CRITICAL',
+     '{"referralId": "00000000-0000-0000-0000-000000000096", "threshold": "2h"}',
+     NULL, NULL, NOW() - INTERVAL '5 minutes', NULL)
 ON CONFLICT (id) DO NOTHING;

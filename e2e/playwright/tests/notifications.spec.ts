@@ -99,6 +99,26 @@ test.describe('Notification Bell', () => {
   });
 
   test('Clicking bell opens panel with empty state', async ({ outreachPage }) => {
+    // This test asserts the rendered "empty state" of the notification
+    // panel — the "No notifications" message that appears when the
+    // outreach user has zero notifications in their list. The render
+    // condition is `notifications.length === 0`, so read notifications
+    // still count and we must DISMISS each one (not just mark-as-read)
+    // to reach the empty state.
+    //
+    // Test pollution context: by the time this spec runs in the full
+    // suite (alphabetically after dv-outreach-worker, bed-search,
+    // reservation-* and others that use the outreach worker), the
+    // outreach user has accumulated several real notifications from
+    // those flows — bed hold expiries, shelter rejections, etc. The
+    // test must drain the panel before asserting empty state. Doing
+    // it via UI dismiss clicks (rather than wiping notifications via
+    // a backend test endpoint) keeps this fix self-contained inside
+    // the spec file and avoids touching shared test infrastructure
+    // that other tests depend on.
+    //
+    // See task #123 for the full triage. The empty-state assertion
+    // is preserved as the load-bearing check.
     await outreachPage.goto('/outreach');
     await expect(outreachPage.locator('main')).toBeVisible();
 
@@ -106,6 +126,26 @@ test.describe('Notification Bell', () => {
 
     const panel = outreachPage.locator('[data-testid="notification-panel"]');
     await expect(panel).toBeVisible();
+
+    // Drain whatever notifications happen to be in the user's list.
+    // The dismiss button is the × inside each <li>, identified by its
+    // aria-label "Dismiss notification" (i18n key notifications.dismiss).
+    // We loop until the dismiss locator yields zero matches — bounded
+    // at 30 iterations to fail fast if dismissal is somehow broken.
+    const dismissButtons = panel.getByRole('button', { name: /Dismiss notification|Descartar/i });
+    for (let i = 0; i < 30; i++) {
+      const remaining = await dismissButtons.count();
+      if (remaining === 0) break;
+      // Always click .first() — clicking dismisses the row so subsequent
+      // .first() targets the new first row, not a stale element handle.
+      await dismissButtons.first().click();
+      // Wait a beat for React state to update before re-counting. The
+      // dismiss handler is synchronous on the client (no API round-trip)
+      // so a small wait is enough — no need for waitForResponse.
+      await outreachPage.waitForTimeout(50);
+    }
+
+    // Now the load-bearing assertion: the empty-state copy is rendered.
     await expect(panel).toContainText(/No notifications|Sin notificaciones/);
   });
 
