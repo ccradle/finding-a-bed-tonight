@@ -1,5 +1,6 @@
--- V43: referral_token.escalation_chain_broken — admin manual takeover marker
+-- V49: referral_token.escalation_chain_broken — admin manual takeover marker
 -- (#82, coc-admin-escalation, Session 4).
+-- Renumbered from V43 on 2026-04-11 during the post-v0.34.0 rebase (see V46 header).
 --
 -- Set TRUE when a CoC admin reassigns a referral via SPECIFIC_USER. Semantically:
 -- "an admin took manual responsibility for getting this referral to a human;
@@ -16,7 +17,7 @@
 -- person took ownership. SPECIFIC_USER is the only path that sets it.
 --
 -- Default FALSE: existing rows are not affected; new rows behave the same as
--- pre-V43 unless an admin explicitly reassigns to a SPECIFIC_USER.
+-- pre-V49 unless an admin explicitly reassigns to a SPECIFIC_USER.
 
 ALTER TABLE referral_token
     ADD COLUMN escalation_chain_broken BOOLEAN NOT NULL DEFAULT FALSE;

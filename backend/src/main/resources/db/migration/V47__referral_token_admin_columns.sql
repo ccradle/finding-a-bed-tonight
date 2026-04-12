@@ -1,8 +1,9 @@
--- V41: Add admin escalation columns to referral_token (#82, coc-admin-escalation).
+-- V47: Add admin escalation columns to referral_token (#82, coc-admin-escalation).
+-- Renumbered from V41 on 2026-04-11 during the post-v0.34.0 rebase (see V46 header).
 --
 -- Three new nullable columns:
 --
--- 1. escalation_policy_id — FK to escalation_policy.id (V40). Records the
+-- 1. escalation_policy_id — FK to escalation_policy.id (V46). Records the
 --    policy version that was active when the referral was created. The
 --    escalation batch job uses THIS column (not the current tenant policy)
 --    to determine which thresholds apply. Mid-day policy changes only affect

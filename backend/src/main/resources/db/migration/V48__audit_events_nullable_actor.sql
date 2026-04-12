@@ -1,0 +1,37 @@
+-- V48: audit_events.actor_user_id nullable for system actors (#82, coc-admin-escalation).
+-- Renumbered from V42 on 2026-04-11 during the post-v0.34.0 rebase (see V46 header).
+--
+-- ⚠️ IDEMPOTENCY NOTE: V44 (bed-hold-integrity, v0.34.0) made this same schema change.
+-- On any deployment that already ran V44 — which is every deployment of v0.34.0 or
+-- later, including the findabed.org Oracle demo — this migration is a Postgres no-op
+-- (ALTER COLUMN ... DROP NOT NULL against an already-nullable column does nothing).
+-- The migration is PRESERVED here rather than deleted because:
+--   (a) removing it would break historical lineage — anyone reading the branch or
+--       doing git archaeology should see that coc-admin-escalation also addressed
+--       this schema requirement independently of bed-hold-integrity, for the same
+--       reason (system-actor audit rows need actor_user_id = NULL)
+--   (b) flyway_schema_history on existing deployments would show a gap in applied
+--       migrations if V48 were deleted — a cosmetic issue but a real one
+-- Elena Vasquez sign-off (war room 2026-04-11 round on the V44/V45 rename).
+--
+-- The original V29 schema declared actor_user_id NOT NULL because every audit
+-- row at that time was triggered by a human admin acting via the web UI.
+--
+-- coc-admin-escalation introduces a new audit producer: the @Scheduled
+-- auto-release task in ReferralTokenService.autoReleaseClaims(). When a CoC
+-- admin's soft-lock claim expires without manual release, the system itself
+-- clears the claim and writes a DV_REFERRAL_RELEASED audit row with
+-- {"reason": "timeout"}. There is no human actor — the actor IS the platform.
+--
+-- The previous shape (NOT NULL) caused these system audit rows to fail the
+-- INSERT and be silently swallowed by AuditEventService.onAuditEvent's
+-- try/catch. Casey Drummond's chain-of-custody requirement is that EVERY
+-- claim transition is recorded — silent loss of timeout-release rows breaks
+-- that guarantee.
+--
+-- Reads must treat NULL actor_user_id as "system" (e.g. display "System
+-- (auto-release)" in the admin audit log UI). The application layer is
+-- responsible for that mapping; the schema just allows the value.
+
+ALTER TABLE audit_events
+    ALTER COLUMN actor_user_id DROP NOT NULL;

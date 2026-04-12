@@ -1,11 +1,14 @@
--- V40: Per-tenant escalation policy with append-only versioning (#82, coc-admin-escalation).
+-- V46: Per-tenant escalation policy with append-only versioning (#82, coc-admin-escalation).
+-- Renumbered from V40 on 2026-04-11 during the post-v0.34.0 rebase (bed-hold-integrity
+-- took V44/V45; coc-admin-escalation's migrations shift to V46-V49 + V50 to preserve
+-- Flyway's strict version ordering — outOfOrder=false is the project default).
 -- The escalation batch job currently uses hardcoded thresholds [1h, 2h, 3.5h, 4h].
 -- Different CoCs have different operational rhythms (faith volunteers, hospital
 -- discharge windows, 24/7 staffed shelters) — hardcoded thresholds train every
 -- non-Wake-County partner to ignore CRITICAL alerts within 30 days. This table
 -- moves the thresholds to configurable per-tenant policy with audit-pure
 -- frozen-at-creation semantics (each referral records the policy version that
--- was active when it was created — see V41 + ReferralTokenService.create()).
+-- was active when it was created — see V47 + ReferralTokenService.create()).
 --
 -- APPEND-ONLY: each PATCH from the admin inserts a new row with version+1.
 -- Existing rows are NEVER updated or deleted. The version column is the audit

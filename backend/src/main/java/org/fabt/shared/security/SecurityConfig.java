@@ -94,6 +94,44 @@ public class SecurityConfig {
                 .sessionManagement(session -> session
                         .sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
+                        // =====================================================================
+                        // FILTER-VS-CONTROLLER AUTHORIZATION INVARIANT (v0.34.0 war-room lesson)
+                        // =====================================================================
+                        // Authorization rules in this file must NEVER be more restrictive than
+                        // the @PreAuthorize annotation on the target controller method. The
+                        // filter chain is the COARSE first pass; the controller's @PreAuthorize
+                        // (and any in-body isAssigned/isOwner checks) is the FINE second pass.
+                        // The filter must admit every role the controller would admit, so the
+                        // controller's assertion has the chance to run.
+                        //
+                        // Why this invariant matters: both SecurityConfig and
+                        // GlobalExceptionHandler return an identical JSON shape for 403 denials
+                        // (`{"error":"access_denied","message":"Insufficient permissions",...}`),
+                        // so an overly-restrictive filter rule silently hides a "works as
+                        // designed" response from the controller. Tests cannot distinguish the
+                        // two paths by status or body alone.
+                        //
+                        // Historical incident: v0.34.0 (bed-hold-integrity, Issue #102 RCA) had
+                        // a POST /api/v1/shelters/** catch-all that omitted COORDINATOR. The
+                        // new /manual-hold endpoint's @PreAuthorize admits COORDINATOR. Result:
+                        // every coordinator got 403'd at the filter before reaching the
+                        // controller's isAssigned check. Caught in pre-ship smoke. Fixed by
+                        // inserting an explicit `POST /shelters/*/manual-hold` matcher BEFORE
+                        // the catch-all (Spring matchers are first-match-wins). The
+                        // `OfflineHoldEndpointTest.coordinator_not_assigned_to_shelter_403`
+                        // test now asserts via the `fabt.http.access_denied.count` Micrometer
+                        // counter — that counter only increments when GlobalExceptionHandler
+                        // handles the rejection, NOT when this filter chain handles it. If
+                        // that assertion ever starts failing, the filter has regressed past the
+                        // controller contract again.
+                        //
+                        // Before narrowing any rule here, verify the target endpoint's
+                        // @PreAuthorize annotation and the counter-based test in the relevant
+                        // integration test suite. Marcus Webb sign-off required for any
+                        // SecurityConfig narrowing touching a path that has a controller-level
+                        // assignment / ownership check downstream.
+                        // =====================================================================
+
                         // SSE async dispatch: when emitters error, Tomcat dispatches async.
                         // Without this, Spring Security re-challenges with 401 on the committed
                         // SSE response → "response already committed" errors (spring-security#16266).

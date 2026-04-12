@@ -21,13 +21,15 @@
 --   migrations in version order, so V44 → V45 is guaranteed.
 --
 -- Idempotency note:
---   coc-admin-escalation's V42 makes the same schema change (drops
+--   coc-admin-escalation's V48 (originally drafted as V42 before the
+--   post-v0.34.0 renumber) makes the same schema change (drops
 --   NOT NULL on actor_user_id) for the same reason. ALTER COLUMN ...
 --   DROP NOT NULL is a Postgres no-op when the column is already
 --   nullable, so this migration is safe to run on a database that
---   already has coc-admin-escalation's V42 applied. Whichever branch
---   merges to main first wins; the other's equivalent migration runs
---   as a no-op without errors.
+--   already has coc-admin-escalation's V48 applied. In practice the
+--   version-ordered Flyway application means V44 runs first and V48
+--   is the no-op; V48 is preserved in v0.35.0 for lineage (see V48
+--   header for the preservation rationale).
 --
 -- Cross-link: https://github.com/ccradle/finding-a-bed-tonight/issues/102
 -- =====================================================================
