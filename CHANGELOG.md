@@ -5,6 +5,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.35.0] — 2026-04-12 — coc-admin-escalation (#82)
+
+### Added
+- **CoC admin DV escalation queue** — pending DV referrals surface in the admin panel with claim/release/reassign/accept/deny lifecycle. Atomic claim with TOCTOU-safe `UPDATE ... RETURNING`. Soft-lock for 10 minutes, `Override-Claim` header for stealing, SPECIFIC_USER reassign breaks the escalation chain.
+- **Per-tenant escalation policy** (V46) — append-only, versioned, configurable thresholds per CoC operational rhythm. Frozen-at-creation: each referral records the policy version active at creation time; mid-flight policy edits only affect new referrals (chain-of-custody invariant).
+- **Escalation policy admin UI** at `/admin#dvEscalations` — table + detail modal + policy editor on desktop, card list on mobile. 4 SSE event types keep every admin's queue live (`referral.claimed`, `referral.released`, `referral.queue-changed`, `referral.policy-updated`).
+- **CriticalNotificationBanner CTA** — "Review N pending escalations →" navigates to the escalation queue tab.
+- **4 Micrometer metrics** — `fabt.escalation.batch.duration` (histogram), escalation policy Caffeine cache stats via CaffeineCacheMetrics, `fabt.dv-referral.claim.duration` (histogram by outcome), `fabt.dv-referral.claim.auto-release.count` (counter). 4 Grafana panels on the DV Referrals dashboard.
+- **T-55a /manual-hold API Playwright** — 3 API-level scenarios including Prometheus counter-increment regression guard for Issue #102 RCA SecurityConfig fix.
+- **ReferralEscalationPerfTest** — 200-referral regression guard (763ms measured, 60s budget).
+- **EscalationPolicyServiceCacheMetricsTest** — 3 assertions pinning Caffeine cache stats as FunctionCounter.
+- **Tomás Herrera accessibility persona** added to PERSONAS.md — WCAG 2.1 AA engineering advocate, former GSA 18F.
+
+### Fixed
+- **Dark mode `--color-error-mid` contrast** — `#f87171` (2.76:1 vs white) → `#b91c1c` (6.7:1). Pre-existing bug newly exercised by the cocadmin notification seed row. NotificationBell unread-count badge was the failing element. color-system.spec.ts now 6/6 green.
+
+### Changed
+- **cocadmin `dv_access` flipped to `true`** in seed-data.sql (fresh installs) and V50 migration (existing Oracle demo). Required for the escalation queue — CoC admins operating the DV workflow must see DV-protected data through RLS.
+- **DV canary test** updated — creates a dedicated `dvAccess=false` COC_ADMIN user inline instead of depending on cocadmin's seed state. Per isolated test data policy.
+- **Pre-release documentation audit** — version numbers updated to v0.35.0 across README, FOR-DEVELOPERS, architecture.md, WCAG-ACR, sustainability-narrative, theory-of-change. "VAWA Compliance Checklist" → "VAWA Self-Assessment Checklist" across 6 files. DBML updated with escalation_policy table and referral_token columns. Stale test counts corrected (586/338/42). Fabricated pilot city references removed from MCP-BRIEFING, proposal, and load test plan. Demo pages updated: "not yet deployed" → accurate demo-deployment framing, v0.12.0 badge removed, "Privacy Guarantee" → "Privacy Design", grant template placeholders replaced.
+
+### Migrations
+- **V46** — `CREATE TABLE escalation_policy` (append-only, per-tenant, NULLS NOT DISTINCT unique constraint, platform default seed)
+- **V47** — `ALTER TABLE referral_token ADD COLUMN escalation_policy_id, claimed_by_admin_id, claim_expires_at` + partial index for auto-release scheduler
+- **V48** — `ALTER COLUMN audit_events.actor_user_id DROP NOT NULL` (no-op — V44 already applied this in v0.34.0; preserved for lineage)
+- **V49** — `ALTER TABLE referral_token ADD COLUMN escalation_chain_broken BOOLEAN DEFAULT FALSE`
+- **V50** — `UPDATE app_user SET dv_access = true` for dev cocadmin UUID (idempotent, fresh-install safe)
+
+---
+
 ## [v0.34.0] — 2026-04-11 — bed-hold-integrity (Issue #102 RCA)
 
 > v0.33.0 (coc-admin-escalation) has not yet shipped at the time of this
