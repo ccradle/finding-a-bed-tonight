@@ -18,6 +18,9 @@ has not undergone a formal third-party
 # Code comments — technical facts, not compliance claims
 clock_timestamp() guarantees
 Equivalent to TotpTestHelper
+the database guarantees it
+Frozen-at-creation guarantees
+contract guarantees Marcus Webb
 
 # Changelog — describes user role, not platform certification
 DV-certified field workers
