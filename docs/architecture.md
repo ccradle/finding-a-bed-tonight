@@ -120,7 +120,7 @@ sequenceDiagram
 
 The `TenantContext.runWithContext` block sets PostgreSQL session variables that the RLS `USING` clauses read. No application-layer `WHERE tenant_id = ?` filter is needed — forgetting one would be impossible because RLS rejects the query.
 
-### §1.4 Data Flow — DV Escalation (v0.33.0)
+### §1.4 Data Flow — DV Escalation (v0.35.0)
 
 The flagship flow from the `coc-admin-escalation` change. A pending DV referral moves through the tenant's per-tenant escalation policy, reaches the CoC admin queue, and is claimed/acted on by an admin. The **frozen-at-creation** invariant means the escalation rules are set in stone the moment the referral is created — editing the tenant policy mid-flight does not change the rules for existing referrals.
 
@@ -245,7 +245,7 @@ flowchart LR
 - **email-password-reset** — email-based password reset flow replacing the previous "contact your administrator" pattern. See `openspec/changes/archive/email-password-reset/`.
 - **coordinator-shelter-assignment** — admin UI for assigning coordinators to shelters, required for DV coordinator notifications to route correctly. See `openspec/changes/archive/coordinator-shelter-assignment/`.
 
-### §2.5 coc-admin-escalation (v0.33.0, Session 7)
+### §2.5 coc-admin-escalation (v0.35.0, Session 7)
 
 The CoC admin queue for pending DV referrals. Per-tenant versioned escalation policy. Atomic claim with TOCTOU-safe `UPDATE ... RETURNING`. Soft-lock for 10 minutes, override header for stealing, SPECIFIC_USER reassign breaks the chain. Frozen-at-creation chain-of-custody invariant. Four SSE event types relayed through the single `useNotifications` connection.
 
@@ -258,7 +258,7 @@ The CoC admin queue for pending DV referrals. Per-tenant versioned escalation po
 - **D20** — Admin queue hooks piggy-back on the existing `useNotifications` SSE connection via window `CustomEvents`, not a parallel stream. Per the archived `sse-stability` spec. One SSE connection per session, always.
 - **ArchUnit crossings** — the referral module added boundary-clean primitives to `UserService` (`existsByIdInCurrentTenant`, `getRolesByUserId`, `findActiveUserIdsByRole`, `findDvCoordinatorIds`, `findDisplayNamesByIds`, `isAdminActor`) rather than importing `User` directly. `ArchitectureTest` enforces the rule.
 
-**Deployment note.** CoC admins running the escalation queue must have `dv_access=true` on their user record. The dev seed was flipped in v0.33.0; real-tenant CoC admins must be granted via the admin Users tab. See [runbook.md](runbook.md) for the operator workflow.
+**Deployment note.** CoC admins running the escalation queue must have `dv_access=true` on their user record. The dev seed was flipped in v0.35.0; real-tenant CoC admins must be granted via the admin Users tab. See [runbook.md](runbook.md) for the operator workflow.
 
 Full scope: `openspec/changes/archive/coc-admin-escalation/` — proposal.md, design.md (D1–D20), spec.md (13 requirements / 62 scenarios), tasks.md.
 

@@ -118,9 +118,9 @@ Table one_time_access_code {
 Table audit_events {
   id              uuid        [pk, note: 'gen_random_uuid()']
   timestamp       timestamptz [not null, default: `clock_timestamp()`]
-  actor_user_id   uuid        [not null]
+  actor_user_id   uuid        [note: 'NULL for system-actor events (V44, bed-hold-integrity)']
   target_user_id  uuid
-  action          varchar(50) [not null, note: 'ROLE_CHANGED, USER_DEACTIVATED, USER_REACTIVATED, DV_ACCESS_CHANGED, PASSWORD_RESET']
+  action          varchar(50) [not null, note: 'ROLE_CHANGED, USER_DEACTIVATED, USER_REACTIVATED, DV_ACCESS_CHANGED, PASSWORD_RESET, BED_HOLDS_RECONCILED, DV_REFERRAL_CLAIMED, DV_REFERRAL_RELEASED, DV_REFERRAL_REASSIGNED, DV_REFERRAL_ADMIN_ACCEPTED, DV_REFERRAL_ADMIN_REJECTED, ESCALATION_POLICY_UPDATED']
   details         jsonb       [note: 'Old/new values, context']
   ip_address      varchar(45) [note: 'IPv4 or IPv6']
 
@@ -467,6 +467,34 @@ Table surge_event {
 // Privacy-preserving referral for DV shelters. Zero client PII.
 // Terminal tokens hard-deleted within 24 hours by ReferralTokenPurgeService.
 
+// ---------------------------------------------------------------------------
+// V46 — Escalation Policy (coc-admin-escalation, v0.35.0)
+// ---------------------------------------------------------------------------
+// Per-tenant append-only policy. Each PATCH inserts a new version row.
+// Frozen-at-creation: referral_token.escalation_policy_id FKs to a specific
+// version — mid-day policy edits do not affect existing referrals.
+
+Table escalation_policy {
+  id           uuid        [pk, note: 'gen_random_uuid()']
+  tenant_id    uuid        [ref: > tenant.id, note: 'NULL = platform default. ON DELETE RESTRICT']
+  event_type   varchar(64) [not null, note: 'dv-referral (extensible)']
+  version      integer     [not null]
+  thresholds   jsonb       [not null, note: '[{id, at, severity, recipients}]']
+  created_at   timestamptz [not null, default: `NOW()`]
+  created_by   uuid        [ref: > app_user.id, note: 'ON DELETE SET NULL']
+
+  indexes {
+    (tenant_id, event_type, version) [unique, note: 'NULLS NOT DISTINCT']
+    (tenant_id, event_type) [name: 'idx_escalation_policy_current', note: 'partial: ORDER BY version DESC']
+  }
+
+  note: '''
+  Append-only per-tenant escalation policy. Never updated or deleted.
+  Chain-of-custody: auditors trace "what rules governed this referral?"
+  via referral_token.escalation_policy_id → this table.
+  '''
+}
+
 Table referral_token {
   id                  uuid        [pk, note: 'gen_random_uuid()']
   shelter_id          uuid        [not null, ref: > shelter.id, note: 'ON DELETE CASCADE']
@@ -483,14 +511,20 @@ Table referral_token {
   responded_by        uuid        [ref: > app_user.id]
   expires_at          timestamptz [not null]
   rejection_reason    varchar     [note: 'No client PII advisory']
+  escalation_policy_id uuid      [ref: > escalation_policy.id, note: 'V47 — frozen-at-creation policy FK. NULL on pre-V47 rows (falls back to platform default)']
+  claimed_by_admin_id  uuid      [ref: > app_user.id, note: 'V47 — CoC admin soft-lock claim. NULL when unclaimed']
+  claim_expires_at     timestamptz [note: 'V47 — auto-release after this time (default 10 min)']
+  escalation_chain_broken boolean [not null, default: false, note: 'V49 — TRUE when admin reassigns to SPECIFIC_USER']
 
   indexes {
     (shelter_id, status) [name: 'idx_referral_token_shelter_status']
     (referring_user_id, status) [name: 'idx_referral_token_user']
+    claim_expires_at [name: 'idx_referral_token_active_claim', note: 'partial: WHERE claimed_by_admin_id IS NOT NULL']
+    (referring_user_id, shelter_id) [unique, name: 'uq_referral_token_pending', note: 'partial: WHERE status = PENDING']
   }
 
   note: '''
-  VAWA-compliant opaque referral. Contains zero client PII.
+  Opaque referral designed to support VAWA requirements. Contains zero client PII.
   Hard-deleted within 24 hours of terminal status.
   RLS inherits DV shelter access via shelter FK.
   '''

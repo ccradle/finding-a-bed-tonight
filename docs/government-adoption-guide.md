@@ -125,7 +125,7 @@ FABT is designed to support VAWA (34 U.S.C. 12291(b)(2)), FVPSA, and HUD HMIS co
 - **Address redaction** — DV shelter addresses are never exposed in API responses to unauthorized users
 - **Small-cell suppression** — DV aggregate data is suppressed when fewer than 3 DV shelters exist (Design D18)
 
-See docs/DV-OPAQUE-REFERRAL.md for the complete legal basis, architecture, and VAWA compliance checklist.
+See docs/DV-OPAQUE-REFERRAL.md for the complete legal basis, architecture, and VAWA self-assessment checklist.
 
 **Important:** This design is intended to support compliance but does not constitute legal compliance certification. Organizations deploying FABT for DV referrals should consult qualified legal counsel regarding applicable federal, state, and local confidentiality requirements.
 

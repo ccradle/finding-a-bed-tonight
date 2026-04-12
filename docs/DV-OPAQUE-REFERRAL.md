@@ -129,7 +129,7 @@ This document describes the architectural and operational design of FABT's DV re
 
 ---
 
-## VAWA Compliance Checklist
+## VAWA Self-Assessment Checklist
 
 CoC administrators deploying FABT can use this checklist for self-assessment:
 

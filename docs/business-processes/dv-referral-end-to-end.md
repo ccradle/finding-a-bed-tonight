@@ -5,7 +5,7 @@
 > **Audience.** This document is written for people who **run the program**, not people who write the code:
 >
 > - **CoC admins and program managers** who are onboarding, training staff, or preparing for an audit
-> - **Auditors** verifying that the system supports VAWA, FVPSA, and HUD HMIS requirements around DV survivor privacy
+> - **Auditors** evaluating whether the system's design supports VAWA, FVPSA, and HUD HMIS requirements around DV survivor privacy
 > - **Funders and board members** who want to understand exactly how the system serves survivors without storing client identity
 > - **Trainers** writing curriculum for outreach workers and shelter coordinators
 >
@@ -26,7 +26,7 @@ A DV referral is **not** a normal bed search. A survivor of domestic violence is
 
 The practical consequence for FABT: a DV referral **must** travel through the system carrying zero client identity. No name. No date of birth. No address. No phone number for the client. No case notes. The only identifying information stored is the **outreach worker's** callback number, which the DV coordinator uses to reach the worker for safety screening. The survivor is never directly contacted by the system.
 
-FABT's full legal analysis, the exact database columns involved, and the VAWA compliance checklist are in [`DV-OPAQUE-REFERRAL.md`](../DV-OPAQUE-REFERRAL.md). This document assumes you have read that file or will read it before running the program.
+FABT's full legal analysis, the exact database columns involved, and the VAWA self-assessment checklist are in [`DV-OPAQUE-REFERRAL.md`](../DV-OPAQUE-REFERRAL.md). This document assumes you have read that file or will read it before running the program.
 
 ---
 
@@ -248,7 +248,7 @@ The escalation path does not replace the happy path — it is a branch that acti
 
 ## Related documents
 
-- [`DV-OPAQUE-REFERRAL.md`](../DV-OPAQUE-REFERRAL.md) — legal basis, architecture rationale, VAWA compliance checklist
+- [`DV-OPAQUE-REFERRAL.md`](../DV-OPAQUE-REFERRAL.md) — legal basis, architecture rationale, VAWA self-assessment checklist
 - [`dv-referral-escalation.md`](dv-referral-escalation.md) — the stall path, CoC admin queue, claim/reassign actions
 - [`FOR-DEVELOPERS.md`](../FOR-DEVELOPERS.md) — developer-facing technical documentation
 - [`runbook.md`](../runbook.md) — operator runbook for granting DV access, investigating escalation alerts, managing policy

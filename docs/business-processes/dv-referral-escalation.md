@@ -268,7 +268,7 @@ From the Person's perspective (waiting in the field for the coordinator to respo
 ## Related documents
 
 - [`dv-referral-end-to-end.md`](dv-referral-end-to-end.md) — parent doc, happy path, actor inventory, legal context, privacy invariants
-- [`../DV-OPAQUE-REFERRAL.md`](../DV-OPAQUE-REFERRAL.md) — legal basis, VAWA compliance checklist
+- [`../DV-OPAQUE-REFERRAL.md`](../DV-OPAQUE-REFERRAL.md) — legal basis, VAWA self-assessment checklist
 - [`../FOR-DEVELOPERS.md`](../FOR-DEVELOPERS.md) — developer-facing documentation including the full escalation section
 - [`../runbook.md`](../runbook.md) — operator runbook for granting DV access, investigating escalation alerts, managing policy
 - [`../architecture.md`](../architecture.md) — module-level architecture with the escalation sequence diagram and design decisions

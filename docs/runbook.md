@@ -232,7 +232,7 @@ When running with `--profile observability`, the FABT Operations dashboard is av
 
 A separate **FABT DV Referrals** dashboard is provisioned alongside the operations dashboard. It is intentionally separate — DV referral volume patterns are sensitive even in aggregate and may require different Grafana access controls.
 
-For the full DV referral architecture, legal basis (VAWA/FVPSA), and VAWA compliance checklist, see [docs/DV-OPAQUE-REFERRAL.md](DV-OPAQUE-REFERRAL.md). For a visual walkthrough, see the [DV Referral Demo](https://ccradle.github.io/findABed/demo/dvindex.html).
+For the full DV referral architecture, legal basis (VAWA/FVPSA), and VAWA self-assessment checklist, see [docs/DV-OPAQUE-REFERRAL.md](DV-OPAQUE-REFERRAL.md). For a visual walkthrough, see the [DV Referral Demo](https://ccradle.github.io/findABed/demo/dvindex.html).
 
 **Panels:**
 - Referral Request Rate — incoming referral volume
