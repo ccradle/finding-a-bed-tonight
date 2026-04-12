@@ -95,4 +95,42 @@ test.describe('coc-admin-escalation: CriticalNotificationBanner CTA', () => {
     const dvEscalationsTabButton = coordinatorPage.locator('[data-tab-key="dvEscalations"]');
     await expect(dvEscalationsTabButton).toHaveAttribute('aria-selected', 'true', { timeout: 5000 });
   });
+
+  // =========================================================================
+  // Role-gating: coordinator sees banner but NOT the escalation CTA (v0.35.0)
+  // =========================================================================
+  // The dvCoordinatorPage fixture logs in as dv-coordinator@dev.fabt.org
+  // (COORDINATOR role, dvAccess=true). The seed includes an escalation.3_5h
+  // CRITICAL notification for this user (the T+3.5h all-hands threshold
+  // targets coordinators). Before the v0.35.0 fix, the CTA button rendered
+  // and navigated to /admin#dvEscalations — a dead-end redirect because
+  // AuthGuard gates /admin to COC_ADMIN and PLATFORM_ADMIN only.
+
+  test('T-43d: coordinator sees CRITICAL banner but NOT the escalation CTA', async ({ dvCoordinatorPage }) => {
+    await dvCoordinatorPage.goto('/coordinator');
+
+    // The CRITICAL banner should be visible — the safety signal is preserved.
+    // dv-coordinator has both surge.activated CRITICAL and escalation.3_5h
+    // CRITICAL notifications in seed data.
+    const banner = dvCoordinatorPage.locator('[data-testid="critical-notification-banner"]');
+    await expect(banner).toBeVisible({ timeout: 5000 });
+    await expect(banner).toHaveAttribute('role', 'alert');
+
+    // The escalation CTA button must NOT render for a COORDINATOR user.
+    // It navigates to /admin which they can't access — showing it would
+    // be a dead-end redirect (the UX bug this test guards against).
+    const cta = dvCoordinatorPage.locator('[data-testid="critical-banner-escalation-cta"]');
+    await expect(cta).not.toBeVisible({ timeout: 2000 });
+  });
+
+  test('T-43e: admin still sees escalation CTA (regression guard)', async ({ coordinatorPage }) => {
+    // coordinatorPage is cocadmin (COC_ADMIN) — the CTA must still render.
+    // This is a regression guard: if someone accidentally removes the CTA
+    // entirely instead of role-gating it, T-43a catches it above. But this
+    // test makes the intent explicit in the same describe block as T-43d.
+    await coordinatorPage.goto('/coordinator');
+
+    const cta = coordinatorPage.locator('[data-testid="critical-banner-escalation-cta"]');
+    await expect(cta).toBeVisible({ timeout: 5000 });
+  });
 });

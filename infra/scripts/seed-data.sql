@@ -500,5 +500,15 @@ VALUES
     ('a1000000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-000000000001',
      'b0000000-0000-0000-0000-000000000003', 'escalation.2h', 'CRITICAL',
      '{"referralId": "00000000-0000-0000-0000-000000000096", "threshold": "2h"}',
-     NULL, NULL, NOW() - INTERVAL '5 minutes', NULL)
+     NULL, NULL, NOW() - INTERVAL '5 minutes', NULL),
+    -- DV Coordinator: escalation.3_5h CRITICAL — the T+3.5h all-hands threshold
+    -- targets COORDINATOR recipients. Drives the role-gating smoke test: coordinator
+    -- sees the CRITICAL banner but NOT the escalation CTA (which navigates to /admin,
+    -- a route coordinators don't have access to). v0.35.0 fix.
+    -- FKs: tenant_id → a0..001 (dev-coc), recipient_id → b0..006 (dv-coordinator).
+    -- payload.referralId is a placeholder UUID (no FK to referral_token).
+    ('a1000000-0000-0000-0000-000000000005', 'a0000000-0000-0000-0000-000000000001',
+     'b0000000-0000-0000-0000-000000000006', 'escalation.3_5h', 'CRITICAL',
+     '{"referralId": "00000000-0000-0000-0000-000000000096", "threshold": "3_5h"}',
+     NULL, NULL, NOW() - INTERVAL '2 minutes', NULL)
 ON CONFLICT (id) DO NOTHING;
