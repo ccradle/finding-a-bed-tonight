@@ -10,11 +10,14 @@ import java.util.UUID;
 
 import tools.jackson.databind.ObjectMapper;
 
+import io.micrometer.core.instrument.Timer;
+
 import org.fabt.auth.service.UserService;
 import org.fabt.notification.domain.EscalationPolicy;
 import org.fabt.notification.repository.NotificationRepository;
 import org.fabt.notification.service.NotificationPersistenceService;
 import org.fabt.notification.service.EscalationPolicyService;
+import org.fabt.observability.ObservabilityMetrics;
 import org.fabt.referral.domain.ReferralToken;
 import org.fabt.referral.service.ReferralTokenService;
 import org.fabt.shared.web.TenantContext;
@@ -98,6 +101,15 @@ public class ReferralEscalationJobConfig {
     private final ObjectMapper objectMapper;
     private final BatchJobScheduler batchJobScheduler;
 
+    /**
+     * Pre-built histogram timer for the tasklet body (T-52).
+     * Pre-built at construction so the 5-minute-interval tasklet doesn't
+     * rebuild the Timer.Builder on every run. Micrometer dedupes by
+     * name+tags but the extra hash lookup is unnecessary for a metric that
+     * fires at most 12 times per hour.
+     */
+    private final Timer escalationBatchDurationTimer;
+
     public ReferralEscalationJobConfig(
             JobRepository jobRepository,
             PlatformTransactionManager transactionManager,
@@ -107,7 +119,8 @@ public class ReferralEscalationJobConfig {
             NotificationRepository notificationRepository,
             UserService userService,
             ObjectMapper objectMapper,
-            BatchJobScheduler batchJobScheduler) {
+            BatchJobScheduler batchJobScheduler,
+            ObservabilityMetrics observabilityMetrics) {
         this.jobRepository = jobRepository;
         this.transactionManager = transactionManager;
         this.referralTokenService = referralTokenService;
@@ -117,6 +130,7 @@ public class ReferralEscalationJobConfig {
         this.userService = userService;
         this.objectMapper = objectMapper;
         this.batchJobScheduler = batchJobScheduler;
+        this.escalationBatchDurationTimer = observabilityMetrics.escalationBatchDurationTimer();
     }
 
     @Bean
@@ -140,37 +154,44 @@ public class ReferralEscalationJobConfig {
                 throw new IllegalStateException("Escalation tasklet requires dvAccess=true");
             }
 
-            List<ReferralToken> pending = referralTokenService.findAllPending(PENDING_BATCH_LIMIT);
-            if (pending.size() == PENDING_BATCH_LIMIT) {
-                log.warn("Escalation tasklet hit PENDING_BATCH_LIMIT={} — backlog may be growing; "
-                        + "remaining referrals will be picked up next run but could miss escalation thresholds "
-                        + "by one batch interval. Investigate why pending count is so high.",
-                        PENDING_BATCH_LIMIT);
-            }
-            int escalationsCreated = 0;
+            // T-52: wall-clock timer around the tasklet body. Recorded even
+            // on early return or exception (Sample.stop in finally).
+            Timer.Sample sample = Timer.start();
+            try {
+                List<ReferralToken> pending = referralTokenService.findAllPending(PENDING_BATCH_LIMIT);
+                if (pending.size() == PENDING_BATCH_LIMIT) {
+                    log.warn("Escalation tasklet hit PENDING_BATCH_LIMIT={} — backlog may be growing; "
+                            + "remaining referrals will be picked up next run but could miss escalation thresholds "
+                            + "by one batch interval. Investigate why pending count is so high.",
+                            PENDING_BATCH_LIMIT);
+                }
+                int escalationsCreated = 0;
 
-            // Performance Note (Sam Okafor): per-run local caches to avoid N+1
-            // service/cache hits in the loop. Two separate maps with distinct
-            // semantic purposes (by-id vs default-by-tenant) so there's no risk
-            // of a real tenant_id colliding with a policy_id sentinel
-            // (R3 review point — single shared map was a smell).
-            Map<UUID, EscalationPolicy> policyByIdCache = new HashMap<>();
-            Map<UUID, EscalationPolicy> defaultPolicyByTenantCache = new HashMap<>();
-            Map<String, List<UUID>> roleRecipientCache = new HashMap<>();
+                // Performance Note (Sam Okafor): per-run local caches to avoid N+1
+                // service/cache hits in the loop. Two separate maps with distinct
+                // semantic purposes (by-id vs default-by-tenant) so there's no risk
+                // of a real tenant_id colliding with a policy_id sentinel
+                // (R3 review point — single shared map was a smell).
+                Map<UUID, EscalationPolicy> policyByIdCache = new HashMap<>();
+                Map<UUID, EscalationPolicy> defaultPolicyByTenantCache = new HashMap<>();
+                Map<String, List<UUID>> roleRecipientCache = new HashMap<>();
 
-            for (ReferralToken token : pending) {
-                escalationsCreated += checkAndEscalate(token, policyByIdCache,
-                        defaultPolicyByTenantCache, roleRecipientCache);
-            }
+                for (ReferralToken token : pending) {
+                    escalationsCreated += checkAndEscalate(token, policyByIdCache,
+                            defaultPolicyByTenantCache, roleRecipientCache);
+                }
 
-            if (escalationsCreated > 0) {
-                log.info("Referral escalation: created {} notifications across {} pending referrals",
-                        escalationsCreated, pending.size());
+                if (escalationsCreated > 0) {
+                    log.info("Referral escalation: created {} notifications across {} pending referrals",
+                            escalationsCreated, pending.size());
+                }
+                if (contribution != null) {
+                    contribution.incrementWriteCount(escalationsCreated);
+                }
+                return RepeatStatus.FINISHED;
+            } finally {
+                sample.stop(escalationBatchDurationTimer);
             }
-            if (contribution != null) {
-                contribution.incrementWriteCount(escalationsCreated);
-            }
-            return RepeatStatus.FINISHED;
         };
     }
 

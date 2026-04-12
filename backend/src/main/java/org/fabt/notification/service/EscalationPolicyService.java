@@ -11,6 +11,9 @@ import java.util.regex.Pattern;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.binder.cache.CaffeineCacheMetrics;
+
 import org.fabt.notification.domain.EscalationPolicy;
 import org.fabt.notification.repository.EscalationPolicyRepository;
 import org.slf4j.Logger;
@@ -91,23 +94,43 @@ public class EscalationPolicyService {
      * Cache for findById lookups (batch job hot path).
      * Policies are immutable once inserted (append-only), so this cache never
      * needs invalidation — entries simply expire after 10 minutes of idle.
+     *
+     * <p><b>.recordStats() is REQUIRED</b> for Micrometer's
+     * {@link CaffeineCacheMetrics} to emit non-zero hit/miss/put counters.
+     * Without it, the observability stack silently reports all zeros —
+     * {@code EscalationPolicyServiceCacheMetricsTest} pins this against
+     * regression (T-53, Alex Chen review 2026-04-12).</p>
      */
     private final Cache<UUID, EscalationPolicy> policyById = Caffeine.newBuilder()
             .maximumSize(500)
             .expireAfterAccess(Duration.ofMinutes(10))
+            .recordStats()
             .build();
 
     /**
      * Cache for "current policy for this tenant + event type" lookups
      * (referral creation hot path). Programmatically invalidated on update().
+     *
+     * <p><b>.recordStats() is REQUIRED</b> — see {@link #policyById} comment.</p>
      */
     private final Cache<CurrentKey, EscalationPolicy> currentPolicyByTenant = Caffeine.newBuilder()
             .maximumSize(200)
             .expireAfterWrite(Duration.ofMinutes(5))
+            .recordStats()
             .build();
 
-    public EscalationPolicyService(EscalationPolicyRepository repository) {
+    /**
+     * Constructor. Binds the two Caffeine caches to Micrometer via
+     * {@link CaffeineCacheMetrics#monitor} using fabt-prefixed cache names.
+     * The emitted metric family is {@code cache.gets{cache="fabt.escalation.policy.by-id",result="hit|miss"}}
+     * and analogous for {@code current-by-tenant} — hit rate is a downstream
+     * Grafana/PromQL formula, not a directly emitted metric (T-53,
+     * Alex Chen review 2026-04-12).
+     */
+    public EscalationPolicyService(EscalationPolicyRepository repository, MeterRegistry meterRegistry) {
         this.repository = repository;
+        CaffeineCacheMetrics.monitor(meterRegistry, policyById, "fabt.escalation.policy.by-id");
+        CaffeineCacheMetrics.monitor(meterRegistry, currentPolicyByTenant, "fabt.escalation.policy.current-by-tenant");
     }
 
     /**

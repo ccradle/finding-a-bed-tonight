@@ -13,6 +13,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import org.fabt.auth.service.UserService;
+import org.fabt.observability.ObservabilityMetrics;
 import org.fabt.referral.api.ReassignReferralRequest;
 import org.fabt.referral.domain.ReferralToken;
 import org.fabt.referral.repository.ReferralTokenRepository;
@@ -62,6 +63,7 @@ public class ReferralTokenService {
     private final ApplicationEventPublisher eventPublisher;
     private final EventBus eventBus;
     private final MeterRegistry meterRegistry;
+    private final ObservabilityMetrics observabilityMetrics;
     private final ObjectMapper objectMapper;
 
     /**
@@ -82,6 +84,7 @@ public class ReferralTokenService {
                                 ApplicationEventPublisher eventPublisher,
                                 EventBus eventBus,
                                 MeterRegistry meterRegistry,
+                                ObservabilityMetrics observabilityMetrics,
                                 ObjectMapper objectMapper,
                                 @Value("${fabt.dv-referral.claim-duration-minutes:10}")
                                 int claimDurationMinutes) {
@@ -95,6 +98,7 @@ public class ReferralTokenService {
         this.eventPublisher = eventPublisher;
         this.eventBus = eventBus;
         this.meterRegistry = meterRegistry;
+        this.observabilityMetrics = observabilityMetrics;
         this.objectMapper = objectMapper;
         this.claimDurationMinutes = claimDurationMinutes;
 
@@ -349,38 +353,49 @@ public class ReferralTokenService {
      */
     @Transactional
     public ReferralToken claimToken(UUID tokenId, UUID adminId, boolean override) {
-        Instant claimExpires = Instant.now().plus(Duration.ofMinutes(claimDurationMinutes));
+        // T-53: wall-clock timer tagged by outcome. Default to "error" so any
+        // unexpected throwable records as an error sample; the try/catch
+        // flips to "success" or "conflict" on the known paths.
+        Timer.Sample sample = Timer.start();
+        String outcome = "error";
+        try {
+            Instant claimExpires = Instant.now().plus(Duration.ofMinutes(claimDurationMinutes));
 
-        Optional<ReferralToken> claimed = repository.tryClaim(tokenId, adminId, claimExpires, override);
-        if (claimed.isEmpty()) {
-            // Diagnose why for the right error code (404 vs 409). This second
-            // read is OFF the hot path — only triggered on contention.
-            ReferralToken existing = repository.findById(tokenId).orElse(null);
-            if (existing == null) {
-                throw new NoSuchElementException("Referral token not found: " + tokenId);
+            Optional<ReferralToken> claimed = repository.tryClaim(tokenId, adminId, claimExpires, override);
+            if (claimed.isEmpty()) {
+                // Diagnose why for the right error code (404 vs 409). This second
+                // read is OFF the hot path — only triggered on contention.
+                ReferralToken existing = repository.findById(tokenId).orElse(null);
+                if (existing == null) {
+                    throw new NoSuchElementException("Referral token not found: " + tokenId);
+                }
+                if (!existing.isPending()) {
+                    throw new IllegalStateException("Only pending referrals can be claimed");
+                }
+                outcome = "conflict";
+                throw new ClaimConflictException(
+                        "Referral is already claimed by another admin until " + existing.getClaimExpiresAt());
             }
-            if (!existing.isPending()) {
-                throw new IllegalStateException("Only pending referrals can be claimed");
-            }
-            throw new ClaimConflictException(
-                    "Referral is already claimed by another admin until " + existing.getClaimExpiresAt());
+
+            ReferralToken token = claimed.get();
+
+            publishAudit(adminId, tokenId, AuditEventTypes.DV_REFERRAL_CLAIMED,
+                    Map.of("claimed_until", claimExpires.toString(),
+                           "override", String.valueOf(override)));
+
+            eventBus.publish(new DomainEvent("referral.claimed", token.getTenantId(),
+                    Map.of("referralId", tokenId.toString(),
+                           "claimedByUserId", adminId.toString(),
+                           "claimedUntil", claimExpires.toString())));
+
+            log.info("DV referral claimed by admin: tokenId={}, adminId={}, expires={}, override={}",
+                    tokenId, adminId, claimExpires, override);
+
+            outcome = "success";
+            return token;
+        } finally {
+            sample.stop(observabilityMetrics.dvReferralClaimTimer(outcome));
         }
-
-        ReferralToken token = claimed.get();
-
-        publishAudit(adminId, tokenId, AuditEventTypes.DV_REFERRAL_CLAIMED,
-                Map.of("claimed_until", claimExpires.toString(),
-                       "override", String.valueOf(override)));
-
-        eventBus.publish(new DomainEvent("referral.claimed", token.getTenantId(),
-                Map.of("referralId", tokenId.toString(),
-                       "claimedByUserId", adminId.toString(),
-                       "claimedUntil", claimExpires.toString())));
-
-        log.info("DV referral claimed by admin: tokenId={}, adminId={}, expires={}, override={}",
-                tokenId, adminId, claimExpires, override);
-
-        return token;
     }
 
     /**
@@ -641,6 +656,11 @@ public class ReferralTokenService {
                     eventBus.publish(new DomainEvent("referral.released", r.tenantId(),
                             Map.of("referralId", r.id().toString(), "reason", "timeout")));
                 }
+                // T-53: increment the auto-release counter by the number of
+                // claims released in this sweep. Grafana's rate() over this
+                // counter surfaces training/workflow issues (admins claiming
+                // but not releasing — Keisha Thompson + Devon Kessler lens).
+                observabilityMetrics.dvReferralClaimAutoReleaseCounter().increment(released.size());
                 log.info("Auto-released {} expired referral claims", released.size());
             }
         });

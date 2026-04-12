@@ -5,6 +5,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+
 import org.fabt.notification.domain.EscalationPolicy;
 import org.fabt.notification.repository.EscalationPolicyRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -44,7 +46,11 @@ class EscalationPolicyServiceTest {
     @BeforeEach
     void setUp() {
         repository = mock(EscalationPolicyRepository.class);
-        service = new EscalationPolicyService(repository);
+        // SimpleMeterRegistry is a real (non-mock) Micrometer registry that
+        // records no-op bindings without requiring a Spring context. Used
+        // here because the service constructor wires CaffeineCacheMetrics
+        // into the registry at construction time (T-53).
+        service = new EscalationPolicyService(repository, new SimpleMeterRegistry());
     }
 
     private static EscalationPolicy.Threshold threshold(String id, Duration at, String severity, String... roles) {
