@@ -326,7 +326,7 @@ export function CoordinatorDashboard() {
       <div style={{ fontSize: text.sm, color: color.textTertiary, marginBottom: 10, fontWeight: weight.semibold, letterSpacing: '0.02em' }}>
         {loading
           ? <FormattedMessage id="coord.loading" />
-          : <FormattedMessage id="coord.bedsTotal" values={{ count: shelters.length }} />}
+          : <FormattedMessage id="coord.shelterCount" values={{ count: shelters.length }} />}
       </div>
 
       {error && (

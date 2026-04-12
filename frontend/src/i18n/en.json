@@ -183,6 +183,7 @@
   "coord.title": "Shelter Dashboard",
   "coord.subtitle": "Update bed counts and availability for your shelters",
   "coord.bedsTotal": "Total Beds",
+  "coord.shelterCount": "{count, plural, one {# assigned shelter} other {# assigned shelters}}",
   "coord.save": "Save Changes",
   "coord.saved": "Saved!",
   "coord.loading": "Loading shelters...",

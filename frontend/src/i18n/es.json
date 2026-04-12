@@ -183,6 +183,7 @@
   "coord.title": "Panel de Refugios",
   "coord.subtitle": "Actualizar conteo de camas y disponibilidad de sus refugios",
   "coord.bedsTotal": "Total de Camas",
+  "coord.shelterCount": "{count, plural, one {# refugio asignado} other {# refugios asignados}}",
   "coord.save": "Guardar Cambios",
   "coord.saved": "¡Guardado!",
   "coord.loading": "Cargando refugios...",
