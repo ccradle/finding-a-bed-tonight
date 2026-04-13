@@ -167,6 +167,7 @@ Table shelter {
   latitude        "double precision" [note: 'WGS 84 latitude']
   longitude       "double precision" [note: 'WGS 84 longitude']
   dv_shelter      boolean     [not null, default: false, note: 'Protected by PostgreSQL RLS']
+  active          boolean     [not null, default: true, note: 'V52 — inactive shelters excluded from bed search. Safety check flags referrals for inactive shelters as SHELTER_CLOSED']
   created_at      timestamptz [not null, default: `now()`]
   updated_at      timestamptz [not null, default: `now()`]
 
@@ -511,6 +512,7 @@ Table referral_token {
   responded_by        uuid        [ref: > app_user.id]
   expires_at          timestamptz [not null]
   rejection_reason    varchar     [note: 'No client PII advisory']
+  shelter_name         varchar(255) [note: 'V51 — snapshotted at creation for offline/list visibility. NULL on pre-V51 rows (backfilled by V51 migration)']
   escalation_policy_id uuid      [ref: > escalation_policy.id, note: 'V47 — frozen-at-creation policy FK. NULL on pre-V47 rows (falls back to platform default)']
   claimed_by_admin_id  uuid      [ref: > app_user.id, note: 'V47 — CoC admin soft-lock claim. NULL when unclaimed']
   claim_expires_at     timestamptz [note: 'V47 — auto-release after this time (default 10 min)']

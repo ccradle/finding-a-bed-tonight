@@ -30,12 +30,12 @@ Three deployment tiers allow the same codebase to serve communities of vastly di
 | Layer | Technology |
 |---|---|
 | Backend | Java 25, Spring Boot 4.0, Spring MVC, Spring Data JDBC, Virtual Threads |
-| Database | PostgreSQL 16, Flyway (47 migrations), Row Level Security (DV shelters + notifications) |
+| Database | PostgreSQL 16, Flyway (49 migrations), Row Level Security (DV shelters + notifications) |
 | Cache | Caffeine L1 / + Redis L2 (Standard/Full) |
 | Events | Spring Events (Lite) / Kafka (Full) |
 | Auth | JWT + OAuth2/OIDC + API Keys (hybrid) |
 | Frontend | React 19, Vite, TypeScript, Workbox PWA (injectManifest), react-intl (EN/ES), CSS custom properties design tokens |
-| Testing | JUnit 5, Testcontainers, ArchUnit (586 tests), Playwright (338 UI tests), Vitest (42 unit tests), Karate (82 API scenarios), Gatling (8 simulations) |
+| Testing | JUnit 5, Testcontainers, ArchUnit (597 tests), Playwright (339 UI tests), Vitest (42 unit tests), Karate (82 API scenarios), Gatling (8 simulations) |
 | Infra | Docker, GitHub Actions CI/CD + E2E pipeline, Terraform (3 tiers) |
 
 ---
@@ -84,7 +84,7 @@ Phase 2 will add an MCP server as a thin wrapper around the REST API, enabling n
 
 ## Database Schema
 
-37 Flyway migrations (V1–V37 + V8.1):
+49 Flyway migrations (V1–V52, with V8.1 and gaps at V40–V43):
 
 | Migration | Description |
 |---|---|
@@ -323,7 +323,7 @@ cd backend
 mvn test
 
 # Run E2E tests (requires dev-start.sh stack running)
-cd ../e2e/playwright && BASE_URL=http://localhost:8081 npx playwright test    # 338 UI tests (run through nginx)
+cd ../e2e/playwright && BASE_URL=http://localhost:8081 npx playwright test    # 339 UI tests (run through nginx)
 cd ../e2e/karate && mvn test                   # 82 API scenarios across 29 features
 cd ../e2e/gatling && mvn gatling:test           # Gatling performance simulations
 
@@ -359,6 +359,10 @@ The dev stack normally uses Vite's dev server (port 5173) which has a built-in p
 ./dev-start.sh --nginx --no-build         # Restart nginx without rebuilding
 npx playwright test --project=nginx       # Run E2E through nginx proxy
 ```
+
+**CORS:** When running through nginx (`:8081`), the backend must allow `http://localhost:8081` as a CORS origin. `dev-start.sh` sets this automatically via `FABT_CORS_ALLOWED_ORIGINS=http://localhost:5173,http://localhost:8081`. If running the backend manually without `dev-start.sh`, export this variable or you'll get 403 errors on browser requests through nginx. This is the same issue that affects the Oracle demo (`feedback_nginx_cors_dev`).
+
+**Playwright BASE_URL:** Always use `BASE_URL=http://localhost:8081` when running Playwright with `--nginx`. Without it, Playwright defaults to Vite's `:5173` and bypasses the nginx proxy entirely, missing proxy-specific bugs. The `feedback_check_ports_before_assuming` memory captures this as a critical lesson.
 
 **Future:** Consider adding the nginx Playwright profile to CI as a weekly or pre-release job.
 
@@ -415,9 +419,9 @@ Real-time notifications use Server-Sent Events (SSE) via Spring Boot `SseEmitter
 | `AnalyticsIntegrationTest` | 13 | Utilization, demand, HIC/PIT export, batch jobs, security |
 | `CsvSanitizerTest` | 18 | Parameterized injection prevention, edge cases |
 | `SseStabilityTest` | 4 | Timeout behavior, initial event, Last-Event-ID, metrics |
-| **Backend Total** | **351** | |
+| **Backend Total** | **~597** | *(count grows with each change — run `mvn test` for current)* |
 | | | |
-| **E2E: Playwright** | **217** | **UI tests (Chromium, data-testid locators)** |
+| **E2E: Playwright** | **~339** | **UI tests (Chromium, data-testid locators)** |
 | `auth.spec.ts` | 4 | Login per role, failed login |
 | `outreach-search.spec.ts` | 9 | Results, filters, modal, hold/cancel, language, freshness |
 | `coordinator-dashboard.spec.ts` | 5 | Load, expand, update, save, hold indicator |
@@ -438,7 +442,7 @@ Real-time notifications use Server-Sent Events (SSE) via Spring Boot `SseEmitter
 | `capture-hmis-screenshots.spec.ts` | 4 | HMIS bridge screenshot capture |
 | `capture-analytics-screenshots.spec.ts` | 6 | Analytics dashboard screenshot capture |
 | | | |
-| **E2E: Karate** | **77** | **API contract tests (feature files)** |
+| **E2E: Karate** | **~82** | **API contract tests (feature files)** |
 | `auth/login.feature` | 5 | JWT login, refresh, invalid, no-auth 401, API key |
 | `shelters/shelter-crud.feature` | 6 | Create, update, list, filter, HSDS, outreach 403 |
 | `availability/availability.feature` | 6 | PATCH snapshot, bed search, filters, outreach 403, detail |
@@ -976,7 +980,7 @@ finding-a-bed-tonight/
 │       ├── main/resources/
 │       │   ├── application.yml                        # Base config (port 8080, OTel, Resilience4J)
 │       │   ├── application-observability.yml          # Management port 9091 (for dev Prometheus scrape)
-│       │   ├── db/migration/                          # 37 Flyway migrations (V1–V37 + V8.1)
+│       │   ├── db/migration/                          # 49 Flyway migrations (V1–V52, with V8.1 and gaps at V40–V43)
 │       │   ├── logback-spring.xml                     # Structured JSON logging (Logstash encoder)
 │       │   └── messages/                              # i18n error messages (EN, ES)
 │       └── test/java/org/fabt/                        # 378 tests (unit + integration)
