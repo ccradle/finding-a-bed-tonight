@@ -188,7 +188,8 @@ public class HsdsImportAdapter {
                     null,   // curfewTime
                     null,   // maxStayDays
                     null,   // populationTypesServed
-                    null    // capacityByType
+                    null,   // capacityByType
+                    null    // bedsOccupied — not in HSDS standard
             );
 
             rows.add(row);

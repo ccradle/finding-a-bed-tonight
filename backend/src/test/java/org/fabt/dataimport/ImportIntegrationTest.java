@@ -543,7 +543,202 @@ class ImportIntegrationTest extends BaseIntegrationTest {
         ImportResultResponse result = response.getBody();
         assertThat(result).isNotNull();
         assertThat(result.errors()).isNotEmpty();
-        assertThat(result.errors().get(0)).contains("Name is required");
+        assertThat(result.errors().get(0)).contains("Shelter name is required");
+    }
+
+    // -------------------------------------------------------------------------
+    // Issue #65 — Extended adapter tests (full column set)
+    // -------------------------------------------------------------------------
+
+    @Test
+    void test_211Import_fullColumns_createsWithCapacityAndConstraints() {
+        HttpHeaders headers = authHelper.cocAdminHeaders();
+        String csv = "name,address,city,state,zip,phone,dvShelter,populationTypesServed,bedsTotal,bedsOccupied,sobrietyRequired,referralRequired,petsAllowed,wheelchairAccessible,maxStayDays\n"
+                + "Full Import Shelter " + UUID.randomUUID().toString().substring(0, 6) + ",100 Full St,Raleigh,NC,27601,919-555-0100,false,SINGLE_ADULT,50,30,true,false,true,true,90\n";
+
+        HttpEntity<MultiValueMap<String, Object>> request = buildMultipartRequest(headers, csv, "full-columns.csv");
+
+        ResponseEntity<ImportResultResponse> response = restTemplate.exchange(
+                "/api/v1/import/211", HttpMethod.POST, request, ImportResultResponse.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        ImportResultResponse result = response.getBody();
+        assertThat(result).isNotNull();
+        assertThat(result.created()).isEqualTo(1);
+        assertThat(result.errors()).isEmpty();
+    }
+
+    @Test
+    void test_211Import_booleanParsing_flexibleValues() {
+        HttpHeaders headers = authHelper.cocAdminHeaders();
+        // Test all recognized boolean formats: true/yes/1/Y + false/no/0/N
+        String csv = "name,city,sobrietyRequired,petsAllowed,wheelchairAccessible,idRequired\n"
+                + "Bool Test Yes " + UUID.randomUUID().toString().substring(0, 6) + ",Raleigh,yes,true,1,Y\n"
+                + "Bool Test No " + UUID.randomUUID().toString().substring(0, 6) + ",Raleigh,no,false,0,N\n";
+
+        HttpEntity<MultiValueMap<String, Object>> request = buildMultipartRequest(headers, csv, "booleans.csv");
+
+        ResponseEntity<ImportResultResponse> response = restTemplate.exchange(
+                "/api/v1/import/211", HttpMethod.POST, request, ImportResultResponse.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().created()).isEqualTo(2);
+        assertThat(response.getBody().errors()).isEmpty();
+    }
+
+    @Test
+    void test_211Import_semicolonPopulationTypes() {
+        HttpHeaders headers = authHelper.cocAdminHeaders();
+        String csv = "name,city,populationTypesServed,bedsTotal\n"
+                + "Multi Pop Shelter " + UUID.randomUUID().toString().substring(0, 6) + ",Raleigh,SINGLE_ADULT;VETERAN;FAMILY_WITH_CHILDREN,50\n";
+
+        HttpEntity<MultiValueMap<String, Object>> request = buildMultipartRequest(headers, csv, "multi-pop.csv");
+
+        ResponseEntity<ImportResultResponse> response = restTemplate.exchange(
+                "/api/v1/import/211", HttpMethod.POST, request, ImportResultResponse.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().created()).isEqualTo(1);
+        assertThat(response.getBody().errors()).isEmpty();
+    }
+
+    @Test
+    void test_211Import_invalidPopulationType_reportsError() {
+        HttpHeaders headers = authHelper.cocAdminHeaders();
+        String csv = "name,city,populationTypesServed,bedsTotal\n"
+                + "Bad Pop Shelter " + UUID.randomUUID().toString().substring(0, 6) + ",Raleigh,ADULTS,50\n";
+
+        HttpEntity<MultiValueMap<String, Object>> request = buildMultipartRequest(headers, csv, "bad-pop.csv");
+
+        ResponseEntity<ImportResultResponse> response = restTemplate.exchange(
+                "/api/v1/import/211", HttpMethod.POST, request, ImportResultResponse.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().errors()).isNotEmpty();
+        assertThat(response.getBody().errors().get(0)).contains("ADULTS");
+    }
+
+    @Test
+    void test_211Import_bedsOccupiedExceedsTotal_reportsError() {
+        HttpHeaders headers = authHelper.cocAdminHeaders();
+        String csv = "name,city,populationTypesServed,bedsTotal,bedsOccupied\n"
+                + "Overcap Shelter " + UUID.randomUUID().toString().substring(0, 6) + ",Raleigh,SINGLE_ADULT,20,30\n";
+
+        HttpEntity<MultiValueMap<String, Object>> request = buildMultipartRequest(headers, csv, "overcap.csv");
+
+        ResponseEntity<ImportResultResponse> response = restTemplate.exchange(
+                "/api/v1/import/211", HttpMethod.POST, request, ImportResultResponse.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().errors()).isNotEmpty();
+        assertThat(response.getBody().errors().get(0)).contains("occupied");
+        assertThat(response.getBody().errors().get(0)).contains("more than total");
+    }
+
+    @Test
+    void test_211Import_dvShelter_created() {
+        HttpHeaders headers = authHelper.cocAdminHeaders();
+        String csv = "name,city,dvShelter,populationTypesServed,bedsTotal\n"
+                + "DV Import Shelter " + UUID.randomUUID().toString().substring(0, 6) + ",Raleigh,true,DV_SURVIVOR,20\n";
+
+        HttpEntity<MultiValueMap<String, Object>> request = buildMultipartRequest(headers, csv, "dv-import.csv");
+
+        ResponseEntity<ImportResultResponse> response = restTemplate.exchange(
+                "/api/v1/import/211", HttpMethod.POST, request, ImportResultResponse.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().created()).isEqualTo(1);
+        assertThat(response.getBody().errors()).isEmpty();
+    }
+
+    @Test
+    void test_211Import_upsert_reImportUpdates() {
+        HttpHeaders headers = authHelper.cocAdminHeaders();
+        String uniqueName = "Upsert Test " + UUID.randomUUID().toString().substring(0, 6);
+        String csv = "name,city,phone\n" + uniqueName + ",Raleigh,919-555-0001\n";
+
+        // First import — creates
+        HttpEntity<MultiValueMap<String, Object>> request1 = buildMultipartRequest(headers, csv, "upsert1.csv");
+        ResponseEntity<ImportResultResponse> response1 = restTemplate.exchange(
+                "/api/v1/import/211", HttpMethod.POST, request1, ImportResultResponse.class);
+        assertThat(response1.getBody().created()).isEqualTo(1);
+
+        // Same data — should update, not duplicate
+        String csvUpdated = "name,city,phone\n" + uniqueName + ",Raleigh,919-555-9999\n";
+        HttpEntity<MultiValueMap<String, Object>> request2 = buildMultipartRequest(headers, csvUpdated, "upsert2.csv");
+        ResponseEntity<ImportResultResponse> response2 = restTemplate.exchange(
+                "/api/v1/import/211", HttpMethod.POST, request2, ImportResultResponse.class);
+        assertThat(response2.getBody().updated()).isEqualTo(1);
+        assertThat(response2.getBody().created()).isEqualTo(0);
+    }
+
+    @Test
+    void test_211Import_partialSuccess_validAndInvalidRows() {
+        HttpHeaders headers = authHelper.cocAdminHeaders();
+        String csv = "name,city,populationTypesServed,bedsTotal\n"
+                + "Valid Shelter " + UUID.randomUUID().toString().substring(0, 6) + ",Raleigh,SINGLE_ADULT,50\n"
+                + "Bad Shelter " + UUID.randomUUID().toString().substring(0, 6) + ",Raleigh,INVALID_TYPE,50\n";
+
+        HttpEntity<MultiValueMap<String, Object>> request = buildMultipartRequest(headers, csv, "partial.csv");
+
+        ResponseEntity<ImportResultResponse> response = restTemplate.exchange(
+                "/api/v1/import/211", HttpMethod.POST, request, ImportResultResponse.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().created()).isEqualTo(1);
+        // Invalid pop type triggers two errors: one from populationTypesServed validation,
+        // one from capacityByType validation (adapter creates capacity entry per pop type).
+        // Both errors correctly reference the invalid value.
+        assertThat(response.getBody().errors()).isNotEmpty();
+        assertThat(response.getBody().errors()).anyMatch(e -> e.contains("INVALID_TYPE"));
+    }
+
+    @Test
+    void test_211PreviewImport_showsUpsertCounts() {
+        HttpHeaders headers = authHelper.cocAdminHeaders();
+        String uniqueName = "Preview Upsert " + UUID.randomUUID().toString().substring(0, 6);
+
+        // Create a shelter first
+        String csvCreate = "name,city\n" + uniqueName + ",Raleigh\n";
+        HttpEntity<MultiValueMap<String, Object>> createReq = buildMultipartRequest(headers, csvCreate, "pre-create.csv");
+        restTemplate.exchange("/api/v1/import/211", HttpMethod.POST, createReq, ImportResultResponse.class);
+
+        // Now preview-import the same name — should show willUpdate=1, willCreate=0
+        String csvPreview = "name,city,phone\n" + uniqueName + ",Raleigh,919-555-8888\n"
+                + "Brand New Shelter " + UUID.randomUUID().toString().substring(0, 6) + ",Raleigh,919-555-9999\n";
+        HttpEntity<MultiValueMap<String, Object>> previewReq = buildMultipartRequest(headers, csvPreview, "preview.csv");
+
+        ResponseEntity<ImportResultResponse> response = restTemplate.exchange(
+                "/api/v1/import/211/preview-import", HttpMethod.POST, previewReq, ImportResultResponse.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        ImportResultResponse preview = response.getBody();
+        assertThat(preview).isNotNull();
+        // "created" in preview = willCreate, "updated" = willUpdate
+        assertThat(preview.updated()).isEqualTo(1);
+        assertThat(preview.created()).isEqualTo(1);
+    }
+
+    @Test
+    void test_211Import_dvFlagChange_logsSafetyNotice() {
+        HttpHeaders headers = authHelper.cocAdminHeaders();
+        String uniqueName = "DV Change Test " + UUID.randomUUID().toString().substring(0, 6);
+
+        // Create as non-DV
+        String csv1 = "name,city,dvShelter\n" + uniqueName + ",Raleigh,false\n";
+        HttpEntity<MultiValueMap<String, Object>> req1 = buildMultipartRequest(headers, csv1, "dv-change1.csv");
+        restTemplate.exchange("/api/v1/import/211", HttpMethod.POST, req1, ImportResultResponse.class);
+
+        // Re-import as DV — should flag safety notice
+        String csv2 = "name,city,dvShelter\n" + uniqueName + ",Raleigh,true\n";
+        HttpEntity<MultiValueMap<String, Object>> req2 = buildMultipartRequest(headers, csv2, "dv-change2.csv");
+        ResponseEntity<ImportResultResponse> response = restTemplate.exchange(
+                "/api/v1/import/211", HttpMethod.POST, req2, ImportResultResponse.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().updated()).isEqualTo(1);
+        // The DV flag change safety notice should be in the errors list
+        assertThat(response.getBody().errors()).anyMatch(e -> e.contains("Safety notice") && e.contains("DV"));
     }
 
     @Test

@@ -85,6 +85,73 @@ public class TwoOneOneImportAdapter {
         HEADER_SYNONYMS.put("lng", "longitude");
         HEADER_SYNONYMS.put("lon", "longitude");
         HEADER_SYNONYMS.put("longitude", "longitude");
+
+        // dvShelter (boolean)
+        HEADER_SYNONYMS.put("dvshelter", "dvShelter");
+        HEADER_SYNONYMS.put("dv_shelter", "dvShelter");
+        HEADER_SYNONYMS.put("dv shelter", "dvShelter");
+        HEADER_SYNONYMS.put("is_dv", "dvShelter");
+        HEADER_SYNONYMS.put("dv", "dvShelter");
+
+        // populationTypesServed (semicolon-delimited)
+        HEADER_SYNONYMS.put("populationtypesserved", "populationTypesServed");
+        HEADER_SYNONYMS.put("population_types_served", "populationTypesServed");
+        HEADER_SYNONYMS.put("population types served", "populationTypesServed");
+        HEADER_SYNONYMS.put("population_types", "populationTypesServed");
+        HEADER_SYNONYMS.put("population types", "populationTypesServed");
+        HEADER_SYNONYMS.put("populations_served", "populationTypesServed");
+        HEADER_SYNONYMS.put("populations served", "populationTypesServed");
+
+        // bedsTotal (integer)
+        HEADER_SYNONYMS.put("bedstotal", "bedsTotal");
+        HEADER_SYNONYMS.put("beds_total", "bedsTotal");
+        HEADER_SYNONYMS.put("beds total", "bedsTotal");
+        HEADER_SYNONYMS.put("total_beds", "bedsTotal");
+        HEADER_SYNONYMS.put("total beds", "bedsTotal");
+
+        // bedsOccupied (integer)
+        HEADER_SYNONYMS.put("bedsoccupied", "bedsOccupied");
+        HEADER_SYNONYMS.put("beds_occupied", "bedsOccupied");
+        HEADER_SYNONYMS.put("beds occupied", "bedsOccupied");
+        HEADER_SYNONYMS.put("occupied_beds", "bedsOccupied");
+        HEADER_SYNONYMS.put("occupied beds", "bedsOccupied");
+
+        // sobrietyRequired (boolean)
+        HEADER_SYNONYMS.put("sobrietyrequired", "sobrietyRequired");
+        HEADER_SYNONYMS.put("sobriety_required", "sobrietyRequired");
+        HEADER_SYNONYMS.put("sobriety required", "sobrietyRequired");
+        HEADER_SYNONYMS.put("sobriety", "sobrietyRequired");
+
+        // referralRequired (boolean)
+        HEADER_SYNONYMS.put("referralrequired", "referralRequired");
+        HEADER_SYNONYMS.put("referral_required", "referralRequired");
+        HEADER_SYNONYMS.put("referral required", "referralRequired");
+        HEADER_SYNONYMS.put("referral", "referralRequired");
+
+        // idRequired (boolean)
+        HEADER_SYNONYMS.put("idrequired", "idRequired");
+        HEADER_SYNONYMS.put("id_required", "idRequired");
+        HEADER_SYNONYMS.put("id required", "idRequired");
+
+        // petsAllowed (boolean)
+        HEADER_SYNONYMS.put("petsallowed", "petsAllowed");
+        HEADER_SYNONYMS.put("pets_allowed", "petsAllowed");
+        HEADER_SYNONYMS.put("pets allowed", "petsAllowed");
+        HEADER_SYNONYMS.put("pets", "petsAllowed");
+
+        // wheelchairAccessible (boolean)
+        HEADER_SYNONYMS.put("wheelchairaccessible", "wheelchairAccessible");
+        HEADER_SYNONYMS.put("wheelchair_accessible", "wheelchairAccessible");
+        HEADER_SYNONYMS.put("wheelchair accessible", "wheelchairAccessible");
+        HEADER_SYNONYMS.put("wheelchair", "wheelchairAccessible");
+        HEADER_SYNONYMS.put("ada", "wheelchairAccessible");
+
+        // maxStayDays (integer)
+        HEADER_SYNONYMS.put("maxstaydays", "maxStayDays");
+        HEADER_SYNONYMS.put("max_stay_days", "maxStayDays");
+        HEADER_SYNONYMS.put("max stay days", "maxStayDays");
+        HEADER_SYNONYMS.put("max_stay", "maxStayDays");
+        HEADER_SYNONYMS.put("max stay", "maxStayDays");
     }
 
     /**
@@ -142,6 +209,8 @@ public class TwoOneOneImportAdapter {
 
         for (CSVRecord record : records) {
             int rowNum = (int) record.getRecordNumber();
+
+            // Core fields (original 8)
             String name = CsvSanitizer.sanitize(getField(record, fieldToHeader, "name"), rowNum, "name");
             String addressStreet = CsvSanitizer.sanitize(getField(record, fieldToHeader, "addressStreet"), rowNum, "addressStreet");
             String addressCity = CsvSanitizer.sanitize(getField(record, fieldToHeader, "addressCity"), rowNum, "addressCity");
@@ -151,10 +220,56 @@ public class TwoOneOneImportAdapter {
             Double latitude = getDoubleField(record, fieldToHeader, "latitude");
             Double longitude = getDoubleField(record, fieldToHeader, "longitude");
 
+            // Extended fields (issue #65 — adapter extension)
+            Boolean dvShelter = getBooleanField(record, fieldToHeader, "dvShelter");
+            Boolean sobrietyRequired = getBooleanField(record, fieldToHeader, "sobrietyRequired");
+            Boolean idRequired = getBooleanField(record, fieldToHeader, "idRequired");
+            Boolean referralRequired = getBooleanField(record, fieldToHeader, "referralRequired");
+            Boolean petsAllowed = getBooleanField(record, fieldToHeader, "petsAllowed");
+            Boolean wheelchairAccessible = getBooleanField(record, fieldToHeader, "wheelchairAccessible");
+            Integer maxStayDays = getIntegerField(record, fieldToHeader, "maxStayDays");
+
+            // populationTypesServed: semicolon-delimited (e.g., "SINGLE_ADULT;VETERAN")
+            String popTypesRaw = getField(record, fieldToHeader, "populationTypesServed");
+            String[] populationTypesServed = null;
+            if (popTypesRaw != null && !popTypesRaw.isBlank()) {
+                populationTypesServed = java.util.Arrays.stream(popTypesRaw.split(";"))
+                        .map(String::trim)
+                        .filter(s -> !s.isEmpty())
+                        .map(String::toUpperCase)
+                        .toArray(String[]::new);
+            }
+
+            // capacityByType: if bedsTotal is provided, assign to FIRST population type.
+            // The CSV has a single bedsTotal — not per-type. Duplicating it across all
+            // types would inflate the total (war room finding #2, Alex Chen 2026-04-13).
+            // For multi-population shelters, the first type gets the full capacity;
+            // additional types get 0 and the coordinator refines after import.
+            Integer bedsTotal = getIntegerField(record, fieldToHeader, "bedsTotal");
+            Integer bedsOccupied = getIntegerField(record, fieldToHeader, "bedsOccupied");
+            Map<String, Integer> capacityByType = null;
+            if (bedsTotal != null && populationTypesServed != null) {
+                capacityByType = new LinkedHashMap<>(); // preserve insertion order
+                boolean first = true;
+                for (String popType : populationTypesServed) {
+                    capacityByType.put(popType, first ? bedsTotal : 0);
+                    first = false;
+                }
+                if (populationTypesServed.length > 1) {
+                    log.info("CSV import row {}: bedsTotal={} assigned to first population type '{}'. "
+                            + "Other types ({}) set to 0 — refine per-type capacity in admin panel after import.",
+                            rowNum, bedsTotal, populationTypesServed[0], populationTypesServed.length - 1);
+                }
+            }
+
             ShelterImportRow row = new ShelterImportRow(
                     name, addressStreet, addressCity, addressState, addressZip,
                     phone, latitude, longitude,
-                    null, null, null, null, null, null, null, null, null, null
+                    dvShelter, sobrietyRequired, idRequired, referralRequired,
+                    petsAllowed, wheelchairAccessible,
+                    null, // curfewTime — not in the CSV format (complex LocalTime parsing; deferred)
+                    maxStayDays, populationTypesServed, capacityByType,
+                    bedsOccupied
             );
 
             rows.add(row);
@@ -256,6 +371,40 @@ public class TwoOneOneImportAdapter {
             return Double.parseDouble(raw);
         } catch (NumberFormatException e) {
             log.warn("CSV import: could not parse '{}' as number for field '{}'", raw, fieldName);
+            return null;
+        }
+    }
+
+    /**
+     * Parse a boolean field with flexible matching (Decision 7).
+     * true/yes/1/y/Y → true. Everything else (false/no/0/n/empty/absent) → null.
+     * Returns null (not false) for absent columns so callers can distinguish
+     * "column not in CSV" from "column present with false value."
+     */
+    private Boolean getBooleanField(CSVRecord record, Map<String, String> fieldToHeader, String fieldName) {
+        String raw = getField(record, fieldToHeader, fieldName);
+        if (raw == null) return null;
+        String normalized = raw.toLowerCase().trim();
+        return switch (normalized) {
+            case "true", "yes", "1", "y" -> true;
+            case "false", "no", "0", "n" -> false;
+            default -> {
+                log.warn("CSV import: could not parse '{}' as boolean for field '{}' — treating as false", raw, fieldName);
+                yield false;
+            }
+        };
+    }
+
+    /**
+     * Parse an integer field. Returns null for absent or unparseable values.
+     */
+    private Integer getIntegerField(CSVRecord record, Map<String, String> fieldToHeader, String fieldName) {
+        String raw = getField(record, fieldToHeader, fieldName);
+        if (raw == null) return null;
+        try {
+            return Integer.parseInt(raw.trim());
+        } catch (NumberFormatException e) {
+            log.warn("CSV import: could not parse '{}' as integer for field '{}'", raw, fieldName);
             return null;
         }
     }

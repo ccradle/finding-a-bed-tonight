@@ -141,6 +141,35 @@ public class ImportController {
     }
 
     @Operation(
+            summary = "Preview import outcome (dry run) for a 2-1-1 CSV",
+            description = "Validates the CSV and counts how many shelters will be created vs. " +
+                    "updated, WITHOUT committing any changes. Shows per-row validation errors " +
+                    "and DV flag change safety notices. Use this after column mapping preview " +
+                    "and before the final POST /api/v1/import/211 commit. " +
+                    "Requires COC_ADMIN or PLATFORM_ADMIN role."
+    )
+    @PostMapping("/211/preview-import")
+    public ResponseEntity<ImportResultResponse> previewImport(
+            @Parameter(description = "CSV file in 2-1-1 format to preview import outcome")
+            @RequestParam("file") MultipartFile file) {
+        UUID tenantId = TenantContext.getTenantId();
+        if (tenantId == null) {
+            throw new IllegalStateException("Tenant context is not set");
+        }
+
+        validateCsvMimeType(file);
+        String csvContent = readFileContent(file);
+        List<ShelterImportRow> rows = twoOneOneImportAdapter.parseCsv(csvContent);
+
+        if (rows.isEmpty()) {
+            throw new IllegalArgumentException("CSV file contains no data rows");
+        }
+
+        ImportResult preview = shelterImportService.previewImport(tenantId, rows);
+        return ResponseEntity.ok(ImportResultResponse.from(preview));
+    }
+
+    @Operation(
             summary = "List import history for the authenticated tenant",
             description = "Returns all import log entries for the caller's tenant, ordered by most " +
                     "recent first. Each entry includes the import id, source format (HSDS or " +

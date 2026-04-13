@@ -1,0 +1,4 @@
+name,addressStreet,addressCity,addressState,addressZip,phone,latitude,longitude,dvShelter,populationTypesServed,bedsTotal,bedsOccupied,sobrietyRequired,referralRequired,idRequired,petsAllowed,wheelchairAccessible,maxStayDays
+Downtown Emergency Shelter,100 Main St,Raleigh,NC,27601,919-555-0100,35.7796,-78.6382,false,SINGLE_ADULT;FAMILY_WITH_CHILDREN,50,30,false,false,false,true,true,
+Safe Harbor DV Shelter,999 Undisclosed Ave,Raleigh,NC,27601,919-555-0199,35.78,-78.64,true,DV_SURVIVOR,20,8,false,false,false,false,true,
+Recovery Path Transitional,250 Hope Blvd,Raleigh,NC,27603,919-555-0300,35.77,-78.65,false,SINGLE_ADULT;VETERAN,30,22,true,true,true,false,true,90

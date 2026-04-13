@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+
+    <!-- Plain text console for tests (replaces JSON encoder from logback-spring.xml).
+         Logback picks logback-test.xml before logback-spring.xml on the classpath.
+         Maven excludes this from the packaged JAR so it never reaches production. -->
+    <appender name="PLAIN_CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- SQL diagnostic file — uncomment when debugging import/RLS issues.
+         See memory: feedback_sql_logging_spring_data_jdbc for the full config.
+    <appender name="SQL_FILE" class="ch.qos.logback.core.FileAppender">
+        <file>../logs/test-sql.log</file>
+        <append>false</append>
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} %-5level %logger{60} - %msg%n</pattern>
+        </encoder>
+    </appender>
+    <logger name="org.springframework.jdbc.core.JdbcTemplate" level="DEBUG" additivity="true">
+        <appender-ref ref="SQL_FILE" />
+    </logger>
+    <logger name="org.springframework.jdbc.core.StatementCreatorUtils" level="TRACE" additivity="true">
+        <appender-ref ref="SQL_FILE" />
+    </logger>
+    <logger name="org.springframework.jdbc.support" level="DEBUG" additivity="true">
+        <appender-ref ref="SQL_FILE" />
+    </logger>
+    -->
+
+    <!-- Suppress noisy test loggers -->
+    <logger name="org.testcontainers" level="INFO" />
+    <logger name="com.github.dockerjava" level="WARN" />
+    <logger name="org.apache.hc" level="WARN" />
+    <logger name="org.flywaydb" level="INFO" />
+
+    <root level="INFO">
+        <appender-ref ref="PLAIN_CONSOLE" />
+    </root>
+
+</configuration>

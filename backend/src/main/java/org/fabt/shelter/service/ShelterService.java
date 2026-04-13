@@ -152,11 +152,13 @@ public class ShelterService {
         }
 
         // Write initial capacity as bed_availability snapshots (single source of truth — D10)
+        // Issue #65: use cap.bedsOccupied() instead of hardcoded 0 so CSV import
+        // can set current occupancy at onboarding time.
         if (req.capacities() != null) {
             for (var cap : req.capacities()) {
                 availabilityService.createSnapshot(
                         saved.getId(), cap.populationType(), cap.bedsTotal(),
-                        0, 0, true, null, "shelter-create");
+                        cap.bedsOccupied(), 0, true, null, "shelter-create");
             }
         }
 
@@ -239,7 +241,10 @@ public class ShelterService {
 
             for (var cap : req.capacities()) {
                 AvailabilitySnapshot existing = snapshotByType.get(cap.populationType());
-                int occupied = existing != null ? existing.bedsOccupied() : 0;
+                // Issue #65: if the DTO provides bedsOccupied (from CSV import),
+                // use it; otherwise preserve the existing operational value.
+                int occupied = cap.bedsOccupied() > 0 ? cap.bedsOccupied()
+                        : (existing != null ? existing.bedsOccupied() : 0);
                 int onHold = existing != null ? existing.bedsOnHold() : 0;
                 boolean accepting = existing != null ? existing.acceptingNewGuests() : true;
                 availabilityService.createSnapshot(
@@ -410,7 +415,12 @@ public class ShelterService {
             constraints.setCurfewTime(LocalTime.parse(dto.curfewTime()));
         }
         constraints.setMaxStayDays(dto.maxStayDays());
-        constraints.setPopulationTypesServed(dto.populationTypesServed());
+        // Null-safe: DB column is NOT NULL DEFAULT '{}'. Spring Data JDBC always
+        // sends the Java field value, overriding the DB default. If the DTO has null
+        // (e.g., import without populationTypesServed column), use empty array.
+        // Alex Chen + Elena Vasquez: fix at the service layer to protect ALL callers.
+        constraints.setPopulationTypesServed(
+                dto.populationTypesServed() != null ? dto.populationTypesServed() : new String[0]);
         return constraints;
     }
 
