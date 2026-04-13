@@ -23,6 +23,9 @@ public class Shelter {
     private boolean dvShelter;
     /** When false, shelter is hidden from bed search but still loaded for DV referral safety checks. */
     private boolean active = true;
+    private Instant deactivatedAt;
+    private UUID deactivatedBy;
+    private String deactivationReason;
     private Instant createdAt;
     private Instant updatedAt;
 
@@ -123,6 +126,30 @@ public class Shelter {
 
     public void setActive(boolean active) {
         this.active = active;
+    }
+
+    public Instant getDeactivatedAt() {
+        return deactivatedAt;
+    }
+
+    public void setDeactivatedAt(Instant deactivatedAt) {
+        this.deactivatedAt = deactivatedAt;
+    }
+
+    public UUID getDeactivatedBy() {
+        return deactivatedBy;
+    }
+
+    public void setDeactivatedBy(UUID deactivatedBy) {
+        this.deactivatedBy = deactivatedBy;
+    }
+
+    public String getDeactivationReason() {
+        return deactivationReason;
+    }
+
+    public void setDeactivationReason(String deactivationReason) {
+        this.deactivationReason = deactivationReason;
     }
 
     public Instant getCreatedAt() {

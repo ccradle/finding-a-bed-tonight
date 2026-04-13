@@ -9,7 +9,9 @@ import org.fabt.availability.service.AvailabilityRetryService;
 import org.fabt.availability.service.AvailabilityService.AvailabilitySnapshot;
 import org.fabt.reservation.service.ReservationService;
 import org.fabt.shelter.domain.PopulationType;
+import org.fabt.shelter.domain.Shelter;
 import org.fabt.shelter.repository.CoordinatorAssignmentRepository;
+import org.fabt.shelter.service.ShelterService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -30,13 +32,16 @@ public class AvailabilityController {
     private final AvailabilityRetryService availabilityRetryService;
     private final ReservationService reservationService;
     private final CoordinatorAssignmentRepository coordinatorAssignmentRepository;
+    private final ShelterService shelterService;
 
     public AvailabilityController(AvailabilityRetryService availabilityRetryService,
                                    ReservationService reservationService,
-                                   CoordinatorAssignmentRepository coordinatorAssignmentRepository) {
+                                   CoordinatorAssignmentRepository coordinatorAssignmentRepository,
+                                   ShelterService shelterService) {
         this.availabilityRetryService = availabilityRetryService;
         this.reservationService = reservationService;
         this.coordinatorAssignmentRepository = coordinatorAssignmentRepository;
+        this.shelterService = shelterService;
     }
 
     @Operation(
@@ -72,6 +77,14 @@ public class AvailabilityController {
 
         // Validate population type
         PopulationType.valueOf(request.populationType());
+
+        // Check if shelter is active
+        Shelter shelter = shelterService.findById(id)
+                .orElseThrow(() -> new java.util.NoSuchElementException("Shelter not found: " + id));
+        if (!shelter.isActive()) {
+            throw new IllegalStateException(
+                    "Cannot update availability for an inactive shelter — contact your CoC admin to reactivate.");
+        }
 
         String updatedBy = authentication.getName();
 

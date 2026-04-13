@@ -4,5 +4,6 @@ public enum ReservationStatus {
     HELD,
     CONFIRMED,
     CANCELLED,
-    EXPIRED
+    EXPIRED,
+    CANCELLED_SHELTER_DEACTIVATED
 }

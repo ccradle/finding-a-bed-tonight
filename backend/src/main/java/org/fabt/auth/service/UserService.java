@@ -136,6 +136,15 @@ public class UserService {
     }
 
     /**
+     * All active user IDs with dvAccess=true in a tenant (any role).
+     * Used by shelter deactivation to restrict DV event broadcasts (Issue #108).
+     */
+    @Transactional(readOnly = true)
+    public List<UUID> findDvAccessUserIds(UUID tenantId) {
+        return userRepository.findDvAccessUserIds(tenantId);
+    }
+
+    /**
      * Whether {@code userId} is acting in a CoC-admin or platform-admin
      * capacity. Pushes Casey Drummond's chain-of-custody role check into the
      * auth module so the referral module's audit-type selection doesn't have

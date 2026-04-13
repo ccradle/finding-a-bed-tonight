@@ -112,6 +112,20 @@ public final class AuditEventTypes {
      */
     public static final String ESCALATION_POLICY_UPDATED = "ESCALATION_POLICY_UPDATED";
 
+    // ---- shelter-activate-deactivate (Issue #108) ----
+
+    /**
+     * A CoC admin deactivated a shelter via {@code PATCH /api/v1/shelters/{id}/deactivate}.
+     * Detail blob: {@code {shelter_id, shelter_name, deactivation_reason}}.
+     */
+    public static final String SHELTER_DEACTIVATED = "SHELTER_DEACTIVATED";
+
+    /**
+     * A CoC admin reactivated a shelter via {@code PATCH /api/v1/shelters/{id}/reactivate}.
+     * Detail blob: {@code {shelter_id, shelter_name}}.
+     */
+    public static final String SHELTER_REACTIVATED = "SHELTER_REACTIVATED";
+
     private AuditEventTypes() {
         // utility class — do not instantiate
     }
