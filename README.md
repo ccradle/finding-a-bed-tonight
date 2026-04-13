@@ -57,9 +57,9 @@ Full setup guide: [For Developers](docs/FOR-DEVELOPERS.md#prerequisites)
 | Layer | Technology |
 |---|---|
 | Backend | Java 25, Spring Boot 4.0, Spring MVC, Spring Data JDBC, Virtual Threads |
-| Database | PostgreSQL 16, Flyway (47 migrations), Row Level Security (DV shelters + notifications) |
+| Database | PostgreSQL 16, Flyway (49 migrations), Row Level Security (DV shelters + notifications) |
 | Frontend | React 19, Vite, TypeScript, Workbox PWA (injectManifest), react-intl (EN/ES), CSS custom properties design tokens |
-| Testing | JUnit 5, Testcontainers, ArchUnit (586 tests), Playwright (335 UI tests), Vitest (42 unit tests), Karate (82 API scenarios), Gatling (8 simulations) |
+| Testing | JUnit 5, Testcontainers, ArchUnit (597 tests), Playwright (339 UI tests), Vitest (42 unit tests), Karate (82 API scenarios), Gatling (8 simulations) |
 | Infra | Docker, GitHub Actions CI/CD + E2E pipeline, Terraform (3 tiers) |
 
 ---
@@ -92,6 +92,21 @@ Full setup guide: [For Developers](docs/FOR-DEVELOPERS.md#prerequisites)
 - Dignity-centered copy: "Temporary beds" not "overflow," "sign-in verification" not "2FA," "Safety Shelter" label, i18n freshness badges, human error messages
 
 Full feature details: [For Developers — Project Status](docs/FOR-DEVELOPERS.md#project-status)
+
+### Active Changes (OpenSpec)
+
+Changes with specs and implementation tasks in progress. See `openspec/changes/<name>/` for full artifacts.
+
+| Change | Status | Description |
+|---|---|---|
+| `coc-admin-escalation` | Shipped (v0.35.0), pending archive | CoC admin DV escalation queue with per-tenant policy |
+| `referral-shelter-name-visibility` | In review (#109) | Shelter name + time in My Referrals list (#92) |
+| `sse-backpressure-phase2` | Specced, not started | SSE backpressure audit findings from platform-hardening |
+| `researcher-engagement` | Specced, not started | Data inventory and pilot partnership pathway (#80) |
+| `issue-reporting-feedback` | Specced, not started | In-app issue reporting and feedback (#67) |
+| `unified-profile-menu` | Specced, not started | Avatar trigger + /settings page (#60) |
+| `capacitor-native-app` | Specced, not started | Push notifications, biometric auth, SQLite offline (#53) |
+| `mcp-agent-integration` | Specced, not started | Model Context Protocol agent integration (#71) |
 
 ---
 

@@ -58,6 +58,13 @@ public final class AuditEventTypes {
     // ---- coc-admin-escalation: CoC admin actions on DV referrals (Sessions 3-4) ----
 
     /**
+     * An outreach worker (or other DV-authorized role) requested a new DV referral via
+     * {@code POST /api/v1/dv-referrals}. Detail blob: {@code shelter_id}, {@code shelter_name},
+     * {@code urgency} — zero client PII.
+     */
+    public static final String DV_REFERRAL_REQUESTED = "DV_REFERRAL_REQUESTED";
+
+    /**
      * A CoC admin claimed a pending DV referral via {@code POST /api/v1/dv-referrals/{id}/claim}.
      * Detail blob: {@code {referral_id, claimed_until}}. Zero PII.
      */

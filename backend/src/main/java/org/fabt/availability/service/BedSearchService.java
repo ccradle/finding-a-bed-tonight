@@ -107,6 +107,9 @@ public class BedSearchService {
         List<BedSearchResult> results = new ArrayList<>();
 
         for (Shelter shelter : shelters) {
+            if (!shelter.isActive()) {
+                continue;
+            }
             // Get constraints
             ShelterConstraints constraints = constraintsRepository.findById(shelter.getId()).orElse(null);
 

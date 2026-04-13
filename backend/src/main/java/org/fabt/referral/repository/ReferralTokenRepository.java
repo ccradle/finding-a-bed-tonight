@@ -24,6 +24,7 @@ public class ReferralTokenRepository {
         ReferralToken t = new ReferralToken();
         t.setId(rs.getObject("id", UUID.class));
         t.setShelterId(rs.getObject("shelter_id", UUID.class));
+        t.setShelterName(rs.getString("shelter_name"));
         t.setTenantId(rs.getObject("tenant_id", UUID.class));
         t.setReferringUserId(rs.getObject("referring_user_id", UUID.class));
         t.setHouseholdSize(rs.getInt("household_size"));
@@ -52,14 +53,14 @@ public class ReferralTokenRepository {
         List<ReferralToken> results = jdbcTemplate.query(
                 """
                 INSERT INTO referral_token
-                    (shelter_id, tenant_id, referring_user_id, household_size, population_type,
+                    (shelter_id, shelter_name, tenant_id, referring_user_id, household_size, population_type,
                      urgency, special_needs, callback_number, status, created_at, expires_at,
                      escalation_policy_id, claimed_by_admin_id, claim_expires_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, clock_timestamp(), ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, clock_timestamp(), ?, ?, ?, ?)
                 RETURNING *
                 """,
                 ROW_MAPPER,
-                token.getShelterId(), token.getTenantId(), token.getReferringUserId(),
+                token.getShelterId(), token.getShelterName(), token.getTenantId(), token.getReferringUserId(),
                 token.getHouseholdSize(), token.getPopulationType(),
                 token.getUrgency(), token.getSpecialNeeds(), token.getCallbackNumber(),
                 token.getStatus(), Timestamp.from(token.getExpiresAt()),

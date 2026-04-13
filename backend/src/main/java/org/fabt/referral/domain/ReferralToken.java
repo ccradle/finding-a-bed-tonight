@@ -12,6 +12,7 @@ public class ReferralToken {
 
     private UUID id;
     private UUID shelterId;
+    private String shelterName;
     private UUID tenantId;
     private UUID referringUserId;
     private int householdSize;
@@ -65,10 +66,11 @@ public class ReferralToken {
 
     public ReferralToken() {}
 
-    public ReferralToken(UUID shelterId, UUID tenantId, UUID referringUserId,
+    public ReferralToken(UUID shelterId, String shelterName, UUID tenantId, UUID referringUserId,
                          int householdSize, String populationType, String urgency,
                          String specialNeeds, String callbackNumber, Instant expiresAt) {
         this.shelterId = shelterId;
+        this.shelterName = shelterName;
         this.tenantId = tenantId;
         this.referringUserId = referringUserId;
         this.householdSize = householdSize;
@@ -89,6 +91,8 @@ public class ReferralToken {
     public void setId(UUID id) { this.id = id; }
     public UUID getShelterId() { return shelterId; }
     public void setShelterId(UUID shelterId) { this.shelterId = shelterId; }
+    public String getShelterName() { return shelterName; }
+    public void setShelterName(String shelterName) { this.shelterName = shelterName; }
     public UUID getTenantId() { return tenantId; }
     public void setTenantId(UUID tenantId) { this.tenantId = tenantId; }
     public UUID getReferringUserId() { return referringUserId; }

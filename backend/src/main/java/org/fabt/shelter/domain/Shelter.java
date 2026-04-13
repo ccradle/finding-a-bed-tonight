@@ -21,6 +21,8 @@ public class Shelter {
     private Double latitude;
     private Double longitude;
     private boolean dvShelter;
+    /** When false, shelter is hidden from bed search but still loaded for DV referral safety checks. */
+    private boolean active = true;
     private Instant createdAt;
     private Instant updatedAt;
 
@@ -113,6 +115,14 @@ public class Shelter {
 
     public void setDvShelter(boolean dvShelter) {
         this.dvShelter = dvShelter;
+    }
+
+    public boolean isActive() {
+        return active;
+    }
+
+    public void setActive(boolean active) {
+        this.active = active;
     }
 
     public Instant getCreatedAt() {
