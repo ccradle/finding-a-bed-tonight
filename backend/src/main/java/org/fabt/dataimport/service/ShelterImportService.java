@@ -74,7 +74,11 @@ public class ShelterImportService {
             String curfewTime,
             Integer maxStayDays,
             String[] populationTypesServed,
-            Map<String, Integer> capacityByType
+            Map<String, Integer> capacityByType,
+            // Issue #65: bedsOccupied imported alongside bedsTotal so onboarding
+            // reflects current state, not 100% availability. Marcus Okafor: "Starting
+            // every shelter at zero occupied misleads outreach workers on day one."
+            Integer bedsOccupied
     ) {
     }
 
@@ -88,11 +92,21 @@ public class ShelterImportService {
      * @param rows       parsed shelter rows
      * @return import result with counts and error details
      */
-    @Transactional
+    // NOT @Transactional — TenantContext.callWithContext MUST wrap the DB operations.
+    // @Transactional acquires the connection at method entry, but the DelegatingDataSource
+    // reads TenantContext.getDvAccess() at connection-acquisition time via set_config().
+    // If @Transactional runs before callWithContext sets dvAccess=true, the connection
+    // gets dvAccess=false baked in → INSERT RETURNING * on DV shelters triggers RLS
+    // SELECT policy rejection (SQL state 42501 INSUFFICIENT PRIVILEGE, mapped by Spring
+    // to the misleading "bad SQL grammar" error). Individual shelterService.create/update
+    // are @Transactional themselves. Portfolio lessons #60, #62, #79. War room 2026-04-13.
     public ImportResult importShelters(UUID tenantId, String importType, String filename,
                                        List<ShelterImportRow> rows) throws Exception {
-        // Set tenant context so ShelterService can resolve tenant
-        return TenantContext.callWithContext(tenantId, false, () -> {
+        // Always dvAccess=true for admin imports. The import endpoint is
+        // COC_ADMIN/PLATFORM_ADMIN only. Setting it here — BEFORE any connection
+        // acquisition — ensures the DelegatingDataSource bakes the correct session
+        // variable into every connection used within this scope.
+        return TenantContext.callWithContext(tenantId, true, () -> {
             int created = 0;
             int updated = 0;
             int skipped = 0;
@@ -117,9 +131,22 @@ public class ShelterImportService {
                             tenantId, row.name().trim(), row.addressCity().trim());
 
                     if (existing.isPresent()) {
+                        // DV flag change detection (issue #65, Decision 6, Marcus Webb)
+                        Shelter existingShelter = existing.get();
+                        if (row.dvShelter() != null && row.dvShelter() != existingShelter.isDvShelter()) {
+                            log.warn("Import row {}: DV flag change detected for '{}' — {} → {}. "
+                                    + "This changes RLS visibility. Review for safety.",
+                                    rowNum, row.name(),
+                                    existingShelter.isDvShelter(), row.dvShelter());
+                            errorDetails.add(new ImportError(rowNum, "dvShelter",
+                                    "Safety notice: CSV has dvShelter=" + row.dvShelter()
+                                    + " but existing shelter has dvShelter=" + existingShelter.isDvShelter()
+                                    + " — DV flag is NOT changed by re-import. Update manually in the admin panel if needed."));
+                        }
+
                         // Full replace: update existing shelter with all fields from import row
                         UpdateShelterRequest updateReq = buildUpdateRequest(row);
-                        shelterService.update(existing.get().getId(), updateReq);
+                        shelterService.update(existingShelter.getId(), updateReq);
                         updated++;
                         log.debug("Import row {}: updated existing shelter '{}' in '{}'",
                                 rowNum, row.name(), row.addressCity());
@@ -157,14 +184,60 @@ public class ShelterImportService {
         });
     }
 
+    /**
+     * Dry-run preview: validates rows and counts how many will be created vs. updated,
+     * WITHOUT committing any changes. Used by the frontend to show
+     * "Will update: N / Will create: M" before the user clicks Import.
+     */
+    public ImportResult previewImport(UUID tenantId, List<ShelterImportRow> rows) {
+        // Always dvAccess=true — preview reads shelter data for dedup matching,
+        // which includes DV shelters hidden by RLS without dvAccess.
+        return TenantContext.callWithContext(tenantId, true, () -> {
+            int willCreate = 0;
+            int willUpdate = 0;
+            int errorCount = 0;
+            List<ImportError> errorDetails = new ArrayList<>();
+
+            for (int i = 0; i < rows.size(); i++) {
+                int rowNum = i + 1;
+                ShelterImportRow row = sanitizeCoordinates(rows.get(i), rowNum);
+
+                List<ImportError> rowErrors = validateRow(rowNum, row);
+                if (!rowErrors.isEmpty()) {
+                    errorDetails.addAll(rowErrors);
+                    errorCount++;
+                    continue;
+                }
+
+                Optional<Shelter> existing = shelterRepository.findByTenantIdAndNameAndAddressCity(
+                        tenantId, row.name().trim(), row.addressCity().trim());
+
+                if (existing.isPresent()) {
+                    willUpdate++;
+                    // DV flag change detection for preview
+                    if (row.dvShelter() != null && row.dvShelter() != existing.get().isDvShelter()) {
+                        errorDetails.add(new ImportError(rowNum, "dvShelter",
+                                "Safety notice: CSV has dvShelter=" + row.dvShelter()
+                                + " but existing shelter has dvShelter=" + existing.get().isDvShelter()
+                                + " — DV flag is NOT changed by re-import. Update manually in the admin panel if needed."));
+                    }
+                } else {
+                    willCreate++;
+                }
+            }
+
+            return new ImportResult(willCreate, willUpdate, 0, errorCount, errorDetails);
+        });
+    }
+
     private List<ImportError> validateRow(int rowNum, ShelterImportRow row) {
         List<ImportError> errors = new ArrayList<>();
 
         if (row.name() == null || row.name().isBlank()) {
-            errors.add(new ImportError(rowNum, "name", "Name is required"));
+            errors.add(new ImportError(rowNum, "name", "Shelter name is required — please add a name for this shelter"));
         }
         if (row.addressCity() == null || row.addressCity().isBlank()) {
-            errors.add(new ImportError(rowNum, "addressCity", "City is required"));
+            errors.add(new ImportError(rowNum, "addressCity", "City is required — we need the city to identify unique shelters"));
         }
 
         // Field length validation (matches DB column sizes)
@@ -182,7 +255,30 @@ public class ShelterImportService {
                     PopulationType.valueOf(popType);
                 } catch (IllegalArgumentException e) {
                     errors.add(new ImportError(rowNum, "populationTypesServed",
-                            "Invalid population type: '" + popType + "'"));
+                            "'" + popType + "' is not a recognized population type — expected one of: "
+                            + java.util.Arrays.toString(PopulationType.values())));
+                }
+            }
+        }
+
+        // Capacity conflict: bedsOccupied cannot exceed bedsTotal (issue #65).
+        // The CSV has a single bedsTotal and bedsOccupied — not per population type.
+        // If both are provided, validate the global constraint.
+        if (row.capacityByType() != null && !row.capacityByType().isEmpty()) {
+            // First entry holds bedsTotal (others are 0 per the adapter's first-type-gets-all strategy)
+            int bedsTotal = row.capacityByType().values().iterator().next();
+            if (bedsTotal < 0) {
+                errors.add(new ImportError(rowNum, "bedsTotal",
+                        "Total beds cannot be a negative number"));
+            }
+            if (row.bedsOccupied() != null) {
+                if (row.bedsOccupied() > bedsTotal) {
+                    errors.add(new ImportError(rowNum, "bedsOccupied",
+                            "You listed " + row.bedsOccupied() + " occupied beds but only " + bedsTotal + " total beds — occupied can't be more than total"));
+                }
+                if (row.bedsOccupied() < 0) {
+                    errors.add(new ImportError(rowNum, "bedsOccupied",
+                            "Occupied beds cannot be a negative number"));
                 }
             }
         }
@@ -194,7 +290,8 @@ public class ShelterImportService {
                     PopulationType.valueOf(popType);
                 } catch (IllegalArgumentException e) {
                     errors.add(new ImportError(rowNum, "capacityByType",
-                            "Invalid capacity population type: '" + popType + "'"));
+                            "'" + popType + "' is not a recognized population type for capacity — expected one of: "
+                            + java.util.Arrays.toString(PopulationType.values())));
                 }
             }
         }
@@ -236,7 +333,7 @@ public class ShelterImportService {
                 row.addressZip(), row.phone(), lat, lng,
                 row.dvShelter(), row.sobrietyRequired(), row.idRequired(), row.referralRequired(),
                 row.petsAllowed(), row.wheelchairAccessible(), row.curfewTime(), row.maxStayDays(),
-                row.populationTypesServed(), row.capacityByType()
+                row.populationTypesServed(), row.capacityByType(), row.bedsOccupied()
         );
     }
 
@@ -311,9 +408,20 @@ public class ShelterImportService {
             return null;
         }
 
-        return row.capacityByType().entrySet().stream()
-                .map(entry -> new ShelterCapacityDto(entry.getKey(), entry.getValue()))
-                .toList();
+        // Issue #65: the CSV has a single bedsOccupied for the whole shelter.
+        // Assign it to the FIRST population type; others get 0. The coordinator
+        // can refine per-type occupancy after import. This matches how HIC/PIT
+        // reports handle shared-capacity shelters.
+        int remainingOccupied = row.bedsOccupied() != null ? row.bedsOccupied() : 0;
+        List<ShelterCapacityDto> capacities = new ArrayList<>();
+
+        for (var entry : row.capacityByType().entrySet()) {
+            int occupied = Math.min(remainingOccupied, entry.getValue());
+            capacities.add(new ShelterCapacityDto(entry.getKey(), entry.getValue(), occupied));
+            remainingOccupied -= occupied;
+        }
+
+        return capacities;
     }
 
     private JsonString serializeErrors(List<ImportError> errors) {

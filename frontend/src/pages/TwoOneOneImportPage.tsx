@@ -30,6 +30,7 @@ export function TwoOneOneImportPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
+  const [importPreview, setImportPreview] = useState<ImportResult | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
   const [step, setStep] = useState<'upload' | 'preview' | 'done'>('upload');
 
@@ -85,6 +86,20 @@ export function TwoOneOneImportPage() {
         return;
       }
       setPreview(previewData);
+
+      // Also run the import preview (dry run) to get upsert counts + validation errors
+      try {
+        const importFormData = new FormData();
+        importFormData.append('file', file);
+        const importPreviewData = await api.post<ImportResult>('/api/v1/import/211/preview-import', importFormData, {
+          isFormData: true,
+        });
+        setImportPreview(importPreviewData);
+      } catch {
+        // Non-fatal — column mapping preview still works without the import preview
+        setImportPreview(null);
+      }
+
       setStep('preview');
     } catch (err) {
       if (err instanceof ApiError) {
@@ -126,6 +141,7 @@ export function TwoOneOneImportPage() {
   const handleReset = () => {
     setFile(null);
     setPreview(null);
+    setImportPreview(null);
     setResult(null);
     setError(null);
     setStep('upload');
@@ -150,6 +166,38 @@ export function TwoOneOneImportPage() {
           role="alert"
         >
           {error}
+        </div>
+      )}
+
+      {/* Quick-start guidance card (issue #65 — Devon Kessler / Rev. Alicia Monroe) */}
+      {step === 'upload' && (
+        <div data-testid="import-quick-start" style={{
+          backgroundColor: color.bgSecondary, border: `1px solid ${color.border}`,
+          borderRadius: 12, padding: '16px 20px', marginBottom: 20,
+        }}>
+          <h3 style={{ fontSize: text.md, fontWeight: weight.bold, color: color.text, margin: '0 0 12px' }}>
+            <FormattedMessage id="import.quickStart.title" />
+          </h3>
+          <ol style={{ margin: 0, paddingLeft: 20, fontSize: text.base, color: color.textSecondary, lineHeight: 1.8 }}>
+            <li>
+              <FormattedMessage id="import.quickStart.step1" />{' '}
+              <a href="/infra/templates/shelter-import-template.csv" download aria-label={intl.formatMessage({ id: 'import.quickStart.templateAria' })} style={{ color: color.primaryText, fontWeight: weight.semibold }}>
+                <FormattedMessage id="import.quickStart.template" />
+              </a>{' '}
+              <FormattedMessage id="import.quickStart.or" />{' '}
+              <a href="/infra/templates/shelter-import-example.csv" download aria-label={intl.formatMessage({ id: 'import.quickStart.exampleAria' })} style={{ color: color.primaryText, fontWeight: weight.semibold }}>
+                <FormattedMessage id="import.quickStart.example" />
+              </a>
+            </li>
+            <li><FormattedMessage id="import.quickStart.step2" /></li>
+            <li><FormattedMessage id="import.quickStart.step3" /></li>
+          </ol>
+          <p style={{ fontSize: text.xs, color: color.textMuted, marginTop: 8, marginBottom: 0 }}>
+            <FormattedMessage id="import.quickStart.upsertNote" />{' '}
+            <a href="/docs/shelter-import-format.html" target="_blank" rel="noopener noreferrer" style={{ color: color.primaryText }}>
+              <FormattedMessage id="import.quickStart.fullReference" />
+            </a>
+          </p>
         </div>
       )}
 
@@ -268,6 +316,63 @@ export function TwoOneOneImportPage() {
               </tbody>
             </table>
           </div>
+
+          {/* Import preview: upsert counts + validation summary (issue #65) */}
+          {importPreview && (
+            <div data-testid="import-preview-summary" aria-live="polite" role="status" style={{
+              backgroundColor: importPreview.errors.length > 0 ? color.warningBg : color.successBg,
+              border: `1px solid ${importPreview.errors.length > 0 ? color.warningBright : color.successBorder}`,
+              borderRadius: 12, padding: '16px 20px', marginBottom: 20,
+            }}>
+              <div style={{ display: 'flex', gap: 24, marginBottom: importPreview.errors.length > 0 ? 12 : 0 }}>
+                <div>
+                  <span style={{ fontSize: text.xl, fontWeight: weight.bold, color: color.success }}>{importPreview.created}</span>
+                  <span style={{ fontSize: text.sm, color: color.textMuted, marginLeft: 4 }}>
+                    <FormattedMessage id="import.willCreate" />
+                  </span>
+                </div>
+                <div>
+                  <span style={{ fontSize: text.xl, fontWeight: weight.bold, color: color.warningMid }}>{importPreview.updated}</span>
+                  <span style={{ fontSize: text.sm, color: color.textMuted, marginLeft: 4 }}>
+                    <FormattedMessage id="import.willUpdate" />
+                  </span>
+                </div>
+                {importPreview.errors.length > 0 && (
+                  <div>
+                    <span style={{ fontSize: text.xl, fontWeight: weight.bold, color: color.error }}>{importPreview.errors.length}</span>
+                    <span style={{ fontSize: text.sm, color: color.textMuted, marginLeft: 4 }}>
+                      <FormattedMessage id="import.rowsWithErrors" />
+                    </span>
+                  </div>
+                )}
+              </div>
+              {importPreview.errors.length > 0 && (
+                <>
+                  <ul style={{ margin: '0 0 8px', paddingLeft: 20, fontSize: text.sm, color: color.error, maxHeight: 200, overflow: 'auto' }}>
+                    {importPreview.errors.map((err, i) => <li key={i}>{err}</li>)}
+                  </ul>
+                  <button
+                    data-testid="download-errors-btn"
+                    onClick={() => {
+                      const csv = 'Error\n' + importPreview.errors.map(e => '"' + e.replace(/"/g, '""') + '"').join('\n');
+                      const blob = new Blob([csv], { type: 'text/csv' });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url; a.download = 'import-errors.csv'; a.click();
+                      URL.revokeObjectURL(url);
+                    }}
+                    style={{
+                      padding: '8px 16px', backgroundColor: color.bg, color: color.error,
+                      border: `1px solid ${color.error}`, borderRadius: 8,
+                      fontSize: text.sm, fontWeight: weight.semibold, cursor: 'pointer', minHeight: 44,
+                    }}
+                  >
+                    <FormattedMessage id="import.downloadErrors" />
+                  </button>
+                </>
+              )}
+            </div>
+          )}
 
           <div style={{ display: 'flex', gap: '12px' }}>
             <button
