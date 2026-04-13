@@ -10,7 +10,7 @@ This is the question every foundation program officer asks before recommending a
 
 ## Current State
 
-FABT is currently maintained by a small project team. The software is stable (v0.36.0, 597 automated tests), the architecture is documented, and the Apache 2.0 license ensures permanent availability. But a single maintainer is not a sustainability model — it's a starting point.
+FABT is currently maintained by a small project team. The software is stable (v0.37.0, 607 automated tests), the architecture is documented, and the Apache 2.0 license ensures permanent availability. But a single maintainer is not a sustainability model — it's a starting point.
 
 ## Sustainability Path
 

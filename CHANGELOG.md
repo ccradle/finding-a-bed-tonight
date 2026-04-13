@@ -5,6 +5,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.37.0] — 2026-04-14 — shelter-import-documentation (Issue #65)
+
+### Added
+- **Import preview endpoint** — `POST /api/v1/import/211/preview-import` returns a dry-run summary (upserts, skipped, errors) without writing to the database. Outreach workers can validate CSV content before committing.
+- **Quick-start card on import page** — template download link, example CSV link, format documentation link, and keyboard hint on drop zone. All links use `aria-label` for screen reader clarity.
+- **Import preview summary UI** — upsert/skip/error counts displayed with `aria-live="polite"` after preview. Download-errors-CSV button for rows that failed validation.
+- **Shelter import format documentation** (`docs/shelter-import-format.md`) — full column reference with 18+ fields, header synonyms, boolean parsing rules, population type enum values, and capacity semantics.
+- **CSV templates** — `infra/templates/shelter-import-template.csv` (headers-only) and `shelter-import-example.csv` (3 example rows: emergency, DV, constrained).
+- **65+ header synonyms** in TwoOneOneImportAdapter — 10 new synonym blocks covering beds_total, beds_occupied, phone, website, population_types_served, wheelchair_accessible, pets_allowed, ada_accessible, has_transportation, accepting_guests. Flexible boolean parsing (`true/yes/1/Y`) and null-safe integer parsing.
+- **bedsOccupied flow** — ShelterCapacityDto extended from 2-arg to 3-arg (populationType, bedsTotal, bedsOccupied). ShelterService.create() and update() plumb occupied counts through. Backward-compatible 2-arg constructor defaults bedsOccupied to 0.
+- **Capacity conflict validation** — negative bedsTotal, bedsOccupied > bedsTotal flagged during import with friendly error messages.
+- **7 new import integration tests** — preview dry-run, capacity conflict, DV flag notice, bedsOccupied round-trip, null populationTypesServed, and template/example CSV format validation.
+- **5 Playwright import tests** — template download, example download, preview flow, error download, and format documentation link.
+- **logback-test.xml** — plain-text console output for test runs (replaces JSON encoder), with commented-out SQL_FILE appender for diagnostics.
+- **Spanish i18n** — 17 new import-related strings in both EN and ES.
+
+### Fixed
+- **@Transactional + RLS ordering** — removed `@Transactional` from `ShelterImportService.importShelters()`. The annotation acquired a DB connection before `callWithContext()` set `dvAccess=true`, causing INSERT RETURNING * on DV shelters to fail RLS SELECT policy (SQL state 42501 misreported as "bad SQL grammar").
+- **populationTypesServed NOT NULL** — Spring Data JDBC sends null explicitly, overriding DB DEFAULT. Fixed in `ShelterService.toConstraints()` with null → `new String[0]`.
+- **Capacity inflation** — bedsTotal was duplicated across all population types. Fixed: first type receives bedsTotal, others receive 0.
+- **DV flag notice** — import notice previously warned "DV status will change" but `buildUpdateRequest` passes null for dvShelter. Corrected to "DV flag is NOT changed by re-import."
+- **Bed search filters inactive shelters** — added `AND s.active = TRUE` to `ShelterService.findFiltered()` SQL.
+
+### Changed
+- **Admin imports always use dvAccess=true** — `callWithContext()` wrapper ensures DV shelters are visible during CSV import regardless of the admin's personal dvAccess flag.
+
+---
+
 ## [v0.36.0] — 2026-04-13 — referral-shelter-name-visibility (#92)
 
 ### Added
