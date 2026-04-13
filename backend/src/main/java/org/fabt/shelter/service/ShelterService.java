@@ -5,6 +5,7 @@ import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
@@ -19,21 +20,28 @@ import org.slf4j.LoggerFactory;
 
 import org.fabt.availability.service.AvailabilityService;
 import org.fabt.availability.service.AvailabilityService.AvailabilitySnapshot;
+import org.fabt.auth.service.UserService;
+import org.fabt.notification.service.NotificationPersistenceService;
+import org.fabt.referral.service.ReferralTokenService;
+import org.fabt.reservation.service.ReservationService;
+import org.fabt.reservation.service.ReservationService.CancelledHoldSummary;
+import org.fabt.shelter.domain.DeactivationReason;
 import org.fabt.shelter.domain.DvAddressPolicy;
-import org.fabt.tenant.service.TenantService;
-import org.fabt.shelter.api.CreateShelterRequest;
-import org.fabt.shelter.api.ShelterConstraintsDto;
-import org.fabt.shelter.api.ShelterDetailResponse.AvailabilityDto;
-import org.fabt.shelter.api.UpdateShelterRequest;
-import org.fabt.shelter.domain.PopulationType;
 import org.fabt.shelter.domain.Shelter;
 import org.fabt.shelter.domain.ShelterConstraints;
 import org.fabt.shelter.repository.ShelterConstraintsRepository;
 import org.fabt.shelter.repository.ShelterRepository;
 import org.fabt.shared.audit.AuditEventRecord;
+import org.fabt.shared.audit.AuditEventTypes;
 import org.fabt.shared.cache.CacheNames;
 import org.fabt.shared.cache.CacheService;
+import org.fabt.shelter.api.CreateShelterRequest;
+import org.fabt.shelter.api.ShelterConstraintsDto;
+import org.fabt.shelter.api.ShelterDetailResponse.AvailabilityDto;
+import org.fabt.shelter.api.UpdateShelterRequest;
+import org.fabt.shelter.domain.PopulationType;
 import org.fabt.shared.web.TenantContext;
+import org.fabt.tenant.service.TenantService;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -60,6 +68,11 @@ public class ShelterService {
                                         Boolean sobrietyRequired, String populationType) {
     }
 
+    public sealed interface DeactivationResult {
+        record Success(Shelter shelter, int cancelledHolds) implements DeactivationResult {}
+        record ConfirmationRequired(int pendingDvReferrals) implements DeactivationResult {}
+    }
+
     private final ShelterRepository shelterRepository;
     private final ShelterConstraintsRepository constraintsRepository;
     private final AvailabilityService availabilityService;
@@ -68,6 +81,10 @@ public class ShelterService {
     private final JdbcTemplate jdbcTemplate;
     private final ApplicationEventPublisher eventPublisher;
     private final CacheService cacheService;
+    private final ReservationService reservationService;
+    private final ReferralTokenService referralTokenService;
+    private final NotificationPersistenceService notificationPersistenceService;
+    private final UserService userService;
 
     public ShelterService(ShelterRepository shelterRepository,
                           ShelterConstraintsRepository constraintsRepository,
@@ -76,7 +93,11 @@ public class ShelterService {
                           ObjectMapper objectMapper,
                           JdbcTemplate jdbcTemplate,
                           ApplicationEventPublisher eventPublisher,
-                          CacheService cacheService) {
+                          CacheService cacheService,
+                          @Lazy ReservationService reservationService,
+                          @Lazy ReferralTokenService referralTokenService,
+                          NotificationPersistenceService notificationPersistenceService,
+                          UserService userService) {
         this.shelterRepository = shelterRepository;
         this.constraintsRepository = constraintsRepository;
         this.availabilityService = availabilityService;
@@ -85,6 +106,10 @@ public class ShelterService {
         this.jdbcTemplate = jdbcTemplate;
         this.eventPublisher = eventPublisher;
         this.cacheService = cacheService;
+        this.reservationService = reservationService;
+        this.referralTokenService = referralTokenService;
+        this.notificationPersistenceService = notificationPersistenceService;
+        this.userService = userService;
     }
 
     /**
@@ -382,6 +407,142 @@ public class ShelterService {
         constraintsRepository.deleteById(shelter.getId());
         shelterRepository.delete(shelter);
         evictTenantShelterCaches(tenantId);
+    }
+
+    // NOT @Transactional — TenantContext.callWithContext MUST wrap the DB operations.
+    // Same pattern as ShelterImportService.importShelters(): @Transactional acquires the
+    // connection before callWithContext sets dvAccess=true, causing RLS failures on DV
+    // shelters. The inner doDeactivate() is @Transactional for atomicity. Portfolio #60.
+    public DeactivationResult deactivate(UUID shelterId, DeactivationReason reason,
+                                          boolean confirmDv, UUID actorUserId) {
+        UUID tenantId = TenantContext.getTenantId();
+        return TenantContext.callWithContext(tenantId, true,
+                () -> doDeactivate(tenantId, shelterId, reason, confirmDv, actorUserId));
+    }
+
+    @Transactional
+    protected DeactivationResult doDeactivate(UUID tenantId, UUID shelterId,
+                                               DeactivationReason reason, boolean confirmDv,
+                                               UUID actorUserId) {
+        Shelter shelter = shelterRepository.findByTenantIdAndId(tenantId, shelterId)
+                .orElseThrow(() -> new NoSuchElementException("Shelter not found: " + shelterId));
+
+        if (!shelter.isActive()) {
+            throw new IllegalStateException("Shelter is already inactive");
+        }
+
+        // DV safety gate: check for pending referrals
+        if (shelter.isDvShelter() && !confirmDv) {
+            int pendingCount = referralTokenService.countPendingByShelterId(shelterId);
+            if (pendingCount > 0) {
+                return new DeactivationResult.ConfirmationRequired(pendingCount);
+            }
+        }
+
+        // Set deactivation metadata
+        shelter.setActive(false);
+        shelter.setDeactivatedAt(Instant.now());
+        shelter.setDeactivatedBy(actorUserId);
+        shelter.setDeactivationReason(reason.name());
+        shelterRepository.save(shelter);
+
+        // Cancel all holds and notify outreach workers
+        int cancelledHolds = cancelHoldsForShelter(shelter, tenantId);
+
+        // Publish audit event
+        eventPublisher.publishEvent(new AuditEventRecord(
+                actorUserId, null, AuditEventTypes.SHELTER_DEACTIVATED,
+                Map.of("shelterId", shelterId, "shelterName", shelter.getName(),
+                        "deactivationReason", reason.name(),
+                        "cancelledHolds", cancelledHolds),
+                null));
+
+        // DV event broadcast: notify dvAccess users that a DV shelter was deactivated.
+        // Restricted to dvAccess=true users per VAWA address confidentiality.
+        // Notification text intentionally omits shelter address.
+        if (shelter.isDvShelter()) {
+            List<UUID> dvUserIds = userService.findDvAccessUserIds(tenantId);
+            try {
+                // No address in payload — only name and reason (VAWA safety)
+                String broadcastPayload = objectMapper.writeValueAsString(
+                        Map.of("shelterName", shelter.getName(), "reason", reason.name()));
+                notificationPersistenceService.sendToAll(tenantId, dvUserIds,
+                        "SHELTER_DEACTIVATED", "CRITICAL", broadcastPayload);
+            } catch (tools.jackson.core.JacksonException e) {
+                log.error("Failed to serialize DV shelter deactivation broadcast", e);
+            }
+        }
+
+        evictTenantShelterCaches(tenantId);
+        log.info("Shelter {} deactivated by {} with reason {} ({} holds cancelled)",
+                shelterId, actorUserId, reason, cancelledHolds);
+        return new DeactivationResult.Success(shelter, cancelledHolds);
+    }
+
+    /**
+     * Cancel all HELD reservations for a shelter and notify outreach workers.
+     * Delegates cancellation + snapshot recompute to ReservationService (modular boundary).
+     * Notification is handled here because it's a shelter-module concern.
+     */
+    private int cancelHoldsForShelter(Shelter shelter, UUID tenantId) {
+        List<CancelledHoldSummary> cancelled = reservationService.cancelHeldForShelterDeactivation(shelter.getId());
+
+        // Notify each affected outreach worker (always — regardless of dvAccess, per spec W-3)
+        for (CancelledHoldSummary hold : cancelled) {
+            try {
+                String payload = objectMapper.writeValueAsString(
+                        Map.of("shelterName", shelter.getName()));
+                notificationPersistenceService.send(
+                        tenantId, hold.userId(),
+                        "HOLD_CANCELLED_SHELTER_DEACTIVATED", "WARNING", payload);
+            } catch (tools.jackson.core.JacksonException e) {
+                log.error("Failed to serialize hold cancellation notification for reservation {}",
+                        hold.reservationId(), e);
+            }
+
+            log.info("Cancelled hold {} for user {} due to shelter deactivation",
+                    hold.reservationId(), hold.userId());
+        }
+
+        return cancelled.size();
+    }
+
+    // NOT @Transactional — same callWithContext ordering as deactivate(). DV shelter
+    // reactivation needs dvAccess=true to find the shelter through RLS. Portfolio #60.
+    public Shelter reactivate(UUID shelterId, UUID actorUserId) {
+        UUID tenantId = TenantContext.getTenantId();
+        return TenantContext.callWithContext(tenantId, true,
+                () -> doReactivate(tenantId, shelterId, actorUserId));
+    }
+
+    @Transactional
+    protected Shelter doReactivate(UUID tenantId, UUID shelterId, UUID actorUserId) {
+        Shelter shelter = shelterRepository.findByTenantIdAndId(tenantId, shelterId)
+                .orElseThrow(() -> new NoSuchElementException("Shelter not found: " + shelterId));
+
+        if (shelter.isActive()) {
+            throw new IllegalStateException("Shelter is already active");
+        }
+
+        String previousReason = shelter.getDeactivationReason();
+
+        // Clear deactivation metadata and reactivate
+        shelter.setActive(true);
+        shelter.setDeactivatedAt(null);
+        shelter.setDeactivatedBy(null);
+        shelter.setDeactivationReason(null);
+        shelterRepository.save(shelter);
+
+        // Publish audit event (include previous reason for audit trail)
+        eventPublisher.publishEvent(new AuditEventRecord(
+                actorUserId, null, AuditEventTypes.SHELTER_REACTIVATED,
+                Map.of("shelterId", shelterId, "shelterName", shelter.getName(),
+                        "previousDeactivationReason", previousReason != null ? previousReason : "unknown"),
+                null));
+
+        evictTenantShelterCaches(tenantId);
+        log.info("Shelter {} reactivated by {}", shelterId, actorUserId);
+        return shelter;
     }
 
     @Transactional(readOnly = true)

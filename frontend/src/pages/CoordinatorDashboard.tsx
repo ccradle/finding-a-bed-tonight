@@ -35,6 +35,8 @@ interface Shelter {
   addressZip: string;
   updatedAt: string;
   dvShelter?: boolean;
+  active?: boolean;
+  deactivatedAt?: string | null;
 }
 
 interface PendingReferral {
@@ -352,6 +354,7 @@ export function CoordinatorDashboard() {
         const s = item.shelter;
         const summary = item.availabilitySummary;
         const isExpanded = expandedId === s.id;
+        const isInactive = s.active === false;
 
         return (
           <div
@@ -359,7 +362,7 @@ export function CoordinatorDashboard() {
             style={{
               marginBottom: 10, borderRadius: 14,
               border: `2px solid ${isExpanded ? color.primary : color.border}`,
-              backgroundColor: color.bg,
+              backgroundColor: isInactive ? color.bgSecondary : color.bg,
               transition: 'border-color 0.2s, background-color 0.3s',
               overflow: 'hidden',
             }}
@@ -377,6 +380,16 @@ export function CoordinatorDashboard() {
                 <div>
                   <div style={{ fontSize: text.lg, fontWeight: weight.bold, color: color.text, marginBottom: 3 }}>
                     {s.name}
+                    {isInactive && (
+                      <span data-testid={`inactive-badge-${s.id}`} style={{
+                        marginLeft: 8, padding: '3px 8px', borderRadius: 6,
+                        fontSize: text['2xs'], fontWeight: weight.bold,
+                        backgroundColor: color.errorBg, color: color.error,
+                        border: `1px solid ${color.errorBorder}`,
+                      }}>
+                        <FormattedMessage id="shelter.statusInactive" />
+                      </span>
+                    )}
                     {s.dvShelter && <span data-testid={`dv-indicator-${s.id}`} style={{ display: 'none' }} />}
                   </div>
                   <div style={{ fontSize: text.base, color: color.textTertiary, marginBottom: 6 }}>{fmtAddr(s)}</div>
@@ -428,6 +441,24 @@ export function CoordinatorDashboard() {
               <div style={{ padding: '0 20px 20px' }}>
                 <div style={{ height: 1, backgroundColor: color.border, marginBottom: 16 }} />
 
+                {/* Inactive shelter message */}
+                {isInactive && (
+                  <div
+                    data-testid={`inactive-message-${s.id}`}
+                    style={{
+                      padding: 12, marginBottom: 16,
+                      backgroundColor: color.warningBg,
+                      border: `1px solid ${color.warningMid}`,
+                      borderRadius: 8, fontSize: text.sm, color: color.text, lineHeight: 1.5,
+                    }}
+                  >
+                    <FormattedMessage
+                      id="shelter.deactivatedOn"
+                      values={{ date: s.deactivatedAt ? new Date(s.deactivatedAt).toLocaleDateString() : '—' }}
+                    />
+                  </div>
+                )}
+
                 {/* Edit Details button */}
                 <div style={{ marginBottom: 16 }}>
                   <a
@@ -452,7 +483,12 @@ export function CoordinatorDashboard() {
                   </a>
                 </div>
 
-                {/* Availability update section */}
+                {/* Availability update section — disabled for inactive shelters (C-6: keyboard + pointer blocked) */}
+                <div aria-disabled={isInactive ? 'true' : undefined}
+                     tabIndex={isInactive ? -1 : undefined}
+                     onClickCapture={isInactive ? (e) => e.stopPropagation() : undefined}
+                     onKeyDownCapture={isInactive ? (e) => { if (e.key === 'Enter' || e.key === ' ') e.preventDefault(); } : undefined}
+                     style={isInactive ? { pointerEvents: 'none' as const } : undefined}>
                 <h4 style={{ fontSize: text.sm, fontWeight: weight.bold, color: color.primaryText, margin: '0 0 12px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                   <FormattedMessage id="coord.availability" />
                 </h4>
@@ -542,6 +578,8 @@ export function CoordinatorDashboard() {
                     </div>
                   );
                 })}
+
+                </div>{/* end availability disabled wrapper */}
 
                 {/* Pending DV Referrals (screening view) */}
                 {s.dvShelter && pendingReferrals.length > 0 && (

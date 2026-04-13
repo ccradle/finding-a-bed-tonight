@@ -16,6 +16,10 @@ public record ShelterResponse(
         Double latitude,
         Double longitude,
         boolean dvShelter,
+        boolean active,
+        Instant deactivatedAt,
+        UUID deactivatedBy,
+        String deactivationReason,
         Instant createdAt,
         Instant updatedAt
 ) {
@@ -31,6 +35,10 @@ public record ShelterResponse(
                 shelter.getLatitude(),
                 shelter.getLongitude(),
                 shelter.isDvShelter(),
+                shelter.isActive(),
+                shelter.getDeactivatedAt(),
+                shelter.getDeactivatedBy(),
+                shelter.getDeactivationReason(),
                 shelter.getCreatedAt(),
                 shelter.getUpdatedAt()
         );

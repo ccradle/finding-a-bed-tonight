@@ -111,6 +111,14 @@ public class ReservationRepository {
         );
     }
 
+    public List<Reservation> findHeldByShelterId(UUID shelterId) {
+        return jdbcTemplate.query(
+                "SELECT * FROM reservation WHERE shelter_id = ? AND status = 'HELD'",
+                ROW_MAPPER,
+                shelterId
+        );
+    }
+
     public List<Reservation> findExpired() {
         return jdbcTemplate.query(
                 "SELECT * FROM reservation WHERE status = 'HELD' AND expires_at < NOW()",
@@ -127,6 +135,7 @@ public class ReservationRepository {
             case CONFIRMED -> "confirmed_at";
             case CANCELLED -> "cancelled_at";
             case EXPIRED -> "cancelled_at"; // reuse cancelled_at for expired timestamp
+            case CANCELLED_SHELTER_DEACTIVATED -> "cancelled_at";
             default -> null;
         };
 

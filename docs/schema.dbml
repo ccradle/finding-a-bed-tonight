@@ -1,7 +1,7 @@
 // ============================================================================
 // Finding A Bed Tonight (FABT) — Database Schema
-// Source: Flyway migrations V1–V36 + V8.1
-// Last synced: 2026-04-08
+// Source: Flyway migrations V1–V54
+// Last synced: 2026-04-13
 // ============================================================================
 
 Project fabt {
@@ -120,7 +120,7 @@ Table audit_events {
   timestamp       timestamptz [not null, default: `clock_timestamp()`]
   actor_user_id   uuid        [note: 'NULL for system-actor events (V44, bed-hold-integrity)']
   target_user_id  uuid
-  action          varchar(50) [not null, note: 'ROLE_CHANGED, USER_DEACTIVATED, USER_REACTIVATED, DV_ACCESS_CHANGED, PASSWORD_RESET, BED_HOLDS_RECONCILED, DV_REFERRAL_CLAIMED, DV_REFERRAL_RELEASED, DV_REFERRAL_REASSIGNED, DV_REFERRAL_ADMIN_ACCEPTED, DV_REFERRAL_ADMIN_REJECTED, ESCALATION_POLICY_UPDATED']
+  action          varchar(50) [not null, note: 'ROLE_CHANGED, USER_DEACTIVATED, USER_REACTIVATED, DV_ACCESS_CHANGED, PASSWORD_RESET, BED_HOLDS_RECONCILED, DV_REFERRAL_CLAIMED, DV_REFERRAL_RELEASED, DV_REFERRAL_REASSIGNED, DV_REFERRAL_ADMIN_ACCEPTED, DV_REFERRAL_ADMIN_REJECTED, ESCALATION_POLICY_UPDATED, SHELTER_DEACTIVATED, SHELTER_REACTIVATED']
   details         jsonb       [note: 'Old/new values, context']
   ip_address      varchar(45) [note: 'IPv4 or IPv6']
 
@@ -168,6 +168,9 @@ Table shelter {
   longitude       "double precision" [note: 'WGS 84 longitude']
   dv_shelter      boolean     [not null, default: false, note: 'Protected by PostgreSQL RLS']
   active          boolean     [not null, default: true, note: 'V52 — inactive shelters excluded from bed search. Safety check flags referrals for inactive shelters as SHELTER_CLOSED']
+  deactivated_at  timestamptz [note: 'V53 — timestamp of deactivation. NULL when active. Cleared on reactivation.']
+  deactivated_by  uuid        [ref: > app_user.id, note: 'V53 — admin who deactivated. NULL when active.']
+  deactivation_reason varchar(50) [note: 'V53 — TEMPORARY_CLOSURE, SEASONAL_END, PERMANENT_CLOSURE, CODE_VIOLATION, FUNDING_LOSS, OTHER. NULL when active.']
   created_at      timestamptz [not null, default: `now()`]
   updated_at      timestamptz [not null, default: `now()`]
 
@@ -362,6 +365,7 @@ Enum ReservationStatus {
   CONFIRMED
   CANCELLED
   EXPIRED
+  CANCELLED_SHELTER_DEACTIVATED [note: 'V54 — hold cascade when shelter deactivated (Issue #108)']
 }
 
 Table reservation {
@@ -370,7 +374,7 @@ Table reservation {
   tenant_id       uuid        [not null, ref: > tenant.id]
   population_type varchar(50) [not null, note: 'PopulationType enum value']
   user_id         uuid        [not null, ref: > app_user.id]
-  status          varchar(20) [not null, default: 'HELD', note: 'ReservationStatus enum: HELD, CONFIRMED, CANCELLED, EXPIRED']
+  status          varchar(50) [not null, default: 'HELD', note: 'V54 — widened from VARCHAR(20). ReservationStatus enum: HELD, CONFIRMED, CANCELLED, EXPIRED, CANCELLED_SHELTER_DEACTIVATED. CHECK constraint enforced.']
   expires_at      timestamptz [not null, note: 'Auto-expiry time (created_at + tenant hold_duration_minutes)']
   confirmed_at    timestamptz [note: 'Set when status transitions to CONFIRMED']
   cancelled_at    timestamptz [note: 'Set when status transitions to CANCELLED or EXPIRED']
@@ -385,10 +389,10 @@ Table reservation {
   }
 
   Note: '''
-    Soft-hold bed reservation. Lifecycle: HELD → CONFIRMED | CANCELLED | EXPIRED.
+    Soft-hold bed reservation. Lifecycle: HELD → CONFIRMED | CANCELLED | EXPIRED | CANCELLED_SHELTER_DEACTIVATED.
     Terminal states are immutable. Creating a hold increments beds_on_hold via a
-    new availability snapshot. Confirming converts to beds_occupied. Cancelling or
-    expiring decrements beds_on_hold. Hold duration is configurable per tenant
+    new availability snapshot. Confirming converts to beds_occupied. Cancelling,
+    expiring, or shelter-deactivation-cascade decrements beds_on_hold. Hold duration is configurable per tenant
     (default 90 minutes) via tenant.config JSONB field hold_duration_minutes.
 
     Auto-expiry: Lite tier uses @Scheduled polling (30s interval). Standard/Full

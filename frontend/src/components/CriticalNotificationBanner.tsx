@@ -87,7 +87,7 @@ export function CriticalNotificationBanner({ notifications }: CriticalNotificati
       role="alert"
       data-testid="critical-notification-banner"
       style={{
-        backgroundColor: color.error,
+        backgroundColor: color.errorMid,
         color: color.textInverse,
         padding: '10px 20px',
         fontSize: text.sm,
@@ -121,7 +121,7 @@ export function CriticalNotificationBanner({ notifications }: CriticalNotificati
             minHeight: 44,
             padding: '8px 16px',
             backgroundColor: color.textInverse,
-            color: color.error,
+            color: color.errorMid,
             border: 'none',
             borderRadius: 8,
             fontSize: text.sm,

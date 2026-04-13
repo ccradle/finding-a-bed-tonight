@@ -9,12 +9,14 @@ import io.swagger.v3.oas.annotations.Parameter;
 import jakarta.validation.Valid;
 import org.fabt.availability.service.AvailabilityService;
 import org.fabt.availability.service.AvailabilityService.AvailabilitySnapshot;
+import org.fabt.shelter.domain.DeactivationReason;
 import org.fabt.shelter.domain.Shelter;
 import org.fabt.shelter.repository.CoordinatorAssignmentRepository;
 import org.fabt.shelter.domain.DvAddressPolicy;
 import org.fabt.shelter.service.DvAddressRedactionHelper;
 import org.fabt.shelter.service.ShelterHsdsMapper;
 import org.fabt.shelter.service.ShelterService;
+import org.fabt.shelter.service.ShelterService.DeactivationResult;
 import org.fabt.shelter.service.ShelterService.ShelterDetail;
 import org.fabt.shelter.service.ShelterService.ShelterFilterCriteria;
 import org.springframework.http.HttpStatus;
@@ -25,6 +27,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -335,6 +338,60 @@ public class ShelterController {
 
         coordinatorAssignmentRepository.unassign(userId, id);
         return ResponseEntity.noContent().build();
+    }
+
+    @Operation(
+            summary = "Deactivate a shelter",
+            description = "Deactivates a shelter, making it invisible in bed search. Active holds are " +
+                    "cancelled and outreach workers are notified. For DV shelters with pending referrals, " +
+                    "a confirmation is required. Requires COC_ADMIN or PLATFORM_ADMIN role."
+    )
+    @PatchMapping("/{id}/deactivate")
+    @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+    public ResponseEntity<?> deactivate(
+            @Parameter(description = "UUID of the shelter to deactivate") @PathVariable UUID id,
+            @Valid @RequestBody DeactivateShelterRequest request,
+            Authentication authentication) {
+        UUID actorUserId = UUID.fromString(authentication.getName());
+
+        DeactivationReason reason;
+        try {
+            reason = DeactivationReason.valueOf(request.reason());
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(
+                    Map.of("error", "INVALID_REASON",
+                            "message", "Invalid deactivation reason. Valid values are: TEMPORARY_CLOSURE, SEASONAL_END, PERMANENT_CLOSURE, CODE_VIOLATION, FUNDING_LOSS, OTHER"));
+        }
+
+        DeactivationResult result = shelterService.deactivate(id, reason, request.confirmDv(), actorUserId);
+
+        return switch (result) {
+            case DeactivationResult.ConfirmationRequired confirmation ->
+                    ResponseEntity.status(HttpStatus.CONFLICT).body(
+                            Map.of("error", "DV_CONFIRMATION_REQUIRED",
+                                    "confirmationRequired", true,
+                                    "message", "This DV shelter has " + confirmation.pendingDvReferrals()
+                                            + " pending referrals. Confirm to proceed.",
+                                    "pendingDvReferrals", confirmation.pendingDvReferrals()));
+            case DeactivationResult.Success success ->
+                    ResponseEntity.ok(ShelterResponse.from(success.shelter()));
+        };
+    }
+
+    @Operation(
+            summary = "Reactivate a shelter",
+            description = "Reactivates a previously deactivated shelter, making it visible in bed search " +
+                    "again. Clears all deactivation metadata. Requires COC_ADMIN or PLATFORM_ADMIN role."
+    )
+    @PatchMapping("/{id}/reactivate")
+    @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+    public ResponseEntity<ShelterResponse> reactivate(
+            @Parameter(description = "UUID of the shelter to reactivate") @PathVariable UUID id,
+            Authentication authentication) {
+        UUID actorUserId = UUID.fromString(authentication.getName());
+
+        Shelter shelter = shelterService.reactivate(id, actorUserId);
+        return ResponseEntity.ok(ShelterResponse.from(shelter));
     }
 
     private boolean hasRole(Authentication authentication, String role) {

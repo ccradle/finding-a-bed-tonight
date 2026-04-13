@@ -2,12 +2,15 @@ package org.fabt.reservation.service;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -88,9 +91,13 @@ public class ReservationService implements HeldReservationCleaner {
         // Only one transaction can hold this lock per shelter+populationType at a time.
         reservationRepository.acquireAdvisoryLock(shelterId, populationType);
 
-        // Verify shelter exists
-        shelterService.findById(shelterId)
+        // Verify shelter exists and is active
+        var shelter = shelterService.findById(shelterId)
                 .orElseThrow(() -> new NoSuchElementException("Shelter not found: " + shelterId));
+        if (!shelter.isActive()) {
+            throw new IllegalStateException(
+                    "Cannot hold a bed at this shelter right now — it may be temporarily closed. Try another shelter.");
+        }
 
         // Check current availability
         List<BedAvailability> latest = availabilityRepository.findLatestByShelterId(shelterId);
@@ -306,6 +313,50 @@ public class ReservationService implements HeldReservationCleaner {
     @Transactional(readOnly = true)
     public int countActiveHolds(UUID shelterId, String populationType) {
         return reservationRepository.countActiveByShelterId(shelterId, populationType);
+    }
+
+    /**
+     * Find all HELD reservations for a shelter (all population types).
+     * Used by shelter deactivation cascade (Issue #108).
+     */
+    @Transactional(readOnly = true)
+    public List<Reservation> findHeldByShelterId(UUID shelterId) {
+        return reservationRepository.findHeldByShelterId(shelterId);
+    }
+
+    /**
+     * Summary of a cancelled hold — boundary-safe DTO for cross-module callers.
+     * Avoids exposing Reservation domain entity across module boundaries (ArchUnit).
+     */
+    public record CancelledHoldSummary(UUID reservationId, UUID userId) {}
+
+    /**
+     * Cancel all HELD reservations for a shelter due to deactivation (Issue #108).
+     * Transitions each to CANCELLED_SHELTER_DEACTIVATED, recomputes beds_on_hold
+     * per affected population type, and returns summaries for notification.
+     */
+    @Transactional
+    public List<CancelledHoldSummary> cancelHeldForShelterDeactivation(UUID shelterId) {
+        List<Reservation> held = reservationRepository.findHeldByShelterId(shelterId);
+        if (held.isEmpty()) return List.of();
+
+        List<CancelledHoldSummary> summaries = new ArrayList<>();
+
+        // Cancel each reservation
+        for (Reservation reservation : held) {
+            reservationRepository.updateStatus(reservation.getId(), ReservationStatus.CANCELLED_SHELTER_DEACTIVATED);
+            summaries.add(new CancelledHoldSummary(reservation.getId(), reservation.getUserId()));
+        }
+
+        // Recompute beds_on_hold per affected population type (all holds cancelled → 0)
+        Set<String> affectedPopTypes = held.stream()
+                .map(Reservation::getPopulationType)
+                .collect(Collectors.toSet());
+        for (String popType : affectedPopTypes) {
+            applyRecompute(shelterId, popType, 0, "shelter-deactivated-hold-cancel", "system:shelter-deactivate");
+        }
+
+        return summaries;
     }
 
     /**

@@ -21,4 +21,7 @@ public interface UserRepository extends CrudRepository<User, UUID> {
 
     @Query("SELECT * FROM app_user WHERE tenant_id = :tenantId AND status = 'ACTIVE' AND roles @> ARRAY[:role]::text[]")
     List<User> findActiveByTenantIdAndRole(@Param("tenantId") UUID tenantId, @Param("role") String role);
+
+    @Query("SELECT id FROM app_user WHERE tenant_id = :tenantId AND dv_access = true AND status = 'ACTIVE'")
+    List<UUID> findDvAccessUserIds(@Param("tenantId") UUID tenantId);
 }

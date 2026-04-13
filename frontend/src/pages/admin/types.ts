@@ -19,6 +19,11 @@ export interface ShelterListItem {
     name: string;
     addressCity: string;
     updatedAt: string;
+    dvShelter: boolean;
+    active: boolean;
+    deactivatedAt: string | null;
+    deactivatedBy: string | null;
+    deactivationReason: string | null;
   };
   availabilitySummary: {
     totalBedsAvailable: number | null;

@@ -86,6 +86,10 @@ public class DvAddressRedactionHelper {
                 null, // latitude
                 null, // longitude
                 response.dvShelter(),
+                response.active(),
+                response.deactivatedAt(),
+                response.deactivatedBy(),
+                response.deactivationReason(),
                 response.createdAt(),
                 response.updatedAt()
         );

@@ -180,6 +180,14 @@ public class DemoGuardFilter extends OncePerRequestFilter {
         if (path.matches("/api/v1/shelters/[^/]+/manual-hold")) {
             return "Manual offline holds are disabled in the demo environment — would interfere with other visitors' bed search results.";
         }
+        // shelter-activate-deactivate (Issue #108): deactivation/reactivation affect bed search
+        // results for all visitors and should be blocked in demo.
+        if (path.matches("/api/v1/shelters/[^/]+/deactivate")) {
+            return "Shelter deactivation is disabled in the demo environment — would affect other visitors' bed search results.";
+        }
+        if (path.matches("/api/v1/shelters/[^/]+/reactivate")) {
+            return "Shelter reactivation is disabled in the demo environment.";
+        }
         if (path.startsWith("/api/v1/shelters")) return "Shelter modification is disabled in the demo environment.";
         if (path.startsWith("/api/v1/auth/password")) return "Password changes are disabled in the demo environment.";
         if (path.startsWith("/api/v1/surge")) return "Surge management is disabled in the demo environment.";
