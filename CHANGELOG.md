@@ -16,7 +16,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Availability + hold guards** — coordinator availability PATCH and outreach hold creation return 409 for inactive shelters.
 - **DemoGuard** — `/deactivate` and `/reactivate` blocked with friendly messages for public demo visitors.
 - **Sealed `DeactivationResult` interface** — type-safe controller response replacing unsafe `Object` cast.
-- **`CancelledHoldSummary` DTO** — ArchUnit-compliant cross-module boundary for hold cascade.
+- **`CancelledHoldSummary` DTO** — cross-module boundary DTO that satisfies ArchUnit module rules for hold cascade.
 - **12 integration tests** — deactivation, reactivation, hold cascade, DV safety gate (both branches), notification restriction, audit events, idempotency guards, availability/hold guards, RBAC (coordinator + outreach worker blocked), invalid reason validation.
 - **5 Playwright E2E tests** — admin deactivate flow, reactivate flow, DV safety warning dialog, coordinator inactive controls, demo guard API check.
 
