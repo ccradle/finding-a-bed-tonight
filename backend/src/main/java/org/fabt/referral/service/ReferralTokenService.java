@@ -145,7 +145,7 @@ public class ReferralTokenService {
         Instant expiresAt = Instant.now().plus(Duration.ofMinutes(expiryMinutes));
 
         ReferralToken token = new ReferralToken(
-                shelterId, tenantId, userId,
+                shelterId, shelter.getName(), tenantId, userId,
                 householdSize, populationType, urgency,
                 specialNeeds, callbackNumber, expiresAt);
 

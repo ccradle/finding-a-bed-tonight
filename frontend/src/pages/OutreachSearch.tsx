@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { FormattedMessage, useIntl } from 'react-intl';
-import { api } from '../services/api';
+import { FormattedMessage, useIntl, type IntlShape } from 'react-intl';
+import { api, ApiError } from '../services/api';
 import { enqueueAction, type ReplayResult } from '../services/offlineQueue';
 import { DataAge } from '../components/DataAge';
 import { text, weight, leading } from '../theme/typography';
@@ -8,6 +8,7 @@ import { color } from '../theme/colors';
 import { getPopulationTypeLabel } from '../utils/populationTypeLabels';
 import { SSE_REFERRAL_UPDATE, SSE_AVAILABILITY_UPDATE } from '../hooks/useNotifications';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
+import { useAuth } from '../auth/useAuth';
 
 const POPULATION_TYPES = [
   { value: '', labelId: 'search.allTypes' },
@@ -57,6 +58,8 @@ interface BedSearchResult {
 interface ReferralToken {
   id: string;
   shelterId: string;
+  /** Snapshotted at token creation — survives shelter rename/offline refresh (Darius persona). */
+  shelterName?: string;
   status: string;
   urgency: string;
   householdSize: number;
@@ -66,6 +69,29 @@ interface ReferralToken {
   remainingSeconds: number | null;
   rejectionReason: string | null;
   shelterPhone: string | null;
+}
+
+function formatReferralListTime(iso: string, intl: IntlShape): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return intl.formatTime(d, { hour: 'numeric', minute: '2-digit' });
+}
+
+function referralStatusLabel(status: string, intl: IntlShape): string {
+  switch (status) {
+    case 'ACCEPTED':
+      return intl.formatMessage({ id: 'referral.statusAccepted' });
+    case 'REJECTED':
+      return intl.formatMessage({ id: 'referral.statusRejected' });
+    case 'PENDING':
+      return intl.formatMessage({ id: 'referral.statusPending' });
+    case 'EXPIRED':
+      return intl.formatMessage({ id: 'referral.expired' });
+    case 'SHELTER_CLOSED':
+      return intl.formatMessage({ id: 'referral.statusShelterClosed' });
+    default:
+      return status;
+  }
 }
 
 interface BedSearchResponse {
@@ -143,6 +169,7 @@ interface ReservationResponse {
 export function OutreachSearch() {
   const intl = useIntl();
   const { isOnline } = useOnlineStatus();
+  const { isAuthenticated } = useAuth();
   const [results, setResults] = useState<BedSearchResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -176,6 +203,7 @@ export function OutreachSearch() {
   const [referralForm, setReferralForm] = useState({ householdSize: 1, urgency: 'STANDARD', specialNeeds: '', callbackNumber: '' });
   const [referralSubmitting, setReferralSubmitting] = useState(false);
   const [myReferrals, setMyReferrals] = useState<ReferralToken[]>([]);
+  const [referralListError, setReferralListError] = useState<string | null>(null);
   const [showReferrals, setShowReferrals] = useState(false);
   const [offlineReferralShelterId, setOfflineReferralShelterId] = useState<string | null>(null);
   const [referralError, setReferralError] = useState<string | null>(null);
@@ -274,10 +302,28 @@ export function OutreachSearch() {
     try {
       const data = await api.get<ReferralToken[]>('/api/v1/dv-referrals/mine');
       setMyReferrals(data || []);
-    } catch { /* silent — referrals panel is optional (user may not have dvAccess) */ }
-  }, []);
+      setReferralListError(null);
+    } catch (err) {
+      // Expected for users without DV access — keep panel hidden without alarming copy.
+      if (err instanceof ApiError && err.status === 403) {
+        setMyReferrals([]);
+        setReferralListError(null);
+        return;
+      }
+      setReferralListError(intl.formatMessage({ id: 'referral.myReferralsLoadError' }));
+    }
+  }, [intl]);
 
   useEffect(() => { fetchReferrals(); }, [fetchReferrals]);
+
+  // Elena Vasquez / design: clear in-session referral list on logout (no IndexedDB cache for /mine).
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setMyReferrals([]);
+      setReferralListError(null);
+      setShowReferrals(false);
+    }
+  }, [isAuthenticated]);
 
   const submitReferral = async () => {
     if (!referralModal) return;
@@ -294,7 +340,7 @@ export function OutreachSearch() {
       });
       setReferralModal(null);
       setReferralForm({ householdSize: 1, urgency: 'STANDARD', specialNeeds: '', callbackNumber: '' });
-      fetchReferrals();
+      await fetchReferrals();
     } catch (err) {
       if (err instanceof TypeError) {
         // Network error (offline, captive portal, DNS failure) — show inside modal
@@ -1099,6 +1145,46 @@ export function OutreachSearch() {
         </div>
       )}
 
+      {referralListError && (
+        <div
+          role="alert"
+          data-testid="referral-list-error"
+          style={{
+            marginTop: 12,
+            marginBottom: 8,
+            padding: '12px 14px',
+            borderRadius: 10,
+            backgroundColor: color.errorBg,
+            color: color.error,
+            fontSize: text.sm,
+            fontWeight: weight.medium,
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            gap: 10,
+          }}
+        >
+          <span style={{ flex: '1 1 200px' }}>{referralListError}</span>
+          <button
+            type="button"
+            data-testid="referral-list-retry"
+            onClick={() => { void fetchReferrals(); }}
+            style={{
+              padding: '8px 14px',
+              borderRadius: 8,
+              border: `1px solid ${color.error}`,
+              backgroundColor: color.bg,
+              color: color.error,
+              fontSize: text.xs,
+              fontWeight: weight.bold,
+              cursor: 'pointer',
+            }}
+          >
+            <FormattedMessage id="referral.myReferralsRetry" />
+          </button>
+        </div>
+      )}
+
       {/* My DV Referrals section */}
       {myReferrals.length > 0 && (
         <div style={{ marginTop: 16, marginBottom: 16 }}>
@@ -1113,17 +1199,66 @@ export function OutreachSearch() {
             <span>{showReferrals ? '▲' : '▼'}</span>
           </button>
           {showReferrals && (
-            <div data-testid="my-referrals" style={{ border: `2px solid ${color.border}`, borderTop: 'none', borderRadius: '0 0 12px 12px', padding: '12px 16px' }}>
-              {myReferrals.map((ref) => (
-                <div key={ref.id} data-testid={`referral-${ref.id}`} style={{
+            <div data-testid="my-referrals" role="list" aria-label={intl.formatMessage({ id: 'referral.myReferrals' })} style={{ border: `2px solid ${color.border}`, borderTop: 'none', borderRadius: '0 0 12px 12px', padding: '12px 16px' }}>
+              {myReferrals.map((ref) => {
+                const populationLabel = getPopulationTypeLabel(ref.populationType, intl);
+                const timeStr = formatReferralListTime(ref.createdAt, intl)
+                  || intl.formatMessage({ id: 'referral.timeUnknown' });
+                const statusHuman = referralStatusLabel(ref.status, intl);
+                const shelterDisp = (ref.shelterName && ref.shelterName.trim())
+                  ? ref.shelterName.trim()
+                  : intl.formatMessage({ id: 'referral.shelterUnknown' });
+                const headline = intl.formatMessage(
+                  { id: 'referral.myReferralHeadline' },
+                  { status: statusHuman, shelter: shelterDisp, population: populationLabel, time: timeStr }
+                );
+                const aria = intl.formatMessage(
+                  { id: 'referral.listItemAriaLabel' },
+                  { status: statusHuman, shelter: shelterDisp, population: populationLabel, time: timeStr }
+                );
+                const badgeBg = ref.status === 'ACCEPTED' ? color.successBg
+                  : ref.status === 'REJECTED' || ref.status === 'EXPIRED' ? color.errorBg
+                  : ref.status === 'SHELTER_CLOSED' ? color.errorBg
+                  : color.warningBg;
+                const badgeFg = ref.status === 'ACCEPTED' ? color.success
+                  : ref.status === 'REJECTED' || ref.status === 'EXPIRED' || ref.status === 'SHELTER_CLOSED' ? color.error
+                  : color.warning;
+                // Tooltip: expiry time + remaining (Devon Kessler: "created for identity,
+                // expiry on hover"). Follows the DataAge.tsx native title= pattern.
+                const expiryTooltip = ref.expiresAt
+                  ? intl.formatMessage(
+                      { id: 'referral.expiryTooltip' },
+                      {
+                        expiresAt: new Date(ref.expiresAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+                        remaining: ref.remainingSeconds != null && ref.remainingSeconds > 0
+                          ? Math.ceil(ref.remainingSeconds / 60).toString()
+                          : '0',
+                      }
+                    )
+                  : undefined;
+
+                return (
+                <div key={ref.id} data-testid={`referral-${ref.id}`} role="listitem" aria-label={aria} style={{
                   padding: '10px 0', borderBottom: `1px solid ${color.borderLight}`,
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8,
                 }}>
-                  <div>
-                    <span style={{ fontSize: text.sm, fontWeight: weight.semibold, color: color.text }}>
-                      {getPopulationTypeLabel(ref.populationType, intl)} — {ref.householdSize} person{ref.householdSize > 1 ? 's' : ''}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <span
+                      data-testid={`referral-primary-line-${ref.id}`}
+                      title={expiryTooltip}
+                      style={{ fontSize: text.sm, fontWeight: weight.semibold, color: color.text, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: expiryTooltip ? 'help' : undefined }}
+                    >
+                      {headline}
                     </span>
-                    <div style={{ fontSize: text['2xs'], color: color.textTertiary, marginTop: 2 }}>
+                    <span style={{ fontSize: text['2xs'], color: color.textTertiary, marginTop: 2, display: 'block' }}>
+                      {populationLabel} — <FormattedMessage id="referral.householdCount" values={{ count: ref.householdSize }} />
+                    </span>
+                    <div style={{ fontSize: text['2xs'], color: color.textTertiary, marginTop: 4 }}>
+                      {ref.status === 'SHELTER_CLOSED' && (
+                        <span data-testid={`referral-shelter-closed-${ref.id}`} style={{ color: color.error, display: 'block' }}>
+                          <FormattedMessage id="referral.shelterClosedGuidance" />
+                        </span>
+                      )}
                       {ref.status === 'ACCEPTED' && ref.shelterPhone && (
                         <span data-testid={`referral-phone-${ref.id}`} style={{ color: color.success, fontWeight: weight.bold }}>
                           <FormattedMessage id="referral.callShelter" /> {ref.shelterPhone}
@@ -1145,12 +1280,13 @@ export function OutreachSearch() {
                     </div>
                   </div>
                   <span style={{
-                    padding: '3px 8px', borderRadius: 6, fontSize: text['2xs'], fontWeight: weight.bold,
-                    backgroundColor: ref.status === 'ACCEPTED' ? color.successBg : ref.status === 'REJECTED' ? color.errorBg : ref.status === 'EXPIRED' ? color.errorBg : color.warningBg,
-                    color: ref.status === 'ACCEPTED' ? color.success : ref.status === 'REJECTED' || ref.status === 'EXPIRED' ? color.error : color.warning,
-                  }}>{ref.status}</span>
+                    padding: '3px 8px', borderRadius: 6, fontSize: text['2xs'], fontWeight: weight.bold, flexShrink: 0,
+                    backgroundColor: badgeBg,
+                    color: badgeFg,
+                  }}>{statusHuman}</span>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

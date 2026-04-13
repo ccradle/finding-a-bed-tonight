@@ -12,6 +12,7 @@ import org.fabt.referral.domain.ReferralToken;
 public record ReferralTokenResponse(
         UUID id,
         UUID shelterId,
+        String shelterName,
         int householdSize,
         String populationType,
         String urgency,
@@ -25,15 +26,17 @@ public record ReferralTokenResponse(
         String rejectionReason,
         String shelterPhone
 ) {
-    public static ReferralTokenResponse from(ReferralToken token, String shelterPhone) {
+    public static ReferralTokenResponse from(ReferralToken token, String shelterPhone, String overrideShelterName) {
         Long remaining = null;
         if ("PENDING".equals(token.getStatus()) && token.getExpiresAt() != null) {
             long secs = java.time.Duration.between(Instant.now(), token.getExpiresAt()).getSeconds();
             remaining = Math.max(0, secs);
         }
+        String resolvedName = overrideShelterName != null ? overrideShelterName : token.getShelterName();
         return new ReferralTokenResponse(
                 token.getId(),
                 token.getShelterId(),
+                resolvedName,
                 token.getHouseholdSize(),
                 token.getPopulationType(),
                 token.getUrgency(),

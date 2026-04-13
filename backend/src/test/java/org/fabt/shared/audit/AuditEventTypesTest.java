@@ -54,6 +54,12 @@ class AuditEventTypesTest {
     // ---- coc-admin-escalation: DV referral admin actions ----
 
     @Test
+    @DisplayName("DV_REFERRAL_REQUESTED has stable value")
+    void dvReferralRequested() {
+        assertThat(AuditEventTypes.DV_REFERRAL_REQUESTED).isEqualTo("DV_REFERRAL_REQUESTED");
+    }
+
+    @Test
     @DisplayName("DV_REFERRAL_CLAIMED has stable value")
     void dvReferralClaimed() {
         assertThat(AuditEventTypes.DV_REFERRAL_CLAIMED).isEqualTo("DV_REFERRAL_CLAIMED");

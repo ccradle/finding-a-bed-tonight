@@ -31,6 +31,8 @@ import org.fabt.shelter.domain.ShelterConstraints;
 import org.fabt.shelter.repository.ShelterConstraintsRepository;
 import org.fabt.shelter.repository.ShelterRepository;
 import org.fabt.shared.audit.AuditEventRecord;
+import org.fabt.shared.cache.CacheNames;
+import org.fabt.shared.cache.CacheService;
 import org.fabt.shared.web.TenantContext;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Lazy;
@@ -65,6 +67,7 @@ public class ShelterService {
     private final ObjectMapper objectMapper;
     private final JdbcTemplate jdbcTemplate;
     private final ApplicationEventPublisher eventPublisher;
+    private final CacheService cacheService;
 
     public ShelterService(ShelterRepository shelterRepository,
                           ShelterConstraintsRepository constraintsRepository,
@@ -72,7 +75,8 @@ public class ShelterService {
                           TenantService tenantService,
                           ObjectMapper objectMapper,
                           JdbcTemplate jdbcTemplate,
-                          ApplicationEventPublisher eventPublisher) {
+                          ApplicationEventPublisher eventPublisher,
+                          CacheService cacheService) {
         this.shelterRepository = shelterRepository;
         this.constraintsRepository = constraintsRepository;
         this.availabilityService = availabilityService;
@@ -80,6 +84,7 @@ public class ShelterService {
         this.objectMapper = objectMapper;
         this.jdbcTemplate = jdbcTemplate;
         this.eventPublisher = eventPublisher;
+        this.cacheService = cacheService;
     }
 
     /**
@@ -134,6 +139,7 @@ public class ShelterService {
         shelter.setLatitude(req.latitude());
         shelter.setLongitude(req.longitude());
         shelter.setDvShelter(req.dvShelter());
+        shelter.setActive(true);
         shelter.setCreatedAt(Instant.now());
         shelter.setUpdatedAt(Instant.now());
 
@@ -154,7 +160,18 @@ public class ShelterService {
             }
         }
 
+        evictTenantShelterCaches(tenantId);
         return saved;
+    }
+
+    /**
+     * Bed search caches availability keyed by tenant. Shelter create/update/delete changes which
+     * shelters appear (e.g. {@code active}) — evict so the next search is consistent (Elena Vasquez).
+     */
+    private void evictTenantShelterCaches(UUID tenantId) {
+        String key = tenantId.toString();
+        cacheService.evict(CacheNames.SHELTER_AVAILABILITY, key);
+        cacheService.evict(CacheNames.SHELTER_LIST, key);
     }
 
     /**
@@ -249,6 +266,7 @@ public class ShelterService {
                     null));
         }
 
+        evictTenantShelterCaches(tenantId);
         return saved;
     }
 
@@ -298,7 +316,7 @@ public class ShelterService {
         UUID tenantId = TenantContext.getTenantId();
 
         StringBuilder sql = new StringBuilder(
-                "SELECT s.* FROM shelter s JOIN shelter_constraints sc ON s.id = sc.shelter_id WHERE s.tenant_id = ?");
+                "SELECT s.* FROM shelter s JOIN shelter_constraints sc ON s.id = sc.shelter_id WHERE s.tenant_id = ? AND s.active = TRUE");
         List<Object> params = new ArrayList<>();
         params.add(tenantId);
 
@@ -337,6 +355,7 @@ public class ShelterService {
                     shelter.setLatitude(rs.getObject("latitude", Double.class));
                     shelter.setLongitude(rs.getObject("longitude", Double.class));
                     shelter.setDvShelter(rs.getBoolean("dv_shelter"));
+                    shelter.setActive(rs.getBoolean("active"));
                     shelter.setCreatedAt(rs.getTimestamp("created_at") != null
                             ? rs.getTimestamp("created_at").toInstant() : null);
                     shelter.setUpdatedAt(rs.getTimestamp("updated_at") != null
@@ -357,6 +376,7 @@ public class ShelterService {
         // bed_availability rows have ON DELETE CASCADE via shelter FK — no manual cleanup needed
         constraintsRepository.deleteById(shelter.getId());
         shelterRepository.delete(shelter);
+        evictTenantShelterCaches(tenantId);
     }
 
     @Transactional(readOnly = true)

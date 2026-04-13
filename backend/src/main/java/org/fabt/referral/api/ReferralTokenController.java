@@ -16,14 +16,19 @@ import io.swagger.v3.oas.annotations.Parameter;
 import jakarta.validation.Valid;
 
 import org.fabt.auth.service.UserService;
+import org.fabt.observability.ObservabilityMetrics;
 import org.fabt.referral.domain.ReferralToken;
 import org.fabt.referral.service.ReferralTokenService;
+import org.fabt.shared.audit.AuditEventRecord;
+import org.fabt.shared.audit.AuditEventTypes;
+import org.fabt.shelter.domain.Shelter;
 import org.fabt.shelter.repository.CoordinatorAssignmentRepository;
 import org.fabt.shelter.service.ShelterService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -46,17 +51,23 @@ public class ReferralTokenController {
     private final UserService userService;
     private final CoordinatorAssignmentRepository coordinatorAssignmentRepository;
     private final MeterRegistry meterRegistry;
+    private final ObservabilityMetrics observabilityMetrics;
+    private final ApplicationEventPublisher eventPublisher;
 
     public ReferralTokenController(ReferralTokenService referralTokenService,
                                    ShelterService shelterService,
                                    UserService userService,
                                    CoordinatorAssignmentRepository coordinatorAssignmentRepository,
-                                   MeterRegistry meterRegistry) {
+                                   MeterRegistry meterRegistry,
+                                   ObservabilityMetrics observabilityMetrics,
+                                   ApplicationEventPublisher eventPublisher) {
         this.referralTokenService = referralTokenService;
         this.shelterService = shelterService;
         this.userService = userService;
         this.coordinatorAssignmentRepository = coordinatorAssignmentRepository;
         this.meterRegistry = meterRegistry;
+        this.observabilityMetrics = observabilityMetrics;
+        this.eventPublisher = eventPublisher;
     }
 
     @Operation(
@@ -200,8 +211,16 @@ public class ReferralTokenController {
                 request.shelterId(), userId, request.householdSize(),
                 request.populationType(), request.urgency(),
                 request.specialNeeds(), request.callbackNumber());
+
+        // Snapshot shelter name for the audit trail (Casey Drummond compliance)
+        String shelterName = token.getShelterName() != null ? token.getShelterName() : "Unknown Shelter";
+        publishAudit(userId, token.getId(), AuditEventTypes.DV_REFERRAL_REQUESTED,
+                Map.of("shelter_id", request.shelterId().toString(),
+                       "shelter_name", shelterName,
+                       "urgency", request.urgency()));
+
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ReferralTokenResponse.from(token, null));
+                .body(ReferralTokenResponse.from(token, null, null));
     }
 
     @Operation(
@@ -209,17 +228,67 @@ public class ReferralTokenController {
             description = "Returns all referral tokens created by the authenticated user, in all " +
                     "statuses (PENDING, ACCEPTED, REJECTED, EXPIRED). For ACCEPTED tokens, the " +
                     "shelter's intake phone number is included for warm handoff. Shelter address " +
-                    "is NEVER included."
+                    "is NEVER included. Performs a 'Safety Check' (Marcus Webb / Elena Vasquez) — if the " +
+                    "destination shelter is deactivated or no longer a DV shelter, status is returned as SHELTER_CLOSED."
     )
     @GetMapping("/mine")
     @PreAuthorize("hasAnyRole('OUTREACH_WORKER', 'COORDINATOR', 'COC_ADMIN', 'PLATFORM_ADMIN')")
+
     public ResponseEntity<List<ReferralTokenResponse>> listMine(Authentication authentication) {
         UUID userId = UUID.fromString(authentication.getName());
         List<ReferralToken> tokens = referralTokenService.getByUserId(userId);
+
+        // Safety Check (Marcus Webb / Elena Vasquez): Batch-fetch shelter data to avoid N+1
+        Set<UUID> shelterIds = tokens.stream().map(ReferralToken::getShelterId).collect(Collectors.toSet());
+        Map<UUID, Shelter> shelterMap = shelterService.findAllById(shelterIds).stream()
+                .collect(Collectors.toMap(Shelter::getId, s -> s));
+
         List<ReferralTokenResponse> responses = tokens.stream()
                 .map(t -> {
-                    String phone = referralTokenService.getShelterPhoneForToken(t);
-                    return ReferralTokenResponse.from(t, phone);
+                    Shelter shelter = shelterMap.get(t.getShelterId());
+                    
+                    // Optimization (Marcus Webb): use batch-fetched shelter for phone number to avoid N+1
+                    String phone = null;
+                    if (shelter != null && "ACCEPTED".equals(t.getStatus())) {
+                        phone = shelter.getPhone();
+                    }
+
+                    ReferralTokenResponse dto = ReferralTokenResponse.from(t, phone, null);
+
+                    // Safety Check: flag PENDING referrals whose shelter is deactivated
+                    // or no longer DV (Marcus Webb / Elena Vasquez). Only PENDING referrals
+                    // are overridden — ACCEPTED/REJECTED referrals keep their terminal status
+                    // because the worker may have already placed a client there (Keisha
+                    // Thompson, war room 2026-04-12: "showing 'Shelter closed' on a
+                    // completed referral causes unnecessary panic for the worker who
+                    // already connected a client"). The phone IS withheld for non-PENDING
+                    // unsafe shelters as a secondary safety measure.
+                    if (shelter == null || !shelter.isActive() || !shelter.isDvShelter()) {
+                        String reason = shelter == null ? "SHELTER_MISSING"
+                                : (!shelter.isActive() ? "SHELTER_CLOSED" : "SHELTER_NOT_DV");
+
+                        observabilityMetrics.dvReferralSafetyCheckCounter(reason).increment();
+
+                        if ("PENDING".equals(t.getStatus())) {
+                            // PENDING referrals: override status to SHELTER_CLOSED
+                            dto = new ReferralTokenResponse(
+                                    dto.id(), dto.shelterId(), dto.shelterName(), dto.householdSize(),
+                                    dto.populationType(), dto.urgency(), dto.specialNeeds(),
+                                    dto.callbackNumber(), "SHELTER_CLOSED", dto.createdAt(),
+                                    dto.respondedAt(), dto.expiresAt(), dto.remainingSeconds(),
+                                    dto.rejectionReason(), null);
+                        } else {
+                            // ACCEPTED/REJECTED: preserve terminal status, but withhold
+                            // phone as a secondary safety measure
+                            dto = new ReferralTokenResponse(
+                                    dto.id(), dto.shelterId(), dto.shelterName(), dto.householdSize(),
+                                    dto.populationType(), dto.urgency(), dto.specialNeeds(),
+                                    dto.callbackNumber(), dto.status(), dto.createdAt(),
+                                    dto.respondedAt(), dto.expiresAt(), dto.remainingSeconds(),
+                                    dto.rejectionReason(), null);
+                        }
+                    }
+                    return dto;
                 })
                 .toList();
         return ResponseEntity.ok(responses);
@@ -234,11 +303,12 @@ public class ReferralTokenController {
     )
     @GetMapping("/pending")
     @PreAuthorize("hasAnyRole('COORDINATOR', 'COC_ADMIN', 'PLATFORM_ADMIN')")
+
     public ResponseEntity<List<ReferralTokenResponse>> listPending(
             @Parameter(description = "UUID of the DV shelter") @RequestParam UUID shelterId) {
         List<ReferralToken> tokens = referralTokenService.getPendingByShelterId(shelterId);
         List<ReferralTokenResponse> responses = tokens.stream()
-                .map(t -> ReferralTokenResponse.from(t, null))
+                .map(t -> ReferralTokenResponse.from(t, null, null))
                 .toList();
         return ResponseEntity.ok(responses);
     }
@@ -272,7 +342,7 @@ public class ReferralTokenController {
         UUID respondedBy = UUID.fromString(authentication.getName());
         ReferralToken token = referralTokenService.acceptToken(id, respondedBy);
         String phone = referralTokenService.getShelterPhoneForToken(token);
-        return ResponseEntity.ok(ReferralTokenResponse.from(token, phone));
+        return ResponseEntity.ok(ReferralTokenResponse.from(token, phone, null));
     }
 
     @Operation(
@@ -289,7 +359,7 @@ public class ReferralTokenController {
             Authentication authentication) {
         UUID respondedBy = UUID.fromString(authentication.getName());
         ReferralToken token = referralTokenService.rejectToken(id, respondedBy, request.reason());
-        return ResponseEntity.ok(ReferralTokenResponse.from(token, null));
+        return ResponseEntity.ok(ReferralTokenResponse.from(token, null, null));
     }
 
     @Operation(
@@ -322,5 +392,15 @@ public class ReferralTokenController {
     private double getCounterValue(String status) {
         Counter counter = meterRegistry.find("fabt.dv.referral.total").tag("status", status).counter();
         return counter != null ? counter.count() : 0.0;
+    }
+
+    /**
+     * Same {@link ApplicationEventPublisher} → {@code AuditEventRecord} pattern as
+     * {@link org.fabt.referral.service.ReferralTokenService} and {@link org.fabt.auth.service.UserService}
+     * (Casey Drummond chain-of-custody; Alex Chen keeps referral module free of direct {@code AuditService}).
+     */
+    private void publishAudit(UUID userId, UUID referralId, String action, Map<String, String> details) {
+        eventPublisher.publishEvent(new AuditEventRecord(
+                userId, referralId, action, details, /* ipAddress */ null));
     }
 }

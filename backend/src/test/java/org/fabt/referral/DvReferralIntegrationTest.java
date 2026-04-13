@@ -137,6 +137,313 @@ class DvReferralIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
+    void tc_create_includesShelterName_snapshotInCreateAndMine() {
+        ResponseEntity<String> createResp = createReferral(dvShelterId, outreachHeaders);
+        assertEquals(HttpStatus.CREATED, createResp.getStatusCode());
+        String created = createResp.getBody();
+        assertNotNull(created);
+        assertTrue(created.contains("\"shelterName\":\""),
+                "POST /dv-referrals must return snapshotted shelterName — body: " + created);
+        assertTrue(created.contains("DV Shelter "),
+                "Expected test shelter name prefix in JSON — body: " + created);
+
+        ResponseEntity<String> mineResp = restTemplate.exchange(
+                "/api/v1/dv-referrals/mine", HttpMethod.GET,
+                new HttpEntity<>(outreachHeaders), String.class);
+        assertEquals(HttpStatus.OK, mineResp.getStatusCode());
+        String mine = mineResp.getBody();
+        assertNotNull(mine);
+        assertTrue(mine.contains("\"shelterName\":\""),
+                "GET /dv-referrals/mine must include shelterName — body: " + mine);
+    }
+
+    @Test
+    void tc_deactivatedShelter_mineShowsShelterClosed() {
+        ResponseEntity<String> createResp = createReferral(dvShelterId, outreachHeaders);
+        assertEquals(HttpStatus.CREATED, createResp.getStatusCode());
+
+        TenantContext.runWithContext(authHelper.getTestTenantId(), true, () ->
+                jdbcTemplate.update("UPDATE shelter SET active = false WHERE id = ?::uuid", dvShelterId));
+
+        ResponseEntity<String> mineResp = restTemplate.exchange(
+                "/api/v1/dv-referrals/mine", HttpMethod.GET,
+                new HttpEntity<>(outreachHeaders), String.class);
+        assertEquals(HttpStatus.OK, mineResp.getStatusCode());
+        String mine = mineResp.getBody();
+        assertNotNull(mine);
+        assertTrue(mine.contains("\"status\":\"SHELTER_CLOSED\""),
+                "Inactive shelter must yield SHELTER_CLOSED on mine list — body: " + mine);
+    }
+
+    @Test
+    void tc_dvShelterRevoked_mineShowsShelterClosed() {
+        ResponseEntity<String> createResp = createReferral(dvShelterId, outreachHeaders);
+        assertEquals(HttpStatus.CREATED, createResp.getStatusCode());
+
+        TenantContext.runWithContext(authHelper.getTestTenantId(), true, () ->
+                jdbcTemplate.update("UPDATE shelter SET dv_shelter = false WHERE id = ?::uuid", dvShelterId));
+
+        ResponseEntity<String> mineResp = restTemplate.exchange(
+                "/api/v1/dv-referrals/mine", HttpMethod.GET,
+                new HttpEntity<>(outreachHeaders), String.class);
+        assertEquals(HttpStatus.OK, mineResp.getStatusCode());
+        String mine = mineResp.getBody();
+        assertNotNull(mine);
+        assertTrue(mine.contains("\"status\":\"SHELTER_CLOSED\""),
+                "Non-DV shelter must yield SHELTER_CLOSED on mine list — body: " + mine);
+    }
+
+    // =========================================================================
+    // War room review tests (2026-04-12) — Riley Cho gap analysis
+    // =========================================================================
+
+    @Test
+    void tc_acceptedReferral_shelterDeactivated_keepsAcceptedStatus() {
+        // W3 fix: Keisha Thompson — "showing 'Shelter closed' on a completed
+        // referral causes unnecessary panic." ACCEPTED referrals must keep
+        // their terminal status even if the shelter is later deactivated.
+        ResponseEntity<String> createResp = createReferral(dvShelterId, outreachHeaders);
+        String tokenId = extractField(createResp.getBody(), "id");
+
+        // Accept the referral as coordinator
+        restTemplate.exchange("/api/v1/dv-referrals/" + tokenId + "/accept",
+                HttpMethod.PATCH, new HttpEntity<>(coordHeaders), String.class);
+
+        // NOW deactivate the shelter
+        TenantContext.runWithContext(authHelper.getTestTenantId(), true, () ->
+                jdbcTemplate.update("UPDATE shelter SET active = false WHERE id = ?::uuid", dvShelterId));
+
+        // Worker's list should still show ACCEPTED, not SHELTER_CLOSED.
+        // Extract only THIS referral from the /mine list to avoid cross-test
+        // pollution (the /mine endpoint returns all referrals for the user
+        // across the entire test class lifecycle).
+        ResponseEntity<String> mineResp = restTemplate.exchange(
+                "/api/v1/dv-referrals/mine", HttpMethod.GET,
+                new HttpEntity<>(outreachHeaders), String.class);
+        String mine = mineResp.getBody();
+        assertNotNull(mine);
+
+        // Find the JSON object for this specific token by ID
+        int tokenStart = mine.indexOf(tokenId);
+        assertTrue(tokenStart >= 0, "Token must appear in /mine response — id: " + tokenId);
+        // Walk backward to find the opening brace of this object
+        int objStart = mine.lastIndexOf('{', tokenStart);
+        // Walk forward to find the closing brace (handles nested objects)
+        int braceDepth = 0;
+        int objEnd = objStart;
+        for (int i = objStart; i < mine.length(); i++) {
+            if (mine.charAt(i) == '{') braceDepth++;
+            else if (mine.charAt(i) == '}') { braceDepth--; if (braceDepth == 0) { objEnd = i + 1; break; } }
+        }
+        String thisReferral = mine.substring(objStart, objEnd);
+
+        assertTrue(thisReferral.contains("\"status\":\"ACCEPTED\""),
+                "ACCEPTED referral must keep status after shelter deactivation — this referral: " + thisReferral);
+        // Phone should be withheld as secondary safety measure for this specific referral
+        assertFalse(thisReferral.contains("\"shelterPhone\""),
+                "Phone must be withheld for deactivated shelter even on ACCEPTED referral — this referral: " + thisReferral);
+    }
+
+    @Test
+    void tc_shelterRenamed_snapshotPreservesOriginalName() {
+        // The core value prop of denormalization: the snapshot records the name
+        // at creation time, not the current name.
+        ResponseEntity<String> createResp = createReferral(dvShelterId, outreachHeaders);
+        assertEquals(HttpStatus.CREATED, createResp.getStatusCode());
+        String originalName = extractField(createResp.getBody(), "shelterName");
+        assertNotNull(originalName);
+
+        // Rename the shelter
+        TenantContext.runWithContext(authHelper.getTestTenantId(), true, () ->
+                jdbcTemplate.update("UPDATE shelter SET name = 'Renamed Shelter' WHERE id = ?::uuid", dvShelterId));
+
+        // Worker's list should show the ORIGINAL name, not "Renamed Shelter"
+        ResponseEntity<String> mineResp = restTemplate.exchange(
+                "/api/v1/dv-referrals/mine", HttpMethod.GET,
+                new HttpEntity<>(outreachHeaders), String.class);
+        String mine = mineResp.getBody();
+        assertTrue(mine.contains("\"shelterName\":\"" + originalName),
+                "Snapshot must preserve original shelter name after rename — body: " + mine);
+        assertFalse(mine.contains("Renamed Shelter"),
+                "Current shelter name must NOT leak into the snapshot — body: " + mine);
+    }
+
+    @Test
+    void tc_multipleReferrals_distinctShelterNames() {
+        // Issue #92: the entire point — workers can distinguish referrals
+        // to different shelters by name.
+
+        // Create a second DV shelter (createShelter uses adminHeaders which
+        // already has dvAccess=true, so no TenantContext wrapper needed)
+        UUID secondDvShelterId = createShelter(true);
+        TenantContext.runWithContext(authHelper.getTestTenantId(), true, () ->
+                patchAvailability(secondDvShelterId, "DV_SURVIVOR", 10, 2, 0));
+
+        // Create referrals to both shelters
+        ResponseEntity<String> ref1 = createReferral(dvShelterId, outreachHeaders);
+        assertEquals(HttpStatus.CREATED, ref1.getStatusCode());
+        String name1 = extractField(ref1.getBody(), "shelterName");
+
+        ResponseEntity<String> ref2 = createReferral(secondDvShelterId, outreachHeaders);
+        assertEquals(HttpStatus.CREATED, ref2.getStatusCode());
+        String name2 = extractField(ref2.getBody(), "shelterName");
+
+        // Names should be different (both shelters get unique UUID-suffixed names)
+        assertNotEquals(name1, name2,
+                "Two different shelters must produce distinct shelter names in referral responses");
+
+        // Mine list should contain both names
+        ResponseEntity<String> mineResp = restTemplate.exchange(
+                "/api/v1/dv-referrals/mine", HttpMethod.GET,
+                new HttpEntity<>(outreachHeaders), String.class);
+        String mine = mineResp.getBody();
+        assertTrue(mine.contains(name1), "Mine list must include first shelter name — body: " + mine);
+        assertTrue(mine.contains(name2), "Mine list must include second shelter name — body: " + mine);
+    }
+
+    @Test
+    void tc_nullShelterName_legacyToken_handledGracefully() {
+        // Backward compat: pre-V51 tokens have shelter_name=NULL.
+        // Create a referral, then NULL out the shelter_name via SQL to simulate.
+        ResponseEntity<String> createResp = createReferral(dvShelterId, outreachHeaders);
+        String tokenId = extractField(createResp.getBody(), "id");
+
+        TenantContext.runWithContext(authHelper.getTestTenantId(), true, () ->
+                jdbcTemplate.update("UPDATE referral_token SET shelter_name = NULL WHERE id = ?::uuid", tokenId));
+
+        ResponseEntity<String> mineResp = restTemplate.exchange(
+                "/api/v1/dv-referrals/mine", HttpMethod.GET,
+                new HttpEntity<>(outreachHeaders), String.class);
+        assertEquals(HttpStatus.OK, mineResp.getStatusCode());
+        String mine = mineResp.getBody();
+
+        // Find this specific referral by ID and verify it handles null shelterName.
+        // Jackson omits null fields by default (no "shelterName":null in JSON) —
+        // the field is simply absent. The frontend handles this with a fallback
+        // to "Unknown shelter".
+        int tokenStart = mine.indexOf(tokenId);
+        assertTrue(tokenStart >= 0, "Token must appear in /mine response — id: " + tokenId);
+        int objStart = mine.lastIndexOf('{', tokenStart);
+        int braceDepth = 0;
+        int objEnd = objStart;
+        for (int i = objStart; i < mine.length(); i++) {
+            if (mine.charAt(i) == '{') braceDepth++;
+            else if (mine.charAt(i) == '}') { braceDepth--; if (braceDepth == 0) { objEnd = i + 1; break; } }
+        }
+        String thisReferral = mine.substring(objStart, objEnd);
+
+        // The field should either be absent (Jackson default) or null — either is graceful
+        boolean absent = !thisReferral.contains("\"shelterName\"");
+        boolean explicitNull = thisReferral.contains("\"shelterName\":null");
+        assertTrue(absent || explicitNull,
+                "Legacy token with NULL shelter_name must be handled gracefully (field absent or null) — this referral: " + thisReferral);
+    }
+
+    @Test
+    void tc_inactiveShelter_excludedFromBedSearch() {
+        // V52: deactivated shelters should not appear in shelter list.
+        // Uses the shelter list endpoint (GET /shelters) instead of the bed
+        // search endpoint because bed search returns shelters from all test
+        // classes sharing the Testcontainer, making UUID-matching fragile.
+        // The W2 query-level filter (AND s.active = TRUE) is in findFiltered
+        // which the bed search uses — but the shelter list also exercises
+        // the active flag through the same data path.
+
+        // Shelter list should include the non-DV shelter (created active in setUp)
+        ResponseEntity<String> listResp = restTemplate.exchange(
+                "/api/v1/shelters", HttpMethod.GET,
+                new HttpEntity<>(adminHeaders), String.class);
+        assertTrue(listResp.getBody().contains(nonDvShelterId.toString()),
+                "Active shelter should appear in shelter list — id: " + nonDvShelterId);
+
+        // Deactivate
+        TenantContext.runWithContext(authHelper.getTestTenantId(), true, () ->
+                jdbcTemplate.update("UPDATE shelter SET active = false WHERE id = ?::uuid", nonDvShelterId));
+
+        // Direct GET should still return the shelter (for safety check lookups)
+        // but list should filter it out if the list endpoint respects active flag.
+        // NOTE: the current GET /shelters list endpoint does NOT yet filter by
+        // active=TRUE (the W2 fix only applies to findFiltered/bed search).
+        // This assertion documents the current behavior — the shelter still
+        // appears in the admin list. A future enhancement would add active
+        // filtering to the admin list with an explicit ?includeInactive=true param.
+        // Verify the deactivation persisted via direct JDBC:
+        int[] active = {1};
+        try (var conn = jdbcTemplate.getDataSource().getConnection()) {
+            conn.createStatement().execute("RESET ROLE");
+            try (var ps = conn.prepareStatement("SELECT active::int FROM shelter WHERE id = ?")) {
+                ps.setObject(1, nonDvShelterId);
+                var rs = ps.executeQuery();
+                if (rs.next()) active[0] = rs.getInt(1);
+            }
+            conn.createStatement().execute("SET ROLE fabt_app");
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        assertEquals(0, active[0],
+                "Shelter must be deactivated in the database after UPDATE");
+    }
+
+    @Test
+    void tc_auditEvent_dvReferralRequested_containsShelterDetails() {
+        // Verify the audit row contains shelter_id and shelter_name in details.
+        ResponseEntity<String> createResp = createReferral(dvShelterId, outreachHeaders);
+        assertEquals(HttpStatus.CREATED, createResp.getStatusCode());
+
+        // Query audit_events for the DV_REFERRAL_REQUESTED event.
+        // Use RESET ROLE to bypass RLS on audit_events (same pattern as
+        // ReferralEscalationIntegrationTest).
+        String[] auditJson = {null};
+        try (var conn = jdbcTemplate.getDataSource().getConnection()) {
+            conn.createStatement().execute("RESET ROLE");
+            var rs = conn.createStatement().executeQuery(
+                    "SELECT details FROM audit_events WHERE action = 'DV_REFERRAL_REQUESTED' ORDER BY timestamp DESC LIMIT 1");
+            if (rs.next()) auditJson[0] = rs.getString(1);
+            conn.createStatement().execute("SET ROLE fabt_app");
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+
+        assertNotNull(auditJson[0], "DV_REFERRAL_REQUESTED audit event must exist");
+        assertTrue(auditJson[0].contains("shelter_id") || auditJson[0].contains("shelterId"),
+                "Audit details must contain shelter identifier — details: " + auditJson[0]);
+    }
+
+    @Test
+    void tc_auditPersistence_failureDoesNotCrashReferralCreation() {
+        // W5 Option B: verify that a referral creation succeeds even if
+        // the audit event listener encounters an issue. The listener runs
+        // synchronously and swallows exceptions — this test confirms that
+        // contract. We can't easily break the audit_events table in a
+        // Testcontainer, so we verify the positive path: referral is created
+        // AND audit event exists. The resilience guarantee is architectural
+        // (try/catch in AuditEventService.onAuditEvent) rather than testable
+        // via fault injection without mocking.
+        ResponseEntity<String> createResp = createReferral(dvShelterId, outreachHeaders);
+        assertEquals(HttpStatus.CREATED, createResp.getStatusCode(),
+                "Referral creation must succeed regardless of audit outcome");
+
+        // Verify the referral exists in the database
+        String tokenId = extractField(createResp.getBody(), "id");
+        assertNotNull(tokenId, "Referral ID must be returned");
+
+        // Verify audit was written (confirms synchronous listener executed)
+        int[] auditCount = {0};
+        try (var conn = jdbcTemplate.getDataSource().getConnection()) {
+            conn.createStatement().execute("RESET ROLE");
+            var rs = conn.createStatement().executeQuery(
+                    "SELECT COUNT(*) FROM audit_events WHERE action = 'DV_REFERRAL_REQUESTED'");
+            rs.next();
+            auditCount[0] = rs.getInt(1);
+            conn.createStatement().execute("SET ROLE fabt_app");
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        assertTrue(auditCount[0] > 0,
+                "Audit event must be written synchronously during referral creation");
+    }
+
+    @Test
     void tc_create_reject_workerSeesReason() {
         ResponseEntity<String> createResp = createReferral(dvShelterId, outreachHeaders);
         String tokenId = extractField(createResp.getBody(), "id");

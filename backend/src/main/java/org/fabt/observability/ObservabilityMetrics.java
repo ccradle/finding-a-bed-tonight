@@ -153,6 +153,21 @@ public class ObservabilityMetrics {
                 .register(registry);
     }
 
+    /**
+     * Counter for how many referrals were flagged as SHELTER_CLOSED or
+     * SHELTER_NOT_DV during the listMine safety check.
+     *
+     * <p>Incremented in {@code ReferralTokenController.listMine} when a
+     * deactivated or non-DV shelter is detected for an existing referral.
+     * High rate indicates operational instability or DV status revocation
+     * while referrals were in-flight (Marcus Webb / Sam Okafor lens).</p>
+     */
+    public Counter dvReferralSafetyCheckCounter(String reason) {
+        return Counter.builder("fabt.dv.referral.safety.check.count")
+                .tag("reason", reason)
+                .register(registry);
+    }
+
     public void setSurgeActive(boolean active) {
         surgeActive.set(active ? 1 : 0);
     }

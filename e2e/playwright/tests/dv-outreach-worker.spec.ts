@@ -117,6 +117,26 @@ test.describe('DV Outreach Worker', () => {
 
     // Modal should close after successful submission
     await expect(modal).not.toBeVisible({ timeout: 5000 });
+
+    // My DV Referrals: shelter snapshot + time on primary line (dv-referral-token spec / Tomás a11y headline)
+    // S5 fix: assert visibility instead of conditionally skipping (feedback_never_skip_silently)
+    const referralsToggle = dvOutreachPage.locator('button', { hasText: /My DV Referrals/i });
+    await expect(referralsToggle).toBeVisible({ timeout: 5000 });
+    await referralsToggle.click();
+    const panel = dvOutreachPage.getByTestId('my-referrals');
+    await expect(panel).toBeVisible();
+
+    // S7 fix: verify ARIA list semantics (Tomás Herrera — screen readers
+    // announce "list, N items" on focus). role="list" is on the panel itself.
+    await expect(panel).toHaveAttribute('role', 'list');
+    const items = panel.locator('[role="listitem"]');
+    expect(await items.count()).toBeGreaterThan(0);
+
+    // Issue #92 core assertion: shelter name appears in the primary headline
+    const primary = panel.locator('[data-testid^="referral-primary-line-"]').first();
+    await expect(primary).toBeVisible();
+    await expect(primary).toContainText(/Safe Haven|DV Shelter|Hope House|Refuge/i);
+    await expect(primary).toContainText(/\d{1,2}:\d{2}/);
   });
 
   test('Non-DV shelters show full address and Hold This Bed', async ({ dvOutreachPage }) => {

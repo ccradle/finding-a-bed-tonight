@@ -8,14 +8,16 @@ import org.fabt.shared.config.JsonString;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * Persists audit events asynchronously. Listens for AuditEventRecord
- * published via Spring ApplicationEventPublisher from UserService
- * (and future services that need audit logging).
+ * Persists audit events on the publishing thread (synchronous listener). Listens for
+ * {@link AuditEventRecord} published via {@link org.springframework.context.ApplicationEventPublisher}
+ * from {@code UserService}, {@code ReferralTokenController}, and other writers.
+ *
+ * <p>Failures are logged and swallowed so the originating request still completes — an explicit
+ * operational trade-off (Casey Drummond): monitor {@code Failed to persist audit event} in logs.</p>
  */
 @Service
 public class AuditEventService {
