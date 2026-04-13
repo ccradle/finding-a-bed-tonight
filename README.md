@@ -93,6 +93,21 @@ Full setup guide: [For Developers](docs/FOR-DEVELOPERS.md#prerequisites)
 
 Full feature details: [For Developers — Project Status](docs/FOR-DEVELOPERS.md#project-status)
 
+### Active Changes (OpenSpec)
+
+Changes with specs and implementation tasks in progress. See `openspec/changes/<name>/` for full artifacts.
+
+| Change | Status | Description |
+|---|---|---|
+| `coc-admin-escalation` | Shipped (v0.35.0), pending archive | CoC admin DV escalation queue with per-tenant policy |
+| `referral-shelter-name-visibility` | In review (#109) | Shelter name + time in My Referrals list (#92) |
+| `sse-backpressure-phase2` | Specced, not started | SSE backpressure audit findings from platform-hardening |
+| `researcher-engagement` | Specced, not started | Data inventory and pilot partnership pathway (#80) |
+| `issue-reporting-feedback` | Specced, not started | In-app issue reporting and feedback (#67) |
+| `unified-profile-menu` | Specced, not started | Avatar trigger + /settings page (#60) |
+| `capacitor-native-app` | Specced, not started | Push notifications, biometric auth, SQLite offline (#53) |
+| `mcp-agent-integration` | Specced, not started | Model Context Protocol agent integration (#71) |
+
 ---
 
 ## Deployment Tiers
