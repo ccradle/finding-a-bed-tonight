@@ -13,7 +13,7 @@
 
     <groupId>org.fabt</groupId>
     <artifactId>finding-a-bed-tonight</artifactId>
-    <version>0.37.0</version>
+    <version>0.38.0-SNAPSHOT</version>
     <name>Finding A Bed Tonight</name>
     <description>Open-source shelter bed availability platform</description>
 
