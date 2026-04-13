@@ -57,16 +57,16 @@ Full setup guide: [For Developers](docs/FOR-DEVELOPERS.md#prerequisites)
 | Layer | Technology |
 |---|---|
 | Backend | Java 25, Spring Boot 4.0, Spring MVC, Spring Data JDBC, Virtual Threads |
-| Database | PostgreSQL 16, Flyway (49 migrations), Row Level Security (DV shelters + notifications) |
+| Database | PostgreSQL 16, Flyway (54 migrations), Row Level Security (DV shelters + notifications) |
 | Frontend | React 19, Vite, TypeScript, Workbox PWA (injectManifest), react-intl (EN/ES), CSS custom properties design tokens |
-| Testing | JUnit 5, Testcontainers, ArchUnit (607 tests), Playwright (343 UI tests), Vitest (42 unit tests), Karate (82 API scenarios), Gatling (8 simulations) |
+| Testing | JUnit 5, Testcontainers, ArchUnit (619 tests), Playwright (348 UI tests), Vitest (42 unit tests), Karate (82 API scenarios), Gatling (8 simulations) |
 | Infra | Docker, GitHub Actions CI/CD + E2E pipeline, Terraform (3 tiers) |
 
 ---
 
 ## What's Complete
 
-**Current version: v0.37.0** — 61 archived OpenSpec changes, 87 specs, 14 modules.
+**Current version: v0.38.0** — 62 archived OpenSpec changes, 91 specs, 14 modules.
 
 - Real-time bed search with freshness indicators and constraint filters
 - Soft-hold reservations with configurable hold duration (default 90 min)
@@ -99,8 +99,7 @@ Changes with specs and implementation tasks in progress. See `openspec/changes/<
 
 | Change | Status | Description |
 |---|---|---|
-| `coc-admin-escalation` | Shipped (v0.35.0), pending archive | CoC admin DV escalation queue with per-tenant policy |
-| `referral-shelter-name-visibility` | In review (#109) | Shelter name + time in My Referrals list (#92) |
+| `shelter-activate-deactivate` | Shipped (v0.38.0) | Admin shelter activate/deactivate with cascade, DV safety gate (#108) |
 | `sse-backpressure-phase2` | Specced, not started | SSE backpressure audit findings from platform-hardening |
 | `researcher-engagement` | Specced, not started | Data inventory and pilot partnership pathway (#80) |
 | `issue-reporting-feedback` | Specced, not started | In-app issue reporting and feedback (#67) |

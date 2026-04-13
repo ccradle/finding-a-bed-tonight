@@ -5,6 +5,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.38.0] — 2026-04-14 — shelter-activate-deactivate (Issue #108)
+
+### Added
+- **Shelter deactivation with cascade** — `PATCH /api/v1/shelters/{id}/deactivate` with reason enum (TEMPORARY_CLOSURE, SEASONAL_END, PERMANENT_CLOSURE, CODE_VIOLATION, FUNDING_LOSS, OTHER). Active bed holds cascade to `CANCELLED_SHELTER_DEACTIVATED` with outreach worker notifications. Deactivation metadata recorded: `deactivated_at`, `deactivated_by`, `deactivation_reason`.
+- **DV shelter safety gate** — deactivating a DV shelter with pending referrals returns 409 with `DV_CONFIRMATION_REQUIRED` until `confirmDv: true` is sent. DV deactivation broadcast restricted to dvAccess=true users (VAWA). No shelter address in notification payload.
+- **Shelter reactivation** — `PATCH /api/v1/shelters/{id}/reactivate` clears deactivation metadata, publishes `SHELTER_REACTIVATED` audit event with previous reason. Coordinator must update availability after reactivation.
+- **Admin shelter list UI** — active/inactive status badges per row, deactivate/reactivate buttons with aria-labels, deactivation confirmation dialog with reason selector, DV safety warning, reactivation confirmation dialog. Full i18n (EN+ES, 22 new keys).
+- **Coordinator inactive shelter rendering** — inactive shelters show with muted background, "Inactive" badge, disabled bed update controls (`aria-disabled="true"`), and "Deactivated on {date}" message.
+- **Availability + hold guards** — coordinator availability PATCH and outreach hold creation return 409 for inactive shelters.
+- **DemoGuard** — `/deactivate` and `/reactivate` blocked with friendly messages for public demo visitors.
+- **Sealed `DeactivationResult` interface** — type-safe controller response replacing unsafe `Object` cast.
+- **`CancelledHoldSummary` DTO** — ArchUnit-compliant cross-module boundary for hold cascade.
+- **12 integration tests** — deactivation, reactivation, hold cascade, DV safety gate (both branches), notification restriction, audit events, idempotency guards, availability/hold guards, RBAC (coordinator + outreach worker blocked), invalid reason validation.
+- **5 Playwright E2E tests** — admin deactivate flow, reactivate flow, DV safety warning dialog, coordinator inactive controls, demo guard API check.
+
+### Fixed
+- **CriticalNotificationBanner dark mode contrast** — `color.error` (`#ff8389` in dark mode) replaced with `color.errorMid` (`#b91c1c`) for banner background. White text on light pink = 2.2:1 (fail) → white text on dark red = 6.7:1 (pass). Pre-existing bug, now fixed.
+- **Inactive shelter opacity WCAG violation** — `opacity: 0.6` on container elements degraded all child text contrast below AA thresholds. Replaced with `backgroundColor: color.bgSecondary`/`color.bgTertiary` which preserves text contrast. Status badges + "Inactive" label provide the visual distinction instead.
+- **Column headers hardcoded English** — admin shelters tab table headers now use `<FormattedMessage>` with i18n keys (EN+ES).
+
+### Migrations
+- **V53** — `ALTER TABLE shelter ADD COLUMN deactivated_at TIMESTAMPTZ, deactivated_by UUID REFERENCES app_user(id), deactivation_reason VARCHAR(50)`
+- **V54** — `ALTER TABLE reservation ALTER COLUMN status TYPE VARCHAR(50)` + CHECK constraint updated to include `CANCELLED_SHELTER_DEACTIVATED`
+
+---
+
 ## [v0.37.0] — 2026-04-14 — shelter-import-documentation (Issue #65)
 
 ### Added

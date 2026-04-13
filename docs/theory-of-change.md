@@ -88,7 +88,7 @@ Unmet demand data            → Evidence for funding requests and policy
 
 ## What We Can Prove Today
 
-1. **The software works** — 607 automated tests, including bed search under concurrent analytics load (p99 152ms)
+1. **The software works** — 619 automated tests, including bed search under concurrent analytics load (p99 152ms)
 2. **The workflow is faster** — search → hold → confirm is 3 taps (vs. 5+ phone calls)
 3. **Demand data is novel** — zero-result search tracking produces data no HMIS system currently captures
 4. **DV privacy is protected** — zero PII, VAWA-aligned referral tokens, 24-hour hard delete
