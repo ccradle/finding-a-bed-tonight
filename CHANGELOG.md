@@ -5,6 +5,47 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.36.0] — 2026-04-13 — referral-shelter-name-visibility (#92)
+
+### Added
+- **Shelter name in My Referrals** — outreach workers see shelter name + creation time in the referral list, replacing the indistinguishable population-type-only display. Shelter name is snapshotted at referral creation (denormalized for offline resilience, 24h purge cycle makes redundancy negligible).
+- **Safety check for deactivated shelters** — `GET /mine` performs a batch shelter lookup; PENDING referrals for inactive or non-DV shelters are flagged as `SHELTER_CLOSED` with phone withheld. ACCEPTED/REJECTED referrals keep their terminal status (Keisha Thompson: "showing 'Shelter closed' on a completed referral causes unnecessary panic").
+- **Shelter active flag** (V52) — `shelter.active BOOLEAN NOT NULL DEFAULT TRUE`. Bed search query filters inactive shelters at the SQL level (`AND s.active = TRUE`). BedSearchService retains an in-memory filter as defense-in-depth.
+- **Expiry tooltip** — hover over the referral headline shows "Expires at {time} ({N} min remaining)" following the DataAge.tsx native `title=` pattern.
+- **DV_REFERRAL_REQUESTED audit event** — audit trail captures shelter_id, shelter_name, and urgency at referral creation.
+- **Safety check Micrometer counter** — `fabt.dv.referral.safety.check.count` tagged by reason (SHELTER_CLOSED, SHELTER_MISSING, SHELTER_NOT_DV).
+- **10 new integration tests** — accepted-keeps-status, shelter-rename-preserves-snapshot, multiple-referrals-distinct-names, null-shelter-name-backward-compat, inactive-shelter-excluded, audit-event-details, audit-resilience, and the original 3 Gemini-authored tests.
+- **Active Changes section in README** — all 8 OpenSpec changes listed with status.
+
+### Fixed
+- **i18n: hardcoded English pluralization** — `person/persons` replaced with ICU plural form `{count, plural, one {# person} other {# persons}}` in EN and ES.
+- **i18n: Spanish "VD" abbreviation** — replaced with "violencia doméstica" in sentence contexts (4 strings). Short UI labels kept abbreviated.
+- **Accessibility: ARIA list semantics** — referral list container uses `role="list"` with `role="listitem"` children. Screen readers now announce "My DV Referrals, list, N items."
+- **Mobile overflow** — referral headline reduced from 4-part to 3-part format (`{status} — {shelter} — {time}`) with CSS `text-overflow: ellipsis`. Population type moved to secondary line.
+- **Playwright silent skip** — referral list assertion changed from conditional `if (count > 0)` to `await expect(toggle).toBeVisible()` per `feedback_never_skip_silently`.
+- **Wrong package.json** — `playwright` accidentally added to `frontend/package.json` devDependencies instead of `e2e/playwright/`. Removed.
+- **@Transactional on controller** — removed from `listMine()` and `listPending()`. Project convention: transactions on service methods, not controllers.
+- **Dead 2-arg overload** — removed unused `ReferralTokenResponse.from(token, phone)`.
+- **Metric naming** — `fabt.dv-referral.safety-check.count` → `fabt.dv.referral.safety.check.count` (dots, not hyphens).
+- **CORS + nginx documentation** — added FABT_CORS_ALLOWED_ORIGINS and Playwright BASE_URL guidance to FOR-DEVELOPERS.md.
+
+### Changed
+- **V51 migration includes backfill** — existing referral tokens receive `shelter_name` from their associated shelter via `UPDATE ... FROM shelter WHERE shelter_name IS NULL`. Elena Vasquez overruled the original "avoid backfilling" note.
+
+### Migrations
+- **V51** — `ALTER TABLE referral_token ADD COLUMN shelter_name VARCHAR(255)` + backfill UPDATE
+- **V52** — `ALTER TABLE shelter ADD COLUMN active BOOLEAN NOT NULL DEFAULT TRUE`
+
+---
+
+## [v0.35.1] — 2026-04-12 — coordinator UX hotfix
+
+### Fixed
+- **Escalation CTA dead-end for coordinators** — "Review pending escalations" button only renders for COC_ADMIN and PLATFORM_ADMIN roles. Coordinators still see the CRITICAL banner text.
+- **Coordinator dashboard status text** — "Total Beds" label replaced with "{N} assigned shelters" ICU plural form.
+
+---
+
 ## [v0.35.0] — 2026-04-12 — coc-admin-escalation (#82)
 
 ### Added
