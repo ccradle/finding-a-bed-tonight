@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../services/api';
 import { enqueueAction } from '../services/offlineQueue';
 import { CoordinatorReferralBanner } from '../components/CoordinatorReferralBanner';
@@ -85,6 +86,7 @@ interface AvailabilityEdit {
 
 export function CoordinatorDashboard() {
   const intl = useIntl();
+  const [searchParams] = useSearchParams();
   const [shelters, setShelters] = useState<ShelterListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -97,6 +99,35 @@ export function CoordinatorDashboard() {
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [surgeActive, setSurgeActive] = useState(false);
+
+  // notification-deep-linking (Issue #106) — state/refs for deep-link handling.
+  //
+  // deepLinkToast: transient message shown when a deep-link target is stale
+  //   (referral no longer pending, 404, or 403). Per D10 the same message covers
+  //   both so we never leak "stolen by another coordinator" vs "not authorized".
+  //
+  // deepLinkAnnouncement: text rendered into the role="status" aria-live region
+  //   so screen readers announce "Opened pending DV referral: ..." after focus
+  //   lands. T-1 fix from the war-room review.
+  //
+  // pendingDeepLink: captures a deep-link request that's waiting on the user's
+  //   unsaved-state confirmation. S-1 fix. null when no dialog is active.
+  //
+  // processedRef: A-1 idempotency guard. React Router rerenders on every URL
+  //   change; without this set, back navigation or re-renders would re-trigger
+  //   the expand-scroll-focus sequence and fight the user's current state.
+  //
+  // originalAvailRef: server-snapshot of availability for the currently
+  //   expanded shelter. Used by isDirty() to detect unsaved bed count edits
+  //   before auto-collapsing during deep-link processing (S-1).
+  const [deepLinkToast, setDeepLinkToast] = useState<string | null>(null);
+  const [deepLinkAnnouncement, setDeepLinkAnnouncement] = useState('');
+  const [pendingDeepLink, setPendingDeepLink] = useState<{
+    referralId?: string;
+    shelterId?: string;
+  } | null>(null);
+  const processedRef = useRef<Set<string>>(new Set());
+  const originalAvailRef = useRef<AvailabilityEdit[]>([]);
 
   const fetchShelters = useCallback(async () => {
     setLoading(true);
@@ -153,9 +184,169 @@ export function CoordinatorDashboard() {
   const fmtAddr = (s: Shelter) =>
     [s.addressStreet, s.addressCity, s.addressState, s.addressZip].filter(Boolean).join(', ');
 
+  // S-1 fix: detect unsaved bed count edits on the currently expanded shelter.
+  // Compares editAvailability against the server-snapshot captured in openShelter.
+  // Returns false when nothing is expanded (no possible unsaved state).
+  // Declared before processDeepLink so the useCallback dependency array can
+  // reference it without the temporal dead zone biting at component init.
+  const isDirty = useCallback((): boolean => {
+    if (!expandedId || originalAvailRef.current.length === 0) return false;
+    if (editAvailability.length !== originalAvailRef.current.length) return true;
+    return editAvailability.some((current, i) => {
+      const orig = originalAvailRef.current[i];
+      return !orig
+        || current.populationType !== orig.populationType
+        || current.bedsTotal !== orig.bedsTotal
+        || current.bedsOccupied !== orig.bedsOccupied
+        || current.bedsOnHold !== orig.bedsOnHold
+        || current.overflowBeds !== orig.overflowBeds;
+    });
+  }, [expandedId, editAvailability]);
+
+  // ---------------------------------------------------------------------------
+  // notification-deep-linking (Issue #106) — deep-link processor
+  // ---------------------------------------------------------------------------
+  //
+  // Triggered by useEffect reading ?referralId / ?shelterId from the URL.
+  // Idempotency is enforced by processedRef — each identifier is processed
+  // at most once per session (A-1 fix from the war-room review).
+  //
+  // For a referralId:
+  //   1. Fetch the referral's shelterId via GET /api/v1/dv-referrals/{id}.
+  //      If the fetch returns 404 OR 403, show the unified stale message
+  //      (D10) — same text either way so the response never leaks whether
+  //      the referral exists and was stolen vs the user lacks access.
+  //   2. Auto-expand that shelter card.
+  //   3. Scroll the referral row into view ({ block: 'center' }).
+  //   4. Move keyboard focus to the referral row heading (NOT the Accept
+  //      button — S-2 safety fix: focusing Accept risks accidental Enter-
+  //      key acceptance of a DV referral. Focus the row, one Tab stop away.
+  //   5. Update the aria-live status region (T-1).
+  //
+  // For a shelterId only (no referralId):
+  //   1. Auto-expand that shelter card (task 3.3).
+  //   2. Move focus to its heading (the shelter-card button).
+  //
+  // If an unsaved bed count edit exists in the currently expanded card,
+  // stash the request in pendingDeepLink and open the S-1 confirmation
+  // dialog. The dialog resolves the stash via save/discard/cancel.
+  const processDeepLink = useCallback(async (referralId?: string, shelterId?: string) => {
+    const key = referralId ? `ref:${referralId}` : shelterId ? `sh:${shelterId}` : '';
+    if (!key || processedRef.current.has(key)) return;
+    processedRef.current.add(key);
+
+    // S-1 guard — if the currently-expanded card has unsaved edits and we're
+    // about to switch to a DIFFERENT shelter, open the confirm dialog first.
+    const targetShelterId = shelterId
+      || (referralId ? undefined /* will resolve after fetch */ : undefined);
+    if (
+      isDirty() && targetShelterId && expandedId && targetShelterId !== expandedId
+    ) {
+      setPendingDeepLink({ referralId, shelterId });
+      return;
+    }
+
+    // Resolve shelterId from referralId if needed.
+    let resolvedShelterId = shelterId;
+    let referralRow: PendingReferral | null = null;
+    if (referralId && !resolvedShelterId) {
+      try {
+        const detail = await api.get<{ shelterId: string } & PendingReferral>(
+          `/api/v1/dv-referrals/${referralId}`,
+        );
+        resolvedShelterId = detail.shelterId;
+        referralRow = detail;
+      } catch (err) {
+        // D10 — same message for 404 and 403 (no info leak).
+        // Also marks the notification read-but-not-acted (X-1) — wired in
+        // task 7.x when markNotificationsActedByPayload ships. For now, just
+        // the toast + aria-live announcement.
+        const apiErr = err as { status?: number; message?: string };
+        if (apiErr.status === 404 || apiErr.status === 403) {
+          setDeepLinkToast(intl.formatMessage({ id: 'notifications.deepLink.stale' }));
+          setDeepLinkAnnouncement(intl.formatMessage({ id: 'notifications.deepLink.stale' }));
+          setTimeout(() => setDeepLinkToast(null), 5000);
+          return;
+        }
+        // Other errors surface as the normal error banner.
+        setError(apiErr.message || intl.formatMessage({ id: 'coord.error' }));
+        return;
+      }
+    }
+
+    // Also guard against unsaved state now that we've resolved the shelterId
+    // (for the referralId-only case where we couldn't check earlier).
+    if (
+      isDirty() && resolvedShelterId && expandedId && resolvedShelterId !== expandedId
+    ) {
+      setPendingDeepLink({ referralId, shelterId: resolvedShelterId });
+      return;
+    }
+
+    if (!resolvedShelterId) return;
+
+    // Expand the target shelter if not already expanded.
+    if (expandedId !== resolvedShelterId) {
+      await openShelter(resolvedShelterId);
+    }
+
+    // Settle + scroll + focus. Use a small timeout so the newly-rendered
+    // screening row is in the DOM before we queryselect it.
+    setTimeout(() => {
+      if (referralId) {
+        const rowEl = document.querySelector<HTMLElement>(
+          `[data-testid="screening-${referralId}"]`,
+        );
+        if (rowEl) {
+          rowEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
+          // S-2 — focus the row heading, not Accept. tabIndex={-1} on the
+          // row element is set in the JSX below so programmatic focus works
+          // without adding a natural tab stop.
+          rowEl.focus();
+          // T-1 — aria-live announcement. No PII — population type + size +
+          // urgency only.
+          if (referralRow) {
+            setDeepLinkAnnouncement(intl.formatMessage(
+              { id: 'notifications.deepLink.referralOpened' },
+              {
+                populationType: getPopulationTypeLabel(referralRow.populationType, intl),
+                size: referralRow.householdSize,
+                urgency: referralRow.urgency,
+              },
+            ));
+          }
+        } else {
+          // Row not found after expand — referral is gone (raced).
+          setDeepLinkToast(intl.formatMessage({ id: 'notifications.deepLink.stale' }));
+          setDeepLinkAnnouncement(intl.formatMessage({ id: 'notifications.deepLink.stale' }));
+          setTimeout(() => setDeepLinkToast(null), 5000);
+        }
+      } else {
+        // shelterId only — focus the shelter card header.
+        const cardEl = document.querySelector<HTMLElement>(
+          `[data-testid="shelter-card-${resolvedShelterId}"]`,
+        );
+        cardEl?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        cardEl?.focus();
+        setDeepLinkAnnouncement(intl.formatMessage({ id: 'notifications.deepLink.shelterOpened' }));
+      }
+    }, 200);
+  }, [isDirty, expandedId, intl]);
+
+  // Read referralId / shelterId from URL on mount + when URL changes.
+  // processedRef inside processDeepLink guarantees each id fires at most once.
+  useEffect(() => {
+    const referralId = searchParams.get('referralId') || undefined;
+    const shelterId = searchParams.get('shelterId') || undefined;
+    if (referralId || shelterId) {
+      processDeepLink(referralId, shelterId);
+    }
+  }, [searchParams, processDeepLink]);
+
   const openShelter = async (id: string) => {
     if (expandedId === id) {
       setExpandedId(null);
+      originalAvailRef.current = [];
       return;
     }
     setDetailLoading(true);
@@ -176,6 +367,11 @@ export function CoordinatorDashboard() {
         };
       });
       setEditAvailability(availEdit);
+      // S-1 (deep-linking): snapshot the server state so isDirty() can detect
+      // unsaved bed count edits before auto-collapsing in a deep-link flow.
+      // Deep-copy via JSON round-trip — AvailabilityEdit objects are flat,
+      // so this is safe and avoids accidental shared references.
+      originalAvailRef.current = JSON.parse(JSON.stringify(availEdit));
       setExpandedId(id);
 
       // Fetch pending DV referrals for this shelter (silent fail if not DV or no access)
@@ -297,8 +493,168 @@ export function CoordinatorDashboard() {
     }
   };
 
+  // S-1 dialog resolution handlers.
+  //
+  // handleDiscardAndProceed: user chose Discard — restore server snapshot
+  //   (blow away their edits), then run the deep-link the dialog was blocking.
+  // handleSaveAndProceed: user chose Save — submit every dirty population
+  //   type, then run the deep-link. If a save fails, keep the dialog open
+  //   so they don't lose edits.
+  // handleCancelDialog: abandon the deep-link; preserve current view.
+  //   processedRef was already marked before the dialog opened, so the
+  //   deep-link won't re-fire unless the URL changes.
+  const handleCancelDialog = () => setPendingDeepLink(null);
+  const handleDiscardAndProceed = () => {
+    const dl = pendingDeepLink;
+    setPendingDeepLink(null);
+    // Restore server snapshot locally — no API call needed; server state
+    // was never changed.
+    setEditAvailability(JSON.parse(JSON.stringify(originalAvailRef.current)));
+    // Now run the deep-link without the dirty guard blocking it. Reset the
+    // processed entry so processDeepLink re-runs for this id.
+    if (dl) {
+      const key = dl.referralId ? `ref:${dl.referralId}` : dl.shelterId ? `sh:${dl.shelterId}` : '';
+      if (key) processedRef.current.delete(key);
+      processDeepLink(dl.referralId, dl.shelterId);
+    }
+  };
+  const handleSaveAndProceed = async () => {
+    const dl = pendingDeepLink;
+    if (!dl || !expandedId) { setPendingDeepLink(null); return; }
+    // Submit only the populations whose fields differ from the snapshot.
+    const dirtyPops = editAvailability.filter((current, i) => {
+      const orig = originalAvailRef.current[i];
+      return !orig
+        || current.bedsTotal !== orig.bedsTotal
+        || current.bedsOccupied !== orig.bedsOccupied
+        || current.bedsOnHold !== orig.bedsOnHold
+        || current.overflowBeds !== orig.overflowBeds;
+    });
+    try {
+      for (const avail of dirtyPops) {
+        await submitAvailability(expandedId, avail.populationType);
+      }
+      setPendingDeepLink(null);
+      if (dl) {
+        const key = dl.referralId ? `ref:${dl.referralId}` : dl.shelterId ? `sh:${dl.shelterId}` : '';
+        if (key) processedRef.current.delete(key);
+        processDeepLink(dl.referralId, dl.shelterId);
+      }
+    } catch {
+      // Keep dialog open — submitAvailability already set error state.
+    }
+  };
+
   return (
     <div style={{ maxWidth: 720, margin: '0 auto' }}>
+      {/* T-1: aria-live status region for deep-link announcements. Visually
+          hidden (off-screen) so it doesn't clutter the UI, but screen readers
+          announce changes to its text content. No PII in announcements. */}
+      <div
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        data-testid="deep-link-announcement"
+        style={{
+          position: 'absolute', width: 1, height: 1, padding: 0,
+          margin: -1, overflow: 'hidden', clip: 'rect(0,0,0,0)',
+          whiteSpace: 'nowrap', border: 0,
+        }}
+      >
+        {deepLinkAnnouncement}
+      </div>
+
+      {/* D10: stale/unauthorized-referral toast. Same text for 404 and 403
+          to avoid leaking whether the referral exists. Non-blocking; auto-
+          dismisses after 5s. */}
+      {deepLinkToast && (
+        <div
+          role="alert"
+          data-testid="deep-link-toast"
+          style={{
+            position: 'fixed', top: 16, right: 16, maxWidth: 360, zIndex: 2000,
+            backgroundColor: color.warningBg, color: color.text,
+            border: `1px solid ${color.warningMid}`,
+            padding: '12px 16px', borderRadius: 8, fontSize: text.sm,
+            fontWeight: weight.medium,
+            boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
+          }}
+        >
+          {deepLinkToast}
+        </div>
+      )}
+
+      {/* S-1: unsaved bed count edits confirmation. Modal dialog; blocks
+          the deep-link until the user chooses. Save commits, Discard blows
+          away edits, Cancel preserves the current view. */}
+      {pendingDeepLink && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="unsaved-dialog-title"
+          data-testid="unsaved-changes-dialog"
+          style={{
+            position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            zIndex: 3000,
+          }}
+        >
+          <div style={{
+            backgroundColor: color.bg, padding: 24, borderRadius: 12,
+            maxWidth: 440, width: '90%', boxShadow: '0 8px 32px rgba(0,0,0,0.25)',
+          }}>
+            <h2
+              id="unsaved-dialog-title"
+              style={{ margin: '0 0 12px', fontSize: text.lg, fontWeight: weight.bold, color: color.text }}
+            >
+              <FormattedMessage id="notifications.deepLink.unsavedTitle" />
+            </h2>
+            <p style={{ margin: '0 0 20px', fontSize: text.base, color: color.text, lineHeight: 1.5 }}>
+              <FormattedMessage id="notifications.deepLink.unsavedMessage" />
+            </p>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+              <button
+                data-testid="unsaved-dialog-cancel"
+                onClick={handleCancelDialog}
+                style={{
+                  padding: '10px 16px', minHeight: 44, borderRadius: 8,
+                  border: `1px solid ${color.border}`, backgroundColor: color.bg,
+                  color: color.text, fontSize: text.sm, fontWeight: weight.semibold,
+                  cursor: 'pointer',
+                }}
+              >
+                <FormattedMessage id="notifications.deepLink.unsavedCancel" />
+              </button>
+              <button
+                data-testid="unsaved-dialog-discard"
+                onClick={handleDiscardAndProceed}
+                style={{
+                  padding: '10px 16px', minHeight: 44, borderRadius: 8,
+                  border: `1px solid ${color.errorMid}`, backgroundColor: color.bg,
+                  color: color.errorMid, fontSize: text.sm, fontWeight: weight.semibold,
+                  cursor: 'pointer',
+                }}
+              >
+                <FormattedMessage id="notifications.deepLink.unsavedDiscard" />
+              </button>
+              <button
+                data-testid="unsaved-dialog-save"
+                onClick={handleSaveAndProceed}
+                autoFocus
+                style={{
+                  padding: '10px 16px', minHeight: 44, borderRadius: 8,
+                  border: 'none', backgroundColor: color.primary,
+                  color: color.textInverse, fontSize: text.sm, fontWeight: weight.bold,
+                  cursor: 'pointer',
+                }}
+              >
+                <FormattedMessage id="notifications.deepLink.unsavedSave" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div style={{
         background: `linear-gradient(135deg, ${color.headerGradientStart} 0%, ${color.headerGradientMid} 50%, ${color.headerGradientEnd} 100%)`,
@@ -313,16 +669,32 @@ export function CoordinatorDashboard() {
         </p>
       </div>
 
-      {/* T-43: Persistent referral banner — not dismissable, resolves when actioned */}
-      <CoordinatorReferralBanner onBannerClick={() => {
-        // T-46: Scroll to first DV shelter with pending referrals
-        const dvShelter = shelters.find(item => item.shelter.dvShelter);
-        if (dvShelter) {
-          openShelter(dvShelter.shelter.id);
-          const el = document.querySelector(`[data-testid="shelter-card-${dvShelter.shelter.id}"]`);
-          el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
-      }} />
+      {/* T-43: Persistent referral banner — not dismissable, resolves when actioned.
+          notification-deep-linking (Issue #106 task 3.5): if the URL carries
+          a ?referralId, forward it so the banner click opens that specific
+          referral rather than the first DV shelter. Falls back to the original
+          T-46 behavior (first DV shelter) when no deep-link is active. */}
+      <CoordinatorReferralBanner
+        referralId={searchParams.get('referralId') || undefined}
+        onBannerClick={(deepLinkReferralId) => {
+          if (deepLinkReferralId) {
+            // Re-route through the deep-link processor so the idempotency
+            // guard, unsaved-state dialog, and aria-live announcement all fire.
+            // Reset the processed entry so a second click re-expands + scrolls
+            // (click is an explicit user intent, not a rerender).
+            processedRef.current.delete(`ref:${deepLinkReferralId}`);
+            processDeepLink(deepLinkReferralId, undefined);
+            return;
+          }
+          // T-46: original behavior — first DV shelter with pending referrals
+          const dvShelter = shelters.find(item => item.shelter.dvShelter);
+          if (dvShelter) {
+            openShelter(dvShelter.shelter.id);
+            const el = document.querySelector(`[data-testid="shelter-card-${dvShelter.shelter.id}"]`);
+            el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+        }}
+      />
 
       {/* Status */}
       <div style={{ fontSize: text.sm, color: color.textTertiary, marginBottom: 10, fontWeight: weight.semibold, letterSpacing: '0.02em' }}>
@@ -591,9 +963,28 @@ export function CoordinatorDashboard() {
                       <FormattedMessage id="referral.pendingReferrals" /> ({pendingReferrals.length})
                     </h4>
                     {pendingReferrals.map(ref => (
-                      <div key={ref.id} data-testid={`screening-${ref.id}`} style={{
-                        padding: '10px 0', borderBottom: `1px solid ${color.dvBorder}`,
-                      }}>
+                      <div
+                        key={ref.id}
+                        data-testid={`screening-${ref.id}`}
+                        // S-2 — programmatically focusable for deep-link handoff,
+                        // but NOT in the natural tab order. A coordinator reaching
+                        // the row via deep-link is one Tab from the Accept button.
+                        tabIndex={-1}
+                        style={{
+                          padding: '10px 0', borderBottom: `1px solid ${color.dvBorder}`,
+                          outline: 'none',
+                          // Visible focus ring so the coordinator can see where
+                          // focus landed after a deep-link jump (WCAG 2.4.7).
+                          boxShadow: 'none',
+                        }}
+                        onFocus={(e) => {
+                          e.currentTarget.style.boxShadow = `0 0 0 3px ${color.primary}`;
+                          e.currentTarget.style.borderRadius = '8px';
+                        }}
+                        onBlur={(e) => {
+                          e.currentTarget.style.boxShadow = 'none';
+                        }}
+                      >
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
                           <div>
                             <span style={{ fontSize: text.sm, fontWeight: weight.bold, color: color.text }}>

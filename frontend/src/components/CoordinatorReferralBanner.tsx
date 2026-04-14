@@ -6,7 +6,21 @@ import { color } from '../theme/colors';
 import { SSE_REFERRAL_UPDATE } from '../hooks/useNotifications';
 
 interface CoordinatorReferralBannerProps {
-  onBannerClick?: () => void;
+  /**
+   * Callback fired when the banner is clicked. Receives the referralId from
+   * the notification-deep-linking URL query param ({@code ?referralId=X}) if
+   * one is present — the dashboard passes it through so that clicking the
+   * banner during an active deep-link opens the specific referral rather
+   * than the first DV shelter (task 3.5 of notification-deep-linking).
+   */
+  onBannerClick?: (referralId?: string) => void;
+  /**
+   * When present, this is the referralId captured from the URL search params
+   * by the parent. Passed back through {@code onBannerClick} so the parent
+   * can route the click. The banner itself renders identically either way —
+   * deep-link state doesn't change copy or severity, only destination.
+   */
+  referralId?: string;
 }
 
 /**
@@ -17,8 +31,11 @@ interface CoordinatorReferralBannerProps {
  * - Updates in real-time via SSE referral update events (T-48)
  * - WCAG: role="alert" for screen reader announcement, min 44px touch target (T-49)
  * - Dark mode: uses color tokens (errorBg, textInverse) for both themes
+ * - notification-deep-linking (Issue #106): forwards {@code referralId} to
+ *   the click handler so the dashboard can open the specific referral when
+ *   the user arrived via a notification deep-link.
  */
-export function CoordinatorReferralBanner({ onBannerClick }: CoordinatorReferralBannerProps) {
+export function CoordinatorReferralBanner({ onBannerClick, referralId }: CoordinatorReferralBannerProps) {
   const [pendingCount, setPendingCount] = useState(0);
 
   const fetchCount = () => {
@@ -43,8 +60,8 @@ export function CoordinatorReferralBanner({ onBannerClick }: CoordinatorReferral
     <div
       role="alert"
       data-testid="coordinator-referral-banner"
-      onClick={onBannerClick}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onBannerClick?.(); }}
+      onClick={() => onBannerClick?.(referralId)}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onBannerClick?.(referralId); }}
       tabIndex={onBannerClick ? 0 : undefined}
       style={{
         backgroundColor: color.error,
