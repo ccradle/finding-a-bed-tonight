@@ -3,6 +3,7 @@ import {
   parseNotificationPayload,
   getNotificationMessageId,
   getNotificationMessageValues,
+  getNavigationPath,
 } from './notificationMessages';
 import type { Notification } from '../hooks/useNotifications';
 
@@ -215,5 +216,53 @@ describe('getNotificationMessageValues', () => {
     expect(values.shelterName).toBe('');
     expect(values.status).toBe('');
     expect(values.count).toBe('');
+  });
+});
+
+/**
+ * notification-deep-linking (Issue #106) — getNavigationPath role-aware
+ * routing tests. Added per war-room M-1: the role-aware code shipped in
+ * commit 65386bb had zero test coverage before these were added.
+ *
+ * The function takes (notification, userRoles) and returns a deep-link
+ * path. Identifiers are read from BOTH live-SSE shape (data.referralId)
+ * and persistent shape (payload.referralId via parseNotificationPayload),
+ * so we exercise both shapes.
+ */
+describe('getNavigationPath — role-aware deep-link routing', () => {
+  it('escalation.1h + COORDINATOR + referralId → /coordinator?referralId=X', () => {
+    const n = liveNotification('escalation.1h', { referralId: 'ref-123' });
+    expect(getNavigationPath(n, ['COORDINATOR'])).toBe('/coordinator?referralId=ref-123');
+  });
+
+  it('escalation.1h + COC_ADMIN + referralId → /admin#dvEscalations?referralId=X', () => {
+    const n = liveNotification('escalation.1h', { referralId: 'ref-123' });
+    expect(getNavigationPath(n, ['COC_ADMIN'])).toBe('/admin#dvEscalations?referralId=ref-123');
+  });
+
+  it('SHELTER_DEACTIVATED + COORDINATOR + shelterId → /coordinator?shelterId=X', () => {
+    // Persistent shape — payload field carries the shelterId.
+    const n = persistentNotification('SHELTER_DEACTIVATED', { shelterId: 'sh-456' });
+    expect(getNavigationPath(n, ['COORDINATOR'])).toBe('/coordinator?shelterId=sh-456');
+  });
+
+  it('HOLD_CANCELLED_SHELTER_DEACTIVATED + OUTREACH_WORKER → /outreach/my-holds?reservationId=X', () => {
+    const n = persistentNotification('HOLD_CANCELLED_SHELTER_DEACTIVATED', { reservationId: 'res-789' });
+    expect(getNavigationPath(n, ['OUTREACH_WORKER'])).toBe('/outreach/my-holds?reservationId=res-789');
+  });
+
+  it('escalation.1h with NO referralId in payload → role-based default fallback', () => {
+    // D6: pre-change notifications without identifiers must not break.
+    const n = liveNotification('escalation.1h', {});
+    expect(getNavigationPath(n, ['COORDINATOR'])).toBe('/coordinator');
+    expect(getNavigationPath(n, ['COC_ADMIN'])).toBe('/admin#dvEscalations');
+  });
+
+  it('unknown event type → role-based default path', () => {
+    const n = liveNotification('something.totally.unknown', {});
+    expect(getNavigationPath(n, ['COORDINATOR'])).toBe('/coordinator');
+    expect(getNavigationPath(n, ['COC_ADMIN'])).toBe('/admin');
+    expect(getNavigationPath(n, ['OUTREACH_WORKER'])).toBe('/outreach');
+    expect(getNavigationPath(n, [])).toBe('/');
   });
 });

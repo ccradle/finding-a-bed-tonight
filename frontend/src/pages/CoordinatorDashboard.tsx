@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../services/api';
 import { enqueueAction } from '../services/offlineQueue';
 import { CoordinatorReferralBanner } from '../components/CoordinatorReferralBanner';
 import { DataAge } from '../components/DataAge';
+import { useDeepLink, type DeepLinkIntent, type ResolvedTarget } from '../hooks/useDeepLink';
 import { text, weight, leading } from '../theme/typography';
 import { color } from '../theme/colors';
 import { getPopulationTypeLabel } from '../utils/populationTypeLabels';
@@ -83,8 +85,34 @@ interface AvailabilityEdit {
   overflowBeds: number;
 }
 
+/**
+ * Response shape of {@code GET /api/v1/dv-referrals/{id}}, mirroring the
+ * Java {@code ReferralTokenResponse} record. Used by the deep-link processor
+ * to resolve a referralId from a notification payload to its containing
+ * shelter so the dashboard can auto-expand the right card.
+ *
+ * M-4 fix from the war-room review: replaces the unsafe
+ * {@code <{ shelterId: string } & PendingReferral>} cast that hid the
+ * missing endpoint bug behind a TypeScript lie.
+ */
+interface ReferralDetailResponse {
+  id: string;
+  shelterId: string;
+  shelterName: string;
+  householdSize: number;
+  populationType: string;
+  urgency: string;
+  specialNeeds: string | null;
+  callbackNumber: string;
+  status: string;
+  createdAt: string;
+  expiresAt: string | null;
+  remainingSeconds: number | null;
+}
+
 export function CoordinatorDashboard() {
   const intl = useIntl();
+  const [searchParams] = useSearchParams();
   const [shelters, setShelters] = useState<ShelterListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -97,6 +125,29 @@ export function CoordinatorDashboard() {
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [surgeActive, setSurgeActive] = useState(false);
+
+  // notification-deep-linking (Issue #106) — host-owned UI state.
+  //
+  // deepLinkToast: transient message shown when a deep-link target is stale
+  //   (referral no longer pending, 404, 403, expand timeout). Per D10 the
+  //   same text covers all four reasons so the response never leaks whether
+  //   the referral exists vs the user lacks access.
+  // deepLinkAnnouncement: text rendered into the role="status" aria-live
+  //   region so screen readers announce "Opened pending DV referral: ..."
+  //   after focus lands.
+  //
+  // The deep-link state machine itself lives in useDeepLink (D-12). The
+  // dialog-gate, idempotency tracking, focus-target stash, and error
+  // routing that previously needed four parallel state/ref trackers
+  // (pendingDeepLink, pendingFocus, processedRef, plus the two effects
+  // wiring them) are all owned by the hook now.
+  //
+  // originalAvailRef survives because it's an unsaved-state concern that
+  // belongs to the host — the hook only asks "should we confirm?" via
+  // needsUnsavedConfirm, and isDirty() answers using this snapshot.
+  const [deepLinkToast, setDeepLinkToast] = useState<string | null>(null);
+  const [deepLinkAnnouncement, setDeepLinkAnnouncement] = useState('');
+  const originalAvailRef = useRef<AvailabilityEdit[]>([]);
 
   const fetchShelters = useCallback(async () => {
     setLoading(true);
@@ -153,9 +204,31 @@ export function CoordinatorDashboard() {
   const fmtAddr = (s: Shelter) =>
     [s.addressStreet, s.addressCity, s.addressState, s.addressZip].filter(Boolean).join(', ');
 
-  const openShelter = async (id: string) => {
+  // S-1 fix: detect unsaved bed count edits on the currently expanded shelter.
+  // Compares editAvailability against the server-snapshot captured in openShelter.
+  // Returns false when nothing is expanded (no possible unsaved state).
+  // Consumed by needsUnsavedConfirm in the useDeepLink wiring below.
+  const isDirty = useCallback((): boolean => {
+    if (!expandedId || originalAvailRef.current.length === 0) return false;
+    if (editAvailability.length !== originalAvailRef.current.length) return true;
+    return editAvailability.some((current, i) => {
+      const orig = originalAvailRef.current[i];
+      return !orig
+        || current.populationType !== orig.populationType
+        || current.bedsTotal !== orig.bedsTotal
+        || current.bedsOccupied !== orig.bedsOccupied
+        || current.bedsOnHold !== orig.bedsOnHold
+        || current.overflowBeds !== orig.overflowBeds;
+    });
+  }, [expandedId, editAvailability]);
+
+  // openShelter is consumed both by direct user clicks on the shelter card
+  // header and by the useDeepLink hook (via expandForDeepLink below).
+  // Wrapped in useCallback so the hook's expandForDeepLink dep is stable.
+  const openShelter = useCallback(async (id: string) => {
     if (expandedId === id) {
       setExpandedId(null);
+      originalAvailRef.current = [];
       return;
     }
     setDetailLoading(true);
@@ -176,6 +249,11 @@ export function CoordinatorDashboard() {
         };
       });
       setEditAvailability(availEdit);
+      // S-1 (deep-linking): snapshot the server state so isDirty() can detect
+      // unsaved bed count edits before auto-collapsing in a deep-link flow.
+      // Deep-copy via JSON round-trip — AvailabilityEdit objects are flat,
+      // so this is safe and avoids accidental shared references.
+      originalAvailRef.current = JSON.parse(JSON.stringify(availEdit));
       setExpandedId(id);
 
       // Fetch pending DV referrals for this shelter (silent fail if not DV or no access)
@@ -189,7 +267,125 @@ export function CoordinatorDashboard() {
     } finally {
       setDetailLoading(false);
     }
-  };
+  }, [expandedId, intl]);
+
+  // ---------------------------------------------------------------------------
+  // notification-deep-linking — useDeepLink callbacks (D-12 state machine)
+  // ---------------------------------------------------------------------------
+  //
+  // Four small host-callbacks define the host-specific behavior; the rest is
+  // owned by useDeepLink (URL → resolve → optional confirm → expand → wait
+  // for target → done | stale, with timeouts that prevent stuck states).
+  //
+  // resolveTarget: referralId → fetch ReferralDetailResponse → return its
+  //   shelterId. shelterId-only intents skip the fetch.
+  // needsUnsavedConfirm: true when current card has unsaved edits AND the
+  //   target is a different shelter (S-1).
+  // expand: defer to openShelter, but only when actually switching shelters.
+  // isTargetReady: detail-bearing intents need the screening row to be in
+  //   pendingReferrals; shelterId-only intents are ready as soon as the
+  //   correct shelter is expanded and detailLoading is false.
+
+  const resolveTarget = useCallback(async (
+    intent: DeepLinkIntent,
+  ): Promise<ResolvedTarget<ReferralDetailResponse>> => {
+    if (intent.referralId) {
+      const detail = await api.get<ReferralDetailResponse>(
+        `/api/v1/dv-referrals/${intent.referralId}`,
+      );
+      return { intent, resolvedShelterId: detail.shelterId, detail };
+    }
+    if (intent.shelterId) {
+      return { intent, resolvedShelterId: intent.shelterId, detail: null };
+    }
+    // Reservation-only intent: not handled by the coordinator dashboard
+    // (that lives on /outreach/my-holds in Phase 3). Treat as no-op.
+    return { intent, resolvedShelterId: null, detail: null };
+  }, []);
+
+  const needsUnsavedConfirm = useCallback((
+    resolved: ResolvedTarget<ReferralDetailResponse>,
+  ): boolean => {
+    return Boolean(
+      isDirty()
+      && resolved.resolvedShelterId
+      && expandedId
+      && resolved.resolvedShelterId !== expandedId,
+    );
+  }, [isDirty, expandedId]);
+
+  const expandForDeepLink = useCallback(async (
+    resolved: ResolvedTarget<ReferralDetailResponse>,
+  ): Promise<void> => {
+    if (!resolved.resolvedShelterId) return;
+    if (expandedId === resolved.resolvedShelterId) return; // already expanded
+    await openShelter(resolved.resolvedShelterId);
+  }, [expandedId, openShelter]);
+
+  const isTargetReady = useCallback((
+    resolved: ResolvedTarget<ReferralDetailResponse>,
+  ): boolean => {
+    if (detailLoading) return false;
+    if (!resolved.resolvedShelterId) return false;
+    if (expandedId !== resolved.resolvedShelterId) return false;
+    if (resolved.detail) {
+      // referralId path — the screening row must exist in the fetched list.
+      return pendingReferrals.some((r) => r.id === resolved.detail!.id);
+    }
+    // shelterId-only path — expansion alone is sufficient.
+    return true;
+  }, [detailLoading, expandedId, pendingReferrals]);
+
+  const { state: dlState, confirm: dlConfirm } = useDeepLink<ReferralDetailResponse>({
+    searchParams,
+    resolveTarget,
+    needsUnsavedConfirm,
+    expand: expandForDeepLink,
+    isTargetReady,
+  });
+
+  // Side effects from state transitions — host owns DOM/UI concerns,
+  // hook owns state correctness. One useEffect, keyed on dlState.kind.
+  useEffect(() => {
+    if (dlState.kind === 'done') {
+      const { resolved } = dlState;
+      if (resolved.detail) {
+        const rowEl = document.querySelector<HTMLElement>(
+          `[data-testid="screening-${resolved.detail.id}"]`,
+        );
+        if (rowEl) {
+          rowEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
+          // S-2 — focus the row heading, not Accept. tabIndex={-1} on the row
+          // makes programmatic focus work without adding a natural tab stop.
+          rowEl.focus();
+        }
+        // T-1 — aria-live announcement (population type + size + urgency only;
+        // no PII).
+        setDeepLinkAnnouncement(intl.formatMessage(
+          { id: 'notifications.deepLink.referralOpened' },
+          {
+            populationType: getPopulationTypeLabel(resolved.detail.populationType, intl),
+            size: resolved.detail.householdSize,
+            urgency: resolved.detail.urgency,
+          },
+        ));
+      } else if (resolved.resolvedShelterId) {
+        const cardEl = document.querySelector<HTMLElement>(
+          `[data-testid="shelter-card-${resolved.resolvedShelterId}"]`,
+        );
+        cardEl?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        cardEl?.focus();
+        setDeepLinkAnnouncement(intl.formatMessage({ id: 'notifications.deepLink.shelterOpened' }));
+      }
+    } else if (dlState.kind === 'stale') {
+      // D10 — single stale toast for not-found, race, error, and timeout.
+      // role="alert" on the toast announces on its own; no aria-live update
+      // needed (avoids the H-3 double-announce regression).
+      setDeepLinkToast(intl.formatMessage({ id: 'notifications.deepLink.stale' }));
+      const t = setTimeout(() => setDeepLinkToast(null), 5000);
+      return () => clearTimeout(t);
+    }
+  }, [dlState, intl]);
 
   const acceptReferral = async (tokenId: string) => {
     try {
@@ -254,9 +450,32 @@ export function CoordinatorDashboard() {
     );
   };
 
-  const submitAvailability = async (shelterId: string, popType: string) => {
+  /**
+   * Submit a single population's availability edit.
+   *
+   * Returns 'saved' on a successful PATCH, 'queued' when offline (or after a
+   * network failure that the offline queue accepted), and 'failed' when both
+   * the network and IndexedDB rejected the write. Callers that need to chain
+   * additional work after a save (e.g., the unsaved-state dialog's
+   * Save-and-proceed flow — H-4 from the war-room review) inspect the return
+   * value. Existing fire-and-forget callers (the per-row Save buttons) ignore
+   * it and the previous behavior is preserved.
+   *
+   * H-1 fix: on a 'saved' result the originalAvailRef snapshot for the
+   * affected population is updated in place so {@code isDirty()} no longer
+   * reports the post-save state as dirty. Without this, a coordinator who
+   * saved via the dialog would hit the unsaved-state confirm again on every
+   * subsequent deep-link.
+   */
+  // H-5 fix: useCallback so handleSaveAndProceed (in dialog flow) and the
+  // per-row Save buttons share a stable identity. Closes over editAvailability
+  // and intl + fetchShelters; all listed in deps.
+  const submitAvailability = useCallback(async (
+    shelterId: string,
+    popType: string,
+  ): Promise<'saved' | 'queued' | 'failed'> => {
     const avail = editAvailability.find((a) => a.populationType === popType);
-    if (!avail) return;
+    if (!avail) return 'failed';
     setAvailSaving(popType);
     setError(null);
     const payload = {
@@ -273,13 +492,27 @@ export function CoordinatorDashboard() {
         setAvailSaved(popType);
         setError(intl.formatMessage({ id: 'coord.updateQueued', defaultMessage: 'Update queued — will send when online' }));
         setTimeout(() => setAvailSaved(null), 1500);
-        return;
+        return 'queued';
       }
       await api.patch(`/api/v1/shelters/${shelterId}/availability`, payload);
       setAvailSaved(popType);
+      // H-1: refresh the snapshot for this population so isDirty() returns
+      // false until the user makes a NEW edit. Mutate in place — the ref
+      // identity stays the same; only the row's fields change.
+      const idx = originalAvailRef.current.findIndex((a) => a.populationType === popType);
+      if (idx >= 0) {
+        originalAvailRef.current[idx] = {
+          populationType: popType,
+          bedsTotal: avail.bedsTotal,
+          bedsOccupied: avail.bedsOccupied,
+          bedsOnHold: avail.bedsOnHold,
+          overflowBeds: avail.overflowBeds,
+        };
+      }
       // Refresh shelter list for updated summary
       fetchShelters();
       setTimeout(() => setAvailSaved(null), 1500);
+      return 'saved';
     } catch (err: unknown) {
       // Online but request failed — enqueue as fallback
       const apiErr = err as { message?: string };
@@ -288,17 +521,171 @@ export function CoordinatorDashboard() {
         setAvailSaved(popType);
         setError(intl.formatMessage({ id: 'coord.updateQueued', defaultMessage: 'Update queued — will send when online' }));
         setTimeout(() => setAvailSaved(null), 1500);
+        return 'queued';
       } catch {
         // IndexedDB also failed — show API error as last resort
         setError(apiErr.message || intl.formatMessage({ id: 'coord.error' }));
+        return 'failed';
       }
     } finally {
       setAvailSaving(null);
     }
+  }, [editAvailability, intl, fetchShelters]);
+
+  // S-1 dialog handlers — drive the useDeepLink state machine via dlConfirm.
+  //
+  // handleCancelDialog: confirm('abort') → state machine returns to idle.
+  //   The deep-link won't re-fire for the SAME URL (intent equality blocks
+  //   re-dispatch), but a fresh URL or a banner click WILL. The hook's
+  //   intent-equality replaces the prior processedRef leak whereby Cancel
+  //   silently blocked future re-triggers for the same notification.
+  //
+  // handleDiscardAndProceed: restore the server snapshot locally (server
+  //   was never changed), then confirm('continue') → state machine moves
+  //   to expanding.
+  //
+  // handleSaveAndProceed: submit every dirty population. If ALL saves
+  //   succeed or queue for offline retry, confirm('continue'). On any
+  //   'failed' result, leave the dialog open so the user doesn't lose
+  //   edits (the caller already set the error banner).
+  const handleCancelDialog = () => dlConfirm('abort');
+  const handleDiscardAndProceed = () => {
+    setEditAvailability(JSON.parse(JSON.stringify(originalAvailRef.current)));
+    dlConfirm('continue');
+  };
+  const handleSaveAndProceed = async () => {
+    if (dlState.kind !== 'awaiting-confirm') return;
+    if (!expandedId) { dlConfirm('abort'); return; }
+    const dirtyPops = editAvailability.filter((current, i) => {
+      const orig = originalAvailRef.current[i];
+      return !orig
+        || current.bedsTotal !== orig.bedsTotal
+        || current.bedsOccupied !== orig.bedsOccupied
+        || current.bedsOnHold !== orig.bedsOnHold
+        || current.overflowBeds !== orig.overflowBeds;
+    });
+    const results = await Promise.all(
+      dirtyPops.map((avail) => submitAvailability(expandedId, avail.populationType)),
+    );
+    if (results.some((r) => r === 'failed')) return; // dialog stays open
+    dlConfirm('continue');
   };
 
   return (
     <div style={{ maxWidth: 720, margin: '0 auto' }}>
+      {/* T-1: aria-live status region for deep-link announcements. Visually
+          hidden (off-screen) so it doesn't clutter the UI, but screen readers
+          announce changes to its text content. No PII in announcements. */}
+      <div
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        data-testid="deep-link-announcement"
+        style={{
+          position: 'absolute', width: 1, height: 1, padding: 0,
+          margin: -1, overflow: 'hidden', clip: 'rect(0,0,0,0)',
+          whiteSpace: 'nowrap', border: 0,
+        }}
+      >
+        {deepLinkAnnouncement}
+      </div>
+
+      {/* D10: stale/unauthorized-referral toast. Same text for 404 and 403
+          to avoid leaking whether the referral exists. Non-blocking; auto-
+          dismisses after 5s. */}
+      {deepLinkToast && (
+        <div
+          role="alert"
+          data-testid="deep-link-toast"
+          style={{
+            position: 'fixed', top: 16, right: 16, maxWidth: 360, zIndex: 2000,
+            backgroundColor: color.warningBg, color: color.text,
+            border: `1px solid ${color.warningMid}`,
+            padding: '12px 16px', borderRadius: 8, fontSize: text.sm,
+            fontWeight: weight.medium,
+            boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
+          }}
+        >
+          {deepLinkToast}
+        </div>
+      )}
+
+      {/* S-1: unsaved bed count edits confirmation. Modal dialog; blocks
+          the deep-link until the user chooses. Save commits, Discard blows
+          away edits, Cancel preserves the current view. The dialog renders
+          whenever the deep-link state machine is in awaiting-confirm. */}
+      {dlState.kind === 'awaiting-confirm' && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="unsaved-dialog-title"
+          data-testid="unsaved-changes-dialog"
+          style={{
+            position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            zIndex: 3000,
+          }}
+        >
+          <div style={{
+            backgroundColor: color.bg, padding: 24, borderRadius: 12,
+            maxWidth: 440, width: '90%', boxShadow: '0 8px 32px rgba(0,0,0,0.25)',
+          }}>
+            <h2
+              id="unsaved-dialog-title"
+              style={{ margin: '0 0 12px', fontSize: text.lg, fontWeight: weight.bold, color: color.text }}
+            >
+              <FormattedMessage id="notifications.deepLink.unsavedTitle" />
+            </h2>
+            <p style={{ margin: '0 0 20px', fontSize: text.base, color: color.text, lineHeight: 1.5 }}>
+              <FormattedMessage id="notifications.deepLink.unsavedMessage" />
+            </p>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+              <button
+                data-testid="unsaved-dialog-cancel"
+                onClick={handleCancelDialog}
+                // L-2 fix: Cancel is the safest default — a coordinator who
+                // reflexively hits Enter shouldn't accidentally save bad data
+                // OR discard real edits. Cancel preserves the current view so
+                // the user can review what they had before deciding.
+                autoFocus
+                style={{
+                  padding: '10px 16px', minHeight: 44, borderRadius: 8,
+                  border: `1px solid ${color.border}`, backgroundColor: color.bg,
+                  color: color.text, fontSize: text.sm, fontWeight: weight.semibold,
+                  cursor: 'pointer',
+                }}
+              >
+                <FormattedMessage id="notifications.deepLink.unsavedCancel" />
+              </button>
+              <button
+                data-testid="unsaved-dialog-discard"
+                onClick={handleDiscardAndProceed}
+                style={{
+                  padding: '10px 16px', minHeight: 44, borderRadius: 8,
+                  border: `1px solid ${color.errorMid}`, backgroundColor: color.bg,
+                  color: color.errorMid, fontSize: text.sm, fontWeight: weight.semibold,
+                  cursor: 'pointer',
+                }}
+              >
+                <FormattedMessage id="notifications.deepLink.unsavedDiscard" />
+              </button>
+              <button
+                data-testid="unsaved-dialog-save"
+                onClick={handleSaveAndProceed}
+                style={{
+                  padding: '10px 16px', minHeight: 44, borderRadius: 8,
+                  border: 'none', backgroundColor: color.primary,
+                  color: color.textInverse, fontSize: text.sm, fontWeight: weight.bold,
+                  cursor: 'pointer',
+                }}
+              >
+                <FormattedMessage id="notifications.deepLink.unsavedSave" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div style={{
         background: `linear-gradient(135deg, ${color.headerGradientStart} 0%, ${color.headerGradientMid} 50%, ${color.headerGradientEnd} 100%)`,
@@ -313,16 +700,30 @@ export function CoordinatorDashboard() {
         </p>
       </div>
 
-      {/* T-43: Persistent referral banner — not dismissable, resolves when actioned */}
-      <CoordinatorReferralBanner onBannerClick={() => {
-        // T-46: Scroll to first DV shelter with pending referrals
-        const dvShelter = shelters.find(item => item.shelter.dvShelter);
-        if (dvShelter) {
-          openShelter(dvShelter.shelter.id);
-          const el = document.querySelector(`[data-testid="shelter-card-${dvShelter.shelter.id}"]`);
-          el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
-      }} />
+      {/* T-43: Persistent referral banner — not dismissable, resolves when actioned.
+          notification-deep-linking (Issue #106 task 3.5): if the URL carries
+          a ?referralId, the useDeepLink hook already processed it on mount.
+          Banner click without that param falls back to T-46 (first DV shelter).
+          A click while a deep-link is active is a no-op — the hook is already
+          in done/stale and re-clicking the same URL doesn't add information. */}
+      <CoordinatorReferralBanner
+        referralId={searchParams.get('referralId') || undefined}
+        onBannerClick={(deepLinkReferralId) => {
+          if (deepLinkReferralId) {
+            // Hook already processed this referralId. Render state reflects it.
+            // (If users need a "re-jump" affordance later, expose a retry()
+            //  from useDeepLink — Phase 2 enhancement, not required for Phase 1.)
+            return;
+          }
+          // T-46: original behavior — first DV shelter with pending referrals
+          const dvShelter = shelters.find(item => item.shelter.dvShelter);
+          if (dvShelter) {
+            openShelter(dvShelter.shelter.id);
+            const el = document.querySelector(`[data-testid="shelter-card-${dvShelter.shelter.id}"]`);
+            el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+        }}
+      />
 
       {/* Status */}
       <div style={{ fontSize: text.sm, color: color.textTertiary, marginBottom: 10, fontWeight: weight.semibold, letterSpacing: '0.02em' }}>
@@ -591,9 +992,28 @@ export function CoordinatorDashboard() {
                       <FormattedMessage id="referral.pendingReferrals" /> ({pendingReferrals.length})
                     </h4>
                     {pendingReferrals.map(ref => (
-                      <div key={ref.id} data-testid={`screening-${ref.id}`} style={{
-                        padding: '10px 0', borderBottom: `1px solid ${color.dvBorder}`,
-                      }}>
+                      <div
+                        key={ref.id}
+                        data-testid={`screening-${ref.id}`}
+                        // S-2 — programmatically focusable for deep-link handoff,
+                        // but NOT in the natural tab order. A coordinator reaching
+                        // the row via deep-link is one Tab from the Accept button.
+                        tabIndex={-1}
+                        style={{
+                          padding: '10px 0', borderBottom: `1px solid ${color.dvBorder}`,
+                          outline: 'none',
+                          // Visible focus ring so the coordinator can see where
+                          // focus landed after a deep-link jump (WCAG 2.4.7).
+                          boxShadow: 'none',
+                        }}
+                        onFocus={(e) => {
+                          e.currentTarget.style.boxShadow = `0 0 0 3px ${color.primary}`;
+                          e.currentTarget.style.borderRadius = '8px';
+                        }}
+                        onBlur={(e) => {
+                          e.currentTarget.style.boxShadow = 'none';
+                        }}
+                      >
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
                           <div>
                             <span style={{ fontSize: text.sm, fontWeight: weight.bold, color: color.text }}>

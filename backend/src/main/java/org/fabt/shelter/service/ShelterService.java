@@ -463,9 +463,13 @@ public class ShelterService {
         if (shelter.isDvShelter()) {
             List<UUID> dvUserIds = userService.findDvAccessUserIds(tenantId);
             try {
-                // No address in payload — only name and reason (VAWA safety)
+                // No address in payload — only name, reason, and shelterId (VAWA safety;
+                // shelterId is an opaque UUID, not a leak per Marcus Webb war room 2026-04-13).
+                // shelterId enables notification deep-linking (Issue #106 / notification-deep-linking).
                 String broadcastPayload = objectMapper.writeValueAsString(
-                        Map.of("shelterName", shelter.getName(), "reason", reason.name()));
+                        Map.of("shelterId", shelterId.toString(),
+                                "shelterName", shelter.getName(),
+                                "reason", reason.name()));
                 notificationPersistenceService.sendToAll(tenantId, dvUserIds,
                         "SHELTER_DEACTIVATED", "CRITICAL", broadcastPayload);
             } catch (tools.jackson.core.JacksonException e) {
@@ -490,8 +494,13 @@ public class ShelterService {
         // Notify each affected outreach worker (always — regardless of dvAccess, per spec W-3)
         for (CancelledHoldSummary hold : cancelled) {
             try {
+                // reservationId enables deep-linking to /outreach/my-holds?reservationId=X
+                // per notification-deep-linking OpenSpec (Issue #106). shelterId included so
+                // the outreach worker can see which shelter's hold was cancelled.
                 String payload = objectMapper.writeValueAsString(
-                        Map.of("shelterName", shelter.getName()));
+                        Map.of("reservationId", hold.reservationId().toString(),
+                                "shelterId", shelter.getId().toString(),
+                                "shelterName", shelter.getName()));
                 notificationPersistenceService.send(
                         tenantId, hold.userId(),
                         "HOLD_CANCELLED_SHELTER_DEACTIVATED", "WARNING", payload);

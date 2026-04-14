@@ -25,6 +25,7 @@
  * single-shape read.
  */
 
+import type { IntlShape } from 'react-intl';
 import type { Notification } from '../hooks/useNotifications';
 
 /**
@@ -118,6 +119,12 @@ export function getNotificationMessageId(notification: Notification): string {
       return 'notifications.escalation3_5h';
     case 'escalation.4h':
       return 'notifications.escalation4h';
+    case 'SHELTER_DEACTIVATED':
+      return 'notifications.shelterDeactivated';
+    case 'HOLD_CANCELLED_SHELTER_DEACTIVATED':
+      return 'notifications.holdCancelledShelterDeactivated';
+    case 'referral.reassigned':
+      return 'notifications.referralReassigned';
     default:
       return 'notifications.unknown';
   }
@@ -128,42 +135,150 @@ export function getNotificationMessageId(notification: Notification): string {
  * Reads both the direct `data.*` fields (live SSE) and the parsed
  * `payload.*` fields (persistent) so callers always get a populated
  * string even when the notification was loaded from the DB.
+ *
+ * <p>The optional {@code intl} parameter enables localization of enum
+ * values before they reach the rendered string — currently the shelter
+ * deactivation reason. Without {@code intl}, the raw enum value
+ * (e.g., "TEMPORARY_CLOSURE") would surface to end users, which Keisha
+ * flagged as the K-1 regression in the notification-deep-linking war
+ * room. Production callers (NotificationBell.tsx) MUST pass {@code intl};
+ * tests and other non-i18n callers may omit it and accept the raw
+ * enum.</p>
  */
 export function getNotificationMessageValues(
   notification: Notification,
+  intl?: IntlShape,
 ): Record<string, string> {
   const { data } = notification;
   const payload = parseNotificationPayload(data);
+  const rawReason = String(data.reason || payload.reason || '');
+  // K-1 fix: resolve shelter.reason.TEMPORARY_CLOSURE → "Temporary closure"
+  // using the i18n keys shipped in v0.38.0. Fall back to the raw enum
+  // value only when intl isn't available (unit tests) or the key is
+  // missing — intl.formatMessage returns the id verbatim when unmatched,
+  // so an unknown reason surfaces as "shelter.reason.XXX" which is
+  // easier to debug than a silent empty string.
+  const localizedReason = rawReason && intl
+    ? intl.formatMessage({ id: `shelter.reason.${rawReason}` })
+    : rawReason;
   return {
     shelterName: String(data.shelterName || payload.shelterName || ''),
     status: String(data.status || payload.status || ''),
     count: String(data.count || ''),
+    reason: rawReason,
+    localizedReason,
   };
 }
 
 /**
- * Map a notification event type to the destination path the bell
- * should navigate to when the user clicks the notification row.
- * Independent of the payload shape bug — included here only to keep
- * all notification-message helpers in one module.
+ * Pick the default role-based landing page when a notification carries
+ * no deep-link identifier (pre-change notifications, malformed payload,
+ * or types that never deep-link). Mirrors the priority order used by
+ * {@code AuthGuard.getDefaultRouteForRoles} but owns its own copy so
+ * this module stays decoupled from the auth guard; the two only need
+ * to agree on the role-to-default mapping, not share code.
  */
-export function getNavigationPath(eventType: string): string {
+function getRoleBasedDefaultPath(userRoles: string[]): string {
+  if (userRoles.includes('PLATFORM_ADMIN') || userRoles.includes('COC_ADMIN')) {
+    return '/admin';
+  }
+  if (userRoles.includes('COORDINATOR')) {
+    return '/coordinator';
+  }
+  if (userRoles.includes('OUTREACH_WORKER')) {
+    return '/outreach';
+  }
+  return '/';
+}
+
+/**
+ * Map a notification to the destination path the bell should navigate
+ * to when the user clicks the notification row.
+ *
+ * <p>Role-aware (notification-deep-linking OpenSpec / Issue #106):
+ * the same notification type may land admin on the escalation queue
+ * but a coordinator on the specific referral in their dashboard.</p>
+ *
+ * <p>Identifiers (referralId, shelterId, reservationId) are read
+ * through {@link parseNotificationPayload} to handle both the live-SSE
+ * shape (fields on {@code data} directly) and the persistent shape
+ * (fields inside the JSON-stringified {@code data.payload}).</p>
+ *
+ * <p>Graceful fallback: if the expected identifier is missing
+ * (pre-change notifications), the function falls back to the role-based
+ * default path rather than constructing a broken URL.</p>
+ */
+export function getNavigationPath(
+  notification: Notification,
+  userRoles: string[],
+): string {
+  const { eventType, data } = notification;
+  const payload = parseNotificationPayload(data);
+
+  // Identifiers may live on data directly (live SSE) or inside the
+  // JSON-stringified payload (persistent notification) — read both.
+  const referralId = String(data.referralId || payload.referralId || '');
+  const shelterId = String(data.shelterId || payload.shelterId || '');
+  const reservationId = String(data.reservationId || payload.reservationId || '');
+
+  const isAdmin = userRoles.includes('COC_ADMIN') || userRoles.includes('PLATFORM_ADMIN');
+  const isCoordinator = userRoles.includes('COORDINATOR');
+
   switch (eventType) {
-    case 'dv-referral.responded':
-    case 'availability.updated':
-    case 'referral.responded':
-    case 'reservation.expired':
-      return '/outreach';
-    case 'dv-referral.requested':
-    case 'referral.requested':
+    // Escalations + new-referral: admin → queue, coordinator → specific referral.
     case 'escalation.1h':
     case 'escalation.2h':
     case 'escalation.3_5h':
     case 'escalation.4h':
+    case 'dv-referral.requested':
+    case 'referral.requested':
+    case 'referral.reassigned':
+      if (isAdmin) {
+        return referralId
+          ? `/admin#dvEscalations?referralId=${referralId}`
+          : '/admin#dvEscalations';
+      }
+      if (isCoordinator) {
+        return referralId
+          ? `/coordinator?referralId=${referralId}`
+          : '/coordinator';
+      }
+      return getRoleBasedDefaultPath(userRoles);
+
+    // Shelter deactivation broadcast — coordinators see their dashboard
+    // scoped to that shelter, admins see the admin panel scoped to it.
+    case 'SHELTER_DEACTIVATED':
+      if (isAdmin) {
+        return shelterId ? `/admin?shelterId=${shelterId}` : '/admin';
+      }
+      if (isCoordinator) {
+        return shelterId ? `/coordinator?shelterId=${shelterId}` : '/coordinator';
+      }
+      return getRoleBasedDefaultPath(userRoles);
+
+    // Outreach worker — their bed hold was cancelled because the
+    // shelter was deactivated. Land on My Past Holds with row highlighted.
+    case 'HOLD_CANCELLED_SHELTER_DEACTIVATED':
+      return reservationId
+        ? `/outreach/my-holds?reservationId=${reservationId}`
+        : '/outreach';
+
+    // Outreach worker — their held reservation expired on its own.
+    case 'reservation.expired':
+      return reservationId
+        ? `/outreach/my-holds?reservationId=${reservationId}`
+        : '/outreach';
+
+    case 'dv-referral.responded':
+    case 'referral.responded':
+    case 'availability.updated':
+      return '/outreach';
+
     case 'surge.activated':
     case 'surge.deactivated':
-      return '/coordinator';
+      return isCoordinator ? '/coordinator' : getRoleBasedDefaultPath(userRoles);
+
     default:
-      return '/';
+      return getRoleBasedDefaultPath(userRoles);
   }
 }
