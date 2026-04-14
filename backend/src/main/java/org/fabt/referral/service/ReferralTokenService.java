@@ -300,6 +300,20 @@ public class ReferralTokenService {
         return repository.findPendingByShelterId(shelterId);
     }
 
+    /**
+     * Single-token lookup for notification deep-linking (Issue #106).
+     * Tenant scoping is enforced at the SQL layer by RLS — a token from
+     * another tenant returns empty even if the UUID is guessed. Throws
+     * {@link NoSuchElementException} for both not-found and RLS-hidden
+     * rows so the caller surface a single "stale referral" message
+     * (D10 — no info leak between 404 and 403).
+     */
+    @Transactional(readOnly = true)
+    public ReferralToken findById(UUID tokenId) {
+        return repository.findById(tokenId)
+            .orElseThrow(() -> new NoSuchElementException("Referral token not found: " + tokenId));
+    }
+
     @Transactional(readOnly = true)
     public List<ReferralToken> getByUserId(UUID userId) {
         return repository.findByUserId(userId);

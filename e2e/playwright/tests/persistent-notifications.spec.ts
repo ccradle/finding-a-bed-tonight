@@ -133,6 +133,93 @@ test.describe('Persistent Notifications', () => {
     await outreachPage.keyboard.press('Escape');
   });
 
+  /**
+   * notification-deep-linking (Issue #106) — happy-path test, war-room M-2.
+   *
+   * Verifies the end-to-end Phase 1 flow: a coordinator with a
+   * `referral.requested` notification clicks it (here, navigating directly
+   * to /coordinator?referralId=X) and lands with the referral row visible
+   * AND keyboard focus on the row heading (NOT the Accept button — S-2
+   * safety: prevents accidental Enter-key acceptance of a DV referral).
+   *
+   * This test is the minimum coverage for Phase 1 ship-gate. Broader
+   * scenarios (admin role-aware routing, stale-referral fallback,
+   * unsaved-state dialog, mobile viewport, Spanish locale) are tracked
+   * as Phase 4 tasks 11.x.
+   */
+  test('Issue #106 deep-link: ?referralId lands on referral row with focus on row (not Accept)', async ({ dvCoordinatorPage }) => {
+    // N-2 fix from war-room round 2: create the referral in-test via API so
+    // we don't depend on seed shape. Silent skips on seed drift were exactly
+    // the "tests that just pass" failure mode flagged in the original review.
+    //
+    // Sequence:
+    //   1. Login as dv-outreach via API
+    //   2. Discover any DV shelter visible to the dv-outreach worker
+    //   3. POST /api/v1/dv-referrals to create a fresh PENDING referral
+    //   4. Navigate the dv-coordinator page to /coordinator?referralId=X
+    //   5. Assert row visible + focused + Accept NOT focused + aria-live populated
+    const outreachLogin = await fetch(`${API_URL}/api/v1/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tenantSlug: TENANT_SLUG, email: 'dv-outreach@dev.fabt.org', password: 'admin123' }),
+    });
+    expect(outreachLogin.ok, 'dv-outreach login must succeed (seed user)').toBeTruthy();
+    const { accessToken: outreachToken } = await outreachLogin.json();
+
+    const sheltersResp = await fetch(`${API_URL}/api/v1/shelters?populationType=DV_SURVIVOR`, {
+      headers: { 'Authorization': `Bearer ${outreachToken}` },
+    });
+    expect(sheltersResp.ok, 'shelters list must succeed for dv-outreach').toBeTruthy();
+    const shelters = await sheltersResp.json() as Array<{ shelter: { id: string; dvShelter?: boolean } }>;
+    const dvShelter = shelters.find((s) => s.shelter?.dvShelter);
+    expect(dvShelter, 'At least one DV shelter must exist for the deep-link test').toBeTruthy();
+
+    const createResp = await fetch(`${API_URL}/api/v1/dv-referrals`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${outreachToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        shelterId: dvShelter!.shelter.id,
+        populationType: 'DV_SURVIVOR',
+        householdSize: 2,
+        urgency: 'URGENT',
+        callbackNumber: '919-555-0106',
+      }),
+    });
+    // Read body ONCE — fetch Response bodies are single-consumption. The
+    // template literal eagerly evaluates `.text()`; if we then called
+    // `.json()` on the next line, it would throw "Body has already been
+    // consumed" on every run, including success.
+    const createBody = await createResp.text();
+    expect(createResp.status, `referral creation must succeed — body: ${createBody}`).toBe(201);
+    const referral = JSON.parse(createBody) as { id: string };
+    const referralId = referral.id;
+    expect(referralId, 'created referral must have an id').toBeTruthy();
+
+    // Deep-link directly via URL — equivalent to the bell-click navigation.
+    await dvCoordinatorPage.goto(`/coordinator?referralId=${referralId}`);
+    await expect(dvCoordinatorPage.locator('[data-testid="coordinator-heading"]')).toBeVisible();
+
+    // The screening row for the deep-linked referral must materialize without
+    // the user having to expand any shelter card by hand.
+    const row = dvCoordinatorPage.locator(`[data-testid="screening-${referralId}"]`);
+    await expect(row).toBeVisible({ timeout: 10000 });
+
+    // S-2 safety assertion: focus is on the ROW, not the Accept button.
+    // Accidental Enter-key acceptance of a DV referral is the failure mode
+    // this whole focus-target decision exists to prevent.
+    await expect(row).toBeFocused();
+    const acceptBtn = dvCoordinatorPage.locator(`[data-testid="accept-referral-${referralId}"]`);
+    await expect(acceptBtn).not.toBeFocused();
+
+    // T-1: aria-live status region populated for screen readers (no PII —
+    // population type, household size, urgency only).
+    const announcement = dvCoordinatorPage.locator('[data-testid="deep-link-announcement"]');
+    await expect(announcement).toContainText(/referral|referencia/i);
+  });
+
   test('T-58e: notification dropdown renders i18n text, not raw type', async ({ dvCoordinatorPage }) => {
     await dvCoordinatorPage.goto('/coordinator');
     await expect(dvCoordinatorPage.locator('[data-testid="coordinator-heading"]')).toBeVisible();

@@ -136,6 +136,52 @@ class DvReferralIntegrationTest extends BaseIntegrationTest {
                 "Response must NOT include shelter latitude");
     }
 
+    /**
+     * notification-deep-linking (Issue #106) — war-room C-1 fix.
+     *
+     * GET /api/v1/dv-referrals/{id} is the lookup the frontend deep-link
+     * processor uses to resolve a notification's referralId to its shelter
+     * (so the dashboard can auto-expand the right card). Without this
+     * endpoint, every notification click 404s and the user sees the
+     * "stale referral" toast for legitimate referrals.
+     */
+    @Test
+    void tc_getById_returnsReferralWithShelterId_forDeepLinking() {
+        ResponseEntity<String> createResp = createReferral(dvShelterId, outreachHeaders);
+        assertEquals(HttpStatus.CREATED, createResp.getStatusCode());
+        String tokenId = extractField(createResp.getBody(), "id");
+
+        ResponseEntity<String> getResp = restTemplate.exchange(
+                "/api/v1/dv-referrals/" + tokenId, HttpMethod.GET,
+                new HttpEntity<>(coordHeaders), String.class);
+        assertEquals(HttpStatus.OK, getResp.getStatusCode(),
+                "Coordinator must be able to fetch a single referral by id for deep-linking — body: "
+                        + getResp.getBody());
+        String body = getResp.getBody();
+        assertNotNull(body);
+        // Must include shelterId so the frontend can auto-expand the card.
+        assertTrue(body.contains("\"shelterId\":\"" + dvShelterId + "\""),
+                "GET /dv-referrals/{id} must include shelterId for deep-linking — body: " + body);
+        assertTrue(body.contains("\"id\":\"" + tokenId + "\""),
+                "GET /dv-referrals/{id} must echo the requested id — body: " + body);
+        assertTrue(body.contains("\"populationType\":\"DV_SURVIVOR\""),
+                "Response must include populationType for the aria-live announcement — body: " + body);
+        // Zero-PII: no shelter address fields leak through.
+        assertFalse(body.contains("\"addressStreet\""),
+                "GET /dv-referrals/{id} must NOT include shelter address (FVPSA)");
+    }
+
+    @Test
+    void tc_getById_unknownId_returns404_forD10StaleFallback() {
+        UUID nonexistent = UUID.randomUUID();
+        ResponseEntity<String> getResp = restTemplate.exchange(
+                "/api/v1/dv-referrals/" + nonexistent, HttpMethod.GET,
+                new HttpEntity<>(coordHeaders), String.class);
+        // 404 is what the frontend's stale-referral handler keys off (D10).
+        assertEquals(HttpStatus.NOT_FOUND, getResp.getStatusCode(),
+                "Unknown referral id must return 404 so the deep-link UI can show the stale toast");
+    }
+
     @Test
     void tc_create_includesShelterName_snapshotInCreateAndMine() {
         ResponseEntity<String> createResp = createReferral(dvShelterId, outreachHeaders);

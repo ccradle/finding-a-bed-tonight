@@ -4,6 +4,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+
 import org.fabt.BaseIntegrationTest;
 import org.fabt.TestAuthHelper;
 import org.fabt.auth.domain.User;
@@ -135,6 +138,38 @@ class ShelterDeactivationIntegrationTest extends BaseIntegrationTest {
                 new HttpEntity<>(body, headers), String.class);
     }
 
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+
+    /**
+     * Parse the {@code GET /api/v1/notifications} response body, find the first
+     * notification whose {@code type} matches, and return its payload as a JSON
+     * tree. The payload field on the wire is a JSON-stringified value; this
+     * helper double-parses so callers can assert on the structured contents
+     * (e.g., shelterId equals an expected UUID) instead of substring-matching
+     * on the entire envelope.
+     *
+     * Throws {@link AssertionError} via callers if no notification of the
+     * requested type exists in the response.
+     */
+    private JsonNode extractNotificationPayload(String body, String type) {
+        try {
+            JsonNode root = OBJECT_MAPPER.readTree(body);
+            JsonNode items = root.get("items");
+            assertThat(items)
+                    .as("Notification list response must contain 'items' array")
+                    .isNotNull();
+            for (JsonNode item : items) {
+                if (type.equals(item.path("type").asText())) {
+                    String payloadStr = item.path("payload").asText();
+                    return OBJECT_MAPPER.readTree(payloadStr);
+                }
+            }
+            throw new AssertionError("No notification of type " + type + " in response: " + body);
+        } catch (tools.jackson.core.JacksonException e) {
+            throw new RuntimeException("Failed to parse notification response: " + body, e);
+        }
+    }
+
     /**
      * Query audit_events directly via JDBC, bypassing RLS.
      * Same pattern as DvReferralIntegrationTest and EscalationPolicyEndpointTest.
@@ -249,22 +284,28 @@ class ShelterDeactivationIntegrationTest extends BaseIntegrationTest {
                 .as("Hold worker should have zero active HELD reservations after cascade")
                 .isEmpty();
 
-        // notification-deep-linking (Issue #106) — task 0a.3:
+        // notification-deep-linking (Issue #106) — task 0a.3 + war-room M-3:
         // HOLD_CANCELLED_SHELTER_DEACTIVATED payload must include reservationId
         // so the frontend can deep-link to /outreach/my-holds?reservationId=X.
+        // M-3 fix: parse payload JSON and assert structured values, not
+        // substring-match — substring "reservationId" could appear anywhere.
         ResponseEntity<String> workerNotifResponse = restTemplate.exchange(
                 "/api/v1/notifications", HttpMethod.GET,
                 new HttpEntity<>(holdWorkerHeaders), String.class);
         assertThat(workerNotifResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(workerNotifResponse.getBody())
-                .as("Outreach worker must receive HOLD_CANCELLED_SHELTER_DEACTIVATED notification")
-                .contains("HOLD_CANCELLED_SHELTER_DEACTIVATED");
-        assertThat(workerNotifResponse.getBody())
-                .as("Hold-cancelled notification payload must include reservationId for deep-linking")
-                .contains("reservationId");
-        assertThat(workerNotifResponse.getBody())
-                .as("Hold-cancelled notification payload must include shelterId for context")
-                .contains("shelterId");
+
+        JsonNode holdPayload = extractNotificationPayload(
+                workerNotifResponse.getBody(), "HOLD_CANCELLED_SHELTER_DEACTIVATED");
+        assertThat(holdPayload.path("reservationId").asText())
+                .as("HOLD_CANCELLED payload reservationId must be a non-empty UUID for deep-linking")
+                .isNotEmpty()
+                .matches("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");
+        assertThat(holdPayload.path("shelterId").asText())
+                .as("HOLD_CANCELLED payload shelterId must equal the deactivated shelter's UUID")
+                .isEqualTo(shelter.id().toString());
+        assertThat(holdPayload.path("shelterName").asText())
+                .as("HOLD_CANCELLED payload shelterName must equal the deactivated shelter's name")
+                .isEqualTo(shelter.name());
     }
 
     // -------------------------------------------------------------------------
@@ -344,13 +385,21 @@ class ShelterDeactivationIntegrationTest extends BaseIntegrationTest {
                 .doesNotContain("200 Safe Haven Rd")
                 .doesNotContain("addressStreet");
 
-        // notification-deep-linking (Issue #106) — task 0a.3:
+        // notification-deep-linking (Issue #106) — task 0a.3 + war-room M-3:
         // SHELTER_DEACTIVATED payload must include shelterId for deep-linking.
         // Marcus Webb war-room: shelterId is an opaque UUID, not a VAWA leak.
-        assertThat(notifResponse.getBody())
-                .as("SHELTER_DEACTIVATED notification payload must include shelterId for deep-linking")
-                .contains("shelterId")
-                .contains(dvShelter.id().toString());
+        // M-3 fix: parse payload JSON and assert structured values.
+        JsonNode shelterDeactPayload = extractNotificationPayload(
+                notifResponse.getBody(), "SHELTER_DEACTIVATED");
+        assertThat(shelterDeactPayload.path("shelterId").asText())
+                .as("SHELTER_DEACTIVATED payload shelterId must equal the deactivated shelter's UUID")
+                .isEqualTo(dvShelter.id().toString());
+        assertThat(shelterDeactPayload.path("reason").asText())
+                .as("SHELTER_DEACTIVATED payload reason must be the deactivation reason enum value")
+                .isEqualTo("TEMPORARY_CLOSURE");
+        assertThat(shelterDeactPayload.has("addressStreet"))
+                .as("SHELTER_DEACTIVATED payload must NOT include addressStreet (VAWA)")
+                .isFalse();
 
         // Non-dvAccess user should NOT have the DV deactivation notification
         User nonDvWorker = authHelper.setupUserWithDvAccess(

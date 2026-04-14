@@ -328,6 +328,23 @@ public class ReferralTokenController {
     }
 
     @Operation(
+            summary = "Get a single DV referral by ID for notification deep-linking",
+            description = "Returns the referral matching the given UUID, scoped to the caller's "
+                    + "tenant via RLS. Used by the notification bell deep-link flow (Issue #106) "
+                    + "to resolve a referralId to its shelter so the dashboard can auto-expand "
+                    + "the right card. Returns 404 for both not-found and RLS-hidden rows so "
+                    + "the response never leaks whether the referral exists in another tenant. "
+                    + "Contains zero client PII (same shape as /pending list rows)."
+    )
+    @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('COORDINATOR', 'COC_ADMIN', 'PLATFORM_ADMIN')")
+    public ResponseEntity<ReferralTokenResponse> getById(
+            @Parameter(description = "UUID of the referral token") @PathVariable UUID id) {
+        ReferralToken token = referralTokenService.findById(id);
+        return ResponseEntity.ok(ReferralTokenResponse.from(token, null, null));
+    }
+
+    @Operation(
             summary = "Accept a DV referral — begin warm handoff",
             description = "Accepts a pending referral token. The referring outreach worker will be " +
                     "notified and receive the shelter's intake phone number for the warm handoff " +
