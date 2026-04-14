@@ -179,7 +179,7 @@ export function getNotificationMessageValues(
  * <p>Used by {@code CriticalNotificationBanner}'s coordinator CTA
  * (notification-deep-linking Phase 2 task 5.1 / X-4). The X-4 requirement
  * is that "first" be deterministic — reading the oldest-timestamp
- * escalation guarantees the answer is stable across renders and network
+ * escalation keeps the answer stable across renders and network
  * deliveries, and matches the "most urgent first" mental model coordinators
  * expect.</p>
  *
