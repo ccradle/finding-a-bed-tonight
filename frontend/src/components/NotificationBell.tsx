@@ -3,6 +3,7 @@ import { FormattedMessage, useIntl } from 'react-intl';
 import { useNavigate } from 'react-router-dom';
 import { text, weight } from '../theme/typography';
 import { color } from '../theme/colors';
+import { useAuth } from '../auth/useAuth';
 import type { Notification } from '../hooks/useNotifications';
 import {
   getNotificationMessageId,
@@ -39,6 +40,11 @@ export function NotificationBell({
   const panelRef = useRef<HTMLDivElement>(null);
   const intl = useIntl();
   const navigate = useNavigate();
+  // User roles drive role-aware deep-link destinations per notification-deep-linking
+  // (Issue #106). Admins land on the escalation queue, coordinators on the specific
+  // referral in their dashboard, outreach workers on My Past Holds.
+  const { user } = useAuth();
+  const userRoles = user?.roles ?? [];
 
   const closePanel = useCallback(() => {
     setOpen(false);
@@ -223,14 +229,14 @@ export function NotificationBell({
                   onClick={() => {
                     onMarkRead(notification.id);
                     setOpen(false);
-                    navigate(getNavigationPath(notification.eventType));
+                    navigate(getNavigationPath(notification, userRoles));
                   }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault();
                       onMarkRead(notification.id);
                       setOpen(false);
-                      navigate(getNavigationPath(notification.eventType));
+                      navigate(getNavigationPath(notification, userRoles));
                     }
                   }}
                   style={{
@@ -251,7 +257,7 @@ export function NotificationBell({
                     }}>
                       <FormattedMessage
                         id={getNotificationMessageId(notification)}
-                        values={getNotificationMessageValues(notification)}
+                        values={getNotificationMessageValues(notification, intl)}
                       />
                     </div>
                     {notification.eventType === 'availability.updated' && (() => {
