@@ -397,6 +397,16 @@ export function CoordinatorDashboard() {
       const metricType = dlState.intent.referralId ? 'referral-deeplink' : 'shelter-deeplink';
       reportDeepLinkClick(metricType, classifyDeepLinkOutcome('stale', dlState.reason, isOffline));
       setDeepLinkToast(intl.formatMessage({ id: 'notifications.deepLink.stale' }));
+      // Phase 3 D3 + Phase 4 task 11.13 fix — the stale outcome marks the
+      // notification READ (via /read) without marking it acted. This
+      // preserves the "I saw too late" vs "I acted" lifecycle distinction.
+      // The backend contract is pinned by task 9.4
+      // (task_9_4_markRead_doesNotSetActedAt). Without this frontend call,
+      // stale-resolved notifications stayed unread forever — surfaced by
+      // Playwright task 11.13.
+      if (dlState.intent.referralId) {
+        markNotificationsActedByPayload('referralId', dlState.intent.referralId, 'stale').catch(() => { /* best-effort */ });
+      }
       const t = setTimeout(() => setDeepLinkToast(null), 5000);
       return () => clearTimeout(t);
     }

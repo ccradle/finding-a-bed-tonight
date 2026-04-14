@@ -229,6 +229,12 @@ export function MyPastHoldsPage() {
         ? 'myHolds.deepLink.offline'
         : 'myHolds.deepLink.stale';
       setDeepLinkToast(intl.formatMessage({ id: toastKey }));
+      // Phase 3 D3 + Phase 4 task 11.13 fix — mark the notification READ
+      // via the stale-fallback (see CoordinatorDashboard.tsx for the full
+      // rationale; same contract across all 3 deep-link hosts).
+      if (dlState.intent.reservationId) {
+        markNotificationsActedByPayload('reservationId', dlState.intent.reservationId, 'stale').catch(() => { /* best-effort */ });
+      }
       const t = setTimeout(() => setDeepLinkToast(null), 5000);
       return () => clearTimeout(t);
     }

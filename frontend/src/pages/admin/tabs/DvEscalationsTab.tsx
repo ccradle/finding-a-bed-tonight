@@ -9,6 +9,7 @@ import { useDvEscalationQueue, type EscalatedReferral } from '../../../hooks/use
 import { useDeepLink, type DeepLinkIntent, type ResolvedTarget } from '../../../hooks/useDeepLink';
 import { useHashSearchParams } from '../../../hooks/useHashSearchParams';
 import { classifyDeepLinkOutcome, reportDeepLinkClick } from '../../../services/notificationDeepLinkMetrics';
+import { markNotificationsActedByPayload } from '../../../services/notificationMarkActed';
 import { EscalatedQueueTable } from './dvEscalations/EscalatedQueueTable';
 import { EscalatedQueueCardList } from './dvEscalations/EscalatedQueueCardList';
 import { EscalatedReferralDetailModal } from './dvEscalations/EscalatedReferralDetailModal';
@@ -213,6 +214,12 @@ function DvEscalationsTab() {
       const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
       reportDeepLinkClick('admin-escalation-deeplink', classifyDeepLinkOutcome('stale', dlState.reason, isOffline));
       setDeepLinkToast(intl.formatMessage({ id: 'notifications.deepLink.escalationStale' }));
+      // Phase 3 D3 + Phase 4 task 11.13 fix — mark the notification READ
+      // via the stale-fallback (see CoordinatorDashboard.tsx for the full
+      // rationale; same contract across all 3 deep-link hosts).
+      if (dlState.intent.referralId) {
+        markNotificationsActedByPayload('referralId', dlState.intent.referralId, 'stale').catch(() => { /* best-effort */ });
+      }
       const t = setTimeout(() => setDeepLinkToast(null), 5000);
       return () => clearTimeout(t);
     }
