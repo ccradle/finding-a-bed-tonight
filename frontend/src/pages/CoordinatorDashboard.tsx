@@ -6,6 +6,7 @@ import { enqueueAction } from '../services/offlineQueue';
 import { CoordinatorReferralBanner } from '../components/CoordinatorReferralBanner';
 import { DataAge } from '../components/DataAge';
 import { useDeepLink, type DeepLinkIntent, type ResolvedTarget } from '../hooks/useDeepLink';
+import { markNotificationsActedByPayload } from '../services/notificationMarkActed';
 import { text, weight, leading } from '../theme/typography';
 import { color } from '../theme/colors';
 import { getPopulationTypeLabel } from '../utils/populationTypeLabels';
@@ -391,6 +392,12 @@ export function CoordinatorDashboard() {
     try {
       await api.patch(`/api/v1/dv-referrals/${tokenId}/accept`, {});
       setPendingReferrals(prev => prev.filter(r => r.id !== tokenId));
+      // Phase 3 task 7.2 — after a successful accept, mark every
+      // notification carrying this referralId as acted. D3: markActed
+      // fires only on SUCCESSFUL terminal actions. If the markActed call
+      // itself fails we swallow — the referral IS accepted; lifecycle
+      // state catches up on next bell refresh.
+      markNotificationsActedByPayload('referralId', tokenId, 'acted').catch(() => { /* best-effort */ });
     } catch (err: unknown) {
       const apiErr = err as { message?: string };
       if (apiErr.message?.includes('expired')) {
@@ -409,6 +416,9 @@ export function CoordinatorDashboard() {
       setPendingReferrals(prev => prev.filter(r => r.id !== tokenId));
       setRejectingId(null);
       setRejectReason('');
+      // Phase 3 task 7.2 — reject is a terminal action too (coordinator
+      // decided NOT to shelter this survivor). markActed applies.
+      markNotificationsActedByPayload('referralId', tokenId, 'acted').catch(() => { /* best-effort */ });
     } catch (err: unknown) {
       const apiErr = err as { message?: string };
       if (apiErr.message?.includes('expired')) {

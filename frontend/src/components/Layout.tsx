@@ -56,6 +56,11 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { path: '/coordinator', labelId: 'nav.shelters', roles: ['COORDINATOR', 'COC_ADMIN', 'PLATFORM_ADMIN'] },
   { path: '/outreach', labelId: 'nav.search', roles: ['OUTREACH_WORKER', 'COC_ADMIN', 'PLATFORM_ADMIN'] },
+  // Phase 3 task 6.7: My Past Holds view for outreach workers — hold-
+  // cancellation deep-links land here. Role-gated identically to
+  // /outreach so admins supporting an outreach worker can follow their
+  // view.
+  { path: '/outreach/my-holds', labelId: 'nav.myHolds', roles: ['OUTREACH_WORKER', 'COC_ADMIN', 'PLATFORM_ADMIN'] },
   { path: '/admin', labelId: 'nav.admin', roles: ['COC_ADMIN', 'PLATFORM_ADMIN'] },
 ];
 

@@ -299,10 +299,29 @@ public class ReservationService implements HeldReservationCleaner {
         return cancelled;
     }
 
+    /**
+     * Extended user-reservation query for the My Past Holds view (Phase 3
+     * of notification-deep-linking, task 8.1). Both filters are optional —
+     * {@code null} means "no filter on this dimension" — so the existing
+     * HELD-only semantics of the bare {@code /api/v1/reservations} endpoint
+     * can be preserved by defaulting the statuses parameter in the
+     * controller.
+     *
+     * @param userId    the authenticated user whose reservations to list
+     * @param statuses  reservation statuses to include (e.g., HELD,
+     *                  CANCELLED, EXPIRED, CONFIRMED,
+     *                  CANCELLED_SHELTER_DEACTIVATED); null or empty = no
+     *                  status filter
+     * @param sinceDays inclusive age window in days computed server-side
+     *                  via {@code NOW() - make_interval(days => ?)}; null
+     *                  = no date filter
+     */
     @Transactional(readOnly = true)
-    public List<Reservation> getActiveReservations(UUID userId) {
+    public List<Reservation> getReservationsForUser(
+            UUID userId, String[] statuses, Integer sinceDays) {
         UUID tenantId = TenantContext.getTenantId();
-        return reservationRepository.findActiveByUserId(tenantId, userId);
+        return reservationRepository.findByUserIdAndStatusesSince(
+                tenantId, userId, statuses, sinceDays);
     }
 
     /**

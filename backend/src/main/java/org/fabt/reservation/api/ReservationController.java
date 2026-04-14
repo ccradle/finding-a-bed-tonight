@@ -1,13 +1,19 @@
 package org.fabt.reservation.api;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import jakarta.validation.Valid;
 import org.fabt.reservation.domain.Reservation;
 import org.fabt.reservation.service.ReservationService;
+import org.fabt.shelter.domain.Shelter;
+import org.fabt.shelter.service.ShelterService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -19,6 +25,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -26,9 +33,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class ReservationController {
 
     private final ReservationService reservationService;
+    private final ShelterService shelterService;
 
-    public ReservationController(ReservationService reservationService) {
+    public ReservationController(ReservationService reservationService, ShelterService shelterService) {
         this.reservationService = reservationService;
+        this.shelterService = shelterService;
     }
 
     @Operation(
@@ -57,17 +66,57 @@ public class ReservationController {
     }
 
     @Operation(
-            summary = "List active reservations for the current user",
-            description = "Returns all HELD reservations for the authenticated user within their tenant. " +
-                    "Each reservation includes remaining seconds until expiry for countdown display. " +
-                    "Requires any authenticated role with reservation capability."
+            summary = "List reservations for the current user",
+            description = "Returns reservations for the authenticated user within their tenant. "
+                    + "Default behavior (no query params) returns only HELD reservations — preserves "
+                    + "the pre-v0.39 contract for existing consumers. "
+                    + "Phase 3 of notification-deep-linking adds optional filters for the My Past "
+                    + "Holds view: pass {@code status=HELD,CANCELLED,EXPIRED,CONFIRMED,"
+                    + "CANCELLED_SHELTER_DEACTIVATED} (comma-separated) to include terminal-state rows, "
+                    + "and optionally {@code sinceDays=14} to restrict to the last N days (computed "
+                    + "server-side to avoid client-clock skew). "
+                    + "Results are sorted by {@code created_at} descending — newest first within each "
+                    + "status. Requires any authenticated role with reservation capability."
     )
     @GetMapping
     @PreAuthorize("hasAnyRole('OUTREACH_WORKER', 'COORDINATOR', 'COC_ADMIN', 'PLATFORM_ADMIN')")
-    public ResponseEntity<List<ReservationResponse>> listActive(Authentication authentication) {
+    public ResponseEntity<List<ReservationResponse>> listForUser(
+            @Parameter(description = "Comma-separated reservation statuses to include. "
+                    + "Omit for HELD-only (legacy behavior).")
+            @RequestParam(value = "status", required = false) String status,
+            @Parameter(description = "Restrict results to reservations created within the last N days. "
+                    + "Omit for no date filter.")
+            @RequestParam(value = "sinceDays", required = false) Integer sinceDays,
+            Authentication authentication) {
         UUID userId = UUID.fromString(authentication.getName());
-        List<ReservationResponse> reservations = reservationService.getActiveReservations(userId).stream()
-                .map(ReservationResponse::from)
+        // Back-compat: no status param → HELD only, and no date filter.
+        String[] statuses = status == null || status.isBlank()
+                ? new String[] { "HELD" }
+                : status.split(",");
+        // Trim whitespace + drop empty entries so status="HELD, CANCELLED" works.
+        List<String> cleaned = new java.util.ArrayList<>(statuses.length);
+        for (String s : statuses) {
+            String t = s.trim();
+            if (!t.isEmpty()) cleaned.add(t);
+        }
+        String[] finalStatuses = cleaned.toArray(String[]::new);
+        List<Reservation> rows = reservationService.getReservationsForUser(userId, finalStatuses, sinceDays);
+        // Batch-load shelter name+phone for the displayed rows so the My Past
+        // Holds view (Phase 3) can render meaningful row labels + task 6.4's
+        // tel: link. Same pattern as ReferralTokenController's escalated queue
+        // enrichment — avoids N+1 lookups. Empty set → empty map, no DB trip.
+        Set<UUID> shelterIds = rows.stream().map(Reservation::getShelterId).collect(Collectors.toSet());
+        Map<UUID, Shelter> sheltersById = shelterIds.isEmpty()
+                ? Map.of()
+                : shelterService.findAllById(shelterIds).stream()
+                        .collect(Collectors.toMap(Shelter::getId, Function.identity()));
+        List<ReservationResponse> reservations = rows.stream()
+                .map(r -> {
+                    Shelter s = sheltersById.get(r.getShelterId());
+                    return ReservationResponse.from(r,
+                            s == null ? null : s.getName(),
+                            s == null ? null : s.getPhone());
+                })
                 .toList();
         return ResponseEntity.ok(reservations);
     }

@@ -33,6 +33,7 @@ function liveNotification(eventType: string, data: Record<string, unknown>): Not
     data,
     timestamp: Date.now(),
     read: false,
+    acted: false,
   };
 }
 
@@ -47,6 +48,7 @@ function persistentNotification(
     data: { payload: JSON.stringify(payload) },
     timestamp: Date.now(),
     read: false,
+    acted: false,
   };
 }
 
@@ -277,7 +279,7 @@ describe('getNavigationPath — role-aware deep-link routing', () => {
  */
 describe('pickOldestEscalationReferralId — banner CTA selection', () => {
   function notif(eventType: string, data: Record<string, unknown>, timestamp: number): Notification {
-    return { id: `id-${timestamp}`, eventType, data, timestamp, read: false };
+    return { id: `id-${timestamp}`, eventType, data, timestamp, read: false, acted: false };
   }
 
   it('returns null when the list is empty', () => {
@@ -317,6 +319,7 @@ describe('pickOldestEscalationReferralId — banner CTA selection', () => {
       data: { payload: JSON.stringify({ referralId: 'ref-persistent' }) },
       timestamp: 1,
       read: false,
+      acted: false,
     };
     expect(pickOldestEscalationReferralId([n])).toBe('ref-persistent');
   });
@@ -331,6 +334,7 @@ describe('pickOldestEscalationReferralId — banner CTA selection', () => {
       },
       timestamp: 1,
       read: false,
+      acted: false,
     };
     expect(pickOldestEscalationReferralId([n])).toBe('ref-from-data');
   });
