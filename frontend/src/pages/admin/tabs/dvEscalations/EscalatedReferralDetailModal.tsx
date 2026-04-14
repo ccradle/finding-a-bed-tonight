@@ -3,6 +3,7 @@ import { FormattedMessage, useIntl } from 'react-intl';
 import { color } from '../../../../theme/colors';
 import { text, weight } from '../../../../theme/typography';
 import { api } from '../../../../services/api';
+import { markNotificationsActedByPayload } from '../../../../services/notificationMarkActed';
 import { primaryBtnStyle, inputStyle } from '../../styles';
 import type { EscalatedReferral } from '../../../../hooks/useDvEscalationQueue';
 import { ReassignSubModal } from './ReassignSubModal';
@@ -137,6 +138,9 @@ export function EscalatedReferralDetailModal({
       ));
       setConfirmAction(null);
       onChanged();
+      // Phase 3 task 7.2 — admin approve is a terminal action. Fan-out
+      // markActed across the escalation chain for this referralId.
+      markNotificationsActedByPayload('referralId', referral.id, 'acted').catch(() => { /* best-effort */ });
     } catch (err: unknown) {
       const apiErr = err as { message?: string };
       setError(apiErr.message || intl.formatMessage({ id: 'dvEscalations.error.actionFailed' }));
@@ -158,6 +162,8 @@ export function EscalatedReferralDetailModal({
       setConfirmAction(null);
       setDenyReason('');
       onChanged();
+      // Phase 3 task 7.2 — deny is also terminal (admin explicitly declined).
+      markNotificationsActedByPayload('referralId', referral.id, 'acted').catch(() => { /* best-effort */ });
     } catch (err: unknown) {
       const apiErr = err as { message?: string };
       setError(apiErr.message || intl.formatMessage({ id: 'dvEscalations.error.actionFailed' }));

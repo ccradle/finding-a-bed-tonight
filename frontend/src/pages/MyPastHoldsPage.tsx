@@ -4,6 +4,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../services/api';
 import { DataAge } from '../components/DataAge';
 import { useDeepLink, type DeepLinkIntent, type ResolvedTarget } from '../hooks/useDeepLink';
+import { markNotificationsActedByPayload } from '../services/notificationMarkActed';
 import { text, weight } from '../theme/typography';
 import { color } from '../theme/colors';
 import { getPopulationTypeLabel } from '../utils/populationTypeLabels';
@@ -79,6 +80,12 @@ export function MyPastHoldsPage() {
   // confusing when the user just scrolled through older rows).
   const [showOlder, setShowOlder] = useState(false);
   const windowDays = showOlder ? EXTENDED_WINDOW_DAYS : DEFAULT_WINDOW_DAYS;
+  // Phase 3 task 6.5 — first-ever vs no-recent distinction (D-2 Devon).
+  // Tri-state: null = unknown (not yet probed), true = user has at least
+  // one reservation all-time, false = user has never held a bed.
+  // Probe fires only when the current 14/60-day fetch comes back empty,
+  // so it's a single extra API call exactly once per session.
+  const [hasAnyReservation, setHasAnyReservation] = useState<boolean | null>(null);
 
   const fetchReservations = useCallback(async () => {
     setLoading(true);
@@ -90,8 +97,16 @@ export function MyPastHoldsPage() {
       );
       setReservations(data ?? []);
     } catch (err: unknown) {
+      // Phase 3 task 6.10 (D-3) — when the user is offline, show a
+      // connection-specific message instead of the generic "couldn't
+      // load." The SW cache fallback is a separate concern not plumbed
+      // here (Phase 4 task 8.4 handles the REST polling + cache strategy
+      // app-wide). For now we at least give the user accurate feedback.
       const apiErr = err as { message?: string };
-      setError(apiErr.message || intl.formatMessage({ id: 'myHolds.error.loadFailed' }));
+      const offlineKey = typeof navigator !== 'undefined' && !navigator.onLine
+        ? 'myHolds.error.offline'
+        : 'myHolds.error.loadFailed';
+      setError(apiErr.message || intl.formatMessage({ id: offlineKey }));
     } finally {
       setLoading(false);
     }
@@ -100,6 +115,37 @@ export function MyPastHoldsPage() {
   useEffect(() => {
     fetchReservations();
   }, [fetchReservations]);
+
+  // Phase 3 task 6.5 — one-shot probe when the windowed fetch came back
+  // empty AND we haven't yet resolved the first-ever question. Fetches
+  // the same status set WITHOUT sinceDays so terminal rows older than the
+  // window count. One extra API call per session in the "empty list" case;
+  // zero extra calls when the user has rows in-window. Short-circuits once
+  // resolved (hasAnyReservation !== null).
+  useEffect(() => {
+    if (loading) return;
+    if (reservations.length > 0) {
+      if (hasAnyReservation !== true) setHasAnyReservation(true);
+      return;
+    }
+    if (hasAnyReservation !== null) return; // already probed
+    let cancelled = false;
+    (async () => {
+      try {
+        const statusParam = DISPLAY_STATUSES.join(',');
+        const data = await api.get<Reservation[]>(
+          `/api/v1/reservations?status=${statusParam}`,
+        );
+        if (cancelled) return;
+        setHasAnyReservation((data ?? []).length > 0);
+      } catch {
+        // Probe failure defaults to the less-presumptuous message ("no recent").
+        // Not worth surfacing as a blocking error — the page already rendered.
+        if (!cancelled) setHasAnyReservation(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [loading, reservations.length, hasAnyReservation]);
 
   // ---------------------------------------------------------------------------
   // notification-deep-linking Phase 3 task 6.4a — useDeepLink wiring
@@ -165,7 +211,15 @@ export function MyPastHoldsPage() {
       rowEl?.scrollIntoView({ block: 'center', behavior: 'smooth' });
       actionEl?.focus();
     } else if (dlState.kind === 'stale') {
-      setDeepLinkToast(intl.formatMessage({ id: 'myHolds.deepLink.stale' }));
+      // D-3 (task 6.10): pick offline-specific wording when we know the
+      // stale was caused by a connection issue. useDeepLink reports
+      // reason='error' for non-404/403 rejections, which includes network
+      // failures — pair with navigator.onLine === false for the offline case.
+      const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+      const toastKey = isOffline && dlState.reason === 'error'
+        ? 'myHolds.deepLink.offline'
+        : 'myHolds.deepLink.stale';
+      setDeepLinkToast(intl.formatMessage({ id: toastKey }));
       const t = setTimeout(() => setDeepLinkToast(null), 5000);
       return () => clearTimeout(t);
     }
@@ -176,6 +230,13 @@ export function MyPastHoldsPage() {
     try {
       await api.patch(`/api/v1/reservations/${reservationId}/confirm`, {});
       await fetchReservations();
+      // Phase 3 task 7.3 — confirm is the terminal "arrival happened"
+      // action. Fan-out markActed to every notification with this
+      // reservationId (typically the HOLD_CANCELLED_SHELTER_DEACTIVATED
+      // that deep-linked the user here, but also any related reminders
+      // that may land here later). Best-effort — confirm IS recorded;
+      // lifecycle catches up on next bell refresh if this fails.
+      markNotificationsActedByPayload('reservationId', reservationId, 'acted').catch(() => { /* best-effort */ });
     } catch (err: unknown) {
       const apiErr = err as { message?: string };
       setError(apiErr.message || intl.formatMessage({ id: 'myHolds.error.confirmFailed' }));
@@ -189,6 +250,9 @@ export function MyPastHoldsPage() {
     try {
       await api.patch(`/api/v1/reservations/${reservationId}/cancel`, {});
       await fetchReservations();
+      // Phase 3 task 7.3 — cancel is also terminal (the worker explicitly
+      // released the bed). Same markActed fan-out as confirm.
+      markNotificationsActedByPayload('reservationId', reservationId, 'acted').catch(() => { /* best-effort */ });
     } catch (err: unknown) {
       const apiErr = err as { message?: string };
       setError(apiErr.message || intl.formatMessage({ id: 'myHolds.error.cancelFailed' }));
@@ -431,7 +495,16 @@ export function MyPastHoldsPage() {
             borderRadius: 12,
           }}
         >
-          <FormattedMessage id="myHolds.empty" />
+          {/* Phase 3 task 6.5 — two distinct empty messages:
+              - hasAnyReservation === false → user has NEVER held a bed (first-ever)
+              - otherwise (true | null) → user had rows but none in the window
+              Tri-state default-false-on-probe keeps the less-presumptuous
+              message while the probe is in flight. */}
+          {hasAnyReservation === false ? (
+            <FormattedMessage id="myHolds.emptyFirstEver" />
+          ) : (
+            <FormattedMessage id="myHolds.empty" />
+          )}
           <div style={{ marginTop: 12 }}>
             <Link
               to="/outreach"

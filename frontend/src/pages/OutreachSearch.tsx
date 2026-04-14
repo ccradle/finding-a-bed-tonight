@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { FormattedMessage, useIntl, type IntlShape } from 'react-intl';
 import { api, ApiError } from '../services/api';
 import { enqueueAction, type ReplayResult } from '../services/offlineQueue';
+import { markNotificationsActedByPayload } from '../services/notificationMarkActed';
 import { DataAge } from '../components/DataAge';
 import { text, weight, leading } from '../theme/typography';
 import { color } from '../theme/colors';
@@ -466,6 +467,10 @@ export function OutreachSearch() {
       await api.patch(`/api/v1/reservations/${id}/confirm`);
       await fetchReservations();
       await fetchBeds();
+      // Phase 3 task 7.3 — terminal action; fan-out markActed to every
+      // notification carrying this reservationId (same contract as
+      // MyPastHoldsPage). Best-effort — the confirm IS recorded.
+      markNotificationsActedByPayload('reservationId', id, 'acted').catch(() => { /* best-effort */ });
     } catch {
       setError(intl.formatMessage({ id: 'search.error' }));
     }
@@ -476,6 +481,8 @@ export function OutreachSearch() {
       await api.patch(`/api/v1/reservations/${id}/cancel`);
       await fetchReservations();
       await fetchBeds();
+      // Phase 3 task 7.3 — cancel is terminal too.
+      markNotificationsActedByPayload('reservationId', id, 'acted').catch(() => { /* best-effort */ });
     } catch {
       setError(intl.formatMessage({ id: 'search.error' }));
     }
