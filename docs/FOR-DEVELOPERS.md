@@ -138,6 +138,25 @@ Phase 2 will add an MCP server as a thin wrapper around the REST API, enabling n
 
 ## Recent Changes
 
+### Notification Deep-Linking (Issue #106 — Phases 1-4)
+
+User-clicks-notification → land on the specific item requiring action, with focus on the right element. Implemented as a four-phase rollout. Foundational mechanism is the `useDeepLink` hook (`frontend/src/hooks/useDeepLink.ts`) — an explicit finite state machine `idle → resolving → awaiting-confirm → expanding → awaiting-target → done | stale` with a 5-second `awaiting-target` deadline so stuck states are impossible by construction.
+
+**URL pattern convention** for new notification types:
+
+- `/coordinator?referralId=X` — coordinator-routed referral deep-link
+- `/admin#dvEscalations?referralId=X` — admin-queue routed (hash-embedded query because the admin panel uses the hash for tab selection per design D1)
+- `/coordinator?shelterId=X` / `/admin?shelterId=X` — shelter deep-link routed by role
+- `/outreach/my-holds?reservationId=X` — outreach hold deep-link
+
+Role-aware routing is built into `getNavigationPath(notification, userRoles)` in `frontend/src/components/notificationMessages.ts`. **New pages adding deep-link support MUST consume the `useDeepLink` hook rather than re-implement state machines or idempotency guards.** Provide four host callbacks: `resolveTarget`, `needsUnsavedConfirm`, `expand`, `isTargetReady`. The hook owns intent-equality idempotency, cancellation via AbortController, the 5s timeout, and the stale fallback. Hosts own DOM/UI side effects via a single `useEffect` keyed on `dlState.kind` transitions (gate with a `lastHandledDlKindRef` if your effect dep array also includes data that updates independently — see Phase 2 H-1 fix in `DvEscalationsTab.tsx` and the same pattern in `MyPastHoldsPage.tsx`).
+
+**Phase 4 metrics** (Priya's differentiator):
+
+- `fabt.notification.deeplink.click.count{type, role, outcome}` — counter, incremented on every deep-link terminal state. `type` is the intent shape (`referral-deeplink`, `shelter-deeplink`, `reservation-deeplink`, `admin-escalation-deeplink`); `role` is server-derived from the JWT; `outcome` is `success` / `stale` / `offline`. Click-through rate = `success/total`. POST `/api/v1/metrics/notification-deeplink-click` from host effects.
+- `fabt.notification.time_to_action.seconds{type}` — histogram with p50/p95/p99 percentile buckets. Measured server-side in `NotificationPersistenceService.markActed` as `Duration.between(notification.createdAt, Instant.now())`. **Primary success metric** — target median < 30s; baseline coordinator self-report 2-5 min. Renders in the `Notification → Action Latency by Type` panel on the FABT DV Referrals dashboard.
+- `fabt.notification.stale_referral.count{type, role}` — counter, mirror of the click counter when `outcome=stale` so the Grafana stale-rate panel doesn't need a divisor.
+
 ### DV Referral Expiry Fix (v0.31.2)
 
 `@Transactional` on `expireTokens()` and `purgeTerminalTokens()` caused DV referral tokens to remain PENDING indefinitely. Root cause: `@Transactional` eagerly acquires a JDBC connection before `runWithContext()` sets dvAccess=true. See Troubleshooting section for the full pattern rule.

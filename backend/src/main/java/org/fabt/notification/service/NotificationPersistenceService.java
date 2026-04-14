@@ -7,11 +7,14 @@ import java.util.UUID;
 
 import org.fabt.notification.domain.Notification;
 import org.fabt.notification.repository.NotificationRepository;
+import org.fabt.observability.ObservabilityMetrics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Duration;
 
 /**
  * Write-through notification service (Design D5).
@@ -27,11 +30,14 @@ public class NotificationPersistenceService {
 
     private final NotificationRepository notificationRepository;
     private final NotificationService notificationService;
+    private final ObservabilityMetrics metrics;
 
     public NotificationPersistenceService(NotificationRepository notificationRepository,
-                                          NotificationService notificationService) {
+                                          NotificationService notificationService,
+                                          ObservabilityMetrics metrics) {
         this.notificationRepository = notificationRepository;
         this.notificationService = notificationService;
+        this.metrics = metrics;
     }
 
     /**
@@ -133,9 +139,26 @@ public class NotificationPersistenceService {
 
     @Transactional
     public void markActed(UUID id, UUID recipientId) {
+        // Phase 4 task 9a.2 — record time-from-notification-to-action in the
+        // fabt.notification.time_to_action.seconds histogram, tagged by
+        // notification type. This is the primary success metric for the
+        // deep-linking change (target: median < 30s, baseline 2-5 min per
+        // coordinator self-report). Look up the notification BEFORE the
+        // markActed UPDATE so the createdAt read is not racing the acted_at
+        // write on the same row.
+        Notification n = notificationRepository.findById(id).orElse(null);
         int updated = notificationRepository.markActed(id, recipientId);
         if (updated == 0) {
             log.debug("markActed no-op: notification {} not found or not owned by user {}", id, recipientId);
+            return;
+        }
+        if (n != null && n.getCreatedAt() != null && recipientId.equals(n.getRecipientId())) {
+            // Guard: only record if the found notification belongs to the
+            // acting user. Prevents a cross-user metric poisoning if the
+            // pre-update findById ever races a delete (can't happen under
+            // RLS but defense-in-depth).
+            Duration elapsed = Duration.between(n.getCreatedAt(), Instant.now());
+            metrics.notificationTimeToActionTimer(n.getType()).record(elapsed);
         }
     }
 

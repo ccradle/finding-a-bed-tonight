@@ -314,17 +314,30 @@ public class ReferralTokenController {
     }
 
     @Operation(
-            summary = "Count pending referrals across coordinator's assigned DV shelters",
+            summary = "Count pending referrals across coordinator's assigned DV shelters, plus routing hint",
             description = "Returns total PENDING referral count across all DV shelters assigned to the "
-                    + "authenticated coordinator. Used for the dashboard referral banner."
+                    + "authenticated coordinator, plus a 'firstPending' routing hint identifying the "
+                    + "oldest such pending referral (by created_at ASC). Used by the dashboard referral "
+                    + "banner to deep-link to the pending referral's shelter without a second round-trip. "
+                    + "When count is 0, firstPending is JSON null (explicitly present, not omitted). "
+                    + "RLS + coordinator-assignment scoping ensure firstPending cannot surface a referral "
+                    + "the caller is not authorized to see. Zero client PII — only UUIDs for the referral "
+                    + "and shelter."
     )
     @GetMapping("/pending/count")
     @PreAuthorize("hasAnyRole('COORDINATOR', 'COC_ADMIN', 'PLATFORM_ADMIN')")
-    public ResponseEntity<Map<String, Integer>> countPending(Authentication authentication) {
+    public ResponseEntity<PendingReferralCountResponse> countPending(Authentication authentication) {
         UUID userId = UUID.fromString(authentication.getName());
         List<UUID> assignedShelterIds = coordinatorAssignmentRepository.findShelterIdsByUserId(userId);
         int count = referralTokenService.countPendingByShelterIds(assignedShelterIds);
-        return ResponseEntity.ok(Map.of("count", count));
+        // notification-deep-linking D-BP — firstPending routing hint. Explicit
+        // null when count is 0 so the frontend can test for === null rather
+        // than the less-clear "property missing". Short-circuit on count == 0
+        // avoids a second DB roundtrip on the banner's hot path (mount + SSE).
+        PendingReferralCountResponse.FirstPending firstPending = count == 0
+                ? null
+                : referralTokenService.findFirstPendingRoutingHint(assignedShelterIds).orElse(null);
+        return ResponseEntity.ok(new PendingReferralCountResponse(count, firstPending));
     }
 
     @Operation(

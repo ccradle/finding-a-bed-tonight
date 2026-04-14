@@ -8,6 +8,7 @@ import { useAuth } from '../../../auth/useAuth';
 import { useDvEscalationQueue, type EscalatedReferral } from '../../../hooks/useDvEscalationQueue';
 import { useDeepLink, type DeepLinkIntent, type ResolvedTarget } from '../../../hooks/useDeepLink';
 import { useHashSearchParams } from '../../../hooks/useHashSearchParams';
+import { classifyDeepLinkOutcome, reportDeepLinkClick } from '../../../services/notificationDeepLinkMetrics';
 import { EscalatedQueueTable } from './dvEscalations/EscalatedQueueTable';
 import { EscalatedQueueCardList } from './dvEscalations/EscalatedQueueCardList';
 import { EscalatedReferralDetailModal } from './dvEscalations/EscalatedReferralDetailModal';
@@ -200,11 +201,17 @@ function DvEscalationsTab() {
     if (dlState.kind === 'done') {
       const referralId = dlState.resolved.intent.referralId;
       if (!referralId) return;
+      // Phase 4 task 9a.1 — admin queue uses 'admin-escalation-deeplink'
+      // tag to distinguish from the coordinator dashboard's
+      // 'referral-deeplink' (same intent shape, different host treatment).
+      reportDeepLinkClick('admin-escalation-deeplink', classifyDeepLinkOutcome('done', undefined, false));
       const row = queue.find((r) => r.id === referralId);
       // We only reach 'done' when isTargetReady returned true, so row is
       // guaranteed to be present — belt and suspenders.
       if (row) setOpenReferral(row);
     } else if (dlState.kind === 'stale') {
+      const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+      reportDeepLinkClick('admin-escalation-deeplink', classifyDeepLinkOutcome('stale', dlState.reason, isOffline));
       setDeepLinkToast(intl.formatMessage({ id: 'notifications.deepLink.escalationStale' }));
       const t = setTimeout(() => setDeepLinkToast(null), 5000);
       return () => clearTimeout(t);

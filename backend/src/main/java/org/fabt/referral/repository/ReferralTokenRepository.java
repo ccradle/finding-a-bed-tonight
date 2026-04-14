@@ -177,6 +177,52 @@ public class ReferralTokenRepository {
         return count != null ? count : 0;
     }
 
+    /**
+     * Return the oldest PENDING referral across the supplied shelter set, or
+     * {@link Optional#empty()} when none exist.
+     *
+     * <p><b>Callers:</b> {@code ReferralTokenController#countPending} →
+     * {@code ReferralTokenService#findFirstPendingRoutingHint} wraps this in
+     * {@code PendingReferralCountResponse.firstPending} so the
+     * {@code CoordinatorReferralBanner} can deep-link to the pending referral
+     * without a second round-trip — closes the genesis gap of the
+     * notification-deep-linking change (design decision D-BP). See
+     * {@code openspec/changes/notification-deep-linking/design.md} for why
+     * "oldest first" is the chosen tie-break.</p>
+     *
+     * <p><b>Performance note (task 16.1.5 — open gate before demo deploy):</b>
+     * the query uses {@code shelter_id = ANY(?)} to filter (hits
+     * {@code idx_referral_token_shelter_status}) and then sorts the filtered
+     * rows by {@code created_at} in the engine. For a typical coordinator
+     * with 1-5 pending referrals this is negligible. A partial index
+     * {@code (shelter_id, created_at) WHERE status = 'PENDING'} would make
+     * the sort-step free — decision is gated on EXPLAIN ANALYZE against
+     * pilot-scale data (task 16.1.5 in the notification-deep-linking change).
+     * DO NOT preemptively add the index; only add if EXPLAIN shows meaningful
+     * Sort cost.</p>
+     *
+     * <p><b>Authorization scoping (N-4, task 8.6 — pending audit):</b> this
+     * query has no caller-identity awareness — scoping is the responsibility
+     * of the controller, which builds {@code shelterIds} via
+     * {@code CoordinatorAssignmentRepository#findShelterIdsByUserId}. When
+     * task 8.6 (shelter-assignment authorization audit) tightens checks on
+     * {@code accept}/{@code reject}, the same tightening must reach
+     * {@code countPending}'s {@code firstPending} path so the hardening is
+     * consistent across every endpoint that surfaces a specific
+     * {@code referralId}. Flag added 2026-04-14 during Section 16
+     * warroom review (Marcus Webb).</p>
+     */
+    public Optional<ReferralToken> findOldestPendingByShelterIds(List<UUID> shelterIds) {
+        if (shelterIds.isEmpty()) return Optional.empty();
+        UUID[] ids = shelterIds.toArray(UUID[]::new);
+        List<ReferralToken> results = jdbcTemplate.query(
+                "SELECT * FROM referral_token "
+                + "WHERE shelter_id = ANY(?) AND status = 'PENDING' "
+                + "ORDER BY created_at ASC LIMIT 1",
+                ROW_MAPPER, (Object) ids);
+        return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
+    }
+
     public int countPendingByShelterId(UUID shelterId) {
         Integer count = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM referral_token WHERE shelter_id = ? AND status = 'PENDING'",

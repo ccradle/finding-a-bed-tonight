@@ -5,6 +5,7 @@ import { api } from '../services/api';
 import { DataAge } from '../components/DataAge';
 import { useDeepLink, type DeepLinkIntent, type ResolvedTarget } from '../hooks/useDeepLink';
 import { markNotificationsActedByPayload } from '../services/notificationMarkActed';
+import { classifyDeepLinkOutcome, reportDeepLinkClick } from '../services/notificationDeepLinkMetrics';
 import { text, weight } from '../theme/typography';
 import { color } from '../theme/colors';
 import { getPopulationTypeLabel } from '../utils/populationTypeLabels';
@@ -201,6 +202,10 @@ export function MyPastHoldsPage() {
     if (dlState.kind === 'done') {
       const reservationId = dlState.resolved.intent.reservationId;
       if (!reservationId) return;
+      // Phase 4 task 9a.1 — report the deep-link outcome to the metrics
+      // counter. tag = 'reservation-deeplink' (intent shape) since the
+      // notification type isn't carried through the URL.
+      reportDeepLinkClick('reservation-deeplink', classifyDeepLinkOutcome('done', undefined, false));
       setHighlightedRowId(reservationId);
       const rowEl = document.querySelector<HTMLElement>(
         `[data-testid="my-holds-row-${reservationId}"]`,
@@ -216,6 +221,10 @@ export function MyPastHoldsPage() {
       // reason='error' for non-404/403 rejections, which includes network
       // failures — pair with navigator.onLine === false for the offline case.
       const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+      // Phase 4 task 9a.1 — same metric report on the stale path. The
+      // classifier folds isOffline + dlState.reason into the right outcome
+      // tag (offline if network failure + offline browser, stale otherwise).
+      reportDeepLinkClick('reservation-deeplink', classifyDeepLinkOutcome('stale', dlState.reason, isOffline));
       const toastKey = isOffline && dlState.reason === 'error'
         ? 'myHolds.deepLink.offline'
         : 'myHolds.deepLink.stale';

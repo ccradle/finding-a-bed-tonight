@@ -263,6 +263,79 @@
         "overrides": []
       },
       "description": "Rate of DV referral claims auto-released by the minute-interval sweep after their 10-minute claim-duration elapsed without a manual release. A rising rate indicates admins are claiming but not releasing — either overload, distraction, or UX friction on the release button (Keisha Thompson + Devon Kessler training signal)."
+    },
+    {
+      "title": "Notification → Action Latency by Type (Priya — notification-deep-linking 9a.4)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 16, "x": 0, "y": 32 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le, type) (rate(fabt_notification_time_to_action_seconds_bucket[10m])))",
+          "legendFormat": "p50 — {{type}}",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, type) (rate(fabt_notification_time_to_action_seconds_bucket[10m])))",
+          "legendFormat": "p95 — {{type}}",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le, type) (rate(fabt_notification_time_to_action_seconds_bucket[10m])))",
+          "legendFormat": "p99 — {{type}}",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 2, "fillOpacity": 5 },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "description": "Wall-clock time from notification creation to the user marking it acted (PATCH /notifications/{id}/acted), broken down by notification type. Primary success metric for notification-deep-linking (Issue #106): target median < 30s; baseline coordinator self-report 2-5 minutes. If p50 stays above 60s after 2 weeks of pilot data, investigate UX — the deep-link may not be hitting the right target."
+    },
+    {
+      "title": "Deep-Link Click Outcome (notification-deep-linking 9a.1)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 40 },
+      "targets": [
+        {
+          "expr": "sum by (outcome) (rate(fabt_notification_deeplink_click_count_total[5m]))",
+          "legendFormat": "{{outcome}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 2, "fillOpacity": 10 },
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "description": "Rate of notification deep-link clicks split by terminal outcome (success / stale / offline). success/total ratio is the click-through rate; stale rate flags drift between notification timing and domain state; offline rate quantifies hospital-IT-style network gaps."
+    },
+    {
+      "title": "Stale Deep-Link Rate by Type (notification-deep-linking 9a.3)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 40 },
+      "targets": [
+        {
+          "expr": "sum by (type) (rate(fabt_notification_stale_referral_count_total[5m]))",
+          "legendFormat": "{{type}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "red" },
+          "custom": { "lineWidth": 2, "fillOpacity": 10 },
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "description": "Rate of stale deep-link clicks per notification type (referral / shelter / reservation deep-links). Sustained spike on referral-deeplink suggests escalation timing is firing AFTER the referral is acted — re-tune escalation thresholds. On shelter-deeplink, suggests deactivation broadcasts arriving after reactivation."
     }
   ],
   "refresh": "30s",

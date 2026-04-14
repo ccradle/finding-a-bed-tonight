@@ -14,6 +14,7 @@ import tools.jackson.databind.ObjectMapper;
 
 import org.fabt.auth.service.UserService;
 import org.fabt.observability.ObservabilityMetrics;
+import org.fabt.referral.api.PendingReferralCountResponse;
 import org.fabt.referral.api.ReassignReferralRequest;
 import org.fabt.referral.domain.ReferralToken;
 import org.fabt.referral.repository.ReferralTokenRepository;
@@ -337,6 +338,54 @@ public class ReferralTokenService {
     @Transactional(readOnly = true)
     public int countPendingByShelterIds(List<UUID> shelterIds) {
         return repository.countPendingByShelterIds(shelterIds);
+    }
+
+    /**
+     * Find the oldest PENDING referral across the supplied shelter set. Pure
+     * domain method — returns the full {@link ReferralToken} for callers that
+     * need more than just routing identifiers. The notification-deep-linking
+     * count endpoint uses the thin wrapper
+     * {@link #findFirstPendingRoutingHint(List)} below, which maps this into
+     * the banner's DTO and keeps the controller free of domain-type knowledge.
+     *
+     * <p><b>Authorization scoping (N-4, task 8.6):</b> this method has no
+     * awareness of the caller — scoping lives entirely in the {@code
+     * shelterIds} list that the controller assembles via
+     * {@link org.fabt.shelter.repository.CoordinatorAssignmentRepository#findShelterIdsByUserId}.
+     * If task 8.6 ever tightens coordinator-shelter assignment checks on
+     * {@code accept}/{@code reject}, the same tightening must reach the
+     * controller that calls this method; the method itself is agnostic.</p>
+     */
+    @Transactional(readOnly = true)
+    public Optional<ReferralToken> findOldestPendingByShelterIds(List<UUID> shelterIds) {
+        return repository.findOldestPendingByShelterIds(shelterIds);
+    }
+
+    /**
+     * Build the {@code firstPending} routing hint for the coordinator
+     * banner's count-endpoint response (Issue #106, design decision D-BP).
+     * Wraps {@link #findOldestPendingByShelterIds(List)} and maps the
+     * resulting {@link ReferralToken} into the wire DTO so the controller
+     * doesn't need to know {@code ReferralToken}'s shape. Returns
+     * {@link Optional#empty()} when either no shelters are assigned or no
+     * pending referrals exist across the assigned set — the controller
+     * {@code .orElse(null)}s this into the DTO's nullable field.
+     *
+     * <p><b>Performance (Elena Vasquez, task 16.1.5 open gate):</b> the
+     * underlying query uses {@code idx_referral_token_shelter_status} for
+     * the WHERE filter and an engine-side sort on {@code created_at}. At
+     * pilot scale (1-5 pending per coordinator) this is negligible. At NYC
+     * pilot scale (200+ pending across 10+ shelters) a composite partial
+     * index {@code (shelter_id, created_at) WHERE status = 'PENDING'} may
+     * be warranted — decision is gated on EXPLAIN ANALYZE output per task
+     * 16.1.5.</p>
+     */
+    @Transactional(readOnly = true)
+    public Optional<PendingReferralCountResponse.FirstPending> findFirstPendingRoutingHint(
+            List<UUID> shelterIds) {
+        return findOldestPendingByShelterIds(shelterIds)
+                .map(token -> new PendingReferralCountResponse.FirstPending(
+                        token.getId(), token.getShelterId()));
     }
 
     @Transactional(readOnly = true)

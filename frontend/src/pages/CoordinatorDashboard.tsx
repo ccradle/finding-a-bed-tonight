@@ -7,6 +7,7 @@ import { CoordinatorReferralBanner } from '../components/CoordinatorReferralBann
 import { DataAge } from '../components/DataAge';
 import { useDeepLink, type DeepLinkIntent, type ResolvedTarget } from '../hooks/useDeepLink';
 import { markNotificationsActedByPayload } from '../services/notificationMarkActed';
+import { classifyDeepLinkOutcome, reportDeepLinkClick } from '../services/notificationDeepLinkMetrics';
 import { text, weight, leading } from '../theme/typography';
 import { color } from '../theme/colors';
 import { getPopulationTypeLabel } from '../utils/populationTypeLabels';
@@ -113,7 +114,7 @@ interface ReferralDetailResponse {
 
 export function CoordinatorDashboard() {
   const intl = useIntl();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [shelters, setShelters] = useState<ShelterListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -347,9 +348,19 @@ export function CoordinatorDashboard() {
 
   // Side effects from state transitions — host owns DOM/UI concerns,
   // hook owns state correctness. One useEffect, keyed on dlState.kind.
+  //
+  // Phase 4 task 9a.1: also reports the deep-link click outcome to
+  // /api/v1/metrics/notification-deeplink-click. Tag derived from the
+  // intent shape (referral-deeplink for ?referralId, shelter-deeplink
+  // for ?shelterId) — coarser than per-notification-type but doesn't
+  // require an extra lookup. Phase 5 polish: pass the originating
+  // notification type through the URL or via a context if finer
+  // granularity is needed.
   useEffect(() => {
     if (dlState.kind === 'done') {
       const { resolved } = dlState;
+      const metricType = resolved.detail ? 'referral-deeplink' : 'shelter-deeplink';
+      reportDeepLinkClick(metricType, classifyDeepLinkOutcome('done', undefined, false));
       if (resolved.detail) {
         const rowEl = document.querySelector<HTMLElement>(
           `[data-testid="screening-${resolved.detail.id}"]`,
@@ -382,6 +393,9 @@ export function CoordinatorDashboard() {
       // D10 — single stale toast for not-found, race, error, and timeout.
       // role="alert" on the toast announces on its own; no aria-live update
       // needed (avoids the H-3 double-announce regression).
+      const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+      const metricType = dlState.intent.referralId ? 'referral-deeplink' : 'shelter-deeplink';
+      reportDeepLinkClick(metricType, classifyDeepLinkOutcome('stale', dlState.reason, isOffline));
       setDeepLinkToast(intl.formatMessage({ id: 'notifications.deepLink.stale' }));
       const t = setTimeout(() => setDeepLinkToast(null), 5000);
       return () => clearTimeout(t);
@@ -711,27 +725,37 @@ export function CoordinatorDashboard() {
       </div>
 
       {/* T-43: Persistent referral banner — not dismissable, resolves when actioned.
-          notification-deep-linking (Issue #106 task 3.5): if the URL carries
-          a ?referralId, the useDeepLink hook already processed it on mount.
-          Banner click without that param falls back to T-46 (first DV shelter).
-          A click while a deep-link is active is a no-op — the hook is already
-          in done/stale and re-clicking the same URL doesn't add information. */}
+          notification-deep-linking Issue #106 Section 16 (D-BP): the banner
+          routes to the oldest pending referral regardless of how the user
+          arrived. Two cases, one code path:
+           1. URL already carries ?referralId=X (notification deep-link in
+              flight) — {@code useDeepLink} already processed it. Banner
+              click is a no-op (target.source === 'url' and the URL is
+              already there; re-navigating to the same URL adds no info).
+           2. URL has no ?referralId — banner got a {@code firstPending}
+              routing hint from {@code GET /pending/count}. Click navigates
+              to {@code /coordinator?referralId=<hint>}; URL change triggers
+              {@code useDeepLink} which resolves → expands → focuses the row.
+          The prior "first DV shelter" fallback is GONE — it picked the
+          alphabetically-first DV shelter regardless of where the pending
+          referral actually lived, which is the original user story that
+          motivated this entire change. */}
       <CoordinatorReferralBanner
         referralId={searchParams.get('referralId') || undefined}
-        onBannerClick={(deepLinkReferralId) => {
-          if (deepLinkReferralId) {
-            // Hook already processed this referralId. Render state reflects it.
-            // (If users need a "re-jump" affordance later, expose a retry()
-            //  from useDeepLink — Phase 2 enhancement, not required for Phase 1.)
+        onBannerClick={(target) => {
+          if (!target) return; // defensive — banner only renders when count > 0
+          if (target.source === 'url') {
+            // useDeepLink already processed this referralId. Re-clicking the
+            // same URL adds no information.
             return;
           }
-          // T-46: original behavior — first DV shelter with pending referrals
-          const dvShelter = shelters.find(item => item.shelter.dvShelter);
-          if (dvShelter) {
-            openShelter(dvShelter.shelter.id);
-            const el = document.querySelector(`[data-testid="shelter-card-${dvShelter.shelter.id}"]`);
-            el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          }
+          // source === 'hint': navigate to the pending referral. useDeepLink
+          // picks up the URL change via the searchParams effect and drives
+          // the resolve → expand → scroll → focus sequence. If the referral
+          // is no longer pending by the time the fetch lands, useDeepLink
+          // transitions to 'stale' and surfaces the stale toast (Scenario 3
+          // of banner-click-navigation).
+          setSearchParams({ referralId: target.referralId });
         }}
       />
 
