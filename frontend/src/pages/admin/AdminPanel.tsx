@@ -54,9 +54,16 @@ const TAB_COMPONENTS: Record<TabKey, React.LazyExoticComponent<React.ComponentTy
  * the hash doesn't correspond to a registered tab. Used by T-41 (Session 6)
  * so the CriticalNotificationBanner CTA's link to {@code /admin#dvEscalations}
  * actually pre-selects the DV Escalations tab when the user lands.
+ *
+ * <p>notification-deep-linking Phase 2 task 4.4: the hash may carry
+ * query-param-style deep-link identifiers after the tab key
+ * (e.g. {@code #dvEscalations?referralId=abc-123}). Strip everything
+ * from the first {@code ?} onward before matching so the tab key
+ * resolves correctly; individual tabs that care about the params read
+ * them separately via {@link useHashSearchParams}.</p>
  */
 function tabKeyFromHash(hash: string): TabKey | null {
-  const trimmed = hash.replace(/^#/, '');
+  const trimmed = hash.replace(/^#/, '').split('?')[0];
   if (!trimmed) return null;
   const match = TABS.find((t) => t.key === trimmed);
   return match ? match.key : null;
