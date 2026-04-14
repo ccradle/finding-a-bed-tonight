@@ -1,4 +1,5 @@
 import { api } from './api';
+import { FABT_NOTIFICATIONS_ACTED } from '../hooks/useNotifications';
 
 /**
  * Outcome of a user's interaction with a deep-linked notification.
@@ -95,6 +96,16 @@ export async function markNotificationsActedByPayload(
   await Promise.all(
     matches.map((n) => api.patch<void>(`/api/v1/notifications/${n.id}/${endpoint}`, {})),
   );
+  // Phase 3 task 7.4 — tell the bell that these notifications just flipped
+  // acted=true so the three-state visuals update without waiting for a page
+  // reload. Dispatched only for the 'acted' outcome; 'stale' marks-as-read
+  // which the existing markRead local-state path already handles when the
+  // user next interacts with the row.
+  if (outcome === 'acted' && typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(FABT_NOTIFICATIONS_ACTED, {
+      detail: { ids: matches.map((n) => n.id) },
+    }));
+  }
   return matches.length;
 }
 

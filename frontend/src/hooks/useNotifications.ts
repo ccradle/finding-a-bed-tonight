@@ -9,6 +9,16 @@ export interface Notification {
   data: Record<string, unknown>;
   timestamp: number;
   read: boolean;
+  /**
+   * Phase 3 task 7.4 of notification-deep-linking — third lifecycle state
+   * beyond unread/read. A notification becomes {@code acted} when the user
+   * completes the terminal domain action (accepts a referral, confirms a
+   * hold, etc.). Set from the API response's {@code actedAt} timestamp.
+   * Live SSE events default to false — the sse push does not currently
+   * carry {@code actedAt}, which is fine because new live notifications
+   * are never acted at arrival.
+   */
+  acted: boolean;
 }
 
 interface UseNotificationsReturn {
@@ -38,6 +48,17 @@ export const SSE_AVAILABILITY_UPDATE = 'fabt:availability-update';
  * a parallel EventSource (D20 conformance with archived sse-stability spec). */
 export const SSE_DV_QUEUE_UPDATE = 'fabt:dv-queue-update';
 export const SSE_DV_POLICY_UPDATE = 'fabt:dv-policy-update';
+
+/**
+ * Custom event dispatched by {@code markNotificationsActedByPayload} after
+ * the PATCH batch succeeds, so the bell can flip the affected rows to the
+ * acted visual state without waiting for a page reload. {@code detail} is
+ * {@code { ids: string[] }} — the notification IDs that were PATCHed.
+ *
+ * Phase 3 task 7.4 of notification-deep-linking. Avoids pulling the full
+ * notification list through a refetch for a single coordinator action.
+ */
+export const FABT_NOTIFICATIONS_ACTED = 'fabt:notifications-acted';
 
 /**
  * SSE notification stream with persistent DB-backed badge count.
@@ -123,6 +144,7 @@ export function useNotifications(): UseNotificationsReturn {
             data: item as Record<string, unknown>,
             timestamp: item.createdAt ? new Date(String(item.createdAt)).getTime() : Date.now(),
             read: !!item.readAt,
+            acted: !!item.actedAt,
           };
         });
         setNotifications(restNotifications);
@@ -143,6 +165,26 @@ export function useNotifications(): UseNotificationsReturn {
     try {
       await api.patch<void>(`/api/v1/notifications/${id}/read`);
     } catch { /* best-effort — local state already updated */ }
+  }, []);
+
+  // Phase 3 task 7.4 — listen for markActed events dispatched by the
+  // markNotificationsActedByPayload helper after its PATCH batch succeeds.
+  // Flips local state to acted=true (and read=true if not already) for the
+  // affected IDs so the bell shows the acted visual immediately, without
+  // waiting for the next mount-time REST baseline fetch. Avoids full bell
+  // refetch for a single coordinator action.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      const ids: string[] = detail?.ids ?? [];
+      if (ids.length === 0) return;
+      const idSet = new Set(ids);
+      setNotifications((prev) => prev.map((n) =>
+        idSet.has(n.id) ? { ...n, acted: true, read: true } : n,
+      ));
+    };
+    window.addEventListener(FABT_NOTIFICATIONS_ACTED, handler);
+    return () => window.removeEventListener(FABT_NOTIFICATIONS_ACTED, handler);
   }, []);
 
   // T-42: Mark all as read — calls REST, updates local state (excludes CRITICAL per D3)
@@ -196,6 +238,7 @@ export function useNotifications(): UseNotificationsReturn {
             data: item as Record<string, unknown>,
             timestamp: item.createdAt ? new Date(String(item.createdAt)).getTime() : Date.now(),
             read: !!item.readAt,
+            acted: !!item.actedAt,
           };
         });
       setNotifications((prev) => [...prev, ...newNotifications]);
@@ -223,6 +266,10 @@ export function useNotifications(): UseNotificationsReturn {
         data,
         timestamp: Date.now(),
         read: false,
+        // Live SSE pushes are never acted at arrival — the acted state
+        // only flips after a successful terminal action via the frontend
+        // markNotificationsActedByPayload helper (Phase 3 task 7.2/7.3).
+        acted: false,
       };
       return [notification, ...prev].slice(0, MAX_NOTIFICATIONS);
     });

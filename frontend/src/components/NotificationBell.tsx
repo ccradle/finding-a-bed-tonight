@@ -10,6 +10,12 @@ import {
   getNotificationMessageValues,
   getNavigationPath,
 } from './notificationMessages';
+import {
+  deriveLifecycleState,
+  stateLabelIdFor,
+  stateTooltipIdFor,
+  stateInlineLabelIdFor,
+} from './notificationLifecycle';
 
 interface NotificationBellProps {
   notifications: Notification[];
@@ -40,6 +46,30 @@ export function NotificationBell({
   const panelRef = useRef<HTMLDivElement>(null);
   const intl = useIntl();
   const navigate = useNavigate();
+  // Phase 3 task 7.5 — hide-acted filter. Default OFF per M-2 (first-
+  // time users see all states to learn the system). Preference persists
+  // to localStorage so a coordinator who toggles it once has it remembered
+  // across sessions. SSR-safe — reads localStorage only when window exists.
+  const [hideActed, setHideActed] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem('fabt_notif_hide_acted') === 'true';
+  });
+  const toggleHideActed = useCallback(() => {
+    setHideActed((prev) => {
+      const next = !prev;
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem('fabt_notif_hide_acted', String(next));
+      }
+      return next;
+    });
+  }, []);
+  // Apply the filter to the list the render walks. Badge count stays
+  // unread-only regardless (task 7.6 — the badge reads `unreadCount` which
+  // the hook already derives from REST baseline + SSE delta, both counting
+  // unread only).
+  const visibleNotifications = hideActed
+    ? notifications.filter((n) => !n.acted)
+    : notifications;
   // User roles drive role-aware deep-link destinations per notification-deep-linking
   // (Issue #106). Admins land on the escalation queue, coordinators on the specific
   // referral in their dashboard, outreach workers on My Past Holds.
@@ -190,42 +220,89 @@ export function NotificationBell({
             <span style={{ fontWeight: weight.semibold, color: color.text, fontSize: text.sm }}>
               <FormattedMessage id="notifications.title" />
             </span>
-            {unreadCount > 0 && (
+            <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+              {/* Phase 3 task 7.5 — hide-acted toggle. Small text button
+                  matches markAllRead styling. aria-pressed signals the
+                  toggle state to screen readers; title= gives the tooltip
+                  explanation per 7.4a convention. */}
               <button
-                onClick={(e) => { e.stopPropagation(); onMarkAllRead(); }}
-                data-testid="mark-all-read-button"
+                onClick={(e) => { e.stopPropagation(); toggleHideActed(); }}
+                aria-pressed={hideActed}
+                data-testid="notifications-hide-acted-toggle"
+                title={intl.formatMessage({ id: 'notifications.hideActed.tooltip' })}
                 style={{
-                  background: 'none',
+                  background: hideActed ? color.bgHighlight : 'none',
                   border: 'none',
-                  color: color.primaryText,
+                  color: hideActed ? color.primaryText : color.textTertiary,
                   fontSize: text.xs,
                   cursor: 'pointer',
                   padding: '4px 8px',
                   minHeight: '44px',
+                  borderRadius: 4,
                   display: 'flex',
                   alignItems: 'center',
+                  fontWeight: hideActed ? weight.semibold : weight.normal,
                 }}
               >
-                <FormattedMessage id="notifications.markAllRead" />
+                <FormattedMessage id={hideActed ? 'notifications.hideActed.on' : 'notifications.hideActed.off'} />
               </button>
-            )}
+              {unreadCount > 0 && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onMarkAllRead(); }}
+                  data-testid="mark-all-read-button"
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: color.primaryText,
+                    fontSize: text.xs,
+                    cursor: 'pointer',
+                    padding: '4px 8px',
+                    minHeight: '44px',
+                    display: 'flex',
+                    alignItems: 'center',
+                  }}
+                >
+                  <FormattedMessage id="notifications.markAllRead" />
+                </button>
+              )}
+            </div>
           </div>
 
-          {notifications.length === 0 ? (
+          {visibleNotifications.length === 0 ? (
             <div style={{
               padding: '24px 16px',
               textAlign: 'center',
               color: color.textMuted,
               fontSize: text.sm,
             }}>
-              <FormattedMessage id="notifications.empty" />
+              <FormattedMessage
+                id={hideActed && notifications.length > 0
+                  ? 'notifications.emptyFiltered'
+                  : 'notifications.empty'}
+              />
             </div>
           ) : (
             <ul role="list" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-              {notifications.map((notification) => (
+              {visibleNotifications.map((notification) => {
+                // Phase 3 task 7.4 — derive the lifecycle state via the pure
+                // helper so all three render branches (body style, aria-label,
+                // tooltip) stay in sync and the mapping is unit-testable
+                // (war-room M-1 extraction).
+                const lifecycleState = deriveLifecycleState(notification);
+                const bodyText = intl.formatMessage(
+                  { id: getNotificationMessageId(notification) },
+                  getNotificationMessageValues(notification, intl),
+                );
+                // T-2 — aria-label includes the state word; 7.4a tooltip is
+                // the native-tooltip hover/focus explanation.
+                const stateLabel = intl.formatMessage({ id: stateLabelIdFor(lifecycleState) });
+                const stateTooltipId = stateTooltipIdFor(lifecycleState);
+                const inlineLabelId = stateInlineLabelIdFor(lifecycleState);
+                return (
                 <li
                   key={notification.id}
                   tabIndex={0}
+                  aria-label={`${bodyText}. ${stateLabel}.`}
                   onClick={() => {
                     onMarkRead(notification.id);
                     setOpen(false);
@@ -243,7 +320,11 @@ export function NotificationBell({
                     padding: '12px 16px',
                     borderBottom: `1px solid ${color.bgTertiary}`,
                     cursor: 'pointer',
-                    backgroundColor: notification.read ? color.bg : color.bgHighlight,
+                    // Three visual states per D7:
+                    // unread → highlight background, semibold text, counter++
+                    // pending (read-unacted) → normal background, normal weight, "• Pending" indicator
+                    // acted → normal background, muted text, ✓ indicator
+                    backgroundColor: lifecycleState === 'unread' ? color.bgHighlight : color.bg,
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
@@ -252,8 +333,8 @@ export function NotificationBell({
                   <div style={{ flex: 1 }}>
                     <div style={{
                       fontSize: text.sm,
-                      color: color.text,
-                      fontWeight: notification.read ? weight.normal : weight.semibold,
+                      color: lifecycleState === 'acted' ? color.textMuted : color.text,
+                      fontWeight: lifecycleState === 'unread' ? weight.semibold : weight.normal,
                     }}>
                       <FormattedMessage
                         id={getNotificationMessageId(notification)}
@@ -272,6 +353,28 @@ export function NotificationBell({
                         </div>
                       ) : null;
                     })()}
+                    {/* State indicator: '• Pending' for read-unacted, '✓
+                        Completed' for acted, hidden for unread (the bg
+                        highlight + badge already convey unread). title= is
+                        the native-tooltip hover/focus explanation (task 7.4a).
+                        inlineLabelId is null when lifecycleState is 'unread'. */}
+                    {inlineLabelId && (
+                      <div
+                        data-testid={`notification-state-${notification.id}`}
+                        title={intl.formatMessage({ id: stateTooltipId })}
+                        style={{
+                          fontSize: text['2xs'],
+                          color: color.textMuted,
+                          marginTop: 2,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4,
+                        }}
+                      >
+                        {lifecycleState === 'acted' ? '✓' : '•'}
+                        <FormattedMessage id={inlineLabelId} />
+                      </div>
+                    )}
                   </div>
                   <button
                     onClick={(e) => { e.stopPropagation(); onDismiss(notification.id); }}
@@ -294,7 +397,8 @@ export function NotificationBell({
                     ×
                   </button>
                 </li>
-              ))}
+                );
+              })}
             </ul>
           )}
           {hasMore && onLoadMore && (
