@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import { color } from '../../../theme/colors';
 import { text, weight } from '../../../theme/typography';
@@ -6,6 +6,8 @@ import { api } from '../../../services/api';
 import { ErrorBox, NoData, Spinner } from '../components';
 import { useAuth } from '../../../auth/useAuth';
 import { useDvEscalationQueue, type EscalatedReferral } from '../../../hooks/useDvEscalationQueue';
+import { useDeepLink, type DeepLinkIntent, type ResolvedTarget } from '../../../hooks/useDeepLink';
+import { useHashSearchParams } from '../../../hooks/useHashSearchParams';
 import { EscalatedQueueTable } from './dvEscalations/EscalatedQueueTable';
 import { EscalatedQueueCardList } from './dvEscalations/EscalatedQueueCardList';
 import { EscalatedReferralDetailModal } from './dvEscalations/EscalatedReferralDetailModal';
@@ -62,6 +64,10 @@ function DvEscalationsTab() {
   const [openReferral, setOpenReferral] = useState<EscalatedReferral | null>(null);
   const [actionSubmitting, setActionSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  // notification-deep-linking Phase 2 — transient toast shown when a
+  // deep-link target is no longer in the escalation queue (D10 unified
+  // stale shape). Auto-dismisses after 5s.
+  const [deepLinkToast, setDeepLinkToast] = useState<string | null>(null);
 
   // Sync the open modal's referral to the latest queue version when the
   // queue refreshes (initial load OR SSE-driven refetch). The deep field
@@ -112,6 +118,99 @@ function DvEscalationsTab() {
   // as of war room round 7 — it now uses the debounced scheduleRefresh AND
   // gates on Page Visibility so background tabs don't burn REST calls.)
 
+  // -------------------------------------------------------------------------
+  // notification-deep-linking Phase 2 (tasks 4.1–4.3) — useDeepLink wiring
+  // -------------------------------------------------------------------------
+  //
+  // The admin queue's host callbacks:
+  //   resolveTarget: pass the intent through unchanged — the queue is our
+  //     data source, so we don't fetch anything in the resolve step.
+  //   needsUnsavedConfirm: false — no per-row edits on this tab.
+  //   expand: no-op — the queue is always visible once the tab is active.
+  //   isTargetReady: true once the queue has loaded AND contains the target.
+  //     If the queue loads and the target isn't there, the hook's
+  //     awaiting-target deadline fires → STALE: timeout → toast.
+  //
+  // URL source: hash-embedded (#dvEscalations?referralId=X) per D1. We use
+  // useHashSearchParams rather than useSearchParams because useSearchParams
+  // reads location.search, which doesn't see params after the hash.
+  const hashSearchParams = useHashSearchParams();
+
+  const resolveTarget = useCallback(async (
+    intent: DeepLinkIntent,
+  ): Promise<ResolvedTarget<EscalatedReferral>> => {
+    // Unusual pattern for useDeepLink: the admin queue's data source is the
+    // in-memory `queue` array that's already being fetched by
+    // useDvEscalationQueue. There's no separate per-referral fetch to
+    // perform at the resolve step — the row either is or will be in the
+    // queue once it loads. So resolveTarget is a trivial pass-through, and
+    // the hook's awaiting-target state (polling isTargetReady against the
+    // queue, with a 5s deadline) is what actually waits for the data.
+    //
+    // If you're consuming useDeepLink for a host that needs a backend
+    // lookup to resolve the intent (coordinator dashboard does this via
+    // GET /api/v1/dv-referrals/{id}), put that fetch HERE — not in
+    // isTargetReady.
+    return { intent, resolvedShelterId: null, detail: null };
+  }, []);
+
+  const needsUnsavedConfirm = useCallback(() => false, []);
+  const expandNoop = useCallback(async () => { /* queue already visible */ }, []);
+
+  const isTargetReady = useCallback((
+    resolved: ResolvedTarget<EscalatedReferral>,
+  ): boolean => {
+    if (loading) return false;
+    const referralId = resolved.intent.referralId;
+    // L-2 defensive guard: the admin queue only accepts referralId deep-links.
+    // A shelterId or reservationId intent reaching this tab is an error in
+    // the URL routing layer — don't silently reach 'done' with no action.
+    // Returning false here lets the hook's awaiting-target timeout surface
+    // the misrouted intent as a stale toast after 5s rather than failing
+    // silently.
+    if (!referralId) return false;
+    return queue.some((r) => r.id === referralId);
+  }, [loading, queue]);
+
+  const { state: dlState } = useDeepLink<EscalatedReferral>({
+    searchParams: hashSearchParams,
+    resolveTarget,
+    needsUnsavedConfirm,
+    expand: expandNoop,
+    isTargetReady,
+  });
+
+  // Task 4.2 / 4.3 — react to state TRANSITIONS (not re-renders).
+  //
+  // 'done'  → open the detail modal for the matching queue row.
+  // 'stale' → non-blocking toast (D10 unified stale shape). markActed-stale
+  //           wiring waits for Phase 3 task 7.1 when markNotificationsActedByPayload
+  //           ships (X-1 pattern).
+  //
+  // War-room round 2 H-1 fix: the effect's deps include `queue` (because the
+  // 'done' branch reads from it to find the row). Without this ref-gated
+  // guard, every SSE queue refresh would re-fire the 'done' branch and
+  // re-open the detail modal that the admin just closed. The ref tracks
+  // the last-handled `dlState.kind` so the effect only ACTS when the kind
+  // has actually changed, not on every unrelated re-render.
+  const lastHandledDlKindRef = useRef<string>('idle');
+  useEffect(() => {
+    if (lastHandledDlKindRef.current === dlState.kind) return;
+    lastHandledDlKindRef.current = dlState.kind;
+    if (dlState.kind === 'done') {
+      const referralId = dlState.resolved.intent.referralId;
+      if (!referralId) return;
+      const row = queue.find((r) => r.id === referralId);
+      // We only reach 'done' when isTargetReady returned true, so row is
+      // guaranteed to be present — belt and suspenders.
+      if (row) setOpenReferral(row);
+    } else if (dlState.kind === 'stale') {
+      setDeepLinkToast(intl.formatMessage({ id: 'notifications.deepLink.escalationStale' }));
+      const t = setTimeout(() => setDeepLinkToast(null), 5000);
+      return () => clearTimeout(t);
+    }
+  }, [dlState, queue, intl]);
+
   const handleClaim = useCallback(async (referral: EscalatedReferral) => {
     setActionSubmitting(true);
     setActionError(null);
@@ -139,6 +238,26 @@ function DvEscalationsTab() {
 
   return (
     <div data-testid="dv-escalations-tab">
+      {/* D10 stale-deep-link toast. role="alert" announces to screen
+          readers; auto-dismisses after 5s. Same contract as coordinator
+          dashboard's toast (copy differs for admin queue context). */}
+      {deepLinkToast && (
+        <div
+          role="alert"
+          data-testid="dv-escalations-deep-link-toast"
+          style={{
+            position: 'fixed', top: 16, right: 16, maxWidth: 360, zIndex: 2000,
+            backgroundColor: color.warningBg, color: color.text,
+            border: `1px solid ${color.warningMid}`,
+            padding: '12px 16px', borderRadius: 8, fontSize: text.sm,
+            fontWeight: weight.medium,
+            boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
+          }}
+        >
+          {deepLinkToast}
+        </div>
+      )}
+
       {/* Subtitle */}
       <p style={{
         margin: 0, marginBottom: 16,

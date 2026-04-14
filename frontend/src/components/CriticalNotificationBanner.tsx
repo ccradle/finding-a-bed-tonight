@@ -1,9 +1,11 @@
+import { useMemo } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import { useNavigate } from 'react-router-dom';
 import { text, weight } from '../theme/typography';
 import { color } from '../theme/colors';
 import { useAuth } from '../auth/useAuth';
 import type { Notification } from '../hooks/useNotifications';
+import { pickOldestEscalationReferralId } from './notificationMessages';
 
 interface CriticalNotificationBannerProps {
   notifications: Notification[];
@@ -67,19 +69,38 @@ export function CriticalNotificationBanner({ notifications }: CriticalNotificati
   // Role-gating: the CTA navigates to /admin#dvEscalations which is
   // protected by AuthGuard for COC_ADMIN and PLATFORM_ADMIN only.
   // Coordinators receiving the T+3.5h all-hands CRITICAL notification
-  // should NOT see a CTA that leads to a dead-end redirect. They still
-  // see the banner (safety signal preserved) and act through their normal
-  // referral accept/reject flow.
+  // should NOT see a CTA that leads to a dead-end redirect — they get
+  // their own CTA below that deep-links to their dashboard's referral row
+  // (notification-deep-linking Phase 2 task 5.1).
   const hasAdminAccess = user?.roles.some(
     (r) => r === 'COC_ADMIN' || r === 'PLATFORM_ADMIN'
   ) ?? false;
+  const isCoordinator = user?.roles.some((r) => r === 'COORDINATOR') ?? false;
   const showEscalationCta = escalationCount > 0 && hasAdminAccess;
+
+  // notification-deep-linking Phase 2 task 5.1 — coordinator CTA.
+  //
+  // Delegate the "which referral wins" selection to the pure helper so the
+  // X-4 determinism contract (oldest first = most urgent) can be unit-tested
+  // independently of React rendering (war-room M-1).
+  const coordinatorCtaReferralId = useMemo(
+    () => (isCoordinator ? pickOldestEscalationReferralId(escalationCriticals) : null),
+    [isCoordinator, escalationCriticals],
+  );
+  const showCoordinatorCta = coordinatorCtaReferralId !== null && !showEscalationCta;
 
   const handleCtaClick = () => {
     // React Router navigate with the hash anchor. AdminPanel reads
     // window.location.hash on mount + hashchange event and pre-selects
     // the matching tab (T-41).
     navigate('/admin#dvEscalations');
+  };
+
+  const handleCoordinatorCtaClick = () => {
+    // Navigate to coordinator dashboard with the deep-link referralId.
+    // useDeepLink on the dashboard picks up the URL param, resolves the
+    // referral, auto-expands the shelter, and focuses the row.
+    navigate(`/coordinator?referralId=${coordinatorCtaReferralId}`);
   };
 
   return (
@@ -134,6 +155,32 @@ export function CriticalNotificationBanner({ notifications }: CriticalNotificati
             id="notifications.criticalBanner.cta"
             values={{ count: escalationCount }}
           />
+        </button>
+      )}
+      {showCoordinatorCta && (
+        <button
+          type="button"
+          onClick={handleCoordinatorCtaClick}
+          data-testid="critical-banner-coordinator-cta"
+          aria-label={intl.formatMessage({ id: 'notifications.criticalBanner.coordinatorCta' })}
+          style={{
+            // Task 5.4 — preserve v0.38.0 contrast fix: white button with
+            // errorMid-red text sits on the errorMid-red banner. Matches
+            // the admin CTA's styling exactly so the contrast guarantee
+            // doesn't regress.
+            minHeight: 44,
+            padding: '8px 16px',
+            backgroundColor: color.textInverse,
+            color: color.errorMid,
+            border: 'none',
+            borderRadius: 8,
+            fontSize: text.sm,
+            fontWeight: weight.bold,
+            cursor: 'pointer',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          <FormattedMessage id="notifications.criticalBanner.coordinatorCta" />
         </button>
       )}
     </div>

@@ -171,6 +171,47 @@ export function getNotificationMessageValues(
 }
 
 /**
+ * From a list of notifications, pick the referralId of the oldest unread
+ * CRITICAL escalation — the one with the least remaining time, therefore
+ * the one a coordinator should respond to first. Returns {@code null} when
+ * no escalation notification with a referralId is present.
+ *
+ * <p>Used by {@code CriticalNotificationBanner}'s coordinator CTA
+ * (notification-deep-linking Phase 2 task 5.1 / X-4). The X-4 requirement
+ * is that "first" be deterministic — reading the oldest-timestamp
+ * escalation keeps the answer stable across renders and network
+ * deliveries, and matches the "most urgent first" mental model coordinators
+ * expect.</p>
+ *
+ * <p>Reads {@code referralId} from both notification shapes via
+ * {@link parseNotificationPayload}: live SSE (field on {@code data}
+ * directly) and persistent (inside the JSON-stringified {@code payload}).
+ * Skips escalation notifications whose payload is missing a referralId —
+ * those could not be routed anyway.</p>
+ *
+ * <p>Extracted as a pure helper so the determinism contract can be unit-
+ * tested independently of React rendering (war-room M-1 fix).</p>
+ */
+export function pickOldestEscalationReferralId(
+  notifications: Notification[],
+): string | null {
+  const candidates: Array<{ n: Notification; referralId: string }> = [];
+  for (const n of notifications) {
+    const type = n.eventType || n.data.type;
+    if (typeof type !== 'string' || !type.startsWith('escalation.')) continue;
+    const payload = parseNotificationPayload(n.data);
+    const rawReferralId = n.data.referralId ?? payload.referralId;
+    if (typeof rawReferralId !== 'string' || rawReferralId === '') continue;
+    candidates.push({ n, referralId: rawReferralId });
+  }
+  if (candidates.length === 0) return null;
+  // Stable ascending sort on timestamp (oldest first). When timestamps tie,
+  // keep the original order so the result is still deterministic.
+  candidates.sort((a, b) => a.n.timestamp - b.n.timestamp);
+  return candidates[0].referralId;
+}
+
+/**
  * Pick the default role-based landing page when a notification carries
  * no deep-link identifier (pre-change notifications, malformed payload,
  * or types that never deep-link). Mirrors the priority order used by

@@ -4,6 +4,7 @@ import {
   getNotificationMessageId,
   getNotificationMessageValues,
   getNavigationPath,
+  pickOldestEscalationReferralId,
 } from './notificationMessages';
 import type { Notification } from '../hooks/useNotifications';
 
@@ -264,5 +265,83 @@ describe('getNavigationPath — role-aware deep-link routing', () => {
     expect(getNavigationPath(n, ['COC_ADMIN'])).toBe('/admin');
     expect(getNavigationPath(n, ['OUTREACH_WORKER'])).toBe('/outreach');
     expect(getNavigationPath(n, [])).toBe('/');
+  });
+});
+
+/**
+ * Phase 2 task 5.1 / X-4 — determinism contract for the coordinator
+ * CriticalNotificationBanner CTA. The "first" escalation must be the
+ * oldest one (most urgent, least time before expiry), regardless of
+ * input order. Extracted as a pure helper so this contract is testable
+ * without rendering the banner component (war-room M-1 fix).
+ */
+describe('pickOldestEscalationReferralId — banner CTA selection', () => {
+  function notif(eventType: string, data: Record<string, unknown>, timestamp: number): Notification {
+    return { id: `id-${timestamp}`, eventType, data, timestamp, read: false };
+  }
+
+  it('returns null when the list is empty', () => {
+    expect(pickOldestEscalationReferralId([])).toBeNull();
+  });
+
+  it('returns null when no notifications are of type escalation.*', () => {
+    const ns = [
+      notif('referral.requested', { referralId: 'r1' }, 1),
+      notif('availability.updated', { referralId: 'r2' }, 2),
+    ];
+    expect(pickOldestEscalationReferralId(ns)).toBeNull();
+  });
+
+  it('skips escalation notifications that lack a referralId in both data and payload', () => {
+    const ns = [
+      notif('escalation.1h', { /* no referralId */ }, 1),
+    ];
+    expect(pickOldestEscalationReferralId(ns)).toBeNull();
+  });
+
+  it('picks the oldest escalation by timestamp (ASC, oldest wins)', () => {
+    const ns = [
+      notif('escalation.2h', { referralId: 'ref-new' }, 200),
+      notif('escalation.1h', { referralId: 'ref-old' }, 100),
+      notif('escalation.3_5h', { referralId: 'ref-mid' }, 150),
+    ];
+    expect(pickOldestEscalationReferralId(ns)).toBe('ref-old');
+  });
+
+  it('reads referralId from persistent payload shape (JSON-stringified)', () => {
+    // Simulates the shape returned from GET /api/v1/notifications: fields
+    // live inside data.payload as a JSON string, not on data directly.
+    const n: Notification = {
+      id: 'persistent-1',
+      eventType: 'escalation.1h',
+      data: { payload: JSON.stringify({ referralId: 'ref-persistent' }) },
+      timestamp: 1,
+      read: false,
+    };
+    expect(pickOldestEscalationReferralId([n])).toBe('ref-persistent');
+  });
+
+  it('prefers data.referralId over payload.referralId when both present (live SSE shape wins)', () => {
+    const n: Notification = {
+      id: 'mixed-1',
+      eventType: 'escalation.1h',
+      data: {
+        referralId: 'ref-from-data',
+        payload: JSON.stringify({ referralId: 'ref-from-payload' }),
+      },
+      timestamp: 1,
+      read: false,
+    };
+    expect(pickOldestEscalationReferralId([n])).toBe('ref-from-data');
+  });
+
+  it('falls back to data.type when eventType is missing (defensive)', () => {
+    // eventType should always be set; this guards the case where a caller
+    // passes notifications with only data.type populated (e.g., tests or
+    // a future refactor).
+    const ns = [
+      notif('', { type: 'escalation.1h', referralId: 'ref-from-data-type' }, 1),
+    ];
+    expect(pickOldestEscalationReferralId(ns)).toBe('ref-from-data-type');
   });
 });
