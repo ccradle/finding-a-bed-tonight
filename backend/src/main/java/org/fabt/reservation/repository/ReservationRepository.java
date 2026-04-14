@@ -96,6 +96,48 @@ public class ReservationRepository {
         );
     }
 
+    /**
+     * Extended user-reservation lookup for the Phase 3 "My Past Holds" view
+     * (notification-deep-linking task 8.1). Filters by status list AND age
+     * in days so an outreach worker can see HELD + terminal (CANCELLED,
+     * EXPIRED, CONFIRMED, CANCELLED_SHELTER_DEACTIVATED) rows from the last
+     * 14 days grouped by status. Both filters are optional — null means
+     * "no filter on this dimension" — so existing callers that only need
+     * HELD can keep using {@link #findActiveByUserId}.
+     *
+     * <p>PostgreSQL {@code status = ANY(?)} accepts a {@code String[]} and
+     * produces the same SET-style match as an IN clause without parameter
+     * expansion gymnastics. The {@code sinceDays} filter uses
+     * {@code NOW() - make_interval(days => ?)} so the caller passes a plain
+     * integer and the server computes the threshold (avoids client-clock
+     * skew for multi-day windows).</p>
+     *
+     * <p>Results ordered by {@code created_at DESC} so the freshest rows
+     * appear first within each status group — matches the coordinator
+     * dashboard's ordering of the active HELD list.</p>
+     */
+    public List<Reservation> findByUserIdAndStatusesSince(
+            UUID tenantId,
+            UUID userId,
+            String[] statuses,
+            Integer sinceDays) {
+        StringBuilder sql = new StringBuilder(
+                "SELECT * FROM reservation WHERE tenant_id = ? AND user_id = ?");
+        List<Object> args = new java.util.ArrayList<>();
+        args.add(tenantId);
+        args.add(userId);
+        if (statuses != null && statuses.length > 0) {
+            sql.append(" AND status = ANY(?)");
+            args.add(statuses);
+        }
+        if (sinceDays != null) {
+            sql.append(" AND created_at > NOW() - make_interval(days => ?)");
+            args.add(sinceDays);
+        }
+        sql.append(" ORDER BY created_at DESC");
+        return jdbcTemplate.query(sql.toString(), ROW_MAPPER, args.toArray());
+    }
+
     public List<Reservation> findActiveByShelterId(UUID shelterId, String populationType) {
         return jdbcTemplate.query(
                 "SELECT * FROM reservation WHERE shelter_id = ? AND population_type = ? AND status = 'HELD'",

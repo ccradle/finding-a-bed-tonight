@@ -9,6 +9,7 @@ import { Layout } from './components/Layout';
 import { LoginPage } from './pages/LoginPage';
 import { CoordinatorDashboard } from './pages/CoordinatorDashboard';
 import { OutreachSearch } from './pages/OutreachSearch';
+import { MyPastHoldsPage } from './pages/MyPastHoldsPage';
 import { AdminPanel } from './pages/admin/AdminPanel';
 import { ShelterForm } from './pages/ShelterForm';
 import { ShelterEditPage } from './pages/ShelterEditPage';
@@ -71,6 +72,7 @@ function AppRoutes({ locale, onLocaleChange }: { locale: string; onLocaleChange:
             <Layout locale={locale} onLocaleChange={onLocaleChange}>
               <Routes>
                 <Route index element={<OutreachSearch />} />
+                <Route path="my-holds" element={<MyPastHoldsPage />} />
               </Routes>
             </Layout>
           </AuthGuard>

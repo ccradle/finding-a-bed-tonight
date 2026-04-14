@@ -522,6 +522,102 @@ class ReservationIntegrationTest extends BaseIntegrationTest {
     }
 
     // -------------------------------------------------------------------------
+    // notification-deep-linking Phase 3 task 8.1 — extended GET endpoint
+    // -------------------------------------------------------------------------
+    //
+    // Each test creates a dedicated outreach worker so the /api/v1/reservations
+    // response is scoped to reservations THIS test created (the endpoint
+    // filters by authenticated userId). Reusing the shared outreachWorkerHeaders
+    // would pollute assertions with state from earlier tests in the same
+    // class. Matches the feedback_isolated_test_users convention.
+
+    private HttpHeaders freshOutreachHeaders(String tag) {
+        org.fabt.auth.domain.User user = authHelper.setupUserWithDvAccess(
+                "p3-8-1-" + tag + "-" + UUID.randomUUID().toString().substring(0, 8) + "@test.fabt.org",
+                "Phase3 Test Worker " + tag, new String[] { "OUTREACH_WORKER" });
+        return authHelper.headersForUser(user);
+    }
+
+    @Test
+    void test_listReservations_noParams_preservesBackCompat_heldOnly() {
+        HttpHeaders headers = freshOutreachHeaders("bc");
+        ResponseEntity<Map<String, Object>> held = createReservation(shelterId, headers, "SINGLE_ADULT");
+        ResponseEntity<Map<String, Object>> toCancel = createReservation(shelterId, headers, "SINGLE_ADULT");
+        String cancelId = (String) toCancel.getBody().get("id");
+        restTemplate.exchange("/api/v1/reservations/" + cancelId + "/cancel",
+                HttpMethod.PATCH, new HttpEntity<>(headers),
+                new ParameterizedTypeReference<Map<String, Object>>() {});
+
+        ResponseEntity<List<Map<String, Object>>> listResp = restTemplate.exchange(
+                "/api/v1/reservations", HttpMethod.GET,
+                new HttpEntity<>(headers), new ParameterizedTypeReference<>() {});
+        assertThat(listResp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(listResp.getBody())
+                .as("Bare GET must return only HELD — backward compat with existing consumers")
+                .extracting(r -> r.get("status"))
+                .containsOnly("HELD")
+                .hasSize(1);
+        assertThat(listResp.getBody().get(0).get("id")).isEqualTo(held.getBody().get("id"));
+    }
+
+    @Test
+    void test_listReservations_statusFilter_includesTerminalStates() {
+        HttpHeaders headers = freshOutreachHeaders("terminal");
+        createReservation(shelterId, headers, "SINGLE_ADULT");
+        ResponseEntity<Map<String, Object>> toCancel = createReservation(shelterId, headers, "SINGLE_ADULT");
+        String cancelId = (String) toCancel.getBody().get("id");
+        restTemplate.exchange("/api/v1/reservations/" + cancelId + "/cancel",
+                HttpMethod.PATCH, new HttpEntity<>(headers),
+                new ParameterizedTypeReference<Map<String, Object>>() {});
+
+        ResponseEntity<List<Map<String, Object>>> listResp = restTemplate.exchange(
+                "/api/v1/reservations?status=HELD,CANCELLED,EXPIRED,CONFIRMED,CANCELLED_SHELTER_DEACTIVATED",
+                HttpMethod.GET, new HttpEntity<>(headers), new ParameterizedTypeReference<>() {});
+        assertThat(listResp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(listResp.getBody())
+                .as("With status filter, both HELD and CANCELLED rows should appear")
+                .extracting(r -> r.get("status"))
+                .contains("HELD", "CANCELLED");
+    }
+
+    @Test
+    void test_listReservations_sinceDays_filtersOldRows() {
+        HttpHeaders headers = freshOutreachHeaders("since");
+        ResponseEntity<Map<String, Object>> recent = createReservation(shelterId, headers, "SINGLE_ADULT");
+        ResponseEntity<Map<String, Object>> old = createReservation(shelterId, headers, "SINGLE_ADULT");
+        String oldId = (String) old.getBody().get("id");
+
+        // Backdate the "old" reservation's created_at. TenantContext gives RLS-bypass
+        // for the test thread — same pattern the shelter deactivation test uses.
+        org.fabt.shared.web.TenantContext.runWithContext(
+                authHelper.getTestTenantId(), true, () ->
+                jdbcTemplate.update("UPDATE reservation SET created_at = NOW() - INTERVAL '30 days' WHERE id = ?::uuid",
+                        oldId));
+
+        ResponseEntity<List<Map<String, Object>>> listResp = restTemplate.exchange(
+                "/api/v1/reservations?status=HELD&sinceDays=14",
+                HttpMethod.GET, new HttpEntity<>(headers), new ParameterizedTypeReference<>() {});
+        assertThat(listResp.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(listResp.getBody())
+                .as("sinceDays=14 must exclude reservations backdated to 30 days ago")
+                .hasSize(1);
+        assertThat(listResp.getBody().get(0).get("id")).isEqualTo(recent.getBody().get("id"));
+    }
+
+    @Test
+    void test_listReservations_statusFilter_whitespaceTolerant() {
+        HttpHeaders headers = freshOutreachHeaders("ws");
+        createReservation(shelterId, headers, "SINGLE_ADULT");
+
+        ResponseEntity<List<Map<String, Object>>> listResp = restTemplate.exchange(
+                "/api/v1/reservations?status=HELD,%20CANCELLED",
+                HttpMethod.GET, new HttpEntity<>(headers), new ParameterizedTypeReference<>() {});
+        assertThat(listResp.getStatusCode())
+                .as("Whitespace after commas must be tolerated")
+                .isEqualTo(HttpStatus.OK);
+    }
+
+    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
 
