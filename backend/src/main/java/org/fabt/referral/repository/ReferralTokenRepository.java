@@ -71,10 +71,25 @@ public class ReferralTokenRepository {
         return results.get(0);
     }
 
-    public Optional<ReferralToken> findById(UUID id) {
+    /**
+     * Find a referral by id, scoped to the caller's tenant. Returns
+     * {@link Optional#empty()} when either the id does not exist OR it
+     * belongs to a different tenant — callers that map the empty Optional
+     * to a 404 response get tenant isolation for free without leaking
+     * whether the id is valid in some other tenant (Marcus Webb D10 + N-4,
+     * tasks 8.5 / 8.6).
+     *
+     * <p><b>Do not add a non-tenant-scoped findById overload</b> without a
+     * security review. The system paths that need cross-tenant visibility
+     * (expire tasklet, escalation batch) use {@link #findAllPending()} and
+     * {@link #findEscalatedQueueByTenant(UUID)} with explicit tenant
+     * boundaries — they do not need to look up a single referral by id
+     * without a tenant filter.</p>
+     */
+    public Optional<ReferralToken> findByIdAndTenantId(UUID id, UUID tenantId) {
         List<ReferralToken> results = jdbcTemplate.query(
-                "SELECT * FROM referral_token WHERE id = ?",
-                ROW_MAPPER, id);
+                "SELECT * FROM referral_token WHERE id = ? AND tenant_id = ?",
+                ROW_MAPPER, id, tenantId);
         return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
     }
 

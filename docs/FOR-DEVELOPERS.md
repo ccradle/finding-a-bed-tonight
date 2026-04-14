@@ -157,6 +157,18 @@ Role-aware routing is built into `getNavigationPath(notification, userRoles)` in
 - `fabt.notification.time_to_action.seconds{type}` — histogram with p50/p95/p99 percentile buckets. Measured server-side in `NotificationPersistenceService.markActed` as `Duration.between(notification.createdAt, Instant.now())`. **Primary success metric** — target median < 30s; baseline coordinator self-report 2-5 min. Renders in the `Notification → Action Latency by Type` panel on the FABT DV Referrals dashboard.
 - `fabt.notification.stale_referral.count{type, role}` — counter, mirror of the click counter when `outcome=stale` so the Grafana stale-rate panel doesn't need a divisor.
 
+**Phase 4 Section 16 — banner genesis-gap closure.** The `CoordinatorReferralBanner` used to fall back to `shelters.find(s => s.dvShelter)` when clicked without a URL `?referralId` param, which picked the alphabetically-first DV shelter regardless of where the pending referral actually lived. That was the original user story driving this whole change (see `openspec/changes/notification-deep-linking/design.md` decision **D-BP**). Fix:
+
+- Backend: `GET /api/v1/dv-referrals/pending/count` returns `{ count, firstPending: { referralId, shelterId } | null }`. The DTO `PendingReferralCountResponse` uses `@JsonInclude(ALWAYS)` to override the global `non_null` default so `firstPending: null` is emitted explicitly when count is 0 (clients test for `=== null`, not for the field being absent).
+- Backend: `ReferralTokenRepository.findOldestPendingByShelterIds(shelterIds)` — `ORDER BY created_at ASC LIMIT 1` across the caller's assigned shelter set. Backed by the partial index `idx_referral_token_pending_created_at` on `(created_at ASC) WHERE status='PENDING'` (V55, benchmarked at 14× vs baseline at NYC pilot scale via `docs/performance/probe-ab-test.sql`).
+- Frontend: `computeBannerClickTarget(referralId, firstPending)` is a pure export; URL param wins over hint; banner click calls `setSearchParams({ referralId })` which triggers `useDeepLink` via the existing searchParams effect. **One code path from banner and from notification bell** — both converge on the same state machine.
+
+**Phase 4 cross-tenant hardening (tasks 8.5 + 8.6).** Discovered 2026-04-14: `ReferralTokenRepository.findById(UUID)` had no `tenant_id` predicate, and RLS on `referral_token` only enforces `dv_access`, not tenant boundaries. A dv-access COORDINATOR in Tenant A could read / accept / reject ANY DV referral in any other tenant by UUID.
+
+Fix: renamed the repo method to `findByIdAndTenantId(UUID id, UUID tenantId)` and routed all 7 call sites (getById, accept, reject, claim, release, reassign, diagnostic re-reads) through a shared `findByIdOrThrow(UUID)` helper that pulls `TenantContext.getTenantId()`. Cross-tenant reads now return `Optional.empty()` → 404 (not 403 — matches Marcus D10 contract: no existence leak).
+
+Broader audit of `findById(UUID)` across other services (Subscription, ApiKey, etc.) tracked in **GitHub issue #117** for a post-deploy `cross-tenant-isolation-audit` OpenSpec change. Demo site is single-tenant so no current exploit path; multi-tenant production rollout requires the broader audit first.
+
 ### DV Referral Expiry Fix (v0.31.2)
 
 `@Transactional` on `expireTokens()` and `purgeTerminalTokens()` caused DV referral tokens to remain PENDING indefinitely. Root cause: `@Transactional` eagerly acquires a JDBC connection before `runWithContext()` sets dvAccess=true. See Troubleshooting section for the full pattern rule.

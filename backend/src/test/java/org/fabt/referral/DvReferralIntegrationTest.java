@@ -182,6 +182,138 @@ class DvReferralIntegrationTest extends BaseIntegrationTest {
                 "Unknown referral id must return 404 so the deep-link UI can show the stale toast");
     }
 
+    /**
+     * Task 8.6 — the same cross-tenant isolation as 8.5, applied to
+     * state-mutating paths: accept / reject. Before the 8.5 / 8.6 fix
+     * (2026-04-14), a dv-access COORDINATOR in Tenant A could accept a
+     * Tenant B DV referral if they knew the UUID — no 4xx response,
+     * state changed successfully. After the fix, both endpoints return
+     * 404 (NoSuchElementException → GlobalExceptionHandler).
+     */
+    @Test
+    void tc_accept_crossTenant_returns404() {
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        Tenant tenantB = authHelper.setupSecondaryTenant("xtenant-8-6-" + suffix);
+        User adminB = authHelper.setupUserWithDvAccessInTenant(tenantB.getId(),
+                "admin-b-8-6-" + suffix + "@test.fabt.org", "Tenant B Admin",
+                new String[]{"PLATFORM_ADMIN", "COC_ADMIN"});
+        User outreachB = authHelper.setupUserWithDvAccessInTenant(tenantB.getId(),
+                "outreach-b-8-6-" + suffix + "@test.fabt.org", "Tenant B Outreach",
+                new String[]{"OUTREACH_WORKER"});
+        HttpHeaders adminBHeaders = authHelper.headersForUser(adminB);
+        HttpHeaders outreachBHeaders = authHelper.headersForUser(outreachB);
+        UUID shelterB = createShelterWithHeaders(adminBHeaders, true);
+        patchAvailabilityInTenant(shelterB, "DV_SURVIVOR", 10, 3, 0, adminBHeaders);
+        ResponseEntity<String> bReferralResp = createReferral(shelterB, outreachBHeaders);
+        assertTrue(bReferralResp.getStatusCode().is2xxSuccessful());
+        UUID tenantBReferralId = UUID.fromString(extractField(bReferralResp.getBody(), "id"));
+
+        ResponseEntity<String> acceptResp = restTemplate.exchange(
+                "/api/v1/dv-referrals/" + tenantBReferralId + "/accept", HttpMethod.PATCH,
+                new HttpEntity<>("{}", coordHeaders), String.class);
+        assertEquals(HttpStatus.NOT_FOUND, acceptResp.getStatusCode(),
+                "Cross-tenant accept must return 404 (was a silent state change before 8.5/8.6 fix)");
+
+        // Confirm Tenant B's referral is still PENDING (not flipped to ACCEPTED).
+        TenantContext.runWithContext(tenantB.getId(), true, () -> {
+            String status = jdbcTemplate.queryForObject(
+                    "SELECT status FROM referral_token WHERE id = ?::uuid",
+                    String.class, tenantBReferralId);
+            assertEquals("PENDING", status,
+                    "Tenant B's referral must remain PENDING after cross-tenant accept attempt");
+        });
+    }
+
+    @Test
+    void tc_reject_crossTenant_returns404() {
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        Tenant tenantB = authHelper.setupSecondaryTenant("xtenant-8-6b-" + suffix);
+        User adminB = authHelper.setupUserWithDvAccessInTenant(tenantB.getId(),
+                "admin-b-8-6b-" + suffix + "@test.fabt.org", "Tenant B Admin",
+                new String[]{"PLATFORM_ADMIN", "COC_ADMIN"});
+        User outreachB = authHelper.setupUserWithDvAccessInTenant(tenantB.getId(),
+                "outreach-b-8-6b-" + suffix + "@test.fabt.org", "Tenant B Outreach",
+                new String[]{"OUTREACH_WORKER"});
+        HttpHeaders adminBHeaders = authHelper.headersForUser(adminB);
+        HttpHeaders outreachBHeaders = authHelper.headersForUser(outreachB);
+        UUID shelterB = createShelterWithHeaders(adminBHeaders, true);
+        patchAvailabilityInTenant(shelterB, "DV_SURVIVOR", 10, 3, 0, adminBHeaders);
+        ResponseEntity<String> bReferralResp = createReferral(shelterB, outreachBHeaders);
+        assertTrue(bReferralResp.getStatusCode().is2xxSuccessful());
+        UUID tenantBReferralId = UUID.fromString(extractField(bReferralResp.getBody(), "id"));
+
+        ResponseEntity<String> rejectResp = restTemplate.exchange(
+                "/api/v1/dv-referrals/" + tenantBReferralId + "/reject", HttpMethod.PATCH,
+                new HttpEntity<>("{\"reason\":\"cross-tenant probe\"}", coordHeaders), String.class);
+        assertEquals(HttpStatus.NOT_FOUND, rejectResp.getStatusCode(),
+                "Cross-tenant reject must return 404 (was a silent state change before 8.5/8.6 fix)");
+
+        TenantContext.runWithContext(tenantB.getId(), true, () -> {
+            String status = jdbcTemplate.queryForObject(
+                    "SELECT status FROM referral_token WHERE id = ?::uuid",
+                    String.class, tenantBReferralId);
+            assertEquals("PENDING", status,
+                    "Tenant B's referral must remain PENDING after cross-tenant reject attempt");
+        });
+    }
+
+    /**
+     * Task 8.5 — Phase 1 war-room follow-up (Marcus D10). Verifies that
+     * {@code GET /api/v1/dv-referrals/{id}} returns 404 (NOT 403) when the
+     * referral belongs to a different tenant, so the response cannot leak
+     * whether the referral exists in another tenant. Previously blocked on
+     * the missing {@code setupUserWithDvAccessInTenant} helper; unblocked by
+     * the Section 16 cross-tenant refactor (commit {@code 7b9a8df}).
+     */
+    @Test
+    void tc_getById_crossTenant_returns404_notForbidden() {
+        // Setup: create a referral in a DIFFERENT tenant, then try to fetch
+        // it as a coordinator in our default test tenant.
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        Tenant tenantB = authHelper.setupSecondaryTenant("xtenant-8-5-" + suffix);
+        User adminB = authHelper.setupUserWithDvAccessInTenant(tenantB.getId(),
+                "admin-b-8-5-" + suffix + "@test.fabt.org", "Tenant B Admin",
+                new String[]{"PLATFORM_ADMIN", "COC_ADMIN"});
+        User outreachB = authHelper.setupUserWithDvAccessInTenant(tenantB.getId(),
+                "outreach-b-8-5-" + suffix + "@test.fabt.org", "Tenant B Outreach",
+                new String[]{"OUTREACH_WORKER"});
+        HttpHeaders adminBHeaders = authHelper.headersForUser(adminB);
+        HttpHeaders outreachBHeaders = authHelper.headersForUser(outreachB);
+
+        UUID shelterB = createShelterWithHeaders(adminBHeaders, true);
+        patchAvailabilityInTenant(shelterB, "DV_SURVIVOR", 10, 3, 0, adminBHeaders);
+        ResponseEntity<String> bReferralResp = createReferral(shelterB, outreachBHeaders);
+        assertTrue(bReferralResp.getStatusCode().is2xxSuccessful(),
+                "Tenant B referral must be created for this test — body: " + bReferralResp.getBody());
+        UUID tenantBReferralId = UUID.fromString(extractField(bReferralResp.getBody(), "id"));
+
+        // Act: fetch Tenant B's referral as a Tenant A coordinator with dvAccess.
+        // coordHeaders is configured in setUp() as a dv-access coordinator in
+        // the default test tenant — the exact "legitimate caller, wrong tenant"
+        // profile this test needs.
+        ResponseEntity<String> crossTenantGet = restTemplate.exchange(
+                "/api/v1/dv-referrals/" + tenantBReferralId, HttpMethod.GET,
+                new HttpEntity<>(coordHeaders), String.class);
+
+        // Assert: 404, not 403. The caller is authorized to hit the endpoint
+        // (has COORDINATOR role, has dv_access) but RLS filters the row out.
+        // The service's {@code findById} → orElseThrow(NoSuchElementException)
+        // path is mapped to 404 by GlobalExceptionHandler. A 403 would leak
+        // that the id is valid in some other tenant.
+        assertEquals(HttpStatus.NOT_FOUND, crossTenantGet.getStatusCode(),
+                "Cross-tenant GET /{id} must return 404, not 403 — 403 would leak existence");
+
+        // Defense-in-depth: the response body must not contain the
+        // Tenant B referral's identifiers or any row data.
+        String body = crossTenantGet.getBody();
+        if (body != null) {
+            assertFalse(body.contains(tenantBReferralId.toString()),
+                    "404 response must not echo the Tenant B referral UUID");
+            assertFalse(body.contains(shelterB.toString()),
+                    "404 response must not echo Tenant B's shelter UUID");
+        }
+    }
+
     @Test
     void tc_create_includesShelterName_snapshotInCreateAndMine() {
         ResponseEntity<String> createResp = createReferral(dvShelterId, outreachHeaders);

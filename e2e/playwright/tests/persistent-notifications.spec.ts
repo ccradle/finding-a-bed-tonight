@@ -220,6 +220,106 @@ test.describe('Persistent Notifications', () => {
     await expect(announcement).toContainText(/referral|referencia/i);
   });
 
+  /**
+   * Issue #106 Section 16 — banner genesis-gap regression test (tasks 16.5.1,
+   * 16.5.2, 16.5.3). The original user story that motivated the entire
+   * notification-deep-linking change: coordinator sees "1 referral waiting
+   * for review", clicks, and expects to land on the pending referral. Before
+   * Section 16 the click handler fell back to `shelters.find(s => s.dvShelter)`
+   * which picked the alphabetically-first DV shelter regardless of where
+   * the pending referral actually lived — Corey's Harbor House scenario
+   * (Harbor House sits at index 2 alphabetically; #1 is Bridges to Safety).
+   *
+   * This test pins the fix by asserting the banner click navigates the
+   * coordinator to whatever the backend's firstPending routing hint says
+   * is the oldest pending referral — NOT a hardcoded shelter name (so the
+   * test stays correct regardless of which shelter the seed happens to have
+   * the oldest pending at). The design decision is in openspec/changes/
+   * notification-deep-linking/design.md under D-BP.
+   *
+   * Pre-existing state independence: no seed modification needed — we read
+   * firstPending before clicking and assert we land at that exact referralId.
+   */
+  test('Issue #106 Section 16: banner click routes via firstPending hint (not alphabetically-first DV shelter)', async ({ dvCoordinatorPage }) => {
+    // 1. Login as dv-coordinator via API to read the current firstPending
+    //    hint. We use the same credentials as the Playwright fixture so the
+    //    token scopes exactly to the UI session.
+    const loginResp = await fetch(`${API_URL}/api/v1/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tenantSlug: TENANT_SLUG, email: 'dv-coordinator@dev.fabt.org', password: 'admin123' }),
+    });
+    expect(loginResp.ok, 'dv-coordinator login must succeed (seed user)').toBeTruthy();
+    const { accessToken } = await loginResp.json();
+
+    const countResp = await fetch(`${API_URL}/api/v1/dv-referrals/pending/count`, {
+      headers: { 'Authorization': `Bearer ${accessToken}` },
+    });
+    expect(countResp.ok, '/pending/count must succeed').toBeTruthy();
+    const payload = await countResp.json() as {
+      count: number;
+      firstPending: { referralId: string; shelterId: string } | null;
+    };
+
+    // 2. Pre-condition: seed must currently have at least one pending referral
+    //    for this test to exercise the click path. If it does not, skip
+    //    gracefully rather than ship a false-pass — same pattern as the
+    //    existing Issue #106 deep-link test at line 150.
+    if (payload.count === 0 || !payload.firstPending) {
+      test.skip(true, 'No pending referrals in seed — banner never renders, click path cannot be exercised');
+    }
+
+    const expectedReferralId = payload.firstPending!.referralId;
+    const expectedShelterId = payload.firstPending!.shelterId;
+
+    // 3. Navigate to /coordinator WITHOUT any ?referralId query param — this
+    //    is the exact entry Corey reported (direct nav, bookmark, fresh login).
+    //    The URL-wins path is already covered by the existing test at line 150.
+    await dvCoordinatorPage.goto('/coordinator');
+    await expect(dvCoordinatorPage.locator('[data-testid="coordinator-heading"]')).toBeVisible();
+
+    // Confirm the URL has no referralId query param — proves we're exercising
+    // the hint-fallback path, not the URL-passthrough path.
+    const urlBefore = new URL(dvCoordinatorPage.url());
+    expect(urlBefore.searchParams.get('referralId'), 'URL should have NO referralId before banner click').toBeNull();
+
+    const banner = dvCoordinatorPage.locator('[data-testid="coordinator-referral-banner"]');
+    await expect(banner, 'banner must be visible when count > 0').toBeVisible();
+
+    // 4. Click the banner.
+    await banner.click();
+
+    // 5. Assert URL transitioned to /coordinator?referralId=<firstPending>.
+    //    This is the CORE genesis-gap assertion — before Section 16 the URL
+    //    stayed at /coordinator and the click handler scrolled to the wrong
+    //    shelter without touching the URL.
+    await expect.poll(
+      () => new URL(dvCoordinatorPage.url()).searchParams.get('referralId'),
+      { timeout: 5000 },
+    ).toBe(expectedReferralId);
+
+    // 6. Assert the screening row for the specific referral is visible —
+    //    proves useDeepLink picked up the URL change and drove the
+    //    resolve → expand → scroll sequence.
+    const row = dvCoordinatorPage.locator(`[data-testid="screening-${expectedReferralId}"]`);
+    await expect(row, 'screening row for firstPending referral must materialize').toBeVisible({ timeout: 10000 });
+
+    // 7. S-2 safety: focus on row heading, NOT the Accept button. Identical
+    //    contract to the existing ?referralId= test — banner-click and
+    //    notification-click converge on the same useDeepLink state machine.
+    await expect(row).toBeFocused();
+    const acceptBtn = dvCoordinatorPage.locator(`[data-testid="accept-referral-${expectedReferralId}"]`);
+    await expect(acceptBtn).not.toBeFocused();
+
+    // 8. Assert the correct shelter card expanded — cross-check against
+    //    firstPending.shelterId. If the banner had routed to the alphabetical-
+    //    first DV shelter (old behavior), the shelter-card data-testid would
+    //    point at a different UUID. This assertion is the teeth of the
+    //    regression test: it would have failed against pre-Section-16 code.
+    const shelterCard = dvCoordinatorPage.locator(`[data-testid="shelter-card-${expectedShelterId}"]`);
+    await expect(shelterCard, 'shelter card for firstPending.shelterId must be in the DOM (expanded)').toBeVisible();
+  });
+
   test('T-58e: notification dropdown renders i18n text, not raw type', async ({ dvCoordinatorPage }) => {
     await dvCoordinatorPage.goto('/coordinator');
     await expect(dvCoordinatorPage.locator('[data-testid="coordinator-heading"]')).toBeVisible();

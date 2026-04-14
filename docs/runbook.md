@@ -888,3 +888,76 @@ The secondary effect: on the same version range, persistent `availability.update
 **Regression guard.** The post-deploy smoke test in the "Bed Availability Invariants → v0.34.0 post-deploy smoke" section of this runbook exists to catch any future SecurityConfig narrowing that reintroduces this bug. It is non-optional and should be added to the standard post-deploy smoke sequence. The `OfflineHoldEndpointTest.coordinator_creates_offline_hold_succeeds_when_assigned` test exists in the v0.34.0 backend test suite with an assertion on the `fabt.http.access_denied.count` counter to distinguish a filter-level 403 from a controller-level 403 — this is the test-suite-level regression guard for the same bug class.
 
 **Tracking.** CHANGELOG v0.34.0 entry has the technical details. `SecurityConfig.java:172` is the code-level fix location. `openspec/changes/bed-hold-integrity/IMPLEMENTATION-NOTES.md` § A has the full RCA narrative. No postmortem document is required — the fix shipped in the same change as the feature.
+
+---
+
+## v0.39 Deploy — Issue #106 Phases 1–4 combined release
+
+**Scope.** v0.39 is the first deployment to findabed.org to carry any of Issue #106 (notification deep-linking). Because Phases 1, 2, and 3 were merged to main between v0.38.0 and v0.39.0 without intermediate deploys, ALL four phases ship together. This is the largest user-visible delta since v0.21 (shelter-edit).
+
+**Schema changes.** One migration lands: `V55__referral_token_pending_created_at_idx.sql` — a partial index `(created_at ASC) WHERE status='PENDING'` on `referral_token`. Uses `CREATE INDEX IF NOT EXISTS` so it is idempotent; on clean environments Flyway applies and records it, on environments where a DBA manually pre-created the index during the 16.1.5 perf probe the `IF NOT EXISTS` is a no-op. Non-concurrent CREATE INDEX (Flyway wraps in a transaction); build time is seconds even at NYC pilot scale.
+
+**User-visible changes operators should expect reports about.**
+
+| Behavior | Before v0.39 | After v0.39 |
+|---|---|---|
+| Clicking a notification in the bell | URL stayed at `/coordinator`; referral was NOT auto-expanded | Deep-links to the specific referral row (coordinator) / escalation modal (admin) / `/outreach/my-holds` row (outreach) |
+| `CoordinatorReferralBanner` click | Opened the alphabetically-first DV shelter regardless of where the pending referral lived (the **Harbor House genesis gap** that motivated this entire change) | Navigates to `/coordinator?referralId=<firstPending>` via the count endpoint's routing hint — specific shelter, specific row |
+| Notification bell visuals | Two states (unread, read) | Three states (unread, read-but-not-acted, acted) with ✓ icon on acted rows |
+| "Hide acted" filter | Did not exist | New toggle in bell header; preference persisted to `localStorage` |
+| Outreach worker nav | No dedicated "past holds" view | NEW top-nav entry "My Past Holds" at `/outreach/my-holds` — HELD + terminal holds with status-specific actions |
+| `SHELTER_DEACTIVATED` / `HOLD_CANCELLED_SHELTER_DEACTIVATED` / `referral.reassigned` notifications | Rendered as `"notifications.unknown"` | Render human-readable copy |
+| `CriticalNotificationBanner` | Red banner with count, no actionable CTA for coordinators | New "Review N pending escalations" CTA for admins; coordinators get a one-click path to their oldest CRITICAL referral |
+| `CriticalNotificationBanner` transition from 0 to ≥1 CRITICAL | Threw `Minified React error #310` and blanked the page (rules-of-hooks violation — useMemo after early return) | Fixed |
+| Cross-tenant access on `/api/v1/dv-referrals/{id}` and `accept`/`reject` | dv-access coordinator in Tenant A could read/accept/reject Tenant B referrals by UUID | Returns 404 (not 403 — no existence leak) — tasks 8.5/8.6 hardening |
+
+**v0.39 post-deploy smoke sequence.** Run after every deployment of v0.39.x or later. Tee to `logs/post-deploy-smoke-v0.XX.X.log` per established pattern.
+
+```bash
+# 1. Version endpoint returns v0.39
+curl -s https://findabed.org/api/v1/version
+# expected: {"version":"0.39..."}
+
+# 2. Flyway recorded V55
+# (from an authorized SSH tunnel — share the command, don't execute remotely)
+# psql -U fabt -d fabt -c "SELECT version, description FROM flyway_schema_history WHERE version = '55';"
+# expected: one row, description='referral token pending created at idx'
+
+# 3. The partial index exists and is used
+# psql -c "\d idx_referral_token_pending_created_at"
+# expected: btree index on (created_at) WHERE status='PENDING'
+
+# 4. New count-endpoint response shape
+TOKEN=$(curl -s -X POST https://findabed.org/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"tenantSlug":"dev-coc","email":"dv-coordinator@dev.fabt.org","password":"admin123"}' \
+  | jq -r .accessToken)
+curl -s -H "Authorization: Bearer $TOKEN" https://findabed.org/api/v1/dv-referrals/pending/count | jq .
+# expected: {"count": N, "firstPending": {"referralId":"...","shelterId":"..."} | null}
+# Critical: the firstPending key MUST be present (null or object) — not omitted.
+
+# 5. Metrics registered
+curl -s https://findabed.org/actuator/prometheus | grep -E "fabt_notification_(deeplink_click|time_to_action|stale_referral)" | head
+# expected: at least one matching metric line per metric name
+
+# 6. Genesis-gap regression test in incognito OR with site-data cleared
+#    (PWA service worker caches the old bundle until explicit update.)
+#    Playwright:
+#    FABT_BASE_URL=https://findabed.org npx playwright test post-deploy-smoke --project chromium --trace on
+#    Must include the banner-click-follows-firstPending assertion (TODO: port from
+#    e2e/playwright/tests/persistent-notifications.spec.ts line ~243).
+```
+
+**Rollback criteria.**
+- Any post-deploy smoke step fails → rollback to v0.38.0 JAR + bundle. V55 index stays in place (harmless, old code ignores it).
+- 5xx spike > 2× baseline in first 30 min after deploy → rollback.
+- Any report of a banner click routing to the wrong shelter → rollback + reopen Section 16 investigation.
+
+**Known operator-awareness items.**
+- **Service worker cache.** Tell pilots / demo audiences to hard-reload (Ctrl+Shift+R) or test in incognito. The v0.39 bundle will not replace an open tab's cached one until the PWA registration cycles.
+- **Three-state bell.** First pilot session after deploy will see acted notifications carrying forward from before the deploy (they'll all render as "read-but-not-acted" initially because their `actedAt` is null — a user can click through to flip any they want to acted state).
+- **New top-nav "My Past Holds".** If an outreach worker asks "where's this new link", answer: their past holds were always recorded in the system, this view just surfaces them.
+
+**Cross-tenant hardening flag.** v0.39 fixes the DV referral cross-tenant leak but an audit of the broader `findById(UUID)` pattern (Subscription, ApiKey, other services) is tracked in **GitHub issue #117** as a required gate for any multi-tenant production deployment. Demo site (single-tenant) is unaffected.
+
+**Tracking.** `openspec/changes/notification-deep-linking/` has the full phase breakdown. v0.39 release notes should call out the five operator-awareness items above (service worker, three-state bell, new nav entry, cross-tenant hardening disclosure, genesis-gap fix).
