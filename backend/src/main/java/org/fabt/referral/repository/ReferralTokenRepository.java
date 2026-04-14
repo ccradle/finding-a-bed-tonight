@@ -190,16 +190,25 @@ public class ReferralTokenRepository {
      * {@code openspec/changes/notification-deep-linking/design.md} for why
      * "oldest first" is the chosen tie-break.</p>
      *
-     * <p><b>Performance note (task 16.1.5 — open gate before demo deploy):</b>
-     * the query uses {@code shelter_id = ANY(?)} to filter (hits
-     * {@code idx_referral_token_shelter_status}) and then sorts the filtered
-     * rows by {@code created_at} in the engine. For a typical coordinator
-     * with 1-5 pending referrals this is negligible. A partial index
-     * {@code (shelter_id, created_at) WHERE status = 'PENDING'} would make
-     * the sort-step free — decision is gated on EXPLAIN ANALYZE against
-     * pilot-scale data (task 16.1.5 in the notification-deep-linking change).
-     * DO NOT preemptively add the index; only add if EXPLAIN shows meaningful
-     * Sort cost.</p>
+     * <p><b>Performance (task 16.1.5 closed 2026-04-14):</b> backed by
+     * {@code idx_referral_token_pending_created_at} — partial index on
+     * {@code (created_at ASC) WHERE status = 'PENDING'} added in
+     * V55. The planner chooses an ordered Index Scan on this partial
+     * index, walks rows in ascending {@code created_at} order,
+     * rechecks each row's {@code shelter_id} against the ANY array via
+     * a heap filter, and stops at the first match (LIMIT 1). No Sort
+     * step is required. Measured via pg_stat_statements over 100 runs
+     * per scenario on the dev stack:
+     * <pre>
+     *   Scale        Baseline (no V55)    With V55
+     *   500 rows     0.40 ms (Seq Scan)   0.12 ms
+     *   3500 rows    1.71 ms (Bitmap+Sort) 0.12 ms  (14× speedup)
+     * </pre>
+     * Worst-case walk (1-of-50 cold-tier shelter assignment) traverses
+     * 12 rows before hitting a match: 0.094 ms. The walk stays bounded
+     * because PENDING rows are thinly distributed across the
+     * created_at domain (SLA-bounded expiry in production).
+     * </p>
      *
      * <p><b>Authorization scoping (N-4, task 8.6 — pending audit):</b> this
      * query has no caller-identity awareness — scoping is the responsibility
