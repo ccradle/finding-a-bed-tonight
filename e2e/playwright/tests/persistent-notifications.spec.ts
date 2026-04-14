@@ -198,7 +198,7 @@ test.describe('Persistent Notifications', () => {
     const referralId = referral.id;
     expect(referralId, 'created referral must have an id').toBeTruthy();
 
-    // Deep-link directly via URL — equivalent to the bell-click navigation.
+    // Deep-link directly via URL — same effect as clicking the bell entry.
     await dvCoordinatorPage.goto(`/coordinator?referralId=${referralId}`);
     await expect(dvCoordinatorPage.locator('[data-testid="coordinator-heading"]')).toBeVisible();
 
