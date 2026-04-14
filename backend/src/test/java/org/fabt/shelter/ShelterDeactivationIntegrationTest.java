@@ -248,6 +248,23 @@ class ShelterDeactivationIntegrationTest extends BaseIntegrationTest {
         assertThat(myHolds.getBody())
                 .as("Hold worker should have zero active HELD reservations after cascade")
                 .isEmpty();
+
+        // notification-deep-linking (Issue #106) — task 0a.3:
+        // HOLD_CANCELLED_SHELTER_DEACTIVATED payload must include reservationId
+        // so the frontend can deep-link to /outreach/my-holds?reservationId=X.
+        ResponseEntity<String> workerNotifResponse = restTemplate.exchange(
+                "/api/v1/notifications", HttpMethod.GET,
+                new HttpEntity<>(holdWorkerHeaders), String.class);
+        assertThat(workerNotifResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(workerNotifResponse.getBody())
+                .as("Outreach worker must receive HOLD_CANCELLED_SHELTER_DEACTIVATED notification")
+                .contains("HOLD_CANCELLED_SHELTER_DEACTIVATED");
+        assertThat(workerNotifResponse.getBody())
+                .as("Hold-cancelled notification payload must include reservationId for deep-linking")
+                .contains("reservationId");
+        assertThat(workerNotifResponse.getBody())
+                .as("Hold-cancelled notification payload must include shelterId for context")
+                .contains("shelterId");
     }
 
     // -------------------------------------------------------------------------
@@ -326,6 +343,14 @@ class ShelterDeactivationIntegrationTest extends BaseIntegrationTest {
                 .as("Notification must NOT contain shelter address (VAWA)")
                 .doesNotContain("200 Safe Haven Rd")
                 .doesNotContain("addressStreet");
+
+        // notification-deep-linking (Issue #106) — task 0a.3:
+        // SHELTER_DEACTIVATED payload must include shelterId for deep-linking.
+        // Marcus Webb war-room: shelterId is an opaque UUID, not a VAWA leak.
+        assertThat(notifResponse.getBody())
+                .as("SHELTER_DEACTIVATED notification payload must include shelterId for deep-linking")
+                .contains("shelterId")
+                .contains(dvShelter.id().toString());
 
         // Non-dvAccess user should NOT have the DV deactivation notification
         User nonDvWorker = authHelper.setupUserWithDvAccess(
