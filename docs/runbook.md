@@ -911,6 +911,8 @@ The secondary effect: on the same version range, persistent `availability.update
 | `CriticalNotificationBanner` transition from 0 to ≥1 CRITICAL | Threw `Minified React error #310` and blanked the page (rules-of-hooks violation — useMemo after early return) | Fixed |
 | Cross-tenant access on `/api/v1/dv-referrals/{id}` and `accept`/`reject` | dv-access coordinator in Tenant A could read/accept/reject Tenant B referrals by UUID | Returns 404 (not 403 — no existence leak) — tasks 8.5/8.6 hardening |
 
+**Build prerequisites (per `feedback_deploy_old_jars.md` + `feedback_deploy_checklist_v031.md`).** Always use `mvn clean package` — never incremental — to prevent stale JARs on the VM. Always build the Docker image with `--no-cache` so layer cache does not serve an old JAR. Unlike v0.34 (backend-only), **the frontend MUST also be rebuilt** for v0.39 — ~50+ frontend files changed across bell, banner, deep-link hooks, My Past Holds, and Carbon-token contrast fixes. See `docs/oracle-update-notes-v0.39.0.md` for the full deploy sequence.
+
 **v0.39 post-deploy smoke sequence.** Run after every deployment of v0.39.x or later. Tee to `logs/post-deploy-smoke-v0.XX.X.log` per established pattern.
 
 ```bash
@@ -918,16 +920,31 @@ The secondary effect: on the same version range, persistent `availability.update
 curl -s https://findabed.org/api/v1/version
 # expected: {"version":"0.39..."}
 
-# 2. Flyway recorded V55
-# (from an authorized SSH tunnel — share the command, don't execute remotely)
-# psql -U fabt -d fabt -c "SELECT version, description FROM flyway_schema_history WHERE version = '55';"
-# expected: one row, description='referral token pending created at idx'
+# 2. Flyway recorded V55 (run from VM via docker exec)
+docker exec -i finding-a-bed-tonight-postgres-1 psql -U fabt -d fabt -c \
+  "SELECT version, description, success FROM flyway_schema_history WHERE version = '55';"
+# expected: one row, description='referral token pending created at idx', success=t
 
-# 3. The partial index exists and is used
-# psql -c "\d idx_referral_token_pending_created_at"
-# expected: btree index on (created_at) WHERE status='PENDING'
+# 3. The partial index exists with the correct shape
+docker exec -i finding-a-bed-tonight-postgres-1 psql -U fabt -d fabt -c \
+  "\d idx_referral_token_pending_created_at"
+# expected: btree on (created_at) WHERE status='PENDING'
 
-# 4. New count-endpoint response shape
+# 4. Planner actually uses the new index (Sam's gate)
+docker exec -i finding-a-bed-tonight-postgres-1 psql -U fabt -d fabt -c "
+EXPLAIN ANALYZE
+  SELECT * FROM referral_token
+  WHERE shelter_id = ANY(ARRAY[
+    (SELECT id FROM shelter WHERE dv_shelter = TRUE LIMIT 1)
+  ])
+    AND status = 'PENDING'
+  ORDER BY created_at ASC LIMIT 1;
+"
+# expected: plan includes 'Index Scan using idx_referral_token_pending_created_at'
+# failure mode: 'Seq Scan on referral_token' — stats are cold. Remediate with:
+#   docker exec ... psql ... -c "ANALYZE referral_token;"
+
+# 5. Count-endpoint response shape (firstPending field MUST be present — null or object)
 TOKEN=$(curl -s -X POST https://findabed.org/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"tenantSlug":"dev-coc","email":"dv-coordinator@dev.fabt.org","password":"admin123"}' \
@@ -936,17 +953,29 @@ curl -s -H "Authorization: Bearer $TOKEN" https://findabed.org/api/v1/dv-referra
 # expected: {"count": N, "firstPending": {"referralId":"...","shelterId":"..."} | null}
 # Critical: the firstPending key MUST be present (null or object) — not omitted.
 
-# 5. Metrics registered
-curl -s https://findabed.org/actuator/prometheus | grep -E "fabt_notification_(deeplink_click|time_to_action|stale_referral)" | head
-# expected: at least one matching metric line per metric name
+# 6. Cross-tenant 404 live probe (Casey's security gate for findByIdOrThrow hardening)
+curl -s -H "Authorization: Bearer $TOKEN" \
+  -o /dev/null -w "%{http_code}\n" \
+  https://findabed.org/api/v1/dv-referrals/00000000-0000-0000-0000-000000000000
+# expected: 404 (not 403, not 200). Confirms findByIdAndTenantId is active.
+# failure mode: any other status → rollback immediately and reopen tasks 8.5/8.6.
 
-# 6. Genesis-gap regression test in incognito OR with site-data cleared
-#    (PWA service worker caches the old bundle until explicit update.)
-#    Playwright:
-#    FABT_BASE_URL=https://findabed.org npx playwright test post-deploy-smoke --project chromium --trace on
-#    Must include the banner-click-follows-firstPending assertion (TODO: port from
-#    e2e/playwright/tests/persistent-notifications.spec.ts line ~243).
+# 7. Metrics registered in Prometheus scrape
+curl -s https://findabed.org/actuator/prometheus | grep -E "fabt_notification_(deeplink_click|time_to_action|stale_referral)" | head
+# expected: at least one matching metric line per metric name.
+# NOTE (Micrometer lazy registration): if this returns empty, the metrics have
+# not yet been emitted. Fire one bell-click in the manual UI section below,
+# then re-run this grep. Metrics appear on first emission.
 ```
+
+**Manual UI verification (the authoritative post-deploy gates).** Run in an **incognito window** per the PWA service-worker cache caveat below.
+
+1. **Version footer** — `https://findabed.org` shows **v0.39** in the footer.
+2. **Genesis-gap regression (Section 16 — the authoritative gate).** Login as `dv-coordinator@dev.fabt.org / admin123`. If count > 0 in the red banner, click it once. Verify the URL gains `?referralId=<UUID>`, the specific referral row scrolls into view, and focus lands on the row heading (NOT the Accept button — S-2 safety). Cross-check the expanded shelter matches `firstPending.shelterId` from step 5 above. The canonical automated regression lives at `e2e/playwright/tests/persistent-notifications.spec.ts:243` — Corey runs it locally against dev; it is not suitable for prod because its `afterAll` cleans up DV referral state.
+3. **URL-stale regression (D-BP, 2026-04-14 fix).** Open a second incognito tab and navigate to `https://findabed.org/coordinator?referralId=00000000-0000-0000-0000-c0ffee000106` (deliberately-bogus UUID). The stale toast should appear; the banner should still render if count > 0. Click the banner. Verify the URL **rewrites** to the real `firstPending.referralId` — NOT stays at the stale UUID. Pre-fix behavior was no-op on click; post-fix server-current wins over stale URL.
+4. **Admin escalation deep-link.** Login as `cocadmin@dev.fabt.org / admin123`. In the admin panel's DV Escalations tab, if any row is present click it — the detail modal should auto-open via the URL hash fragment.
+5. **Outreach My Past Holds.** Login as `dv-outreach@dev.fabt.org / admin123` → verify "My Past Holds" appears in the top nav. Click it — page loads without 404.
+6. **Three-state bell.** In any logged-in session, open the bell dropdown. Unread rows have highlighted background. Click one → it transitions to read-but-not-acted (normal weight, still visible). If the underlying target has been acted via deep-link, it shows with a ✓ icon.
 
 **Rollback criteria.**
 - Any post-deploy smoke step fails → rollback to v0.38.0 JAR + bundle. V55 index stays in place (harmless, old code ignores it).

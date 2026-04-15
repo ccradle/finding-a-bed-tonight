@@ -5,6 +5,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.39.0] — 2026-04-15 — notification-deep-linking Phases 1-4 (Issue #106)
+
+### Added
+- **Notification deep-linking** — clicking a bell notification now navigates to the specific referral / hold / escalation row across 3 host pages (coordinator, admin, outreach) via a shared `useDeepLink` hook with an explicit finite-state machine (idle → resolving → awaiting-confirm → expanding → awaiting-target → done | stale). Idempotency guard prevents re-triggering on re-render; unsaved-state confirm guard protects outreach workers from losing in-flight edits; role-aware routing dispatches each notification type to the correct host page.
+- **Three-state notification bell** — unread / read-but-not-acted / acted (✓ icon) with a "Hide acted" toggle persisted to `localStorage`. Unread badge continues to count unread only.
+- **`CoordinatorReferralBanner` genesis-gap fix** — `GET /api/v1/dv-referrals/pending/count` now returns `firstPending: { referralId, shelterId } | null` as a routing hint. Banner click deep-links to the oldest PENDING referral the caller is authorized to see (design decision D-BP). Click-precedence: if the URL carries a stale referralId from a prior action, server-current `firstPending` wins; if the URL already matches `firstPending`, the click is a no-op (`useDeepLink` is already processing it).
+- **"My Past Holds" page** — new top-nav `/outreach/my-holds` for outreach workers. Lists HELD + terminal holds (CANCELLED / EXPIRED / CANCELLED_SHELTER_DEACTIVATED) with status-specific actions. `GET /api/v1/reservations` extended with `status=CSV&sinceDays=N` (back-compat preserved — callers that send only `status=HELD` still work).
+- **Admin escalation queue deep-link** — `/admin#dvEscalations?referralId=X` auto-opens the detail modal.
+- **`CriticalNotificationBanner` coordinator CTA** — coordinators get a one-click path to their oldest CRITICAL referral (picks via `pickOldestEscalationReferralId`).
+- **3 new notification type mappings** — `SHELTER_DEACTIVATED`, `HOLD_CANCELLED_SHELTER_DEACTIVATED`, `referral.reassigned` (previously rendered as `"notifications.unknown"` in the bell dropdown).
+- **Observability** — 3 Micrometer metrics (`fabt.notification.deeplink.click.count`, `fabt.notification.time_to_action.seconds` histogram with percentile publishing, `fabt.notification.stale_referral.count`) + 3 Grafana panels on the DV Referrals dashboard.
+- **Test coverage** — Playwright: Section 16 banner genesis-gap regression, URL-stale banner regression (D-BP), concurrent-coordinators stale path, 6 axe scans (surfaced 4 Carbon-token dark-mode contrast bugs). Vitest: 28 `useDeepLink` reducer tests, `computeBannerClickTarget` 7 cases, 136 total frontend tests green. Backend: 43/43 `DvReferralIntegrationTest` including 3 cross-tenant 404 tests.
+
+### Fixed
+- **Cross-tenant DV referral leak** (security) — `getById`, `accept`, `reject`, `claim`, `release`, `reassign` on `/api/v1/dv-referrals/{id}` routed through `repository.findById(UUID)`, which was tenant-unscoped (RLS on `referral_token` only enforces `dv_access`, not tenant). A dv-access coordinator in Tenant A could read/accept/reject Tenant B referrals by UUID. Renamed repository method to `findByIdAndTenantId(UUID, UUID)`; all 7 service call sites routed through shared `findByIdOrThrow(UUID)` which pulls `tenantId` from `TenantContext`. Returns 404 (not 403) — no existence leak. Broader `findById(UUID)` audit across services tracked in #117.
+- **4 dark-mode Carbon-token contrast violations** surfaced by axe — Approve button (EscalatedReferralDetailModal), `CoordinatorReferralBanner`, Accept + Reject buttons (CoordinatorDashboard). Root cause: Carbon text-variant tokens (`color.success`, `color.error`) used as button-fill backgrounds in dark mode gave ~2.4:1 contrast with white text (WCAG AA requires 4.5:1). Added `color.successMid` token; banner now uses `color.errorMid`. All ratios now pass AA in both modes.
+- **`CriticalNotificationBanner` 0→1 crash** — rules-of-hooks violation (`useMemo` after early return when `count === 0`) threw `Minified React error #310` when the first CRITICAL notification arrived and blanked the page. `useMemo` moved above the early return.
+- **Nav double-highlight** — `Layout.tsx` `isActive` used `pathname.startsWith(path)` which matched both `/admin` and `/admin/dv-escalations`. Rewritten to longest-match + whole-segment. Regression test tracked in #118.
+
+### Migrations
+- **V55** — `CREATE INDEX IF NOT EXISTS idx_referral_token_pending_created_at ON referral_token (created_at ASC) WHERE status = 'PENDING'; ANALYZE referral_token;` — partial index specifically shaped for `findOldestPendingByShelterIds`. 14× speedup at NYC pilot scale (1.71 ms → 0.12 ms per `/pending/count`) validated via `pg_stat_statements` A/B/C with 100 runs (canonical harness at `docs/performance/probe-ab-test.sql`). Non-concurrent CREATE INDEX — brief SHARE lock on `referral_token`; sub-second at current scale.
+
+### Docs
+- **DBML + ERD** synced to V55 (backfilled 4 previously-drifted `referral_token` indexes).
+- **AsyncAPI** synced — 5 previously-undocumented events added (`dv-referral.expired`, `referral.queue-changed`, `referral.claimed`, `referral.released`, `referral.policy-updated`).
+- **`FOR-DEVELOPERS.md`** — Section 16 genesis-gap notes, cross-tenant hardening rationale, `useDeepLink` host contract.
+- **`docs/runbook.md`** — new "v0.39 Deploy" section with operator-awareness items, post-deploy smoke sequence, rollback criteria.
+- **`docs/oracle-update-notes-v0.39.0.md`** — this deploy's Oracle VM runbook.
+
+---
+
 ## [v0.38.0] — 2026-04-14 — shelter-activate-deactivate (Issue #108)
 
 ### Added
