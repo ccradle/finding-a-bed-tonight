@@ -40,11 +40,30 @@ export interface BannerClickTarget {
 
 /**
  * Pure function — resolve the banner's click target from the inputs the
- * banner has at render time. Exported so Vitest can exercise all three
- * branches (URL, hint, null) without mounting the full component (task
- * 16.4.x). Pre-condition: banner is only rendered when {@code count > 0},
- * so in practice either a URL referralId OR a firstPending hint is
- * expected to be present.
+ * banner has at render time. Exported so Vitest can exercise every branch
+ * without mounting the full component (task 16.4.x). Pre-condition: banner
+ * is only rendered when {@code count > 0}, so in practice either a URL
+ * referralId OR a firstPending hint is expected to be present.
+ *
+ * <p>Precedence rules (warroom decision after the 2026-04-14 URL-stale
+ * regression; see design.md D-BP updated note):</p>
+ *
+ * <ol>
+ *   <li>If {@code firstPending} is present and its {@code referralId}
+ *       matches the URL's {@code referralId}, return {@code source='url'}.
+ *       The deep-link is still valid — {@code useDeepLink} is already
+ *       processing it and re-navigating to the same URL adds no info.</li>
+ *   <li>If {@code firstPending} is present and differs from the URL,
+ *       return {@code source='hint'} pointing at {@code firstPending}.
+ *       The server is the source of truth for "where the user should
+ *       go next" — after actioning a referral the URL is left with a
+ *       stale referralId, and a click on the banner must route to the
+ *       current oldest-pending, not re-process the already-actioned one.</li>
+ *   <li>If {@code firstPending} is null (count is zero — banner should
+ *       not even be rendered — or a pre-Section-16 backend response
+ *       without the field), return {@code source='url'} when a URL
+ *       referralId is present; else {@code null}.</li>
+ * </ol>
  *
  * @param referralId  from {@code ?referralId=X} in the URL, if any
  * @param firstPending  the routing hint from {@code GET /pending/count}
@@ -54,8 +73,13 @@ export function computeBannerClickTarget(
   referralId: string | undefined,
   firstPending: { referralId: string } | null,
 ): BannerClickTarget | null {
+  if (firstPending) {
+    if (referralId && referralId === firstPending.referralId) {
+      return { source: 'url', referralId };
+    }
+    return { source: 'hint', referralId: firstPending.referralId };
+  }
   if (referralId) return { source: 'url', referralId };
-  if (firstPending) return { source: 'hint', referralId: firstPending.referralId };
   return null;
 }
 

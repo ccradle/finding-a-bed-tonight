@@ -321,6 +321,102 @@ test.describe('Persistent Notifications', () => {
   });
 
   /**
+   * Issue #106 Section 16 follow-up — URL-stale-after-action regression.
+   *
+   * <p>User-reported bug (Corey, 2026-04-14, dv-coordinator@dev.fabt.org):
+   * after actioning one of several pending referrals, the URL still carries
+   * {@code ?referralId=<the-just-actioned-one>} but the banner's count now
+   * points to a DIFFERENT pending referral (Harbor House in the report).
+   * Clicking the banner did nothing because the banner read the stale URL
+   * and returned source='url', and the dashboard short-circuited because
+   * "re-clicking the same URL adds no info" — which was true when URL ==
+   * firstPending but wrong when URL is stale.</p>
+   *
+   * <p>Fix (warroom decision): {@code computeBannerClickTarget} now prefers
+   * firstPending when URL and firstPending differ — the server's oldest-
+   * pending is the source of truth for "where the user should go next."
+   * When URL == firstPending the URL-wins rule still holds (no redundant
+   * navigation). This test reproduces the bug by priming the URL with a
+   * bogus UUID that cannot match firstPending; pre-fix it stayed stale,
+   * post-fix the click routes to firstPending.</p>
+   */
+  test('Issue #106 Section 16 follow-up: URL referralId stale after action — banner click routes to firstPending, not URL no-op', async ({ dvCoordinatorPage }) => {
+    // 1. Read firstPending from the server — this is where the banner click
+    //    should route once the URL is known-stale.
+    const loginResp = await fetch(`${API_URL}/api/v1/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tenantSlug: TENANT_SLUG, email: 'dv-coordinator@dev.fabt.org', password: 'admin123' }),
+    });
+    expect(loginResp.ok, 'dv-coordinator login must succeed').toBeTruthy();
+    const { accessToken } = await loginResp.json();
+
+    const countResp = await fetch(`${API_URL}/api/v1/dv-referrals/pending/count`, {
+      headers: { 'Authorization': `Bearer ${accessToken}` },
+    });
+    expect(countResp.ok, '/pending/count must succeed').toBeTruthy();
+    const payload = await countResp.json() as {
+      count: number;
+      firstPending: { referralId: string; shelterId: string } | null;
+    };
+
+    if (payload.count === 0 || !payload.firstPending) {
+      test.skip(true, 'No pending referrals in seed — banner never renders, cannot exercise stale-URL click');
+    }
+
+    const expectedReferralId = payload.firstPending!.referralId;
+    const expectedShelterId = payload.firstPending!.shelterId;
+
+    // 2. Navigate to /coordinator with a DELIBERATELY-STALE ?referralId that
+    //    cannot match firstPending. Bogus UUID — useDeepLink will go 'stale'
+    //    and surface a toast, but the banner (count > 0) is still rendered
+    //    and clickable.
+    const staleReferralId = '00000000-0000-0000-0000-c0ffee000106';
+    expect(
+      staleReferralId,
+      'test precondition: bogus referralId must differ from firstPending',
+    ).not.toBe(expectedReferralId);
+
+    await dvCoordinatorPage.goto(`/coordinator?referralId=${staleReferralId}`);
+    await expect(dvCoordinatorPage.locator('[data-testid="coordinator-heading"]')).toBeVisible();
+
+    // 3. Confirm the URL carries the stale referralId (not cleared by
+    //    useDeepLink — stale branch leaves URL intact per D10).
+    await expect.poll(
+      () => new URL(dvCoordinatorPage.url()).searchParams.get('referralId'),
+      { timeout: 5000 },
+    ).toBe(staleReferralId);
+
+    // 4. Banner must be visible since count > 0.
+    const banner = dvCoordinatorPage.locator('[data-testid="coordinator-referral-banner"]');
+    await expect(banner, 'banner must render when count > 0 even with stale URL').toBeVisible();
+
+    // 5. Click the banner. PRE-FIX: computeBannerClickTarget returns
+    //    {source:'url', referralId: staleReferralId}; dashboard short-
+    //    circuits; URL does NOT change; this assertion fails. POST-FIX:
+    //    URL != firstPending triggers the hint branch; setSearchParams
+    //    rewrites the URL to firstPending.referralId.
+    await banner.click();
+
+    await expect.poll(
+      () => new URL(dvCoordinatorPage.url()).searchParams.get('referralId'),
+      {
+        timeout: 5000,
+        message: 'banner click must rewrite stale URL to firstPending.referralId',
+      },
+    ).toBe(expectedReferralId);
+
+    // 6. Screening row for firstPending must materialize — proves the
+    //    useDeepLink pipeline ran on the new URL (resolve → expand → focus).
+    const row = dvCoordinatorPage.locator(`[data-testid="screening-${expectedReferralId}"]`);
+    await expect(row, 'screening row for firstPending referral must materialize after banner click').toBeVisible({ timeout: 10000 });
+
+    // 7. Shelter card for the firstPending's shelter must be expanded.
+    const shelterCard = dvCoordinatorPage.locator(`[data-testid="shelter-card-${expectedShelterId}"]`);
+    await expect(shelterCard, 'shelter card for firstPending.shelterId must be expanded').toBeVisible();
+  });
+
+  /**
    * Task 11.8 — stale referral deep-link surfaces toast and does NOT mark
    * notification acted. The useDeepLink 'stale' branch (D10 unified shape)
    * fires when resolveTarget 404s or the target times out.

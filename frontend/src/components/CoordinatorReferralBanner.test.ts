@@ -36,19 +36,32 @@ describe('computeBannerClickTarget', () => {
     expect(target).toEqual({ source: 'hint', referralId: 'abc-123' });
   });
 
-  // 16.4.2 — URL referralId wins when both are present. Design decision D-BP:
-  // user's own deep-link takes precedence over the server-suggested oldest-
-  // pending. Proves the precedence even when the hint points elsewhere.
-  it('returns url target when referralId is present, regardless of hint', () => {
+  // 16.4.2 — URL matches firstPending: URL wins (deep-link still valid, no-
+  // op re-nav). Design decision D-BP: when both present AND equal, the
+  // user's deep-link is current and useDeepLink is already processing it.
+  it('returns url target when URL referralId matches firstPending', () => {
     const target = computeBannerClickTarget(
-      'url-xyz',
-      { referralId: 'hint-abc' },
+      'abc-123',
+      { referralId: 'abc-123' },
     );
-    expect(target).toEqual({ source: 'url', referralId: 'url-xyz' });
+    expect(target).toEqual({ source: 'url', referralId: 'abc-123' });
   });
 
-  // URL wins even when the hint is null (direct-nav case where the banner
-  // happened to be mounted by a URL-driven parent).
+  // Regression — URL-stale-after-action (user-reported 2026-04-14). When
+  // the URL referralId differs from firstPending, firstPending wins:
+  // server is the source of truth for "where the user should go next."
+  // Pre-fix this returned source='url' and the dashboard no-op'd, leaving
+  // the user stranded on an already-actioned referral.
+  it('returns hint target when URL referralId mismatches firstPending (URL is stale)', () => {
+    const target = computeBannerClickTarget(
+      'url-stale',
+      { referralId: 'server-current' },
+    );
+    expect(target).toEqual({ source: 'hint', referralId: 'server-current' });
+  });
+
+  // URL wins when the hint is null (direct-nav / pre-Section-16 backend
+  // response — firstPending absent, URL is all we have to work with).
   it('returns url target when referralId is present and firstPending is null', () => {
     const target = computeBannerClickTarget('url-xyz', null);
     expect(target).toEqual({ source: 'url', referralId: 'url-xyz' });
