@@ -261,23 +261,27 @@ docker compose -f docker-compose.yml -f ~/fabt-secrets/docker-compose.prod.yml \
   up -d --force-recreate backend frontend
 ```
 
-**V55 stays in place on rollback.** The v0.38 code has no repository method
-that targets the new index; Postgres planner simply does not use it. V55 row
-remains in `flyway_schema_history` — if the pre-deploy Flyway compat check
-confirmed v0.38 startup tolerates extra history entries, no further action.
+**V55 rollback requires DB cleanup — REQUIRED, not optional.** The v0.38 code
+has no repository method that targets the new index, BUT v0.38's default
+Spring Boot Flyway config (`validateOnMigrate=true`, no `ignoreMigrationPatterns`
+override — verified at `backend/src/main/resources/application.yml:36-43`) will
+FAIL startup with `FlywayValidateException: Detected applied migration not
+resolved locally: 55`, because V55 is in `flyway_schema_history` but not in
+v0.38's `db/migration/` source tree.
 
-**If the Flyway compat check was not clean** (v0.38 startup fails on checksum
-validation due to the V55 row), run this before the rebuild:
+**Before rebuilding v0.38 backend on rollback, run:**
 
 ```bash
 docker exec -i finding-a-bed-tonight-postgres-1 psql -U fabt -d fabt -c "
 DELETE FROM flyway_schema_history WHERE version='55';
 "
-# Then also drop the index so the state matches v0.38 expectations:
+# Drop the now-orphaned index so state matches v0.38 expectations:
 docker exec -i finding-a-bed-tonight-postgres-1 psql -U fabt -d fabt -c "
 DROP INDEX IF EXISTS idx_referral_token_pending_created_at;
 "
 ```
+
+Only then proceed with `git checkout v0.38.0 && mvn clean package && ...`.
 
 **Security note on rollback.** Rolling back to v0.38 reintroduces the
 cross-tenant DV referral leak (v0.38 uses unscoped `findById(UUID)`). Post a
