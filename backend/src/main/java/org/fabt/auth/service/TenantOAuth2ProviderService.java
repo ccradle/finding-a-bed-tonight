@@ -8,6 +8,7 @@ import java.util.UUID;
 
 import org.fabt.auth.domain.TenantOAuth2Provider;
 import org.fabt.auth.repository.TenantOAuth2ProviderRepository;
+import org.fabt.shared.web.TenantContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -57,12 +58,17 @@ public class TenantOAuth2ProviderService {
     /**
      * Updates an existing OAuth2 provider configuration.
      * Only non-null fields are updated.
+     *
+     * <p>Tenant-scoped: the provider MUST belong to the caller's tenant
+     * (resolved from {@link TenantContext}). A cross-tenant id returns
+     * 404 via {@link NoSuchElementException} — not 403 — to avoid
+     * existence disclosure (design D3). See {@link #findByIdOrThrow(UUID)}
+     * and the {@code cross-tenant-isolation-audit} change.
      */
     @Transactional
     public TenantOAuth2Provider update(UUID id, String clientId, String clientSecret,
                                         String issuerUri, Boolean enabled) {
-        TenantOAuth2Provider provider = providerRepository.findById(id)
-                .orElseThrow(() -> new NoSuchElementException("OAuth2 provider not found: " + id));
+        TenantOAuth2Provider provider = findByIdOrThrow(id);
 
         if (clientId != null) {
             provider.setClientId(clientId);
@@ -81,12 +87,37 @@ public class TenantOAuth2ProviderService {
         return providerRepository.save(provider);
     }
 
+    /**
+     * Deletes an OAuth2 provider.
+     *
+     * <p>Tenant-scoped: the provider MUST belong to the caller's tenant
+     * (resolved from {@link TenantContext}). A cross-tenant id returns 404
+     * via {@link NoSuchElementException}. See {@link #findByIdOrThrow(UUID)}.
+     *
+     * <p>Consolidates the former {@code existsById(id)} + {@code deleteById(id)}
+     * pair into a single tenant-scoped lookup followed by a scoped delete —
+     * the prior {@code existsById} had the same class of defect as the
+     * unscoped {@code findById} (design D2 scenario for {@code existsById}).
+     */
     @Transactional
     public void delete(UUID id) {
-        if (!providerRepository.existsById(id)) {
-            throw new NoSuchElementException("OAuth2 provider not found: " + id);
-        }
-        providerRepository.deleteById(id);
+        TenantOAuth2Provider provider = findByIdOrThrow(id);
+        providerRepository.deleteById(provider.getId());
+    }
+
+    /**
+     * Tenant-scoped single-provider lookup used by every state-mutating path
+     * in this service ({@link #update} and {@link #delete}). Pulls the
+     * caller's {@code tenantId} from {@link TenantContext} and delegates to
+     * {@link TenantOAuth2ProviderRepository#findByIdAndTenantId(UUID, UUID)}.
+     * Throws {@link NoSuchElementException} on empty — mapped to 404 by
+     * {@code GlobalExceptionHandler}. All state-mutating call sites go
+     * through this helper so the tenant-scoping invariant cannot be forgotten
+     * at one site while the others are hardened.
+     */
+    private TenantOAuth2Provider findByIdOrThrow(UUID id) {
+        return providerRepository.findByIdAndTenantId(id, TenantContext.getTenantId())
+                .orElseThrow(() -> new NoSuchElementException("OAuth2 provider not found: " + id));
     }
 
     @Transactional(readOnly = true)

@@ -6,6 +6,9 @@ import java.util.UUID;
 
 import org.fabt.BaseIntegrationTest;
 import org.fabt.TestAuthHelper;
+import org.fabt.tenant.domain.Tenant;
+import org.fabt.auth.domain.User;
+import org.fabt.shared.web.TenantContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,6 +18,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -22,6 +26,9 @@ class OAuth2ProviderTest extends BaseIntegrationTest {
 
     @Autowired
     private TestAuthHelper authHelper;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @BeforeEach
     void setUp() {
@@ -163,5 +170,127 @@ class OAuth2ProviderTest extends BaseIntegrationTest {
         );
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    // ------------------------------------------------------------------
+    // cross-tenant-isolation-audit (Issue #117) — Phase 2 task 2.1.5.
+    // Two regression tests pinning the findByIdAndTenantId / findByIdOrThrow
+    // refactor on TenantOAuth2ProviderService.update + .delete. Mirrors the
+    // v0.39 DvReferralIntegrationTest.tc_*_crossTenant_returns404 pattern.
+    //
+    // THREAT MODEL (Marcus Webb, VULN-HIGH): pre-fix, a CoC admin in Tenant A
+    // could PUT /api/v1/tenants/{anything}/oauth2-providers/{tenantB-provider-id}
+    // with attacker-controlled issuerUri — effectively redirecting every OIDC
+    // login for Tenant B users through an attacker-owned provider. Post-fix,
+    // the service pulls tenantId from TenantContext (caller's JWT) and the
+    // repository-level findByIdAndTenantId returns empty → 404, leaving
+    // Tenant B's config untouched.
+    // ------------------------------------------------------------------
+
+    @Test
+    void tc_update_crossTenant_returns404_leavesTenantBConfigUnchanged() {
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+
+        // Set up Tenant B with its own admin + OAuth2 provider configured.
+        Tenant tenantB = authHelper.setupSecondaryTenant("xtenant-oauth-update-" + suffix);
+        User adminB = authHelper.createUserInTenant(tenantB.getId(),
+                "admin-b-oauth-update-" + suffix + "@test.fabt.org", "Tenant B Admin",
+                new String[]{"PLATFORM_ADMIN", "COC_ADMIN"}, false);
+        HttpHeaders adminBHeaders = authHelper.headersForUser(adminB);
+
+        String createBody = """
+                {"providerName": "azure-b", "clientId": "legitimate-client-b", "clientSecret": "legitimate-secret-b", "issuerUri": "https://login.microsoftonline.com/b/v2.0"}
+                """;
+        ResponseEntity<String> createResp = restTemplate.exchange(
+                "/api/v1/tenants/" + tenantB.getId() + "/oauth2-providers",
+                HttpMethod.POST,
+                new HttpEntity<>(createBody, adminBHeaders),
+                String.class);
+        assertThat(createResp.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        UUID tenantBProviderId = UUID.fromString(
+                createResp.getBody().replaceAll(".*\"id\"\\s*:\\s*\"([^\"]+)\".*", "$1"));
+
+        // Act: Tenant A's COC_ADMIN attempts to overwrite Tenant B's provider
+        // with an attacker-controlled issuerUri — the core VULN-HIGH scenario.
+        HttpHeaders tenantAHeaders = authHelper.adminHeaders();
+        UUID tenantAId = authHelper.getTestTenantId();
+        String maliciousUpdate = """
+                {"clientId": "attacker-client", "clientSecret": "attacker-secret", "issuerUri": "https://attacker.example.com/oidc", "enabled": true}
+                """;
+        ResponseEntity<String> attackResp = restTemplate.exchange(
+                // Path carries Tenant A in URL; Tenant B's providerId — the cross-tenant id probe.
+                "/api/v1/tenants/" + tenantAId + "/oauth2-providers/" + tenantBProviderId,
+                HttpMethod.PUT,
+                new HttpEntity<>(maliciousUpdate, tenantAHeaders),
+                String.class);
+
+        // Assert: 404 (not 403 — 403 would confirm id exists in another tenant).
+        assertThat(attackResp.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+
+        // Defense-in-depth: verify Tenant B's provider row is byte-for-byte unchanged.
+        TenantContext.runWithContext(tenantB.getId(), false, () -> {
+            Map<String, Object> row = jdbcTemplate.queryForMap(
+                    "SELECT client_id, client_secret_encrypted, issuer_uri, enabled " +
+                            "FROM tenant_oauth2_provider WHERE id = ?::uuid",
+                    tenantBProviderId);
+            assertThat(row.get("client_id"))
+                    .as("Tenant B's clientId must be unchanged after cross-tenant PUT attempt")
+                    .isEqualTo("legitimate-client-b");
+            assertThat(row.get("client_secret_encrypted"))
+                    .as("Tenant B's clientSecret must be unchanged after cross-tenant PUT attempt")
+                    .isEqualTo("legitimate-secret-b");
+            assertThat(row.get("issuer_uri"))
+                    .as("Tenant B's issuerUri must be unchanged — attacker-controlled OIDC hijack blocked")
+                    .isEqualTo("https://login.microsoftonline.com/b/v2.0");
+            assertThat((Boolean) row.get("enabled"))
+                    .as("Tenant B's enabled flag must be unchanged")
+                    .isTrue();
+        });
+    }
+
+    @Test
+    void tc_delete_crossTenant_returns404_leavesTenantBProviderInPlace() {
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+
+        Tenant tenantB = authHelper.setupSecondaryTenant("xtenant-oauth-delete-" + suffix);
+        User adminB = authHelper.createUserInTenant(tenantB.getId(),
+                "admin-b-oauth-delete-" + suffix + "@test.fabt.org", "Tenant B Admin",
+                new String[]{"PLATFORM_ADMIN", "COC_ADMIN"}, false);
+        HttpHeaders adminBHeaders = authHelper.headersForUser(adminB);
+
+        String createBody = """
+                {"providerName": "okta-b", "clientId": "okta-client-b", "clientSecret": "okta-secret-b", "issuerUri": "https://b.okta.com"}
+                """;
+        ResponseEntity<String> createResp = restTemplate.exchange(
+                "/api/v1/tenants/" + tenantB.getId() + "/oauth2-providers",
+                HttpMethod.POST,
+                new HttpEntity<>(createBody, adminBHeaders),
+                String.class);
+        assertThat(createResp.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        UUID tenantBProviderId = UUID.fromString(
+                createResp.getBody().replaceAll(".*\"id\"\\s*:\\s*\"([^\"]+)\".*", "$1"));
+
+        // Act: Tenant A's COC_ADMIN attempts to delete Tenant B's provider
+        // (pre-fix: bare existsById(id) + deleteById(id) — the existsById was
+        // the same defect shape the ArchUnit rule in Phase 3 forbids).
+        HttpHeaders tenantAHeaders = authHelper.adminHeaders();
+        UUID tenantAId = authHelper.getTestTenantId();
+        ResponseEntity<String> attackResp = restTemplate.exchange(
+                "/api/v1/tenants/" + tenantAId + "/oauth2-providers/" + tenantBProviderId,
+                HttpMethod.DELETE,
+                new HttpEntity<>(tenantAHeaders),
+                String.class);
+
+        assertThat(attackResp.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+
+        // Defense-in-depth: Tenant B's provider row still exists.
+        TenantContext.runWithContext(tenantB.getId(), false, () -> {
+            Integer count = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM tenant_oauth2_provider WHERE id = ?::uuid",
+                    Integer.class, tenantBProviderId);
+            assertThat(count)
+                    .as("Tenant B's provider row must remain after cross-tenant DELETE attempt")
+                    .isEqualTo(1);
+        });
     }
 }
