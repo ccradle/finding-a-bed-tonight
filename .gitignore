@@ -72,6 +72,9 @@ logs/
 # Docker
 docker-compose.override.yml
 
+# Local-only Gatling simulations (not run in CI — ad-hoc load probes)
+e2e/gatling/src/gatling/java/fabt/NycWinterNightSimulation.java
+
 # Test output
 test-results/
 coverage/
