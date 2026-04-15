@@ -6,6 +6,7 @@ import org.fabt.BaseIntegrationTest;
 import org.fabt.TestAuthHelper;
 import org.fabt.auth.api.ApiKeyCreateResponse;
 import org.fabt.auth.service.ApiKeyService;
+import org.fabt.shared.web.TenantContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -88,8 +89,8 @@ class ApiKeyAuthTest extends BaseIntegrationTest {
         );
         assertThat(firstResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
 
-        // Deactivate the key
-        apiKeyService.deactivate(result.id());
+        // Deactivate the key (D11: service pulls tenantId from TenantContext)
+        TenantContext.runWithContext(tenantId, false, () -> apiKeyService.deactivate(result.id()));
 
         // Now it should fail
         ResponseEntity<String> secondResponse = restTemplate.exchange(
@@ -156,8 +157,9 @@ class ApiKeyAuthTest extends BaseIntegrationTest {
         UUID tenantId = authHelper.getTestTenantId();
         ApiKeyService.ApiKeyCreateResult original = apiKeyService.create(tenantId, null, "Rotate Me");
 
-        // Rotate the key
-        ApiKeyService.ApiKeyCreateResult rotated = apiKeyService.rotate(original.id());
+        // Rotate the key (D11: service pulls tenantId from TenantContext)
+        ApiKeyService.ApiKeyCreateResult rotated = TenantContext.callWithContext(tenantId, false,
+                () -> apiKeyService.rotate(original.id()));
 
         // OLD key should STILL work during grace period (24h default)
         HttpHeaders oldHeaders = new HttpHeaders();
@@ -186,11 +188,12 @@ class ApiKeyAuthTest extends BaseIntegrationTest {
         UUID tenantId = authHelper.getTestTenantId();
         ApiKeyService.ApiKeyCreateResult original = apiKeyService.create(tenantId, null, "Revoke During Grace");
 
-        // Rotate — creates grace period
-        ApiKeyService.ApiKeyCreateResult rotated = apiKeyService.rotate(original.id());
+        // Rotate — creates grace period (D11)
+        ApiKeyService.ApiKeyCreateResult rotated = TenantContext.callWithContext(tenantId, false,
+                () -> apiKeyService.rotate(original.id()));
 
-        // Revoke — should kill both current and old key
-        apiKeyService.deactivate(original.id());
+        // Revoke — should kill both current and old key (D11)
+        TenantContext.runWithContext(tenantId, false, () -> apiKeyService.deactivate(original.id()));
 
         // Old key must fail
         HttpHeaders oldHeaders = new HttpHeaders();
@@ -220,7 +223,7 @@ class ApiKeyAuthTest extends BaseIntegrationTest {
         ApiKeyService.ApiKeyCreateResult original = apiKeyService.create(tenantId, null, "Expire Grace");
 
         // Rotate
-        apiKeyService.rotate(original.id());
+        TenantContext.runWithContext(tenantId, false, () -> apiKeyService.rotate(original.id()));
 
         // Manually expire the grace period in DB (simulate clock advance)
         jdbcTemplate.update(
@@ -245,7 +248,8 @@ class ApiKeyAuthTest extends BaseIntegrationTest {
         ApiKeyService.ApiKeyCreateResult result = apiKeyService.create(tenantId, null, "Entropy Check");
         assertThat(result.plaintextKey()).hasSize(64); // 32 bytes = 64 hex chars
 
-        ApiKeyService.ApiKeyCreateResult rotated = apiKeyService.rotate(result.id());
+        ApiKeyService.ApiKeyCreateResult rotated = TenantContext.callWithContext(tenantId, false,
+                () -> apiKeyService.rotate(result.id()));
         assertThat(rotated.plaintextKey()).hasSize(64);
     }
 
@@ -283,7 +287,7 @@ class ApiKeyAuthTest extends BaseIntegrationTest {
         ApiKeyService.ApiKeyCreateResult key = apiKeyService.create(tenantId, null, "Double Revoke");
 
         // Revoke once
-        apiKeyService.deactivate(key.id());
+        TenantContext.runWithContext(tenantId, false, () -> apiKeyService.deactivate(key.id()));
 
         // Revoke again via API — should NOT throw
         HttpHeaders headers = authHelper.cocAdminHeaders();
@@ -312,5 +316,97 @@ class ApiKeyAuthTest extends BaseIntegrationTest {
                 shelterId, tenantId, name
         );
         return shelterId;
+    }
+
+    // ------------------------------------------------------------------
+    // cross-tenant-isolation-audit (Issue #117) — Phase 2 task 2.2.5.
+    // Two regression tests pinning the findByIdAndTenantId / findByIdOrThrow
+    // refactor on ApiKeyService.rotate + .deactivate. Mirrors the v0.39
+    // DvReferralIntegrationTest.tc_*_crossTenant_returns404 pattern.
+    //
+    // THREAT MODEL (Marcus Webb, VULN-HIGH — availability + DoS):
+    // pre-fix, a CoC admin in Tenant A could POST /api/v1/api-keys/
+    // {tenantB-key-id}/rotate OR DELETE /api/v1/api-keys/{tenantB-key-id} —
+    // invalidating Tenant B's API key integrations without their knowledge.
+    // Cross-tenant denial-of-service against SaaS-style webhook / API
+    // automation. Unlike the OAuth2 provider case, there's no auth-hijack
+    // pivot — but silent DoS of another CoC's integrations is its own
+    // class of problem.
+    // ------------------------------------------------------------------
+
+    @Test
+    void tc_rotate_crossTenant_returns404_leavesTenantBKeyUnchanged() {
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+
+        // Set up Tenant B with its own admin + API key.
+        org.fabt.tenant.domain.Tenant tenantB =
+                authHelper.setupSecondaryTenant("xtenant-apikey-rotate-" + suffix);
+        ApiKeyService.ApiKeyCreateResult tenantBKey = TenantContext.callWithContext(
+                tenantB.getId(), false,
+                () -> apiKeyService.create(tenantB.getId(), null, "Tenant B legitimate key"));
+        String originalKeyHash = jdbcTemplate.queryForObject(
+                "SELECT key_hash FROM api_key WHERE id = ?::uuid",
+                String.class, tenantBKey.id());
+
+        // Act: Tenant A's COC_ADMIN attempts to rotate Tenant B's API key —
+        // would silently invalidate Tenant B's integrations pre-fix.
+        HttpHeaders tenantAHeaders = authHelper.cocAdminHeaders();
+        ResponseEntity<String> attackResp = restTemplate.exchange(
+                "/api/v1/api-keys/" + tenantBKey.id() + "/rotate",
+                HttpMethod.POST,
+                new HttpEntity<>(tenantAHeaders),
+                String.class);
+
+        // Assert: 404 (not 403 — D3 symmetric).
+        assertThat(attackResp.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+
+        // Defense-in-depth: Tenant B's key_hash is unchanged (no rotation
+        // happened) AND old_key_hash was not set (no grace-period artifact
+        // from the failed attempt).
+        TenantContext.runWithContext(tenantB.getId(), false, () -> {
+            java.util.Map<String, Object> row = jdbcTemplate.queryForMap(
+                    "SELECT key_hash, old_key_hash, active FROM api_key WHERE id = ?::uuid",
+                    tenantBKey.id());
+            assertThat(row.get("key_hash"))
+                    .as("Tenant B's key_hash must be unchanged — rotation did NOT happen")
+                    .isEqualTo(originalKeyHash);
+            assertThat(row.get("old_key_hash"))
+                    .as("Tenant B's old_key_hash must remain null — no grace-period artifact")
+                    .isNull();
+            assertThat((Boolean) row.get("active"))
+                    .as("Tenant B's key must still be active")
+                    .isTrue();
+        });
+    }
+
+    @Test
+    void tc_deactivate_crossTenant_returns404_leavesTenantBKeyActive() {
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+
+        org.fabt.tenant.domain.Tenant tenantB =
+                authHelper.setupSecondaryTenant("xtenant-apikey-deactivate-" + suffix);
+        ApiKeyService.ApiKeyCreateResult tenantBKey = TenantContext.callWithContext(
+                tenantB.getId(), false,
+                () -> apiKeyService.create(tenantB.getId(), null, "Tenant B key to protect"));
+
+        // Act: Tenant A's COC_ADMIN attempts to deactivate Tenant B's API key.
+        HttpHeaders tenantAHeaders = authHelper.cocAdminHeaders();
+        ResponseEntity<String> attackResp = restTemplate.exchange(
+                "/api/v1/api-keys/" + tenantBKey.id(),
+                HttpMethod.DELETE,
+                new HttpEntity<>(tenantAHeaders),
+                String.class);
+
+        assertThat(attackResp.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+
+        // Defense-in-depth: Tenant B's key is still active.
+        TenantContext.runWithContext(tenantB.getId(), false, () -> {
+            Boolean active = jdbcTemplate.queryForObject(
+                    "SELECT active FROM api_key WHERE id = ?::uuid",
+                    Boolean.class, tenantBKey.id());
+            assertThat(active)
+                    .as("Tenant B's API key must still be active after cross-tenant DELETE attempt")
+                    .isTrue();
+        });
     }
 }

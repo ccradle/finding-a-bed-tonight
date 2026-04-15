@@ -21,4 +21,15 @@ public interface ApiKeyRepository extends CrudRepository<ApiKey, UUID> {
     List<ApiKey> findExpiredGracePeriodKeys();
 
     List<ApiKey> findByTenantId(UUID tenantId);
+
+    /**
+     * Tenant-scoped single-key lookup for state-mutating paths (rotate,
+     * deactivate). Returns empty when the {@code id} exists but belongs
+     * to a different tenant — callers map empty to 404 (not 403) to avoid
+     * existence leak. See {@code cross-tenant-isolation-audit} design
+     * decisions D1 and D3.
+     */
+    @Query("SELECT * FROM api_key WHERE id = :id AND tenant_id = :tenantId")
+    Optional<ApiKey> findByIdAndTenantId(@Param("id") UUID id,
+                                          @Param("tenantId") UUID tenantId);
 }

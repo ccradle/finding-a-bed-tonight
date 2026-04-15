@@ -13,6 +13,7 @@ import java.util.UUID;
 
 import org.fabt.auth.domain.ApiKey;
 import org.fabt.auth.repository.ApiKeyRepository;
+import org.fabt.shared.web.TenantContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -74,10 +75,19 @@ public class ApiKeyService {
 
     private static final long DEFAULT_GRACE_PERIOD_HOURS = 24;
 
+    /**
+     * Rotates an API key — issues a new plaintext key, preserves the old
+     * hash for the grace period, returns the new plaintext to the caller.
+     *
+     * <p>Tenant-scoped: the key MUST belong to the caller's tenant
+     * (resolved from {@link TenantContext}). A cross-tenant id returns 404
+     * via {@link NoSuchElementException} — not 403 — to avoid existence
+     * disclosure (design D3). See {@link #findByIdOrThrow(UUID)} and the
+     * {@code cross-tenant-isolation-audit} change.
+     */
     @Transactional
     public ApiKeyCreateResult rotate(UUID keyId) {
-        ApiKey existing = apiKeyRepository.findById(keyId)
-                .orElseThrow(() -> new NoSuchElementException("API key not found: " + keyId));
+        ApiKey existing = findByIdOrThrow(keyId);
 
         if (!existing.isActive()) {
             throw new IllegalStateException("Cannot rotate a deactivated API key: " + keyId);
@@ -98,15 +108,36 @@ public class ApiKeyService {
         return new ApiKeyCreateResult(existing.getId(), plaintextKey, keySuffix);
     }
 
+    /**
+     * Deactivates an API key and clears any active grace-period hash so the
+     * revoked key cannot authenticate via the {@code old_key_hash} path.
+     *
+     * <p>Tenant-scoped: the key MUST belong to the caller's tenant
+     * (resolved from {@link TenantContext}). A cross-tenant id returns 404.
+     */
     @Transactional
     public void deactivate(UUID keyId) {
-        ApiKey existing = apiKeyRepository.findById(keyId)
-                .orElseThrow(() -> new NoSuchElementException("API key not found: " + keyId));
+        ApiKey existing = findByIdOrThrow(keyId);
         existing.setActive(false);
         // Clear any active grace period — revoked key should not authenticate via old hash
         existing.setOldKeyHash(null);
         existing.setOldKeyExpiresAt(null);
         apiKeyRepository.save(existing);
+    }
+
+    /**
+     * Tenant-scoped single-key lookup used by every state-mutating path in
+     * this service ({@link #rotate} and {@link #deactivate}). Pulls the
+     * caller's {@code tenantId} from {@link TenantContext} and delegates to
+     * {@link ApiKeyRepository#findByIdAndTenantId(UUID, UUID)}. Throws
+     * {@link NoSuchElementException} on empty — mapped to 404 by
+     * {@code GlobalExceptionHandler}. All state-mutating call sites go
+     * through this helper so the tenant-scoping invariant cannot be
+     * forgotten at one site while the others are hardened.
+     */
+    private ApiKey findByIdOrThrow(UUID keyId) {
+        return apiKeyRepository.findByIdAndTenantId(keyId, TenantContext.getTenantId())
+                .orElseThrow(() -> new NoSuchElementException("API key not found: " + keyId));
     }
 
     @Transactional(readOnly = true)
