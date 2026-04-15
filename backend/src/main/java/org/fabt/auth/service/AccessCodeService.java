@@ -30,15 +30,18 @@ public class AccessCodeService {
     private final JdbcTemplate jdbcTemplate;
     private final PasswordService passwordService;
     private final UserRepository userRepository;
+    private final UserService userService;
     private final TenantService tenantService;
     private final ApplicationEventPublisher eventPublisher;
 
     public AccessCodeService(JdbcTemplate jdbcTemplate, PasswordService passwordService,
-                             UserRepository userRepository, TenantService tenantService,
+                             UserRepository userRepository, UserService userService,
+                             TenantService tenantService,
                              ApplicationEventPublisher eventPublisher) {
         this.jdbcTemplate = jdbcTemplate;
         this.passwordService = passwordService;
         this.userRepository = userRepository;
+        this.userService = userService;
         this.tenantService = tenantService;
         this.eventPublisher = eventPublisher;
     }
@@ -50,8 +53,12 @@ public class AccessCodeService {
      */
     @Transactional
     public String generateCode(UUID targetUserId, UUID adminUserId, UUID tenantId) {
-        User target = userRepository.findById(targetUserId)
-                .orElseThrow(() -> new java.util.NoSuchElementException("User not found"));
+        // Task 2.5.1 defense-in-depth: even though the controller already
+        // validates via userService.getUser, the service re-validates
+        // through the tenant-scoped lookup. Ensures AccessCodeService
+        // cannot be called from a future non-controller caller with an
+        // attacker-influenced targetUserId.
+        User target = userService.getUser(targetUserId);
 
         if (!target.isActive()) {
             throw new IllegalStateException("Cannot generate access code for deactivated user");
