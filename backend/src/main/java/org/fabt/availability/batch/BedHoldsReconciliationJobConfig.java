@@ -195,7 +195,14 @@ public class BedHoldsReconciliationJobConfig {
     private void writeAuditRowDirect(Map<String, Object> details) {
         try {
             JsonString detailsJson = new JsonString(objectMapper.writeValueAsString(details));
+            // cross-tenant-isolation-audit Phase 2.12: batch reconciler emits
+            // platform-wide audit events (tenant_id=null is semantically
+            // correct here — the reconciliation is not tenant-scoped by design).
+            // This is a legitimate @TenantUnscoped path for audit data; Phase
+            // 3 ArchUnit rules accept it because the batch-job package is
+            // exempt from the service-layer tenant guard.
             AuditEventEntity entity = new AuditEventEntity(
+                    null,                                // tenant id (platform-wide batch)
                     null,                                // actor user id
                     null,                                // target user id
                     AuditEventTypes.BED_HOLDS_RECONCILED,
