@@ -9,6 +9,8 @@ import org.fabt.BaseIntegrationTest;
 import org.fabt.TestAuthHelper;
 import org.fabt.auth.domain.User;
 import org.fabt.shared.security.SecretEncryptionService;
+import org.fabt.shared.web.TenantContext;
+import org.fabt.tenant.domain.Tenant;
 import org.fabt.auth.service.TotpService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -548,5 +550,122 @@ class TotpAndAccessCodeIntegrationTest extends BaseIntegrationTest {
         // Must be 200, not 500 (constraint violation would cause 500)
         assertThat(loginResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(loginResponse.getBody()).containsKey("accessToken");
+    }
+
+    // ================================================================
+    // cross-tenant-isolation-audit (Issue #117) — Phase 2 task 2.3.3.
+    // Two regression tests pinning the userService.getUser refactor on
+    // TotpController.disableUserTotp + .adminRegenerateRecoveryCodes.
+    //
+    // THREAT MODEL (Marcus Webb, VULN-HIGH — account takeover precursor):
+    // pre-fix, a CoC admin in Tenant A could DELETE /api/v1/auth/totp/
+    // {tenantB-user-id} OR POST /api/v1/auth/totp/{tenantB-user-id}/
+    // regenerate-recovery-codes. The disable path removes a Tenant B
+    // user's 2FA shield; the regenerate path directly returns new
+    // backup codes in the response body — no additional steps needed
+    // for account takeover once the attacker gets those codes.
+    // ================================================================
+
+    @Test
+    @DisplayName("Cross-tenant TotpController.disableUserTotp → 404, Tenant B user's 2FA preserved")
+    void tc_disableUserTotp_crossTenant_returns404_leavesTenantBUser2FAIntact() {
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+
+        // Tenant B with a user enrolled in 2FA.
+        Tenant tenantB = authHelper.setupSecondaryTenant("xtenant-totp-disable-" + suffix);
+        User tenantBUser = authHelper.createUserInTenant(tenantB.getId(),
+                "totp-victim-" + suffix + "@test.fabt.org", "TOTP Victim",
+                new String[]{"OUTREACH_WORKER"}, false);
+
+        // Enroll tenantBUser in 2FA by setting the fields directly (bypass
+        // the self-enrollment flow — same shape as line 49 test setup).
+        String testSecret = totpService.generateSecret();
+        tenantBUser.setTotpEnabled(true);
+        tenantBUser.setTotpSecretEncrypted(totpService.encryptSecret(testSecret));
+        tenantBUser.setRecoveryCodes("[\"hash1\",\"hash2\"]");
+        tenantBUser.setUpdatedAt(java.time.Instant.now());
+        authHelper.getUserRepository().save(tenantBUser);
+
+        // Act: Tenant A's COC_ADMIN attempts to disable Tenant B user's 2FA.
+        HttpHeaders tenantAHeaders = authHelper.cocAdminHeaders();
+        ResponseEntity<String> attackResp = restTemplate.exchange(
+                "/api/v1/auth/totp/" + tenantBUser.getId(),
+                HttpMethod.DELETE,
+                new HttpEntity<>(tenantAHeaders),
+                String.class);
+
+        // Assert: 404 (not 403 — D3 symmetric, no existence disclosure).
+        assertThat(attackResp.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+
+        // Defense-in-depth: Tenant B user's 2FA state is byte-for-byte
+        // unchanged — totp_enabled is still true, encrypted secret intact,
+        // recovery codes intact, token_version NOT bumped (which would
+        // invalidate the user's existing sessions).
+        TenantContext.runWithContext(tenantB.getId(), false, () -> {
+            Map<String, Object> row = jdbcTemplate.queryForMap(
+                    "SELECT totp_enabled, totp_secret_encrypted, recovery_codes, token_version " +
+                            "FROM app_user WHERE id = ?::uuid",
+                    tenantBUser.getId());
+            assertThat((Boolean) row.get("totp_enabled"))
+                    .as("Tenant B user's 2FA must still be enabled — account-takeover attack blocked")
+                    .isTrue();
+            assertThat(row.get("totp_secret_encrypted"))
+                    .as("Tenant B user's TOTP secret must be preserved")
+                    .isNotNull();
+            assertThat(row.get("recovery_codes"))
+                    .as("Tenant B user's recovery codes must be preserved")
+                    .isNotNull();
+            assertThat(((Number) row.get("token_version")).intValue())
+                    .as("Tenant B user's token_version must NOT be bumped — existing sessions remain valid")
+                    .isEqualTo(tenantBUser.getTokenVersion());
+        });
+    }
+
+    @Test
+    @DisplayName("Cross-tenant TotpController.adminRegenerateRecoveryCodes → 404, no codes returned, Tenant B codes preserved")
+    void tc_adminRegenerateRecoveryCodes_crossTenant_returns404_noCodesLeaked() {
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+
+        Tenant tenantB = authHelper.setupSecondaryTenant("xtenant-totp-regen-" + suffix);
+        User tenantBUser = authHelper.createUserInTenant(tenantB.getId(),
+                "regen-victim-" + suffix + "@test.fabt.org", "Regen Victim",
+                new String[]{"OUTREACH_WORKER"}, false);
+
+        String originalCodesJson = "[\"original-hash-1\",\"original-hash-2\"]";
+        String testSecret = totpService.generateSecret();
+        tenantBUser.setTotpEnabled(true);
+        tenantBUser.setTotpSecretEncrypted(totpService.encryptSecret(testSecret));
+        tenantBUser.setRecoveryCodes(originalCodesJson);
+        tenantBUser.setUpdatedAt(java.time.Instant.now());
+        authHelper.getUserRepository().save(tenantBUser);
+
+        // Act: Tenant A's COC_ADMIN attempts to regenerate Tenant B user's
+        // backup codes — pre-fix would return the new plaintext codes in
+        // the response body, giving the attacker direct account takeover.
+        HttpHeaders tenantAHeaders = authHelper.cocAdminHeaders();
+        ResponseEntity<String> attackResp = restTemplate.exchange(
+                "/api/v1/auth/totp/" + tenantBUser.getId() + "/regenerate-recovery-codes",
+                HttpMethod.POST,
+                new HttpEntity<>(tenantAHeaders),
+                String.class);
+
+        // Assert: 404 + response body does NOT contain the string "backupCodes"
+        // (the JSON response key from the success path).
+        assertThat(attackResp.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        if (attackResp.getBody() != null) {
+            assertThat(attackResp.getBody())
+                    .as("404 response must NOT leak backup codes — account-takeover pivot blocked")
+                    .doesNotContain("backupCodes");
+        }
+
+        // Defense-in-depth: Tenant B user's recovery_codes column is unchanged.
+        TenantContext.runWithContext(tenantB.getId(), false, () -> {
+            String codes = jdbcTemplate.queryForObject(
+                    "SELECT recovery_codes FROM app_user WHERE id = ?::uuid",
+                    String.class, tenantBUser.getId());
+            assertThat(codes)
+                    .as("Tenant B user's recovery codes must be unchanged — attacker's 'regenerate' attempt did NOT rotate them")
+                    .isEqualTo(originalCodesJson);
+        });
     }
 }
