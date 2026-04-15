@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.fabt.shared.security.TenantUnscopedQuery;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -56,6 +57,7 @@ public class TestResetController {
                     "IN PRODUCTION — it is profile-gated with @Profile(\"dev | test\"). Requires PLATFORM_ADMIN " +
                     "role and X-Confirm-Reset: DESTROY header."
     )
+    @TenantUnscopedQuery("test/dev-only DESTROY endpoint; class is @Profile(\"dev | test\")-gated and unreachable in lite/standard/full. PLATFORM_ADMIN + X-Confirm-Reset header required.")
     @DeleteMapping("/reset")
     @PreAuthorize("hasRole('PLATFORM_ADMIN')")
     public ResponseEntity<?> resetTestData(

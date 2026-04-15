@@ -16,6 +16,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.fabt.shared.security.TenantUnscopedQuery;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -63,6 +64,7 @@ public class PasswordResetService {
      * <p>No @Transactional: the INSERT is a single atomic statement. Timing padding
      * must NOT hold a DB connection open during sleep (Marcus: Charlotte scale concern).</p>
      */
+    @TenantUnscopedQuery("password_reset_token rows are tenant-scoped via app_user FK; user looked up by (tenant_id, email) before any token operation. token_hash is SHA-256 — collision across tenants is cryptographically infeasible. Defense-in-depth tenant_id will be added in multi-tenant-production-readiness.")
     public void requestReset(String email, String tenantSlug) {
         long startNanos = System.nanoTime();
         try {
@@ -128,6 +130,7 @@ public class PasswordResetService {
      *
      * @return true if reset succeeded, false if token is invalid/expired/used
      */
+    @TenantUnscopedQuery("token_hash is SHA-256 — globally unique by birthday-bound argument. Resolved row's user_id then dictates tenant. Defense-in-depth tenant_id will be added in multi-tenant-production-readiness.")
     @Transactional
     public boolean resetPassword(String token, String newPassword) {
         String tokenHash = sha256Hex(token);

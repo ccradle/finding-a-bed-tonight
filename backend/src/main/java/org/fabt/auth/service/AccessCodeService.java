@@ -6,6 +6,7 @@ import java.util.UUID;
 import org.fabt.auth.domain.User;
 import org.fabt.auth.repository.UserRepository;
 import org.fabt.shared.audit.AuditEventRecord;
+import org.fabt.shared.security.TenantUnscopedQuery;
 import org.fabt.tenant.service.TenantService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -86,6 +87,7 @@ public class AccessCodeService {
      * Marks the code as used on success.
      * Audit event published by caller AFTER transaction commits.
      */
+    @TenantUnscopedQuery("one_time_access_code rows are tenant-scoped via app_user FK; the user is looked up via findByTenantIdAndEmail above (line 94) before any code-row query, so user_id implies tenant. Defense-in-depth tenant_id will be added in multi-tenant-production-readiness.")
     @Transactional
     public User validateCode(String email, String tenantSlug, String code) {
         var tenant = tenantService.findBySlug(tenantSlug).orElse(null);

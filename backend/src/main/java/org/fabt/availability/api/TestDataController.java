@@ -5,6 +5,7 @@ import java.util.UUID;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.fabt.shared.security.TenantUnscopedQuery;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -27,6 +28,7 @@ public class TestDataController {
         this.jdbcTemplate = jdbcTemplate;
     }
 
+    @TenantUnscopedQuery("test-only data manipulation; class is @Profile(\"test\")-gated and unreachable in lite/standard/full")
     @GetMapping("/shelters/{id}/backdate")
     public ResponseEntity<String> backdateSnapshot(
             @PathVariable UUID id,
