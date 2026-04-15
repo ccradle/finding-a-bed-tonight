@@ -11,6 +11,7 @@ import org.fabt.auth.service.DynamicClientRegistrationSource;
 import org.fabt.auth.service.OAuth2AccountLinkService;
 import org.fabt.auth.service.OAuth2AccountLinkService.LinkResult;
 import org.fabt.auth.service.TenantOAuth2ProviderService;
+import org.fabt.shared.web.TenantContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -51,9 +52,10 @@ class OAuth2FlowIntegrationTest extends BaseIntegrationTest {
 
     @Test
     void dynamicRegistration_resolvesProviderFromDatabase() {
-        // Create a provider
-        providerService.create(tenantId, "testidp", "test-client-id",
-                "test-client-secret", "http://localhost:8180/realms/fabt-dev");
+        // Create a provider (D11: service pulls tenantId from TenantContext)
+        TenantContext.runWithContext(tenantId, false, () ->
+                providerService.create("testidp", "test-client-id",
+                        "test-client-secret", "http://localhost:8180/realms/fabt-dev"));
 
         String registrationId = authHelper.getTestTenantSlug() + "-testidp";
         ClientRegistration reg = registrationSource.findByRegistrationId(registrationId);
@@ -71,8 +73,9 @@ class OAuth2FlowIntegrationTest extends BaseIntegrationTest {
 
     @Test
     void dynamicRegistration_cachesForSubsequentCalls() {
-        providerService.create(tenantId, "cached", "cached-id",
-                "cached-secret", "http://localhost:8180/realms/fabt-dev");
+        TenantContext.runWithContext(tenantId, false, () ->
+                providerService.create("cached", "cached-id",
+                        "cached-secret", "http://localhost:8180/realms/fabt-dev"));
 
         String registrationId = authHelper.getTestTenantSlug() + "-cached";
         ClientRegistration first = registrationSource.findByRegistrationId(registrationId);
@@ -132,9 +135,11 @@ class OAuth2FlowIntegrationTest extends BaseIntegrationTest {
 
     @Test
     void dynamicRegistration_disabledProviderReturnsNull() {
-        TenantOAuth2Provider provider = providerService.create(tenantId, "disabled",
-                "disabled-id", "disabled-secret", "http://localhost:8180/realms/fabt-dev");
-        providerService.update(provider.getId(), null, null, null, false);
+        TenantOAuth2Provider provider = TenantContext.callWithContext(tenantId, false, () ->
+                providerService.create("disabled", "disabled-id", "disabled-secret",
+                        "http://localhost:8180/realms/fabt-dev"));
+        TenantContext.runWithContext(tenantId, false, () ->
+                providerService.update(provider.getId(), null, null, null, false));
 
         String registrationId = authHelper.getTestTenantSlug() + "-disabled";
         ClientRegistration reg = registrationSource.findByRegistrationId(registrationId);
@@ -156,8 +161,9 @@ class OAuth2FlowIntegrationTest extends BaseIntegrationTest {
 
     @Test
     void publicProviderEndpoint_returnsEnabledProviders() {
-        providerService.create(tenantId, "pubtest", "pub-id",
-                "pub-secret", "http://localhost:8180/realms/fabt-dev");
+        TenantContext.runWithContext(tenantId, false, () ->
+                providerService.create("pubtest", "pub-id",
+                        "pub-secret", "http://localhost:8180/realms/fabt-dev"));
 
         ResponseEntity<String> response = restTemplate.getForEntity(
                 "/api/v1/tenants/" + authHelper.getTestTenantSlug() + "/oauth2-providers/public",

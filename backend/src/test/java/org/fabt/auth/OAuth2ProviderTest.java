@@ -293,4 +293,79 @@ class OAuth2ProviderTest extends BaseIntegrationTest {
                     .isEqualTo(1);
         });
     }
+
+    // ------------------------------------------------------------------
+    // Phase 2.1 addendum (task 2.1.7) — URL-path-sink class per design D11.
+    // Pre-fix, a CoC admin in Tenant A sending POST /api/v1/tenants/{tenantB}/
+    // oauth2-providers with a malicious body would create a provider row UNDER
+    // TENANT B with attacker-controlled issuerUri — the stealthiest of the
+    // three OAuth2 vulnerabilities since there's no pre-existing row to diff
+    // against. Post-fix, the controller validates URL {tenantId} matches
+    // TenantContext.getTenantId() and returns 404 on mismatch before the
+    // service is invoked; the service itself sources tenantId from
+    // TenantContext so even a bypass of the controller guard cannot reach
+    // cross-tenant.
+    // ------------------------------------------------------------------
+
+    @Test
+    void tc_create_crossTenant_urlPath_returns404_noRowInsertedForTenantB() {
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+
+        // Set up Tenant B (empty — no OAuth2 providers configured).
+        Tenant tenantB = authHelper.setupSecondaryTenant("xtenant-oauth-create-" + suffix);
+
+        // Confirm Tenant B has zero providers before the attack.
+        TenantContext.runWithContext(tenantB.getId(), false, () -> {
+            Integer before = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM tenant_oauth2_provider WHERE tenant_id = ?::uuid",
+                    Integer.class, tenantB.getId());
+            assertThat(before).as("Tenant B must start with zero providers").isZero();
+        });
+
+        // Act: Tenant A's COC_ADMIN attempts to create a provider UNDER TENANT B
+        // with an attacker-controlled issuerUri — the worst shape of URL-path-sink.
+        HttpHeaders tenantAHeaders = authHelper.adminHeaders();
+        String maliciousCreate = """
+                {"providerName": "attacker-injected", "clientId": "attacker-client", "clientSecret": "attacker-secret", "issuerUri": "https://attacker.example.com/oidc"}
+                """;
+        ResponseEntity<String> attackResp = restTemplate.exchange(
+                "/api/v1/tenants/" + tenantB.getId() + "/oauth2-providers",
+                HttpMethod.POST,
+                new HttpEntity<>(maliciousCreate, tenantAHeaders),
+                String.class);
+
+        // Assert: 404 (not 403, not 201 — D3 symmetric). The URL path's
+        // tenantId doesn't match the caller's JWT tenant; the controller
+        // short-circuits with NoSuchElementException → 404 before the
+        // service is invoked.
+        assertThat(attackResp.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+
+        // Defense-in-depth: verify NO row was inserted into Tenant B's
+        // tenant_oauth2_provider. The stealthy OIDC-hijack scenario is
+        // specifically "attacker creates a new row" — a successful 404
+        // without this assertion could mask a downstream insertion.
+        TenantContext.runWithContext(tenantB.getId(), false, () -> {
+            Integer tenantBRows = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM tenant_oauth2_provider WHERE tenant_id = ?::uuid",
+                    Integer.class, tenantB.getId());
+            assertThat(tenantBRows)
+                    .as("Tenant B's provider row count must remain zero — no attacker injection")
+                    .isZero();
+        });
+
+        // Defense-in-depth: also verify NO row was silently created in Tenant A
+        // (the caller's own tenant). The fix should REJECT the request with
+        // 404, not redirect the write. A silent redirect would leave an
+        // attacker-named provider in the caller's tenant — confusing for
+        // audit but not a cross-tenant leak; still not what we want.
+        UUID tenantAId = authHelper.getTestTenantId();
+        TenantContext.runWithContext(tenantAId, false, () -> {
+            Integer tenantARows = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM tenant_oauth2_provider WHERE tenant_id = ?::uuid AND provider_name = ?",
+                    Integer.class, tenantAId, "attacker-injected");
+            assertThat(tenantARows)
+                    .as("Caller's own tenant must have no row created from the attack attempt — 404 means rejected, not redirected")
+                    .isZero();
+        });
+    }
 }

@@ -22,9 +22,18 @@ public class TenantOAuth2ProviderService {
     }
 
     /**
-     * Registers a new OAuth2 provider for a tenant.
+     * Registers a new OAuth2 provider for the caller's tenant.
      *
-     * @param tenantId     the tenant this provider belongs to
+     * <p>Design D11 (URL-path-sink class): {@code tenantId} is sourced from
+     * {@link TenantContext#getTenantId()} internally. The service SHALL NOT
+     * accept {@code tenantId} as a parameter — doing so exposes the caller
+     * to the foot-gun of passing an attacker-controlled URL path value to
+     * a write operation. The controller's URL-match guard plus this
+     * internal sourcing provides defense-in-depth: the controller returns
+     * 404 on URL/JWT tenant mismatch before this method is invoked, and
+     * even if invoked directly (e.g. from a test) this method writes only
+     * to the caller's own tenant.
+     *
      * @param providerName e.g. "google", "microsoft", "okta"
      * @param clientId     the OAuth2 client ID
      * @param clientSecret the OAuth2 client secret
@@ -32,8 +41,10 @@ public class TenantOAuth2ProviderService {
      * @return the created provider entity
      */
     @Transactional
-    public TenantOAuth2Provider create(UUID tenantId, String providerName, String clientId,
+    public TenantOAuth2Provider create(String providerName, String clientId,
                                         String clientSecret, String issuerUri) {
+        UUID tenantId = TenantContext.getTenantId();
+
         // Check for duplicate provider name within tenant
         if (providerRepository.findByTenantIdAndProviderName(tenantId, providerName).isPresent()) {
             throw new IllegalStateException(
