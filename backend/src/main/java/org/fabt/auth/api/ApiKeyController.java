@@ -43,8 +43,10 @@ public class ApiKeyController {
     )
     @PostMapping
     public ResponseEntity<ApiKeyCreateResponse> createApiKey(@Valid @RequestBody CreateApiKeyRequest request) {
-        UUID tenantId = TenantContext.getTenantId();
-        ApiKeyService.ApiKeyCreateResult result = apiKeyService.create(tenantId, request.shelterId(), request.label());
+        // D11: service sources tenantId from TenantContext internally —
+        // no pass-through from controller (JwtAuthenticationFilter binds
+        // TenantContext before this handler runs).
+        ApiKeyService.ApiKeyCreateResult result = apiKeyService.create(request.shelterId(), request.label());
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(new ApiKeyCreateResponse(result.id(), result.plaintextKey(), result.suffix()));
     }

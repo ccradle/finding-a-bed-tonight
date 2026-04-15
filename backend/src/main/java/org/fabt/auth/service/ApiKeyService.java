@@ -31,8 +31,21 @@ public class ApiKeyService {
         this.apiKeyRepository = apiKeyRepository;
     }
 
+    /**
+     * Creates a new API key for the caller's tenant.
+     *
+     * <p>Design D11 (URL-path-sink class): {@code tenantId} is sourced from
+     * {@link TenantContext#getTenantId()} internally. The service SHALL NOT
+     * accept {@code tenantId} as a parameter — doing so would invite a
+     * future caller to pass an attacker-influenced value (e.g. URL path
+     * variable, request body field) to a write operation. Symmetric with
+     * {@code TenantOAuth2ProviderService.create}, {@code SubscriptionService.create},
+     * and {@code ShelterService.create}.
+     */
     @Transactional
-    public ApiKeyCreateResult create(UUID tenantId, UUID shelterId, String label) {
+    public ApiKeyCreateResult create(UUID shelterId, String label) {
+        UUID tenantId = TenantContext.getTenantId();
+
         String plaintextKey = generateRandomKey();
         String keyHash = sha256Hex(plaintextKey);
         String keySuffix = plaintextKey.substring(plaintextKey.length() - 4);

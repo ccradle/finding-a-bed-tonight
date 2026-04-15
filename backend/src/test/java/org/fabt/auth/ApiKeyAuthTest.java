@@ -40,7 +40,8 @@ class ApiKeyAuthTest extends BaseIntegrationTest {
     void test_apiKeyAuth_validKey() {
         // Create an org-level API key (implicit COC_ADMIN role)
         UUID tenantId = authHelper.getTestTenantId();
-        ApiKeyService.ApiKeyCreateResult result = apiKeyService.create(tenantId, null, "Test Key");
+        ApiKeyService.ApiKeyCreateResult result = TenantContext.callWithContext(tenantId, false,
+                () -> apiKeyService.create(null, "Test Key"));
 
         // Use the API key to access a COC_ADMIN endpoint
         HttpHeaders headers = new HttpHeaders();
@@ -75,7 +76,8 @@ class ApiKeyAuthTest extends BaseIntegrationTest {
     void test_apiKeyAuth_deactivatedKey() {
         // Create an API key
         UUID tenantId = authHelper.getTestTenantId();
-        ApiKeyService.ApiKeyCreateResult result = apiKeyService.create(tenantId, null, "Deactivate Me");
+        ApiKeyService.ApiKeyCreateResult result = TenantContext.callWithContext(tenantId, false,
+                () -> apiKeyService.create(null, "Deactivate Me"));
 
         // Verify it works first
         HttpHeaders headers = new HttpHeaders();
@@ -106,7 +108,8 @@ class ApiKeyAuthTest extends BaseIntegrationTest {
     void test_apiKeyAuth_orgLevel_hasCocAdminRole() {
         // Create an org-level API key (no shelterId) - should get COC_ADMIN role
         UUID tenantId = authHelper.getTestTenantId();
-        ApiKeyService.ApiKeyCreateResult result = apiKeyService.create(tenantId, null, "Org Level Key");
+        ApiKeyService.ApiKeyCreateResult result = TenantContext.callWithContext(tenantId, false,
+                () -> apiKeyService.create(null, "Org Level Key"));
 
         // Use the API key to create another API key (requires authentication)
         HttpHeaders headers = new HttpHeaders();
@@ -135,7 +138,8 @@ class ApiKeyAuthTest extends BaseIntegrationTest {
         // Use JdbcTemplate to insert one.
         UUID shelterId = insertTestShelter(tenantId, "API Key Test Shelter");
 
-        ApiKeyService.ApiKeyCreateResult result = apiKeyService.create(tenantId, shelterId, "Shelter Scoped Key");
+        ApiKeyService.ApiKeyCreateResult result = TenantContext.callWithContext(tenantId, false,
+                () -> apiKeyService.create(shelterId, "Shelter Scoped Key"));
 
         HttpHeaders headers = new HttpHeaders();
         headers.set("X-API-Key", result.plaintextKey());
@@ -155,7 +159,8 @@ class ApiKeyAuthTest extends BaseIntegrationTest {
     void test_apiKeyAuth_keyRotation_bothKeysWorkDuringGracePeriod() {
         // Create an API key
         UUID tenantId = authHelper.getTestTenantId();
-        ApiKeyService.ApiKeyCreateResult original = apiKeyService.create(tenantId, null, "Rotate Me");
+        ApiKeyService.ApiKeyCreateResult original = TenantContext.callWithContext(tenantId, false,
+                () -> apiKeyService.create(null, "Rotate Me"));
 
         // Rotate the key (D11: service pulls tenantId from TenantContext)
         ApiKeyService.ApiKeyCreateResult rotated = TenantContext.callWithContext(tenantId, false,
@@ -186,7 +191,8 @@ class ApiKeyAuthTest extends BaseIntegrationTest {
     @Test
     void test_apiKeyAuth_revokeDuringGracePeriod_bothKeysFail() {
         UUID tenantId = authHelper.getTestTenantId();
-        ApiKeyService.ApiKeyCreateResult original = apiKeyService.create(tenantId, null, "Revoke During Grace");
+        ApiKeyService.ApiKeyCreateResult original = TenantContext.callWithContext(tenantId, false,
+                () -> apiKeyService.create(null, "Revoke During Grace"));
 
         // Rotate — creates grace period (D11)
         ApiKeyService.ApiKeyCreateResult rotated = TenantContext.callWithContext(tenantId, false,
@@ -220,7 +226,8 @@ class ApiKeyAuthTest extends BaseIntegrationTest {
     @Test
     void test_apiKeyAuth_expiredGracePeriod_oldKeyRejected() {
         UUID tenantId = authHelper.getTestTenantId();
-        ApiKeyService.ApiKeyCreateResult original = apiKeyService.create(tenantId, null, "Expire Grace");
+        ApiKeyService.ApiKeyCreateResult original = TenantContext.callWithContext(tenantId, false,
+                () -> apiKeyService.create(null, "Expire Grace"));
 
         // Rotate
         TenantContext.runWithContext(tenantId, false, () -> apiKeyService.rotate(original.id()));
@@ -245,7 +252,8 @@ class ApiKeyAuthTest extends BaseIntegrationTest {
     @Test
     void test_apiKeyAuth_keyEntropy_256bits() {
         UUID tenantId = authHelper.getTestTenantId();
-        ApiKeyService.ApiKeyCreateResult result = apiKeyService.create(tenantId, null, "Entropy Check");
+        ApiKeyService.ApiKeyCreateResult result = TenantContext.callWithContext(tenantId, false,
+                () -> apiKeyService.create(null, "Entropy Check"));
         assertThat(result.plaintextKey()).hasSize(64); // 32 bytes = 64 hex chars
 
         ApiKeyService.ApiKeyCreateResult rotated = TenantContext.callWithContext(tenantId, false,
@@ -268,7 +276,8 @@ class ApiKeyAuthTest extends BaseIntegrationTest {
     @Test
     void test_apiKeyAuth_nonAdminRevoke_returns403() {
         UUID tenantId = authHelper.getTestTenantId();
-        ApiKeyService.ApiKeyCreateResult key = apiKeyService.create(tenantId, null, "Non-admin Test");
+        ApiKeyService.ApiKeyCreateResult key = TenantContext.callWithContext(tenantId, false,
+                () -> apiKeyService.create(null, "Non-admin Test"));
 
         // Outreach worker should NOT be able to revoke
         authHelper.setupOutreachWorkerUser();
@@ -284,7 +293,8 @@ class ApiKeyAuthTest extends BaseIntegrationTest {
     @Test
     void test_apiKeyAuth_revokeAlreadyRevoked_isIdempotent() {
         UUID tenantId = authHelper.getTestTenantId();
-        ApiKeyService.ApiKeyCreateResult key = apiKeyService.create(tenantId, null, "Double Revoke");
+        ApiKeyService.ApiKeyCreateResult key = TenantContext.callWithContext(tenantId, false,
+                () -> apiKeyService.create(null, "Double Revoke"));
 
         // Revoke once
         TenantContext.runWithContext(tenantId, false, () -> apiKeyService.deactivate(key.id()));
@@ -343,7 +353,7 @@ class ApiKeyAuthTest extends BaseIntegrationTest {
                 authHelper.setupSecondaryTenant("xtenant-apikey-rotate-" + suffix);
         ApiKeyService.ApiKeyCreateResult tenantBKey = TenantContext.callWithContext(
                 tenantB.getId(), false,
-                () -> apiKeyService.create(tenantB.getId(), null, "Tenant B legitimate key"));
+                () -> apiKeyService.create(null, "Tenant B legitimate key"));
         String originalKeyHash = jdbcTemplate.queryForObject(
                 "SELECT key_hash FROM api_key WHERE id = ?::uuid",
                 String.class, tenantBKey.id());
@@ -387,7 +397,7 @@ class ApiKeyAuthTest extends BaseIntegrationTest {
                 authHelper.setupSecondaryTenant("xtenant-apikey-deactivate-" + suffix);
         ApiKeyService.ApiKeyCreateResult tenantBKey = TenantContext.callWithContext(
                 tenantB.getId(), false,
-                () -> apiKeyService.create(tenantB.getId(), null, "Tenant B key to protect"));
+                () -> apiKeyService.create(null, "Tenant B key to protect"));
 
         // Act: Tenant A's COC_ADMIN attempts to deactivate Tenant B's API key.
         HttpHeaders tenantAHeaders = authHelper.cocAdminHeaders();
