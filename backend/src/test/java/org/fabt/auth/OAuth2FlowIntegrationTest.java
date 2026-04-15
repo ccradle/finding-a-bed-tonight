@@ -55,7 +55,7 @@ class OAuth2FlowIntegrationTest extends BaseIntegrationTest {
         // Create a provider (D11: service pulls tenantId from TenantContext)
         TenantContext.runWithContext(tenantId, false, () ->
                 providerService.create("testidp", "test-client-id",
-                        "test-client-secret", "http://localhost:8180/realms/fabt-dev"));
+                        "test-client-secret", "https://login.microsoftonline.com/common/v2.0"));
 
         String registrationId = authHelper.getTestTenantSlug() + "-testidp";
         ClientRegistration reg = registrationSource.findByRegistrationId(registrationId);
@@ -75,7 +75,7 @@ class OAuth2FlowIntegrationTest extends BaseIntegrationTest {
     void dynamicRegistration_cachesForSubsequentCalls() {
         TenantContext.runWithContext(tenantId, false, () ->
                 providerService.create("cached", "cached-id",
-                        "cached-secret", "http://localhost:8180/realms/fabt-dev"));
+                        "cached-secret", "https://login.microsoftonline.com/common/v2.0"));
 
         String registrationId = authHelper.getTestTenantSlug() + "-cached";
         ClientRegistration first = registrationSource.findByRegistrationId(registrationId);
@@ -137,7 +137,7 @@ class OAuth2FlowIntegrationTest extends BaseIntegrationTest {
     void dynamicRegistration_disabledProviderReturnsNull() {
         TenantOAuth2Provider provider = TenantContext.callWithContext(tenantId, false, () ->
                 providerService.create("disabled", "disabled-id", "disabled-secret",
-                        "http://localhost:8180/realms/fabt-dev"));
+                        "https://login.microsoftonline.com/common/v2.0"));
         TenantContext.runWithContext(tenantId, false, () ->
                 providerService.update(provider.getId(), null, null, null, false));
 
@@ -163,7 +163,7 @@ class OAuth2FlowIntegrationTest extends BaseIntegrationTest {
     void publicProviderEndpoint_returnsEnabledProviders() {
         TenantContext.runWithContext(tenantId, false, () ->
                 providerService.create("pubtest", "pub-id",
-                        "pub-secret", "http://localhost:8180/realms/fabt-dev"));
+                        "pub-secret", "https://login.microsoftonline.com/common/v2.0"));
 
         ResponseEntity<String> response = restTemplate.getForEntity(
                 "/api/v1/tenants/" + authHelper.getTestTenantSlug() + "/oauth2-providers/public",
