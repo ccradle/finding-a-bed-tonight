@@ -83,7 +83,7 @@ public class NotificationEventListener {
 
             String notifPayload = toJson(Map.of("referralId", referralId, "shelterId", shelterId));
             List<UUID> recipientIds = dvCoordinators.stream().map(User::getId).toList();
-            notificationPersistenceService.sendToAll(tenantId, recipientIds,
+            notificationPersistenceService.sendToAll(recipientIds,
                     "referral.requested", "ACTION_REQUIRED", notifPayload);
 
             log.info("Referral notification sent to {} DV coordinators for referral {}",
@@ -113,7 +113,7 @@ public class NotificationEventListener {
         String notifPayload = toJson(Map.of("referralId", referralId, "status", status));
 
         TenantContext.runWithContext(tenantId, false, () -> {
-            notificationPersistenceService.send(tenantId, UUID.fromString(referringUserId),
+            notificationPersistenceService.send(UUID.fromString(referringUserId),
                     "referral.responded", "ACTION_REQUIRED", notifPayload);
         });
 
@@ -140,7 +140,7 @@ public class NotificationEventListener {
                     "surgeEventId", String.valueOf(payload.get("surge_event_id")),
                     "reason", String.valueOf(payload.get("reason"))));
             List<UUID> recipientIds = coordinators.stream().map(User::getId).toList();
-            notificationPersistenceService.sendToAll(tenantId, recipientIds,
+            notificationPersistenceService.sendToAll(recipientIds,
                     "surge.activated", "CRITICAL", notifPayload);
 
             log.info("Surge CRITICAL notification sent to {} coordinators", recipientIds.size());
@@ -161,7 +161,7 @@ public class NotificationEventListener {
             if (coordinators.isEmpty()) return;
 
             List<UUID> recipientIds = coordinators.stream().map(User::getId).toList();
-            notificationPersistenceService.sendToAll(tenantId, recipientIds,
+            notificationPersistenceService.sendToAll(recipientIds,
                     "surge.deactivated", "INFO", "{}");
 
             log.info("Surge deactivated INFO notification sent to {} coordinators", recipientIds.size());
@@ -199,7 +199,7 @@ public class NotificationEventListener {
             payloadMap.put("shelterName", shelterName);
             String notifPayload = toJson(payloadMap);
 
-            notificationPersistenceService.send(tenantId, UUID.fromString(userId),
+            notificationPersistenceService.send(UUID.fromString(userId),
                     "reservation.expired", "ACTION_REQUIRED", notifPayload);
 
             log.info("Reservation expiry notification sent to outreach worker {} for reservation {}",

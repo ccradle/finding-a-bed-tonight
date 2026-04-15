@@ -65,7 +65,7 @@ class NotificationRlsIntegrationTest extends BaseIntegrationTest {
         // Outreach worker's request context, but notification is for coordinator
         TenantContext.runWithContext(authHelper.getTestTenantId(), outreachUser.getId(), false, () -> {
             Notification notification = notificationPersistenceService.send(
-                    authHelper.getTestTenantId(), coordinatorUser.getId(),
+                    coordinatorUser.getId(),
                     "referral.requested", "ACTION_REQUIRED",
                     "{\"referralId\":\"" + UUID.randomUUID() + "\"}");
 
@@ -80,10 +80,10 @@ class NotificationRlsIntegrationTest extends BaseIntegrationTest {
         // Create notifications for both users (as system)
         TenantContext.runWithContext(authHelper.getTestTenantId(), false, () -> {
             notificationPersistenceService.send(
-                    authHelper.getTestTenantId(), coordinatorUser.getId(),
+                    coordinatorUser.getId(),
                     "test.coordinator", "INFO", "{}");
             notificationPersistenceService.send(
-                    authHelper.getTestTenantId(), outreachUser.getId(),
+                    outreachUser.getId(),
                     "test.outreach", "INFO", "{}");
         });
 
@@ -115,13 +115,13 @@ class NotificationRlsIntegrationTest extends BaseIntegrationTest {
     void unreadCountScopedToRecipient() {
         TenantContext.runWithContext(authHelper.getTestTenantId(), false, () -> {
             notificationPersistenceService.send(
-                    authHelper.getTestTenantId(), coordinatorUser.getId(),
+                    coordinatorUser.getId(),
                     "test.a", "INFO", "{}");
             notificationPersistenceService.send(
-                    authHelper.getTestTenantId(), coordinatorUser.getId(),
+                    coordinatorUser.getId(),
                     "test.b", "INFO", "{}");
             notificationPersistenceService.send(
-                    authHelper.getTestTenantId(), outreachUser.getId(),
+                    outreachUser.getId(),
                     "test.c", "INFO", "{}");
         });
 
@@ -143,7 +143,7 @@ class NotificationRlsIntegrationTest extends BaseIntegrationTest {
         final UUID[] notifId = new UUID[1];
         TenantContext.runWithContext(authHelper.getTestTenantId(), false, () -> {
             Notification n = notificationPersistenceService.send(
-                    authHelper.getTestTenantId(), coordinatorUser.getId(),
+                    coordinatorUser.getId(),
                     "test.rls", "ACTION_REQUIRED", "{}");
             notifId[0] = n.getId();
         });
@@ -172,10 +172,10 @@ class NotificationRlsIntegrationTest extends BaseIntegrationTest {
     void markAllReadExcludesCritical() {
         TenantContext.runWithContext(authHelper.getTestTenantId(), false, () -> {
             notificationPersistenceService.send(
-                    authHelper.getTestTenantId(), coordinatorUser.getId(),
+                    coordinatorUser.getId(),
                     "test.info", "INFO", "{}");
             notificationPersistenceService.send(
-                    authHelper.getTestTenantId(), coordinatorUser.getId(),
+                    coordinatorUser.getId(),
                     "test.critical", "CRITICAL", "{}");
         });
 
@@ -203,7 +203,7 @@ class NotificationRlsIntegrationTest extends BaseIntegrationTest {
         // Create notification in the default test tenant
         TenantContext.runWithContext(authHelper.getTestTenantId(), false, () -> {
             notificationPersistenceService.send(
-                    authHelper.getTestTenantId(), coordinatorUser.getId(),
+                    coordinatorUser.getId(),
                     "test.tenant-a", "INFO", "{}");
         });
 
@@ -215,7 +215,7 @@ class NotificationRlsIntegrationTest extends BaseIntegrationTest {
         // Create a notification in Tenant B
         TenantContext.runWithContext(tenantB.getId(), false, () -> {
             notificationPersistenceService.send(
-                    tenantB.getId(), coordB.getId(),
+                    coordB.getId(),
                     "test.tenant-b", "INFO", "{}");
         });
 
@@ -243,7 +243,6 @@ class NotificationRlsIntegrationTest extends BaseIntegrationTest {
     void batchSendToAllCreatesForAllRecipients() {
         TenantContext.runWithContext(authHelper.getTestTenantId(), false, () -> {
             notificationPersistenceService.sendToAll(
-                    authHelper.getTestTenantId(),
                     List.of(coordinatorUser.getId(), outreachUser.getId()),
                     "surge.activated", "CRITICAL",
                     "{\"surgeEventId\":\"" + UUID.randomUUID() + "\"}");
@@ -271,10 +270,10 @@ class NotificationRlsIntegrationTest extends BaseIntegrationTest {
         // Create notifications as system (no user context needed for INSERT — RLS allows)
         TenantContext.runWithContext(authHelper.getTestTenantId(), false, () -> {
             notificationPersistenceService.send(
-                    authHelper.getTestTenantId(), coordinatorUser.getId(),
+                    coordinatorUser.getId(),
                     "test.old-read", "INFO", "{}");
             notificationPersistenceService.send(
-                    authHelper.getTestTenantId(), coordinatorUser.getId(),
+                    coordinatorUser.getId(),
                     "test.old-critical", "CRITICAL", "{}");
         });
 
@@ -308,7 +307,7 @@ class NotificationRlsIntegrationTest extends BaseIntegrationTest {
         final UUID[] notifId = new UUID[1];
         TenantContext.runWithContext(authHelper.getTestTenantId(), false, () -> {
             Notification n = notificationPersistenceService.send(
-                    authHelper.getTestTenantId(), coordinatorUser.getId(),
+                    coordinatorUser.getId(),
                     "test.acted-critical", "CRITICAL", "{}");
             notifId[0] = n.getId();
         });
@@ -355,10 +354,10 @@ class NotificationRlsIntegrationTest extends BaseIntegrationTest {
         final UUID[] outreachNotifId = new UUID[1];
         TenantContext.runWithContext(tenantId, false, () -> {
             coordNotifId[0] = notificationPersistenceService.send(
-                    tenantId, coordinatorUser.getId(),
+                    coordinatorUser.getId(),
                     "referral.requested", "ACTION_REQUIRED", payload).getId();
             outreachNotifId[0] = notificationPersistenceService.send(
-                    tenantId, outreachUser.getId(),
+                    outreachUser.getId(),
                     "referral.requested", "ACTION_REQUIRED", payload).getId();
         });
 
@@ -415,7 +414,7 @@ class NotificationRlsIntegrationTest extends BaseIntegrationTest {
         final UUID[] notifId = new UUID[1];
         TenantContext.runWithContext(tenantId, false, () -> {
             notifId[0] = notificationPersistenceService.send(
-                    tenantId, coordinatorUser.getId(),
+                    coordinatorUser.getId(),
                     "referral.requested", "ACTION_REQUIRED",
                     "{\"referralId\":\"" + UUID.randomUUID() + "\"}").getId();
         });
@@ -450,13 +449,13 @@ class NotificationRlsIntegrationTest extends BaseIntegrationTest {
     void markAllReadThenCountReturnsOnlyCriticalCount() {
         TenantContext.runWithContext(authHelper.getTestTenantId(), false, () -> {
             notificationPersistenceService.send(
-                    authHelper.getTestTenantId(), outreachUser.getId(),
+                    outreachUser.getId(),
                     "test.count-info1", "INFO", "{}");
             notificationPersistenceService.send(
-                    authHelper.getTestTenantId(), outreachUser.getId(),
+                    outreachUser.getId(),
                     "test.count-action", "ACTION_REQUIRED", "{}");
             notificationPersistenceService.send(
-                    authHelper.getTestTenantId(), outreachUser.getId(),
+                    outreachUser.getId(),
                     "test.count-critical", "CRITICAL", "{}");
         });
 
@@ -497,7 +496,7 @@ class NotificationRlsIntegrationTest extends BaseIntegrationTest {
     void cleanupAt89DaysPreservesNotification() {
         TenantContext.runWithContext(authHelper.getTestTenantId(), false, () -> {
             notificationPersistenceService.send(
-                    authHelper.getTestTenantId(), coordinatorUser.getId(),
+                    coordinatorUser.getId(),
                     "test.boundary-89", "INFO", "{}");
         });
 

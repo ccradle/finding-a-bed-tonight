@@ -83,8 +83,8 @@ public class SubscriptionController {
         if (newStatus == null || newStatus.isBlank()) {
             return ResponseEntity.badRequest().build();
         }
-        UUID tenantId = TenantContext.getTenantId();
-        Subscription updated = subscriptionService.updateStatus(id, tenantId, newStatus);
+        // D11: service sources tenantId from TenantContext internally.
+        Subscription updated = subscriptionService.updateStatus(id, newStatus);
         return ResponseEntity.ok(SubscriptionResponse.from(updated));
     }
 

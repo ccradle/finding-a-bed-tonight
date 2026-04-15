@@ -392,7 +392,7 @@ class SseNotificationIntegrationTest extends BaseIntegrationTest {
 
         // Create persistent notifications BEFORE SSE connect
         TenantContext.runWithContext(tenantId, false, () -> {
-            notificationPersistenceService.send(tenantId, coordinator.getId(),
+            notificationPersistenceService.send(coordinator.getId(),
                     "referral.requested", "ACTION_REQUIRED",
                     "{\"referralId\":\"" + UUID.randomUUID() + "\"}");
         });
@@ -439,11 +439,11 @@ class SseNotificationIntegrationTest extends BaseIntegrationTest {
 
         // Create notifications in reverse severity order — DB should reorder
         TenantContext.runWithContext(tenantId, false, () -> {
-            notificationPersistenceService.send(tenantId, coordinator.getId(),
+            notificationPersistenceService.send(coordinator.getId(),
                     "test.info", "INFO", "{}");
-            notificationPersistenceService.send(tenantId, coordinator.getId(),
+            notificationPersistenceService.send(coordinator.getId(),
                     "test.action", "ACTION_REQUIRED", "{}");
-            notificationPersistenceService.send(tenantId, coordinator.getId(),
+            notificationPersistenceService.send(coordinator.getId(),
                     "test.critical", "CRITICAL", "{}");
         });
 

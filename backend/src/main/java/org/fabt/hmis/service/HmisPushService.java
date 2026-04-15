@@ -81,10 +81,42 @@ public class HmisPushService {
     }
 
     /**
-     * Create outbox entries for all enabled vendors for a tenant.
+     * Create outbox entries for all enabled vendors for the caller's tenant.
+     *
+     * <p>Design D11 (URL-path-sink class): the admin-controller path sources
+     * {@code tenantId} from {@link org.fabt.shared.web.TenantContext}.
+     * {@link HmisExportController#manualPush} calls this method; it cannot
+     * write outbox entries for any tenant other than the caller's.
+     *
+     * <p>The batch-job path (see {@link #createOutboxEntriesForTenant}) is a
+     * separate method because it iterates all tenants platform-wide and
+     * cannot source from TenantContext.
      */
     @Transactional
-    public int createOutboxEntries(UUID tenantId) throws Exception {
+    public int createOutboxEntriesForCurrentTenant() throws Exception {
+        UUID tenantId = org.fabt.shared.web.TenantContext.getTenantId();
+        return createOutboxEntriesForTenant(tenantId);
+    }
+
+    /**
+     * Create outbox entries for all enabled vendors for a specific tenant.
+     *
+     * <p>Platform-wide by design: the Spring Batch HMIS push job
+     * ({@link org.fabt.analytics.batch.HmisPushJobConfig}) iterates all
+     * tenants in sequence and invokes this method once per tenant. The
+     * {@link org.fabt.shared.security.TenantUnscoped} annotation documents
+     * this legitimate exception to the D11 rule; the Phase 3 ArchUnit
+     * Family B rule accepts the annotation with justification.
+     *
+     * <p>NOT for controller-layer use — prefer
+     * {@link #createOutboxEntriesForCurrentTenant} from any HTTP-originated
+     * code path.
+     */
+    @org.fabt.shared.security.TenantUnscoped(
+            "Spring Batch HMIS push job iterates all tenants platform-wide; "
+            + "admin controller path uses createOutboxEntriesForCurrentTenant wrapper.")
+    @Transactional
+    public int createOutboxEntriesForTenant(UUID tenantId) throws Exception {
         List<HmisVendorConfig> vendors = configService.getEnabledVendors(tenantId);
         if (vendors.isEmpty()) {
             return 0;

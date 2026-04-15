@@ -84,7 +84,9 @@ public class HmisPushJobConfig {
             int totalCreated = 0;
             for (Tenant tenant : tenantService.findAll()) {
                 try {
-                    int created = hmisPushService.createOutboxEntries(tenant.getId());
+                    // D11: batch path uses createOutboxEntriesForTenant (@TenantUnscoped)
+                    // — platform-wide by design; admin path uses createOutboxEntriesForCurrentTenant.
+                    int created = hmisPushService.createOutboxEntriesForTenant(tenant.getId());
                     totalCreated += created;
                     if (created > 0) {
                         log.info("Created {} HMIS outbox entries for tenant {}", created, tenant.getId());

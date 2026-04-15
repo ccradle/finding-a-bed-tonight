@@ -123,8 +123,9 @@ public class HmisExportController {
     @PostMapping("/push")
     @PreAuthorize("hasRole('PLATFORM_ADMIN')")
     public ResponseEntity<Map<String, Object>> manualPush() throws Exception {
-        UUID tenantId = TenantContext.getTenantId();
-        int created = pushService.createOutboxEntries(tenantId);
+        // D11: service pulls tenantId from TenantContext via
+        // createOutboxEntriesForCurrentTenant; no pass-through.
+        int created = pushService.createOutboxEntriesForCurrentTenant();
         pushService.processOutbox();
         return ResponseEntity.ok(Map.of("outboxEntriesCreated", created, "status", "push initiated"));
     }

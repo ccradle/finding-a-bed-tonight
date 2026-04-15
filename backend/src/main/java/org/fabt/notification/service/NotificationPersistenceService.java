@@ -8,6 +8,7 @@ import java.util.UUID;
 import org.fabt.notification.domain.Notification;
 import org.fabt.notification.repository.NotificationRepository;
 import org.fabt.observability.ObservabilityMetrics;
+import org.fabt.shared.web.TenantContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -43,9 +44,15 @@ public class NotificationPersistenceService {
     /**
      * Create a persistent notification and push via SSE if recipient is connected.
      * This is the single entry point for all notification creation.
+     *
+     * <p>Design D11 (URL-path-sink class): {@code tenantId} is sourced from
+     * {@link TenantContext#getTenantId()} internally. Every caller already
+     * wraps in {@code TenantContext.runWithContext(tenantId, ...)} before
+     * invoking — the parameter was redundant and a D11 shape flag.</p>
      */
     @Transactional
-    public Notification send(UUID tenantId, UUID recipientId, String type, String severity, String payload) {
+    public Notification send(UUID recipientId, String type, String severity, String payload) {
+        UUID tenantId = TenantContext.getTenantId();
         Notification notification = new Notification(tenantId, recipientId, type, severity, payload);
         Notification saved = notificationRepository.save(notification);
 
@@ -76,8 +83,11 @@ public class NotificationPersistenceService {
      * IDs via {@link #findUnreadForCatchup}.</p>
      */
     @Transactional
-    public void sendToAll(UUID tenantId, List<UUID> recipientIds, String type, String severity, String payload) {
+    public void sendToAll(List<UUID> recipientIds, String type, String severity, String payload) {
         if (recipientIds.isEmpty()) return;
+
+        // D11: tenantId sourced from TenantContext internally. See send() Javadoc.
+        UUID tenantId = TenantContext.getTenantId();
 
         // Single batch INSERT — O(1) SQL round-trip regardless of recipient count
         UUID[] ids = recipientIds.toArray(UUID[]::new);

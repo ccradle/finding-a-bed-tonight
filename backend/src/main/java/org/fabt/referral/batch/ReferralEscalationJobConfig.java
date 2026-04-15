@@ -230,8 +230,17 @@ public class ReferralEscalationJobConfig {
                             threshold.recipients(), token, roleRecipientCache);
 
                     if (!recipientIds.isEmpty()) {
-                        notificationPersistenceService.sendToAll(tenantId, recipientIds,
-                                type, threshold.severity(), payload);
+                        // D11 (2.4b): sendToAll pulls tenantId from TenantContext.
+                        // This batch path doesn't have TenantContext bound by default
+                        // (it iterates all tenants via the token loop); bind for the
+                        // send call so the service's D11 contract is satisfied.
+                        final String notifType = type;
+                        final String severity = threshold.severity();
+                        final String notifPayload = payload;
+                        final List<UUID> finalRecipients = recipientIds;
+                        org.fabt.shared.web.TenantContext.runWithContext(tenantId, false, () ->
+                                notificationPersistenceService.sendToAll(finalRecipients,
+                                        notifType, severity, notifPayload));
                         created++;
                     }
                 }

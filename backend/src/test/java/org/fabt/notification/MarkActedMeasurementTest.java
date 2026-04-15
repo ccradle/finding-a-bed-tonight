@@ -9,6 +9,7 @@ import org.fabt.TestAuthHelper;
 import org.fabt.auth.domain.User;
 import org.fabt.notification.domain.Notification;
 import org.fabt.notification.service.NotificationPersistenceService;
+import org.fabt.shared.web.TenantContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -81,8 +82,10 @@ class MarkActedMeasurementTest extends BaseIntegrationTest {
         String[] types = { "referral.requested", "escalation.1h", "escalation.2h",
                 "escalation.3_5h", "escalation.4h" };
         for (String type : types) {
-            Notification n = notificationPersistenceService.send(
-                    authHelper.getTestTenantId(), coordinator.getId(), type, "CRITICAL", payload);
+            final String notifType = type;
+            Notification n = TenantContext.callWithContext(authHelper.getTestTenantId(), false,
+                    () -> notificationPersistenceService.send(
+                            coordinator.getId(), notifType, "CRITICAL", payload));
             notificationIds.add(n.getId());
         }
         assertThat(notificationIds)

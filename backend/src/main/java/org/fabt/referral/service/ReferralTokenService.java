@@ -655,7 +655,7 @@ public class ReferralTokenService {
             String payload = toJson(Map.of(
                     "referralId", tokenId.toString(),
                     "targetType", request.targetType().name()));
-            notificationPersistenceService.sendToAll(tenantId, recipientIds,
+            notificationPersistenceService.sendToAll(recipientIds,
                     "referral.reassigned", severity, payload);
         } else {
             // Marcus Okafor (war room round 3): zero-recipient fan-out is a

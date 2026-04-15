@@ -129,9 +129,10 @@ class DemoGuardIntegrationTest extends BaseIntegrationTest {
     void notification_mark_read_allowed_for_public_traffic() {
         // Create a notification for the admin user
         var admin = authHelper.setupAdminUser();
-        Notification notification = notificationPersistenceService.send(
-                authHelper.getTestTenantId(), admin.getId(),
-                "test.demo-guard", "INFO", "{}");
+        Notification notification = org.fabt.shared.web.TenantContext.callWithContext(
+                authHelper.getTestTenantId(), false,
+                () -> notificationPersistenceService.send(
+                        admin.getId(), "test.demo-guard", "INFO", "{}"));
 
         HttpHeaders headers = publicAdminHeaders();
 

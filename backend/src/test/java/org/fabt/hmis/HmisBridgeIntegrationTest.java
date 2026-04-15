@@ -154,7 +154,10 @@ class HmisBridgeIntegrationTest extends BaseIntegrationTest {
 
     @Test
     void pushService_createOutboxEntries_withNoVendors_returnsZero() throws Exception {
-        int created = pushService.createOutboxEntries(tenantId);
+        // D11: createOutboxEntriesForTenant is the @TenantUnscoped batch path —
+        // acceptable here because this test exercises the method directly
+        // without going through the admin controller.
+        int created = pushService.createOutboxEntriesForTenant(tenantId);
         assertEquals(0, created, "No vendors configured — no entries");
     }
 

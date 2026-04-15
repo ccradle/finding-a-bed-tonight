@@ -140,20 +140,19 @@ public class SubscriptionService {
     /**
      * Admin-initiated status change. Only ACTIVE and PAUSED are valid admin-settable values.
      * Resetting to ACTIVE from DEACTIVATED or FAILING clears consecutive failure counter.
+     *
+     * <p>Design D11 (URL-path-sink class): {@code tenantId} is sourced from
+     * {@link TenantContext} via {@link #findByIdOrThrow} — the service SHALL
+     * NOT accept {@code tenantId} as a parameter. This replaces the prior
+     * manual {@code !subscription.getTenantId().equals(tenantId)} check.</p>
      */
     @Transactional
-    public Subscription updateStatus(UUID id, UUID tenantId, String newStatus) {
+    public Subscription updateStatus(UUID id, String newStatus) {
         if (!"ACTIVE".equals(newStatus) && !"PAUSED".equals(newStatus)) {
             throw new IllegalArgumentException("Only ACTIVE and PAUSED are valid admin-settable status values");
         }
 
-        Subscription subscription = subscriptionRepository.findById(id)
-                .orElseThrow(() -> new NoSuchElementException("Subscription not found: " + id));
-
-        // Tenant isolation — return 404 to avoid confirming existence in another tenant
-        if (!subscription.getTenantId().equals(tenantId)) {
-            throw new NoSuchElementException("Subscription not found: " + id);
-        }
+        Subscription subscription = findByIdOrThrow(id);
 
         // CANCELLED is terminal — cannot be reactivated
         if ("CANCELLED".equals(subscription.getStatus())) {
