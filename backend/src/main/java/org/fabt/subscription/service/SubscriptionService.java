@@ -13,6 +13,7 @@ import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 import org.fabt.shared.config.JsonString;
 import org.fabt.shared.security.SafeOutboundUrlValidator;
+import org.fabt.shared.security.TenantUnscoped;
 import org.fabt.shared.web.TenantContext;
 import org.fabt.subscription.domain.Subscription;
 import org.fabt.subscription.repository.SubscriptionRepository;
@@ -124,8 +125,9 @@ public class SubscriptionService {
                 .orElseThrow(() -> new NoSuchElementException("Subscription not found: " + id));
     }
 
+    @TenantUnscoped("internal webhook-delivery callback updates failure state on the originating subscription; tenant context already established by the dispatching event")
     @Transactional
-    public void markFailing(UUID id, String error) {
+    public void markFailingInternal(UUID id, String error) {
         Subscription subscription = subscriptionRepository.findById(id)
                 .orElseThrow(() -> new NoSuchElementException("Subscription not found: " + id));
         subscription.setStatus("FAILING");
@@ -133,8 +135,9 @@ public class SubscriptionService {
         subscriptionRepository.save(subscription);
     }
 
+    @TenantUnscoped("internal webhook-delivery callback deactivates a subscription on permanent 410 Gone; tenant context already established by the dispatching event")
     @Transactional
-    public void deactivate(UUID id) {
+    public void deactivateInternal(UUID id) {
         Subscription subscription = subscriptionRepository.findById(id)
                 .orElseThrow(() -> new NoSuchElementException("Subscription not found: " + id));
         subscription.setStatus("DEACTIVATED");
@@ -206,8 +209,9 @@ public class SubscriptionService {
      * For lite profile (single instance) this is acceptable. For multi-instance,
      * use SQL atomic increment: UPDATE subscription SET consecutive_failures = consecutive_failures + 1
      */
+    @TenantUnscoped("internal webhook-delivery callback records a delivery attempt against the originating subscription; tenant context already established by the dispatching event")
     @Transactional
-    public void recordDelivery(UUID subscriptionId, String eventType, Integer statusCode,
+    public void recordDeliveryInternal(UUID subscriptionId, String eventType, Integer statusCode,
                                 Integer responseTimeMs, int attemptNumber, String responseBody) {
         // Redact secrets/PII before persistence
         String redactedBody = WebhookResponseRedactor.redact(responseBody);
@@ -247,6 +251,7 @@ public class SubscriptionService {
      * Delete delivery logs older than 14 days. Runs daily.
      * NOTE: For multi-instance deployments, add ShedLock to prevent duplicate execution.
      */
+    @TenantUnscoped("daily retention purge — runs across all tenants")
     @Scheduled(fixedRate = 86_400_000) // daily
     @Transactional
     public void cleanupOldDeliveryLogs() {

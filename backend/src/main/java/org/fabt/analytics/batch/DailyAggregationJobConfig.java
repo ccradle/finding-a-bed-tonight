@@ -14,6 +14,7 @@ import org.fabt.tenant.domain.Tenant;
 import org.fabt.tenant.service.TenantService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.fabt.shared.security.TenantUnscoped;
 import org.springframework.batch.core.job.Job;
 import org.springframework.batch.core.step.Step;
 import org.springframework.batch.core.job.builder.JobBuilder;
@@ -74,6 +75,7 @@ public class DailyAggregationJobConfig {
     }
 
     @Bean
+    @TenantUnscoped("daily analytics aggregation — platform-wide by design")
     public Step aggregationStep() {
         return new StepBuilder("aggregateSnapshots", jobRepository)
                 .<SnapshotAggregate, SnapshotAggregate>chunk(100, transactionManager)

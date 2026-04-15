@@ -39,6 +39,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.fabt.shared.security.TenantUnscoped;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -270,6 +271,7 @@ public class ReferralTokenService {
     /**
      * Expire pending tokens past their expiry time. Called by @Scheduled every 60 seconds.
      */
+    @TenantUnscoped("60-second PENDING→EXPIRED transition runs platform-wide")
     @Scheduled(fixedRate = 60_000)
     public void expireTokens() {
         TenantContext.runWithContext(TenantContext.getTenantId(), true, () -> {

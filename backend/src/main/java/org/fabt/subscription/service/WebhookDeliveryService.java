@@ -156,7 +156,7 @@ public class WebhookDeliveryService {
             String body = response.getBody();
             String truncated = body != null && body.length() > 1024 ? body.substring(0, 1024) : body;
 
-            subscriptionService.recordDelivery(subscriptionId, eventType,
+            subscriptionService.recordDeliveryInternal(subscriptionId, eventType,
                     response.getStatusCode().value(), responseTimeMs, 1, truncated);
 
             return new TestDeliveryResult(response.getStatusCode().value(), responseTimeMs, truncated);
@@ -165,7 +165,7 @@ public class WebhookDeliveryService {
             int responseTimeMs = (int) (System.currentTimeMillis() - startMs);
             String error = e.getMessage() != null ? e.getMessage().substring(0, Math.min(e.getMessage().length(), 200)) : "Unknown error";
 
-            subscriptionService.recordDelivery(subscriptionId, eventType, null, responseTimeMs, 1, error);
+            subscriptionService.recordDeliveryInternal(subscriptionId, eventType, null, responseTimeMs, 1, error);
 
             return new TestDeliveryResult(null, responseTimeMs, error);
         }
@@ -219,19 +219,19 @@ public class WebhookDeliveryService {
             metrics.webhookDeliveryCounter(event.type(), "circuit_open").increment();
             log.debug("Circuit breaker open — skipping event {} to subscription {}",
                     event.id(), subscription.getId());
-            subscriptionService.markFailing(subscription.getId(), "Circuit breaker open");
+            subscriptionService.markFailingInternal(subscription.getId(), "Circuit breaker open");
         } catch (RestClientResponseException e) {
             // 4xx errors propagate through retry (not in retry-exceptions list)
             metrics.webhookDeliveryCounter(event.type(), "failure").increment();
             log.warn("Failed to deliver event {} to subscription {}: {} {}",
                     event.id(), subscription.getId(), e.getStatusCode(), e.getMessage());
-            subscriptionService.markFailing(subscription.getId(), e.getMessage());
+            subscriptionService.markFailingInternal(subscription.getId(), e.getMessage());
         } catch (Exception e) {
             // All retries exhausted for retryable errors
             metrics.webhookDeliveryCounter(event.type(), "failure").increment();
             log.warn("Failed to deliver event {} to subscription {} after retries: {}",
                     event.id(), subscription.getId(), e.getMessage());
-            subscriptionService.markFailing(subscription.getId(), e.getMessage());
+            subscriptionService.markFailingInternal(subscription.getId(), e.getMessage());
         } finally {
             timerSample.stop(metrics.webhookDeliveryTimer(event.type()));
         }
@@ -314,7 +314,7 @@ public class WebhookDeliveryService {
             if (e.getMessage() != null && e.getMessage().contains("410")) {
                 log.info("Callback returned 410 Gone for subscription {}, deactivating permanently",
                         subscription.getId());
-                subscriptionService.deactivate(subscription.getId());
+                subscriptionService.deactivateInternal(subscription.getId());
             } else {
                 throw e;
             }

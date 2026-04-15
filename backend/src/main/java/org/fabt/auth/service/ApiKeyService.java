@@ -16,6 +16,7 @@ import org.fabt.auth.repository.ApiKeyRepository;
 import org.fabt.shared.web.TenantContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.fabt.shared.security.TenantUnscoped;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -164,6 +165,7 @@ public class ApiKeyService {
      * Idempotent — safe if multiple runs overlap.
      * NOTE: For multi-instance deployments, add ShedLock to prevent duplicate execution.
      */
+    @TenantUnscoped("hourly scheduled cleanup — runs across all tenants")
     @Scheduled(fixedRate = 3600_000) // every hour
     @Transactional
     public void cleanupExpiredGracePeriodKeys() {

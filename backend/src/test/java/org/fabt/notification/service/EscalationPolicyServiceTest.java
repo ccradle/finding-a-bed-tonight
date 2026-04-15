@@ -194,9 +194,9 @@ class EscalationPolicyServiceTest {
         EscalationPolicy p = validPolicy();
         when(repository.findById(p.id())).thenReturn(java.util.Optional.of(p));
 
-        assertThat(service.findById(p.id())).contains(p);
-        assertThat(service.findById(p.id())).contains(p);
-        assertThat(service.findById(p.id())).contains(p);
+        assertThat(service.findByIdForBatch(p.id())).contains(p);
+        assertThat(service.findByIdForBatch(p.id())).contains(p);
+        assertThat(service.findByIdForBatch(p.id())).contains(p);
 
         verify(repository, times(1)).findById(p.id());
     }
@@ -204,7 +204,7 @@ class EscalationPolicyServiceTest {
     @Test
     @DisplayName("findById returns empty for null id without hitting repository")
     void findByIdNullSafe() {
-        assertThat(service.findById(null)).isEmpty();
+        assertThat(service.findByIdForBatch(null)).isEmpty();
         verify(repository, never()).findById(any());
     }
 
@@ -258,7 +258,7 @@ class EscalationPolicyServiceTest {
 
         assertThat(service.getCurrentForTenant(tenantId, "dv-referral")).contains(v2);
         // findById should be cached for v2 because update() pre-populates it.
-        assertThat(service.findById(v2.id())).contains(v2);
+        assertThat(service.findByIdForBatch(v2.id())).contains(v2);
         verify(repository, never()).findById(v2.id());
     }
 

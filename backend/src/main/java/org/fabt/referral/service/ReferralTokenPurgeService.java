@@ -8,6 +8,7 @@ import org.fabt.shared.web.TenantContext;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.fabt.shared.security.TenantUnscoped;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,6 +39,7 @@ public class ReferralTokenPurgeService {
      * <p><b>No @Transactional.</b> Single atomic DELETE statement. See ReferralTokenService.expireTokens()
      * Javadoc for why @Transactional + runWithContext inside is incompatible with RLS.</p>
      */
+    @TenantUnscoped("hourly retention purge — platform-wide by VAWA retention design")
     @Scheduled(fixedRate = 3_600_000)
     public void purgeTerminalTokens() {
         // System process needs dvAccess to see DV-shelter-linked tokens via RLS

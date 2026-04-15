@@ -18,6 +18,7 @@ import org.fabt.shared.web.TenantContext;
 import org.fabt.analytics.config.BatchJobScheduler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.fabt.shared.security.TenantUnscoped;
 import org.springframework.batch.core.job.Job;
 import org.springframework.batch.core.job.builder.JobBuilder;
 import org.springframework.batch.core.repository.JobRepository;
@@ -114,6 +115,7 @@ public class BedHoldsReconciliationJobConfig {
     }
 
     @Bean
+    @TenantUnscoped("Spring Batch reconciler — platform-wide defense-in-depth for bed_availability drift")
     public Tasklet reconciliationTasklet() {
         return (StepContribution contribution, ChunkContext chunkContext) -> {
             // dvAccess=true is bound by BatchJobScheduler.runJob() before Spring Batch

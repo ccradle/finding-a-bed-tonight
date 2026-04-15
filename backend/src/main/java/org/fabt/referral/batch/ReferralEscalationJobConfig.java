@@ -24,6 +24,7 @@ import org.fabt.shared.web.TenantContext;
 import org.fabt.analytics.config.BatchJobScheduler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.fabt.shared.security.TenantUnscoped;
 import org.springframework.batch.core.job.Job;
 import org.springframework.batch.core.job.builder.JobBuilder;
 import org.springframework.batch.core.repository.JobRepository;
@@ -148,6 +149,7 @@ public class ReferralEscalationJobConfig {
     }
 
     @Bean
+    @TenantUnscoped("Spring Batch iterates all tenants' pending referrals")
     public Tasklet escalationTasklet() {
         return (StepContribution contribution, ChunkContext chunkContext) -> {
             if (!TenantContext.getDvAccess()) {
@@ -255,7 +257,7 @@ public class ReferralEscalationJobConfig {
                                         Map<UUID, EscalationPolicy> defaultPolicyByTenantCache) {
         UUID policyId = token.getEscalationPolicyId();
         if (policyId != null) {
-            return policyByIdCache.computeIfAbsent(policyId, id -> escalationPolicyService.findById(id)
+            return policyByIdCache.computeIfAbsent(policyId, id -> escalationPolicyService.findByIdForBatch(id)
                     .orElseGet(() -> getDefaultPolicy(token.getTenantId(), defaultPolicyByTenantCache)));
         }
         return getDefaultPolicy(token.getTenantId(), defaultPolicyByTenantCache);

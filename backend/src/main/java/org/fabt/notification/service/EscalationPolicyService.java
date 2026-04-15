@@ -12,6 +12,7 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 
 import io.micrometer.core.instrument.MeterRegistry;
+import org.fabt.shared.security.TenantUnscoped;
 import io.micrometer.core.instrument.binder.cache.CaffeineCacheMetrics;
 
 import org.fabt.notification.domain.EscalationPolicy;
@@ -135,10 +136,17 @@ public class EscalationPolicyService {
     }
 
     /**
-     * Resolve a frozen policy by its id. Used by the escalation batch job to
-     * read the policy that a referral was snapshotted against at creation time.
+     * Resolve a frozen policy by its id — batch-callable, intentionally
+     * cross-tenant. Used by the escalation batch job to read the policy
+     * that a referral was snapshotted against at creation time.
+     *
+     * <p>Renamed from {@code findById} per design D7 to make the intent
+     * unambiguous: this method is reachable from
+     * {@link org.fabt.referral.batch.ReferralEscalationJobConfig} only;
+     * non-batch callers must use a tenant-scoped lookup.</p>
      */
-    public Optional<EscalationPolicy> findById(UUID id) {
+    @TenantUnscoped("batch-job policy snapshot resolution for referral escalation — platform-wide by design")
+    public Optional<EscalationPolicy> findByIdForBatch(UUID id) {
         if (id == null) {
             return Optional.empty();
         }
