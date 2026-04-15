@@ -67,6 +67,42 @@ The backend is a **modular monolith** — not a flat package-by-layer structure.
 
 ---
 
+## Tenant-guard convention (the `findByIdAndTenantId` pattern)
+
+Every tenant-owned repository SHALL expose a `findByIdAndTenantId(UUID id, UUID tenantId)` method (or equivalent multi-key variant). Service-layer code SHALL look up resources via a private `findByIdOrThrow(UUID)` helper that pulls `tenantId` from `TenantContext` and throws `NoSuchElementException` → HTTP 404 on mismatch. Cross-tenant access returns **404 Not Found** (not 403 — 403 would confirm the resource exists in another tenant).
+
+### Reference implementation
+
+The canonical reference is `ReferralTokenService.findByIdOrThrow(UUID)` (introduced in v0.39.0 under Issue #106 Phase 4 Section 8.5/8.6). All seven DV-referral service call sites route through it. See `backend/src/main/java/org/fabt/referral/service/ReferralTokenService.java` and the corresponding `ReferralTokenRepository.findByIdAndTenantId(UUID, UUID)`.
+
+### When to use `@TenantUnscoped`
+
+A small number of methods legitimately need platform-wide visibility — batch jobs, scheduled expirers, reconciliation tasklets, system callers that set `TenantContext` from the fetched row rather than from the request. These methods mark themselves with `@TenantUnscoped("justification")` from `org.fabt.shared.security`. The annotation's value is required and must be non-empty at build time; it documents why the method is safe to bypass the tenant guard.
+
+Example:
+
+```java
+@TenantUnscoped("system-scheduled reservation expiry needs platform-wide visibility; tenant context is set from the fetched row")
+public void expireReservation(UUID reservationId) {
+    Reservation reservation = reservationRepository.findById(reservationId).orElseThrow();
+    // ... tenant-context set from reservation.getTenantId() before any further work ...
+}
+```
+
+### Build-time enforcement
+
+`TenantGuardArchitectureTest` (under `backend/src/test/java/org/fabt/architecture/`) is an ArchUnit rule that fails the build when a class in `org.fabt.*.service` or `org.fabt.*.api` calls `findById(UUID)` or `existsById(UUID)` on a tenant-owned repository without either (a) routing through a `findByIdAndTenantId` variant, or (b) carrying a non-empty `@TenantUnscoped` annotation on the calling method. The rule is strict from day one — advisory rules are ignored.
+
+The rule does NOT cover every repository — non-tenant-owned repositories (e.g., global reference data) are exempt. The Phase 3 activation of this rule encodes the whitelist.
+
+### See also
+
+- Design decisions D1–D10 in `openspec/changes/cross-tenant-isolation-audit/design.md`
+- RLS coverage map at `docs/security/rls-coverage.md` (which tables have RLS, what each policy enforces, and the corresponding service-layer guard)
+- SAFE-sites registry at `docs/security/safe-tenant-bypass-sites.md` (documented exemptions for methods the audit cleared)
+
+---
+
 ## MCP-Ready API Design
 
 The REST API is designed for future AI agent consumption via the Model Context Protocol (MCP). Six design requirements (REQ-MCP-1 through REQ-MCP-6) are satisfied in Phase 1:
