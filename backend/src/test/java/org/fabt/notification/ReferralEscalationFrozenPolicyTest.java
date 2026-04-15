@@ -175,7 +175,7 @@ class ReferralEscalationFrozenPolicyTest extends BaseIntegrationTest {
                 .findByTenantIdAndEmail(authHelper.getTestTenantId(), "frozen-cocadmin@test.fabt.org")
                 .orElseThrow().getId();
         TenantContext.runWithContext(authHelper.getTestTenantId(), true, () -> {
-            escalationPolicyService.update(authHelper.getTestTenantId(), "dv-referral",
+            escalationPolicyService.update("dv-referral",
                     List.of(
                             new EscalationPolicy.Threshold(
                                     "1_5h",

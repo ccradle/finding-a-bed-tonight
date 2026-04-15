@@ -118,8 +118,11 @@ public class EscalationPolicyController {
                     + "Use ISO-8601 duration format (e.g. PT1H, PT2H30M): " + e.getMessage());
         }
 
+        // D11: service sources tenantId from TenantContext internally —
+        // no pass-through. The tenantId var above is still used for the
+        // audit event payload below; keeping the local for readability.
         EscalationPolicy created = escalationPolicyService.update(
-                tenantId, eventType, domainThresholds, actorUserId);
+                eventType, domainThresholds, actorUserId);
 
         // Audit: who published, what version, what tenant — but NOT the
         // thresholds JSON, which is recoverable from the row itself.
