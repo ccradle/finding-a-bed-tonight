@@ -527,12 +527,19 @@ Table referral_token {
     (referring_user_id, status) [name: 'idx_referral_token_user']
     claim_expires_at [name: 'idx_referral_token_active_claim', note: 'partial: WHERE claimed_by_admin_id IS NOT NULL']
     (referring_user_id, shelter_id) [unique, name: 'uq_referral_token_pending', note: 'partial: WHERE status = PENDING']
+    (status, expires_at) [name: 'idx_referral_token_expired', note: 'V21 — partial: WHERE status = EXPIRED. Supports expiry purge scan.']
+    (status, expires_at) [name: 'idx_referral_token_pending_expires', note: 'V37 — partial: WHERE status = PENDING. Supports expire-pending scheduled task scan.']
+    (status, responded_at) [name: 'idx_referral_token_purge', note: "V21 — partial: WHERE status IN ('ACCEPTED','REJECTED'). Supports 24h terminal-row purge scan."]
+    (tenant_id, expires_at) [name: 'idx_referral_token_pending_by_expiry', note: 'V47 — partial: WHERE status = PENDING. Escalated-queue + admin dashboard scans.']
+    created_at [name: 'idx_referral_token_pending_created_at', note: "V55 — partial: WHERE status = 'PENDING'. Powers findOldestPendingByShelterIds (notification-deep-linking Section 16 / D-BP). 14× speedup at NYC pilot scale; ordered Index Scan eliminates Sort step for ORDER BY created_at LIMIT 1. See docs/performance/probe-ab-test.sql for the A/B measurement."]
   }
 
   note: '''
   Opaque referral designed to support VAWA requirements. Contains zero client PII.
   Hard-deleted within 24 hours of terminal status.
-  RLS inherits DV shelter access via shelter FK.
+  RLS inherits DV shelter access via shelter FK (dv_shelter_access policy).
+  RLS does NOT enforce tenant isolation — that is enforced in the repository
+  layer via findByIdAndTenantId (tasks 8.5/8.6, commit 366765c).
   '''
 }
 

@@ -1120,7 +1120,7 @@ finding-a-bed-tonight/
 │           └── AnalyticsMixedLoadSimulation.java      # OLTP + analytics concurrent load, p99 assertions
 │
 ├── docs/
-│   ├── schema.dbml                                    # Database schema (V1–V24, DBML format)
+│   ├── schema.dbml                                    # Database schema (V1–V55, DBML format)
 │   ├── erd.svg                                        # Entity relationship diagram (generated from schema.dbml)
 │   ├── asyncapi.yaml                                  # EventBus contract (AsyncAPI 3.0, x-security)
 │   ├── architecture.drawio                            # Architecture diagram (draw.io) — includes observability stack
