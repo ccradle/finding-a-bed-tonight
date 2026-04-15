@@ -561,7 +561,12 @@ export function EscalatedReferralDetailModal({
                 data-testid="dv-escalation-detail-approve"
                 style={{
                   ...primaryBtnStyle,
-                  backgroundColor: color.success,
+                  // color.successMid (#15803d in dark mode, #166534 in light) — the
+                  // button-fill variant of the success token. Using bare color.success
+                  // shipped #42be65 on dark mode (Carbon Green-40) which is a TEXT
+                  // color and gives only 2.39:1 with white-text fills (axe-core
+                  // 12.3 dark scan during Phase 4 caught this).
+                  backgroundColor: color.successMid,
                   flex: '1 1 140px',
                 }}
               >

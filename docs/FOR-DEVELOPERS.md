@@ -169,6 +169,91 @@ Fix: renamed the repo method to `findByIdAndTenantId(UUID id, UUID tenantId)` an
 
 Broader audit of `findById(UUID)` across other services (Subscription, ApiKey, etc.) tracked in **GitHub issue #117** for a post-deploy `cross-tenant-isolation-audit` OpenSpec change. Demo site is single-tenant so no current exploit path; multi-tenant production rollout requires the broader audit first.
 
+#### `useDeepLink` host contract (for new deep-link pages)
+
+When adding deep-link support to a new page, **always consume `useDeepLink`** (`frontend/src/hooks/useDeepLink.ts`). Do NOT re-implement state machines, idempotency guards, or stale fallbacks — the hook owns all of that, and the consistency across hosts is what made the contract gap surfaced by Section 16's task 11.13 fixable in 3 lines × 3 files instead of a per-host rewrite.
+
+Three host pages currently consume the hook — use them as templates:
+- `frontend/src/pages/CoordinatorDashboard.tsx` — referral deep-links into shelter cards
+- `frontend/src/pages/MyPastHoldsPage.tsx` — reservation deep-links into row highlights
+- `frontend/src/pages/admin/tabs/DvEscalationsTab.tsx` — referral deep-links into the escalation modal
+
+**State machine** (D-12 in design.md, also in the hook's Javadoc):
+
+```
+idle ──INTENT──> resolving ──RESOLVED──> awaiting-confirm ──CONFIRM_CONTINUE──> expanding ──EXPAND_DONE──> awaiting-target ──TARGET_READY──> done
+                     │                          │                                  │                              │
+                     └──STALE─────┐             └──CONFIRM_ABORT──> idle           └──STALE──┐                    └──STALE: timeout (5s deadline)──┐
+                                  ▼                                                          ▼                                                       ▼
+                                stale                                                      stale                                                   stale
+```
+
+Every non-terminal state has a defined exit; stuck states are impossible by construction.
+
+**The 4 host callbacks** (`UseDeepLinkOptions` in the hook's TypeScript interface):
+
+| Callback | Signature | Responsibility |
+|---|---|---|
+| `resolveTarget(intent, signal)` | `(intent: DeepLinkIntent, signal: AbortSignal) => Promise<ResolvedTarget<T>>` | Resolve the URL intent into something the host can act on — typically a backend lookup. The signal fires when a newer URL change supersedes this resolve. Throw on 404/403 (mapped to `stale: 'not-found'`); other throws map to `stale: 'error'`. |
+| `needsUnsavedConfirm(resolved)` | `(resolved: ResolvedTarget<T>) => boolean` | Return `true` to pause the machine in `awaiting-confirm` so the host can render an "unsaved changes" dialog. Return `false` to skip directly to `expanding`. |
+| `expand(resolved)` | `(resolved: ResolvedTarget<T>) => Promise<void>` | Expand or navigate the host UI to the resolved target. May be a no-op if already at the target. Throw to signal a hard failure (transitions to `stale: 'error'`). |
+| `isTargetReady(resolved)` | `(resolved: ResolvedTarget<T>) => boolean` | Polled on every render while in `awaiting-target`. Return `true` once the target is visible/actionable in the host's data model (e.g. the screening row is in the fetched `pendingReferrals` list). |
+
+**Host UI responsibilities** (driven by a single `useEffect` keyed on `dlState.kind` transitions):
+
+- On `'done'`:
+  1. Scroll the target into view.
+  2. Move keyboard focus to the target row heading (NOT the action button — S-2 safety per design.md).
+  3. Set the aria-live `[data-testid="deep-link-announcement"]` region with population/urgency-only copy (no PII).
+  4. Call `markNotificationsActedByPayload(<idField>, <id>, 'acted')` AFTER the user successfully completes the terminal action (accept / confirm / cancel) — NOT on `'done'` itself. The `'done'` transition just means "I navigated there"; the markActed call belongs in the action handler. See Phase 3 D3.
+  5. Report metric: `reportDeepLinkClick(metricType, classifyDeepLinkOutcome('done', undefined, false))` (Phase 4 9a.1).
+
+- On `'stale'`:
+  1. Show the stale toast (use `role="alert"` for screen-reader announcement; D10 unified single-toast shape covers `'not-found'`, `'race'`, `'error'`, and `'timeout'`).
+  2. **Call `markNotificationsActedByPayload(<idField>, <id>, 'stale')`** — this PATCH /read marks the notification as "I saw it but did not act" (Phase 3 D3 lifecycle distinction). **Forgetting this call is the bug task 11.13 surfaced** — the toast appearing without the markRead leaves the notification unread forever.
+  3. Report metric: `reportDeepLinkClick(metricType, classifyDeepLinkOutcome('stale', dlState.reason, isOffline))`.
+
+- The host effect's dependency array MUST include `dlState` and any data the `'done'` branch reads from. If the dep array also includes data that updates independently of the deep-link transition (e.g. `pendingReferrals` mutates on every SSE event), gate the effect with a `lastHandledDlKindRef` so it only acts when `dlState.kind` actually changed — otherwise every unrelated re-render re-fires the modal-open / scroll / focus side effects (war-room round 2 H-1 fix in `DvEscalationsTab.tsx`, same pattern in `MyPastHoldsPage.tsx`).
+
+**Skeleton for a new host page:**
+
+```tsx
+const { state: dlState } = useDeepLink<MyTargetDetail>({
+  searchParams,
+  resolveTarget: useCallback(async (intent, signal) => {
+    if (intent.myIdParam) {
+      const detail = await api.get<MyTargetDetail>(`/api/v1/things/${intent.myIdParam}`);
+      return { intent, resolvedShelterId: detail.shelterId, detail };
+    }
+    return { intent, resolvedShelterId: null, detail: null };
+  }, []),
+  needsUnsavedConfirm: useCallback((resolved) => isDirty() && /* host-specific */, [isDirty]),
+  expand: useCallback(async (resolved) => { if (resolved.detail) await openSomething(resolved.detail.id); }, []),
+  isTargetReady: useCallback((resolved) => /* host-specific check that the target is now visible */, [...deps]),
+});
+
+const lastHandledDlKindRef = useRef<string>('idle');
+useEffect(() => {
+  if (lastHandledDlKindRef.current === dlState.kind) return;
+  lastHandledDlKindRef.current = dlState.kind;
+  if (dlState.kind === 'done') {
+    // scroll, focus, announce, report metric
+  } else if (dlState.kind === 'stale') {
+    setStaleToast(intl.formatMessage({ id: 'notifications.deepLink.stale' }));
+    if (dlState.intent.myIdParam) {
+      markNotificationsActedByPayload('myIdParam', dlState.intent.myIdParam, 'stale')
+        .catch(() => { /* best-effort */ });
+    }
+    reportDeepLinkClick('my-deeplink', classifyDeepLinkOutcome('stale', dlState.reason, !navigator.onLine));
+  }
+}, [dlState, intl, /* deps for the 'done' branch */]);
+```
+
+Tests that pin this contract:
+- Reducer + state machine: `frontend/src/hooks/useDeepLink.test.ts` (28 tests covering every transition).
+- End-to-end happy path: `e2e/playwright/tests/persistent-notifications.spec.ts:'Issue #106 deep-link'`.
+- Stale-fallback markRead contract (the gap that almost shipped): backend `task_9_4_markRead_doesNotSetActedAt` + Playwright `Task 11.13: concurrent coordinators`.
+
 ### DV Referral Expiry Fix (v0.31.2)
 
 `@Transactional` on `expireTokens()` and `purgeTerminalTokens()` caused DV referral tokens to remain PENDING indefinitely. Root cause: `@Transactional` eagerly acquires a JDBC connection before `runWithContext()` sets dvAccess=true. See Troubleshooting section for the full pattern rule.

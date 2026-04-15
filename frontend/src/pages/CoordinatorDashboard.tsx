@@ -1116,16 +1116,22 @@ export function CoordinatorDashboard() {
                           </div>
                         ) : (
                           <div style={{ display: 'flex', gap: 6 }}>
+                            {/* Carbon split (axe scan 12.2 dark): button-fill
+                                with white text uses *Mid (success/error). The
+                                outlined Reject button's text uses the *text*
+                                variant (color.error in dark mode = #ff8389,
+                                6.3:1 on the bg). Bare color.success/errorMid
+                                shipped originally gave 2.39:1 / 2.75:1. */}
                             <button data-testid={`accept-referral-${ref.id}`}
                               onClick={() => acceptReferral(ref.id)}
                               disabled={isExpired}
-                              style={{ padding: '6px 12px', borderRadius: 6, border: 'none', backgroundColor: isExpired ? color.textTertiary : color.success, color: color.textInverse, fontSize: text['2xs'], fontWeight: weight.bold, cursor: isExpired ? 'not-allowed' : 'pointer', opacity: isExpired ? 0.5 : 1 }}>
+                              style={{ padding: '6px 12px', borderRadius: 6, border: 'none', backgroundColor: isExpired ? color.textTertiary : color.successMid, color: color.textInverse, fontSize: text['2xs'], fontWeight: weight.bold, cursor: isExpired ? 'not-allowed' : 'pointer', opacity: isExpired ? 0.5 : 1 }}>
                               <FormattedMessage id="referral.accept" />
                             </button>
                             <button data-testid={`reject-referral-${ref.id}`}
                               onClick={() => setRejectingId(ref.id)}
                               disabled={isExpired}
-                              style={{ padding: '6px 12px', borderRadius: 6, border: `1px solid ${isExpired ? color.textTertiary : color.errorMid}`, backgroundColor: color.bg, color: isExpired ? color.textTertiary : color.errorMid, fontSize: text['2xs'], fontWeight: weight.bold, cursor: isExpired ? 'not-allowed' : 'pointer', opacity: isExpired ? 0.5 : 1 }}>
+                              style={{ padding: '6px 12px', borderRadius: 6, border: `1px solid ${isExpired ? color.textTertiary : color.errorMid}`, backgroundColor: color.bg, color: isExpired ? color.textTertiary : color.error, fontSize: text['2xs'], fontWeight: weight.bold, cursor: isExpired ? 'not-allowed' : 'pointer', opacity: isExpired ? 0.5 : 1 }}>
                               <FormattedMessage id="referral.reject" />
                             </button>
                           </div>

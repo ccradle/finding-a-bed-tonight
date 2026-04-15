@@ -89,6 +89,7 @@
   --color-success-bg: #f0fdf4;
   --color-success-border: #bbf7d0;
   --color-success-bright: #22c55e;
+  --color-success-mid: #166534;       /* button/badge fills with white text — 9.3:1 ✓ (same as --color-success in light mode; the split happens in dark mode below) */
 
   /* Status: Error */
   --color-error: #991b1b;             /* on white = 9.4:1 ✓ */
@@ -151,6 +152,7 @@
     --color-success-bg: #052e16;        /* success text on this = 5.8:1 ✓ */
     --color-success-border: #065f46;
     --color-success-bright: #6ee7b7;
+    --color-success-mid: #15803d;       /* badge/button fills — white text on this = 5.7:1 ✓ (was --color-success #42be65 = 2.39:1 ✗ on the EscalatedReferralDetailModal Approve button — Phase 4 12.3 axe scan) */
 
     /* Status: Error — lightened for dark bg */
     --color-error: #ff8389;             /* Carbon Red-40: on dark bg = 6.3:1 ✓ */

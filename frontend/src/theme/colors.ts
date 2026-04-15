@@ -53,6 +53,7 @@ export const color = {
   successBg: 'var(--color-success-bg)',
   successBorder: 'var(--color-success-border)',
   successBright: 'var(--color-success-bright)',
+  successMid: 'var(--color-success-mid)',
 
   // Status: Error
   error: 'var(--color-error)',

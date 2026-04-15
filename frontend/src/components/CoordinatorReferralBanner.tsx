@@ -143,7 +143,11 @@ export function CoordinatorReferralBanner({ onBannerClick, referralId }: Coordin
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onBannerClick?.(target); }}
       tabIndex={onBannerClick ? 0 : undefined}
       style={{
-        backgroundColor: color.error,
+        // color.errorMid is the button/badge-fill variant (dark-mode #b91c1c
+        // → 6.7:1 with white). Bare color.error is the TEXT variant; in
+        // dark mode it resolves to #ff8389 which gave only 2.37:1 with the
+        // banner's white text — caught by Phase 4 axe scan 12.2 dark.
+        backgroundColor: color.errorMid,
         color: color.textInverse,
         padding: '12px 20px',
         fontSize: text.base,
