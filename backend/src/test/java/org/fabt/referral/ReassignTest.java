@@ -366,9 +366,20 @@ class ReassignTest extends BaseIntegrationTest {
         // Marcus Webb #1 (war room round 3): cross-tenant access must be
         // blocked at the service layer because referral_token RLS only
         // checks dvAccess, not tenant.
+        //
+        // Status updated 2026-04-14 with tasks 8.5/8.6 cross-tenant hardening
+        // (commit 366765c): repository.findByIdAndTenantId now short-circuits
+        // the cross-tenant lookup with NoSuchElementException → 404 BEFORE
+        // the service's own AccessDeniedException guard runs. 404 matches
+        // Marcus's D10 contract — no information leak about whether the
+        // referral exists in another tenant. The previous 403 assertion
+        // leaked existence semantically (403 implies "the resource exists
+        // but you can't touch it"). Aligns with parallel cross-tenant
+        // tests tc_getById/accept/reject_crossTenant_returns404 in
+        // DvReferralIntegrationTest.
         assertThat(resp.getStatusCode())
-                .as("Tenant B admin must NOT be able to reassign tenant A's referral")
-                .isEqualTo(HttpStatus.FORBIDDEN);
+                .as("Tenant B admin must see 404 for tenant A's referral (D10 — no existence leak)")
+                .isEqualTo(HttpStatus.NOT_FOUND);
     }
 
     @org.springframework.beans.factory.annotation.Autowired
