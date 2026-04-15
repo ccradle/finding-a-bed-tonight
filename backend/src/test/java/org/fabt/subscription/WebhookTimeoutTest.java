@@ -9,6 +9,7 @@ import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
 
 import org.fabt.BaseIntegrationTest;
 import org.fabt.TestAuthHelper;
+import org.fabt.shared.security.SafeOutboundUrlValidator;
 import org.fabt.subscription.service.WebhookDeliveryService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -24,6 +25,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
@@ -52,6 +54,12 @@ class WebhookTimeoutTest extends BaseIntegrationTest {
 
     @Autowired private TestAuthHelper authHelper;
     @Autowired private JdbcTemplate jdbcTemplate;
+
+    // D12: stub the SSRF guard so this test can target WireMock at
+    // http://localhost:<random>. See WebhookTestEventDeliveryTest for the
+    // full rationale — the production validator stays armed elsewhere.
+    @MockitoBean
+    private SafeOutboundUrlValidator urlValidator;
 
     private WireMockServer wireMock;
     private UUID subscriptionId;

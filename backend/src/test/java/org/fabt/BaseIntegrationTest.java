@@ -63,6 +63,14 @@ public abstract class BaseIntegrationTest {
         // API key rate limit: default 5/min applies. Tests that make >5 API key requests
         // should inject ApiKeyAuthenticationFilter and call rateLimitBuckets.invalidateAll()
         // in @BeforeEach, or use @SpringBootTest(properties = "fabt.api-key.rate-limit=1000").
+        //
+        // SSRF guard (D12): the base intentionally does NOT loosen
+        // SafeOutboundUrlValidator. Production-faithful default keeps the SSRF
+        // rejection contract (cloud-metadata, loopback, RFC1918) live in every
+        // integration test. The two tests that need a localhost WireMock mock
+        // (WebhookTestEventDeliveryTest, WebhookTimeoutTest) replace the
+        // validator with a Mockito stub via @MockitoBean — the production
+        // validator stays armed for everything else.
     }
 
     @Autowired

@@ -200,7 +200,7 @@ class SubscriptionIntegrationTest extends BaseIntegrationTest {
                 {
                     "eventType": "availability.updated",
                     "filter": {},
-                    "callbackUrl": "https://tenant-b.example.com/webhook",
+                    "callbackUrl": "https://example.com/tenant-b/webhook",
                     "callbackSecret": "tenant-b-legitimate-secret"
                 }
                 """;
@@ -248,6 +248,106 @@ class SubscriptionIntegrationTest extends BaseIntegrationTest {
     // subscription lands in the caller's tenant, matching the D11 contract.
     // ================================================================
 
+    // ================================================================
+    // cross-tenant-isolation-audit Phase 2.14 — SSRF guard on webhook
+    // callback URL (SafeOutboundUrlValidator, design D12).
+    //
+    // THREAT MODEL (Marcus Webb, LIVE VULN-HIGH): pre-fix, a CoC admin
+    // could configure http://169.254.169.254/latest/meta-data/ or
+    // http://127.0.0.1:9091/actuator/prometheus as the webhook
+    // callbackUrl. Every matching event would dial the cloud-metadata
+    // service or the backend's own actuator port, exfiltrating IAM
+    // credentials or internal metrics. 2026 CVE-2026-27127 (Craft CMS)
+    // showed URL-parse-only validation is defeated by DNS rebinding —
+    // hence the three-layer (parse + DNS + dial-time) design.
+    // ================================================================
+
+    @Test
+    void tc_createSubscription_cloudMetadataUrl_rejected() {
+        HttpHeaders headers = authHelper.adminHeaders();
+        String maliciousBody = """
+                {
+                    "eventType": "availability.updated",
+                    "filter": {},
+                    "callbackUrl": "http://169.254.169.254/latest/meta-data/iam/security-credentials/",
+                    "callbackSecret": "attacker-secret"
+                }
+                """;
+        ResponseEntity<Map> resp = restTemplate.exchange(
+                "/api/v1/subscriptions", HttpMethod.POST,
+                new HttpEntity<>(maliciousBody, headers), Map.class);
+
+        assertThat(resp.getStatusCode())
+                .as("Cloud-metadata SSRF URL must be rejected at creation time")
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(resp.getBody())
+                .as("Error envelope must surface bad_request — pin the GlobalExceptionHandler contract")
+                .containsEntry("error", "bad_request");
+    }
+
+    @Test
+    void tc_createSubscription_loopbackUrl_rejected() {
+        HttpHeaders headers = authHelper.adminHeaders();
+        String maliciousBody = """
+                {
+                    "eventType": "surge.activated",
+                    "filter": {},
+                    "callbackUrl": "http://127.0.0.1:9091/actuator/prometheus",
+                    "callbackSecret": "attacker-secret"
+                }
+                """;
+        ResponseEntity<Map> resp = restTemplate.exchange(
+                "/api/v1/subscriptions", HttpMethod.POST,
+                new HttpEntity<>(maliciousBody, headers), Map.class);
+
+        assertThat(resp.getStatusCode())
+                .as("Loopback URL must be rejected — prevents backend self-exfiltration via actuator")
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(resp.getBody()).containsEntry("error", "bad_request");
+    }
+
+    @Test
+    void tc_createSubscription_rfc1918Url_rejected() {
+        HttpHeaders headers = authHelper.adminHeaders();
+        String maliciousBody = """
+                {
+                    "eventType": "availability.updated",
+                    "filter": {},
+                    "callbackUrl": "http://192.168.1.1/internal",
+                    "callbackSecret": "attacker-secret"
+                }
+                """;
+        ResponseEntity<Map> resp = restTemplate.exchange(
+                "/api/v1/subscriptions", HttpMethod.POST,
+                new HttpEntity<>(maliciousBody, headers), Map.class);
+
+        assertThat(resp.getStatusCode())
+                .as("RFC1918 private-network URL must be rejected")
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(resp.getBody()).containsEntry("error", "bad_request");
+    }
+
+    @Test
+    void tc_createSubscription_nonHttpScheme_rejected() {
+        HttpHeaders headers = authHelper.adminHeaders();
+        String maliciousBody = """
+                {
+                    "eventType": "availability.updated",
+                    "filter": {},
+                    "callbackUrl": "file:///etc/passwd",
+                    "callbackSecret": "attacker-secret"
+                }
+                """;
+        ResponseEntity<Map> resp = restTemplate.exchange(
+                "/api/v1/subscriptions", HttpMethod.POST,
+                new HttpEntity<>(maliciousBody, headers), Map.class);
+
+        assertThat(resp.getStatusCode())
+                .as("Non-http/https scheme must be rejected")
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(resp.getBody()).containsEntry("error", "bad_request");
+    }
+
     @Test
     void tc_create_afterD11Refactor_subscriptionLandsInCallerTenant() {
         HttpHeaders tenantAHeaders = authHelper.adminHeaders();
@@ -257,7 +357,7 @@ class SubscriptionIntegrationTest extends BaseIntegrationTest {
                 {
                     "eventType": "surge.activated",
                     "filter": {},
-                    "callbackUrl": "https://tenant-a.example.com/d11-check",
+                    "callbackUrl": "https://example.com/tenant-a/d11-check",
                     "callbackSecret": "d11-check-secret"
                 }
                 """;

@@ -8,6 +8,7 @@ import java.util.UUID;
 
 import org.fabt.auth.domain.TenantOAuth2Provider;
 import org.fabt.auth.repository.TenantOAuth2ProviderRepository;
+import org.fabt.shared.security.SafeOutboundUrlValidator;
 import org.fabt.shared.web.TenantContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,9 +17,12 @@ import org.springframework.transaction.annotation.Transactional;
 public class TenantOAuth2ProviderService {
 
     private final TenantOAuth2ProviderRepository providerRepository;
+    private final SafeOutboundUrlValidator urlValidator;
 
-    public TenantOAuth2ProviderService(TenantOAuth2ProviderRepository providerRepository) {
+    public TenantOAuth2ProviderService(TenantOAuth2ProviderRepository providerRepository,
+                                        SafeOutboundUrlValidator urlValidator) {
         this.providerRepository = providerRepository;
+        this.urlValidator = urlValidator;
     }
 
     /**
@@ -44,6 +48,13 @@ public class TenantOAuth2ProviderService {
     public TenantOAuth2Provider create(String providerName, String clientId,
                                         String clientSecret, String issuerUri) {
         UUID tenantId = TenantContext.getTenantId();
+
+        // D12 (cross-tenant-isolation-audit Phase 2.14): validate issuerUri
+        // against SSRF categories. A tenant admin could otherwise configure
+        // http://169.254.169.254/ or http://127.0.0.1:9091/actuator/*
+        // as the issuerUri, causing every OIDC metadata dial to leak cloud-
+        // credentials or reach internal endpoints.
+        urlValidator.validateAtCreation(issuerUri);
 
         // Check for duplicate provider name within tenant
         if (providerRepository.findByTenantIdAndProviderName(tenantId, providerName).isPresent()) {
@@ -88,7 +99,12 @@ public class TenantOAuth2ProviderService {
             // TODO: Encrypt client secret with Vault/KMS before storing in production.
             provider.setClientSecretEncrypted(clientSecret);
         }
-        if (issuerUri != null) {
+        if (issuerUri != null && !issuerUri.isBlank()) {
+            // D12: same SSRF validation on update — an attacker admin
+            // could otherwise pivot a legitimate provider to a metadata
+            // endpoint via PUT. Blank strings treated as null (no-op)
+            // so an empty payload field cannot bypass the guard.
+            urlValidator.validateAtCreation(issuerUri);
             provider.setIssuerUri(issuerUri);
         }
         if (enabled != null) {

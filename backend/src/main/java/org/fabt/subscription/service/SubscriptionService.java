@@ -12,6 +12,7 @@ import java.util.UUID;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 import org.fabt.shared.config.JsonString;
+import org.fabt.shared.security.SafeOutboundUrlValidator;
 import org.fabt.shared.web.TenantContext;
 import org.fabt.subscription.domain.Subscription;
 import org.fabt.subscription.repository.SubscriptionRepository;
@@ -30,15 +31,18 @@ public class SubscriptionService {
     private final SubscriptionRepository subscriptionRepository;
     private final WebhookDeliveryLogRepository deliveryLogRepository;
     private final org.fabt.shared.security.SecretEncryptionService encryptionService;
+    private final SafeOutboundUrlValidator urlValidator;
     private final ObjectMapper objectMapper;
 
     public SubscriptionService(SubscriptionRepository subscriptionRepository,
                                WebhookDeliveryLogRepository deliveryLogRepository,
                                org.fabt.shared.security.SecretEncryptionService encryptionService,
+                               SafeOutboundUrlValidator urlValidator,
                                ObjectMapper objectMapper) {
         this.subscriptionRepository = subscriptionRepository;
         this.deliveryLogRepository = deliveryLogRepository;
         this.encryptionService = encryptionService;
+        this.urlValidator = urlValidator;
         this.objectMapper = objectMapper;
     }
 
@@ -252,12 +256,18 @@ public class SubscriptionService {
         }
     }
 
+    /**
+     * Validates an outbound webhook callback URL against SSRF attack classes.
+     *
+     * <p>Design D12 (cross-tenant-isolation-audit Phase 2.14): delegates to
+     * {@link SafeOutboundUrlValidator#validateAtCreation} — a three-layer
+     * check that rejects private-IP / cloud-metadata / link-local targets
+     * at creation time. Pre-fix, this was URL-parse-only — an attacker
+     * admin could configure {@code http://169.254.169.254/latest/meta-data/}
+     * to exfiltrate cloud-instance credentials on every webhook delivery.</p>
+     */
     private void validateCallbackUrl(String callbackUrl) {
-        try {
-            URI.create(callbackUrl).toURL();
-        } catch (MalformedURLException | IllegalArgumentException e) {
-            throw new IllegalArgumentException("Invalid callback URL: " + callbackUrl);
-        }
+        urlValidator.validateAtCreation(callbackUrl);
     }
 
     /**

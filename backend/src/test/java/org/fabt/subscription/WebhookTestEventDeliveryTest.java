@@ -11,6 +11,7 @@ import com.github.tomakehurst.wiremock.matching.RequestPatternBuilder;
 
 import org.fabt.BaseIntegrationTest;
 import org.fabt.TestAuthHelper;
+import org.fabt.shared.security.SafeOutboundUrlValidator;
 import org.fabt.subscription.service.SubscriptionService;
 import org.fabt.subscription.service.WebhookDeliveryService;
 import org.junit.jupiter.api.AfterEach;
@@ -26,6 +27,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath;
@@ -57,6 +59,15 @@ class WebhookTestEventDeliveryTest extends BaseIntegrationTest {
     @Autowired private TestAuthHelper authHelper;
     @Autowired private SubscriptionService subscriptionService;
     @Autowired private JdbcTemplate jdbcTemplate;
+
+    // D12 (cross-tenant-isolation-audit Phase 2.14): the production validator
+    // rejects loopback URLs to prevent SSRF self-exfiltration. This test points
+    // at WireMock on http://localhost:<random> — replace the validator with a
+    // Mockito stub so dial-time / creation-time checks no-op for THIS test
+    // class only. The base context keeps the real validator armed; SSRF
+    // rejection is covered by SubscriptionIntegrationTest + SafeOutboundUrlValidatorTest.
+    @MockitoBean
+    private SafeOutboundUrlValidator urlValidator;
 
     private WireMockServer wireMock;
     private UUID subscriptionId;

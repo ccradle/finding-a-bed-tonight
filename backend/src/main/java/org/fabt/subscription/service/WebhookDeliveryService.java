@@ -15,9 +15,12 @@ import javax.crypto.spec.SecretKeySpec;
 
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import org.fabt.observability.ObservabilityMetrics;
 import org.fabt.shared.event.DomainEvent;
+import org.fabt.shared.security.SafeOutboundUrlValidator;
 import org.fabt.shared.web.TenantContext;
 import org.fabt.subscription.domain.Subscription;
 import org.slf4j.Logger;
@@ -57,16 +60,27 @@ public class WebhookDeliveryService {
     private final CircuitBreaker circuitBreaker;
     private final Retry retry;
 
+    private final SafeOutboundUrlValidator urlValidator;
+    private final Counter ssrfBlockedCounter;
+
     public WebhookDeliveryService(SubscriptionService subscriptionService,
                                   ObjectMapper objectMapper,
                                   RestClient.Builder restClientBuilder,
                                   ObservabilityMetrics metrics,
                                   CircuitBreakerRegistry circuitBreakerRegistry,
                                   RetryRegistry retryRegistry,
+                                  SafeOutboundUrlValidator urlValidator,
+                                  MeterRegistry meterRegistry,
                                   @Value("${fabt.webhook.connect-timeout-seconds:10}") int connectTimeoutSeconds,
                                   @Value("${fabt.webhook.read-timeout-seconds:30}") int readTimeoutSeconds) {
         this.subscriptionService = subscriptionService;
         this.objectMapper = objectMapper;
+        this.urlValidator = urlValidator;
+        this.ssrfBlockedCounter = Counter.builder("fabt.webhook.delivery.failures")
+                .tag("reason", "ssrf_blocked")
+                .description("Webhook deliveries blocked at dial time by SafeOutboundUrlValidator "
+                        + "(possible DNS rebinding or misconfigured callback URL).")
+                .register(meterRegistry);
         // Timeouts per design D3: connect (default 10s) protects against unreachable
         // endpoints, read (default 30s) protects against hanging endpoints. The read
         // timeout MUST be set on the request factory — JDK HttpClient has no per-client
@@ -114,6 +128,20 @@ public class WebhookDeliveryService {
             // Decrypt the stored secret for HMAC computation (AES-256-GCM at rest)
             String hmacKey = subscriptionService.decryptCallbackSecret(subscription.getCallbackSecretHash());
             String signature = "sha256=" + computeHmacSha256(hmacKey, jsonBody);
+
+            // D12 (cross-tenant-isolation-audit Phase 2.14): dial-time SSRF
+            // re-validation, designed to mitigate DNS rebinding — an
+            // attacker's webhook URL resolves public at creation-time then
+            // rebinds to 127.0.0.1 / 169.254.169.254 between registration
+            // and delivery. Creation-time validation alone misses this.
+            // We re-resolve immediately before send; IllegalArgumentException
+            // on block.
+            try {
+                urlValidator.validateForDial(subscription.getCallbackUrl());
+            } catch (IllegalArgumentException ssrf) {
+                ssrfBlockedCounter.increment();
+                throw ssrf;
+            }
 
             var response = restClient.post()
                     .uri(subscription.getCallbackUrl())
@@ -257,6 +285,16 @@ public class WebhookDeliveryService {
 
         log.debug("Delivering event {} to {} for subscription {}",
                 event.type(), subscription.getCallbackUrl(), subscription.getId());
+
+        // D12: dial-time SSRF re-validation before production event delivery.
+        // See sendTestEvent() comment for rationale; designed to mitigate
+        // the DNS rebinding bypass class.
+        try {
+            urlValidator.validateForDial(subscription.getCallbackUrl());
+        } catch (IllegalArgumentException ssrf) {
+            ssrfBlockedCounter.increment();
+            throw ssrf;
+        }
 
         try {
             restClient.post()
