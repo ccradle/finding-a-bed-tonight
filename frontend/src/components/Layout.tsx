@@ -200,7 +200,21 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [kebabOpen]);
 
-  const isActive = (path: string) => location.pathname.startsWith(path);
+  // Active-nav-item resolution. The previous `pathname.startsWith(path)`
+  // implementation double-highlighted: on `/outreach/my-holds` both the
+  // "Search Beds" (/outreach) and "My Holds" (/outreach/my-holds) items
+  // lit up because `"/outreach/my-holds".startsWith("/outreach")` is true.
+  // Reported 2026-04-14 by Corey. Fix: pick the LONGEST nav-item path
+  // whose whole-segment matches the current pathname; only that one is
+  // active. Also guards against a second latent bug — a hypothetical
+  // `/outreachextra` route would false-match `/outreach` under startsWith.
+  const activeNavPath = visibleNavItems
+    .filter((item) =>
+      location.pathname === item.path
+      || location.pathname.startsWith(item.path + '/'),
+    )
+    .sort((a, b) => b.path.length - a.path.length)[0]?.path;
+  const isActive = (path: string) => path === activeNavPath;
 
   // Route announcer — announces page changes to screen readers (WCAG 2.4.3, D2)
   const [routeAnnouncement, setRouteAnnouncement] = useState('');

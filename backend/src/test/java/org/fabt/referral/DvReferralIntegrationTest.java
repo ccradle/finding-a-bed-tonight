@@ -182,6 +182,138 @@ class DvReferralIntegrationTest extends BaseIntegrationTest {
                 "Unknown referral id must return 404 so the deep-link UI can show the stale toast");
     }
 
+    /**
+     * Task 8.6 — the same cross-tenant isolation as 8.5, applied to
+     * state-mutating paths: accept / reject. Before the 8.5 / 8.6 fix
+     * (2026-04-14), a dv-access COORDINATOR in Tenant A could accept a
+     * Tenant B DV referral if they knew the UUID — no 4xx response,
+     * state changed successfully. After the fix, both endpoints return
+     * 404 (NoSuchElementException → GlobalExceptionHandler).
+     */
+    @Test
+    void tc_accept_crossTenant_returns404() {
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        Tenant tenantB = authHelper.setupSecondaryTenant("xtenant-8-6-" + suffix);
+        User adminB = authHelper.setupUserWithDvAccessInTenant(tenantB.getId(),
+                "admin-b-8-6-" + suffix + "@test.fabt.org", "Tenant B Admin",
+                new String[]{"PLATFORM_ADMIN", "COC_ADMIN"});
+        User outreachB = authHelper.setupUserWithDvAccessInTenant(tenantB.getId(),
+                "outreach-b-8-6-" + suffix + "@test.fabt.org", "Tenant B Outreach",
+                new String[]{"OUTREACH_WORKER"});
+        HttpHeaders adminBHeaders = authHelper.headersForUser(adminB);
+        HttpHeaders outreachBHeaders = authHelper.headersForUser(outreachB);
+        UUID shelterB = createShelterWithHeaders(adminBHeaders, true);
+        patchAvailabilityInTenant(shelterB, "DV_SURVIVOR", 10, 3, 0, adminBHeaders);
+        ResponseEntity<String> bReferralResp = createReferral(shelterB, outreachBHeaders);
+        assertTrue(bReferralResp.getStatusCode().is2xxSuccessful());
+        UUID tenantBReferralId = UUID.fromString(extractField(bReferralResp.getBody(), "id"));
+
+        ResponseEntity<String> acceptResp = restTemplate.exchange(
+                "/api/v1/dv-referrals/" + tenantBReferralId + "/accept", HttpMethod.PATCH,
+                new HttpEntity<>("{}", coordHeaders), String.class);
+        assertEquals(HttpStatus.NOT_FOUND, acceptResp.getStatusCode(),
+                "Cross-tenant accept must return 404 (was a silent state change before 8.5/8.6 fix)");
+
+        // Confirm Tenant B's referral is still PENDING (not flipped to ACCEPTED).
+        TenantContext.runWithContext(tenantB.getId(), true, () -> {
+            String status = jdbcTemplate.queryForObject(
+                    "SELECT status FROM referral_token WHERE id = ?::uuid",
+                    String.class, tenantBReferralId);
+            assertEquals("PENDING", status,
+                    "Tenant B's referral must remain PENDING after cross-tenant accept attempt");
+        });
+    }
+
+    @Test
+    void tc_reject_crossTenant_returns404() {
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        Tenant tenantB = authHelper.setupSecondaryTenant("xtenant-8-6b-" + suffix);
+        User adminB = authHelper.setupUserWithDvAccessInTenant(tenantB.getId(),
+                "admin-b-8-6b-" + suffix + "@test.fabt.org", "Tenant B Admin",
+                new String[]{"PLATFORM_ADMIN", "COC_ADMIN"});
+        User outreachB = authHelper.setupUserWithDvAccessInTenant(tenantB.getId(),
+                "outreach-b-8-6b-" + suffix + "@test.fabt.org", "Tenant B Outreach",
+                new String[]{"OUTREACH_WORKER"});
+        HttpHeaders adminBHeaders = authHelper.headersForUser(adminB);
+        HttpHeaders outreachBHeaders = authHelper.headersForUser(outreachB);
+        UUID shelterB = createShelterWithHeaders(adminBHeaders, true);
+        patchAvailabilityInTenant(shelterB, "DV_SURVIVOR", 10, 3, 0, adminBHeaders);
+        ResponseEntity<String> bReferralResp = createReferral(shelterB, outreachBHeaders);
+        assertTrue(bReferralResp.getStatusCode().is2xxSuccessful());
+        UUID tenantBReferralId = UUID.fromString(extractField(bReferralResp.getBody(), "id"));
+
+        ResponseEntity<String> rejectResp = restTemplate.exchange(
+                "/api/v1/dv-referrals/" + tenantBReferralId + "/reject", HttpMethod.PATCH,
+                new HttpEntity<>("{\"reason\":\"cross-tenant probe\"}", coordHeaders), String.class);
+        assertEquals(HttpStatus.NOT_FOUND, rejectResp.getStatusCode(),
+                "Cross-tenant reject must return 404 (was a silent state change before 8.5/8.6 fix)");
+
+        TenantContext.runWithContext(tenantB.getId(), true, () -> {
+            String status = jdbcTemplate.queryForObject(
+                    "SELECT status FROM referral_token WHERE id = ?::uuid",
+                    String.class, tenantBReferralId);
+            assertEquals("PENDING", status,
+                    "Tenant B's referral must remain PENDING after cross-tenant reject attempt");
+        });
+    }
+
+    /**
+     * Task 8.5 — Phase 1 war-room follow-up (Marcus D10). Verifies that
+     * {@code GET /api/v1/dv-referrals/{id}} returns 404 (NOT 403) when the
+     * referral belongs to a different tenant, so the response cannot leak
+     * whether the referral exists in another tenant. Previously blocked on
+     * the missing {@code setupUserWithDvAccessInTenant} helper; unblocked by
+     * the Section 16 cross-tenant refactor (commit {@code 7b9a8df}).
+     */
+    @Test
+    void tc_getById_crossTenant_returns404_notForbidden() {
+        // Setup: create a referral in a DIFFERENT tenant, then try to fetch
+        // it as a coordinator in our default test tenant.
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        Tenant tenantB = authHelper.setupSecondaryTenant("xtenant-8-5-" + suffix);
+        User adminB = authHelper.setupUserWithDvAccessInTenant(tenantB.getId(),
+                "admin-b-8-5-" + suffix + "@test.fabt.org", "Tenant B Admin",
+                new String[]{"PLATFORM_ADMIN", "COC_ADMIN"});
+        User outreachB = authHelper.setupUserWithDvAccessInTenant(tenantB.getId(),
+                "outreach-b-8-5-" + suffix + "@test.fabt.org", "Tenant B Outreach",
+                new String[]{"OUTREACH_WORKER"});
+        HttpHeaders adminBHeaders = authHelper.headersForUser(adminB);
+        HttpHeaders outreachBHeaders = authHelper.headersForUser(outreachB);
+
+        UUID shelterB = createShelterWithHeaders(adminBHeaders, true);
+        patchAvailabilityInTenant(shelterB, "DV_SURVIVOR", 10, 3, 0, adminBHeaders);
+        ResponseEntity<String> bReferralResp = createReferral(shelterB, outreachBHeaders);
+        assertTrue(bReferralResp.getStatusCode().is2xxSuccessful(),
+                "Tenant B referral must be created for this test — body: " + bReferralResp.getBody());
+        UUID tenantBReferralId = UUID.fromString(extractField(bReferralResp.getBody(), "id"));
+
+        // Act: fetch Tenant B's referral as a Tenant A coordinator with dvAccess.
+        // coordHeaders is configured in setUp() as a dv-access coordinator in
+        // the default test tenant — the exact "legitimate caller, wrong tenant"
+        // profile this test needs.
+        ResponseEntity<String> crossTenantGet = restTemplate.exchange(
+                "/api/v1/dv-referrals/" + tenantBReferralId, HttpMethod.GET,
+                new HttpEntity<>(coordHeaders), String.class);
+
+        // Assert: 404, not 403. The caller is authorized to hit the endpoint
+        // (has COORDINATOR role, has dv_access) but RLS filters the row out.
+        // The service's {@code findById} → orElseThrow(NoSuchElementException)
+        // path is mapped to 404 by GlobalExceptionHandler. A 403 would leak
+        // that the id is valid in some other tenant.
+        assertEquals(HttpStatus.NOT_FOUND, crossTenantGet.getStatusCode(),
+                "Cross-tenant GET /{id} must return 404, not 403 — 403 would leak existence");
+
+        // Defense-in-depth: the response body must not contain the
+        // Tenant B referral's identifiers or any row data.
+        String body = crossTenantGet.getBody();
+        if (body != null) {
+            assertFalse(body.contains(tenantBReferralId.toString()),
+                    "404 response must not echo the Tenant B referral UUID");
+            assertFalse(body.contains(shelterB.toString()),
+                    "404 response must not echo Tenant B's shelter UUID");
+        }
+    }
+
     @Test
     void tc_create_includesShelterName_snapshotInCreateAndMine() {
         ResponseEntity<String> createResp = createReferral(dvShelterId, outreachHeaders);
@@ -1060,6 +1192,296 @@ class DvReferralIntegrationTest extends BaseIntegrationTest {
         assertEquals(HttpStatus.OK, countResp.getStatusCode());
         assertTrue(countResp.getBody().contains("\"count\":2"),
                 "Pending count should reflect referrals across all assigned shelters — got: " + countResp.getBody());
+    }
+
+    // =========================================================================
+    // notification-deep-linking Section 16 — firstPending routing hint
+    // (design decision D-BP; banner genesis-gap closure, demo-deploy blocker)
+    // =========================================================================
+
+    /**
+     * Task 16.2.1 — firstPending points at the oldest PENDING referral by
+     * {@code created_at ASC}. Uses a direct SQL backdate to avoid a flaky
+     * Thread.sleep tie-break.
+     */
+    @Test
+    void tc_pendingCount_returnsFirstPendingWhenCountPositive() {
+        User coord = authHelper.setupUserWithDvAccess(
+                "firstpending-oldest-coord@test.fabt.org", "FirstPending Oldest", new String[]{"COORDINATOR"});
+        HttpHeaders coordH = authHelper.headersForUser(coord);
+
+        final UUID[] tPlus0ReferralId = new UUID[1];
+        final UUID[] tPlus0ShelterId = new UUID[1];
+
+        TenantContext.runWithContext(authHelper.getTestTenantId(), true, () -> {
+            UUID shelterA = createShelterWithHeaders(adminHeaders, true);
+            UUID shelterC = createShelterWithHeaders(adminHeaders, true);
+            patchAvailabilityInTenant(shelterA, "DV_SURVIVOR", 10, 3, 0, adminHeaders);
+            patchAvailabilityInTenant(shelterC, "DV_SURVIVOR", 10, 3, 0, adminHeaders);
+
+            restTemplate.exchange("/api/v1/shelters/" + shelterA + "/coordinators",
+                    HttpMethod.POST,
+                    new HttpEntity<>("{\"userId\":\"" + coord.getId() + "\"}", adminHeaders),
+                    String.class);
+            restTemplate.exchange("/api/v1/shelters/" + shelterC + "/coordinators",
+                    HttpMethod.POST,
+                    new HttpEntity<>("{\"userId\":\"" + coord.getId() + "\"}", adminHeaders),
+                    String.class);
+
+            // Create both referrals, then backdate the Shelter A one so it is
+            // unambiguously the older row regardless of wall-clock resolution.
+            ResponseEntity<String> refA = createReferral(shelterA, outreachHeaders);
+            assertTrue(refA.getStatusCode().is2xxSuccessful());
+            tPlus0ReferralId[0] = UUID.fromString(extractField(refA.getBody(), "id"));
+            tPlus0ShelterId[0] = shelterA;
+
+            createReferral(shelterC, outreachHeaders);
+
+            jdbcTemplate.update(
+                    "UPDATE referral_token SET created_at = NOW() - INTERVAL '5 minutes' WHERE id = ?",
+                    tPlus0ReferralId[0]);
+        });
+
+        ResponseEntity<String> resp = restTemplate.exchange(
+                "/api/v1/dv-referrals/pending/count", HttpMethod.GET,
+                new HttpEntity<>(coordH), String.class);
+        assertEquals(HttpStatus.OK, resp.getStatusCode());
+        String body = resp.getBody();
+        assertTrue(body.contains("\"count\":2"), "count should be 2 — got: " + body);
+        assertTrue(body.contains("\"referralId\":\"" + tPlus0ReferralId[0] + "\""),
+                "firstPending.referralId must point at the oldest pending referral — got: " + body);
+        assertTrue(body.contains("\"shelterId\":\"" + tPlus0ShelterId[0] + "\""),
+                "firstPending.shelterId must match the oldest referral's shelter — got: " + body);
+    }
+
+    /**
+     * Task 16.2.2 — when count is zero, firstPending is explicitly JSON null
+     * (present in the response, not omitted). The contract says clients test
+     * for {@code firstPending === null}, so the key MUST appear.
+     */
+    @Test
+    void tc_pendingCount_returnsNullFirstPendingWhenCountZero() {
+        User coord = authHelper.setupUserWithDvAccess(
+                "firstpending-zero-coord@test.fabt.org", "FirstPending Zero", new String[]{"COORDINATOR"});
+        HttpHeaders coordH = authHelper.headersForUser(coord);
+
+        TenantContext.runWithContext(authHelper.getTestTenantId(), true, () -> {
+            UUID assignedShelter = createShelterWithHeaders(adminHeaders, true);
+            patchAvailabilityInTenant(assignedShelter, "DV_SURVIVOR", 10, 3, 0, adminHeaders);
+            restTemplate.exchange("/api/v1/shelters/" + assignedShelter + "/coordinators",
+                    HttpMethod.POST,
+                    new HttpEntity<>("{\"userId\":\"" + coord.getId() + "\"}", adminHeaders),
+                    String.class);
+            // No referrals created — count is 0
+        });
+
+        ResponseEntity<String> resp = restTemplate.exchange(
+                "/api/v1/dv-referrals/pending/count", HttpMethod.GET,
+                new HttpEntity<>(coordH), String.class);
+        assertEquals(HttpStatus.OK, resp.getStatusCode());
+        String body = resp.getBody();
+        assertTrue(body.contains("\"count\":0"), "count should be 0 — got: " + body);
+        assertTrue(body.contains("\"firstPending\":null"),
+                "firstPending must be present as explicit JSON null, not omitted — got: " + body);
+    }
+
+    /**
+     * Task 16.2.3 — firstPending must not surface referrals from DV shelters
+     * the coordinator is NOT assigned to, even within the same tenant.
+     */
+    @Test
+    void tc_pendingCount_firstPendingDoesNotLeakUnassignedShelters() {
+        User coord = authHelper.setupUserWithDvAccess(
+                "firstpending-unassigned-coord@test.fabt.org", "FirstPending Unassigned",
+                new String[]{"COORDINATOR"});
+        HttpHeaders coordH = authHelper.headersForUser(coord);
+
+        final UUID[] assignedReferralId = new UUID[1];
+
+        TenantContext.runWithContext(authHelper.getTestTenantId(), true, () -> {
+            UUID assigned = createShelterWithHeaders(adminHeaders, true);
+            UUID unassigned = createShelterWithHeaders(adminHeaders, true);
+            patchAvailabilityInTenant(assigned, "DV_SURVIVOR", 10, 3, 0, adminHeaders);
+            patchAvailabilityInTenant(unassigned, "DV_SURVIVOR", 10, 3, 0, adminHeaders);
+
+            // Only assign to ONE of the two shelters
+            restTemplate.exchange("/api/v1/shelters/" + assigned + "/coordinators",
+                    HttpMethod.POST,
+                    new HttpEntity<>("{\"userId\":\"" + coord.getId() + "\"}", adminHeaders),
+                    String.class);
+
+            // Unassigned shelter has the OLDER pending referral — tempting to
+            // leak. Assigned shelter's referral is newer. Backdate the
+            // unassigned one so its created_at < assigned's.
+            ResponseEntity<String> unassignedRef = createReferral(unassigned, outreachHeaders);
+            assertTrue(unassignedRef.getStatusCode().is2xxSuccessful());
+            UUID unassignedReferralId = UUID.fromString(extractField(unassignedRef.getBody(), "id"));
+
+            ResponseEntity<String> assignedRef = createReferral(assigned, outreachHeaders);
+            assertTrue(assignedRef.getStatusCode().is2xxSuccessful());
+            assignedReferralId[0] = UUID.fromString(extractField(assignedRef.getBody(), "id"));
+
+            jdbcTemplate.update(
+                    "UPDATE referral_token SET created_at = NOW() - INTERVAL '10 minutes' WHERE id = ?",
+                    unassignedReferralId);
+        });
+
+        ResponseEntity<String> resp = restTemplate.exchange(
+                "/api/v1/dv-referrals/pending/count", HttpMethod.GET,
+                new HttpEntity<>(coordH), String.class);
+        assertEquals(HttpStatus.OK, resp.getStatusCode());
+        String body = resp.getBody();
+        assertTrue(body.contains("\"count\":1"),
+                "count must reflect only assigned shelters — got: " + body);
+        assertTrue(body.contains("\"referralId\":\"" + assignedReferralId[0] + "\""),
+                "firstPending.referralId must point at the assigned shelter's referral, "
+                        + "not the (older) unassigned one — got: " + body);
+    }
+
+    /**
+     * Task 16.2.4 — cross-tenant referrals must not leak via firstPending.
+     *
+     * <p>Uses the API-layer setup pattern established in
+     * {@code CrossTenantIsolationTest}: tenants created via
+     * {@code TenantService}, users via {@code UserRepository.save} with
+     * explicit tenantId, shelters + coordinator-assignments + referrals via
+     * the REST API using tenant-scoped JWTs. No raw SQL, no RLS workarounds —
+     * tenant isolation is application-layer (WHERE clauses + JWT claims), NOT
+     * database-layer (verified in {@code CrossTenantIsolationTest} Javadoc).</p>
+     *
+     * <p>Unblocks task 8.5 by way of
+     * {@link TestAuthHelper#setupUserWithDvAccessInTenant(UUID, String,
+     * String, String[])}.</p>
+     */
+    @Test
+    void tc_pendingCount_firstPendingDoesNotLeakCrossTenant() {
+        // Tenant A (default): coordinator with zero assigned pending referrals.
+        User coordA = authHelper.setupUserWithDvAccess(
+                "firstpending-xtenant-coord-a@test.fabt.org", "FirstPending Xtenant A",
+                new String[]{"COORDINATOR"});
+        HttpHeaders coordAHeaders = authHelper.headersForUser(coordA);
+
+        TenantContext.runWithContext(authHelper.getTestTenantId(), true, () -> {
+            UUID assignedA = createShelterWithHeaders(adminHeaders, true);
+            patchAvailabilityInTenant(assignedA, "DV_SURVIVOR", 10, 3, 0, adminHeaders);
+            restTemplate.exchange("/api/v1/shelters/" + assignedA + "/coordinators",
+                    HttpMethod.POST,
+                    new HttpEntity<>("{\"userId\":\"" + coordA.getId() + "\"}", adminHeaders),
+                    String.class);
+            // Intentionally NO referral created in Tenant A — we want to
+            // prove Tenant B's referral does not leak when Tenant A is empty.
+        });
+
+        // Tenant B setup — tenants + users via Spring beans; shelter + referral
+        // via the REST API with tenant-B JWTs. Slug suffix ensures repeated
+        // test runs don't collide on the unique slug constraint.
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        Tenant tenantB = authHelper.setupSecondaryTenant("iso-ndl-b-" + suffix);
+        // adminB needs dvAccess=true so the shelter.dv_shelter_access RLS policy
+        // permits the INSERT of a dv_shelter=true row. Matches the setUp() pattern
+        // above where 'dvAdmin' is created with setupUserWithDvAccess.
+        User adminB = authHelper.setupUserWithDvAccessInTenant(tenantB.getId(),
+                "admin-b-" + suffix + "@test.fabt.org", "Tenant B Admin",
+                new String[]{"PLATFORM_ADMIN", "COC_ADMIN"});
+        User outreachB = authHelper.setupUserWithDvAccessInTenant(tenantB.getId(),
+                "outreach-b-" + suffix + "@test.fabt.org", "Tenant B Outreach",
+                new String[]{"OUTREACH_WORKER"});
+        HttpHeaders adminBHeaders = authHelper.headersForUser(adminB);
+        HttpHeaders outreachBHeaders = authHelper.headersForUser(outreachB);
+
+        UUID shelterB = createShelterWithHeaders(adminBHeaders, true);
+        patchAvailabilityInTenant(shelterB, "DV_SURVIVOR", 10, 3, 0, adminBHeaders);
+        ResponseEntity<String> bReferralResp = createReferral(shelterB, outreachBHeaders);
+        assertTrue(bReferralResp.getStatusCode().is2xxSuccessful(),
+                "Tenant B referral creation must succeed — body: " + bReferralResp.getBody());
+        UUID tenantBReferralId = UUID.fromString(extractField(bReferralResp.getBody(), "id"));
+
+        // Now ask the Tenant A coordinator for their pending count.
+        // They have an assigned shelter (with no referrals); Tenant B has
+        // an unrelated referral. Tenant isolation should hide it.
+        ResponseEntity<String> resp = restTemplate.exchange(
+                "/api/v1/dv-referrals/pending/count", HttpMethod.GET,
+                new HttpEntity<>(coordAHeaders), String.class);
+        assertEquals(HttpStatus.OK, resp.getStatusCode());
+        String body = resp.getBody();
+        assertTrue(body.contains("\"count\":0"),
+                "Tenant A coordinator has 0 pending referrals; Tenant B's referral must not be "
+                        + "counted — got: " + body);
+        assertTrue(body.contains("\"firstPending\":null"),
+                "firstPending must be null for zero-count — cross-tenant referral must not leak; "
+                        + "got: " + body);
+        assertFalse(body.contains(tenantBReferralId.toString()),
+                "Tenant B's referral UUID must not appear anywhere in Tenant A's response");
+        assertFalse(body.contains(shelterB.toString()),
+                "Tenant B's shelter UUID must not appear anywhere in Tenant A's response");
+    }
+
+    /**
+     * Task 16.2.6 — coordinator with zero assigned shelters (distinct from
+     * 16.2.2's "assigned but empty"). Added as part of 2026-04-14 warroom
+     * review (Riley Cho + Sam Okafor): the service's early-return on an
+     * empty shelter-id list must produce {@code { count: 0, firstPending:
+     * null }} and MUST NOT attempt a DB query that would error on
+     * {@code shelter_id = ANY(ARRAY[]::uuid[])}.
+     */
+    @Test
+    void tc_pendingCount_zeroAssignedShelters() {
+        // Coordinator is created with NO coordinator-assignment rows at all.
+        User coord = authHelper.setupUserWithDvAccess(
+                "firstpending-zeroassign-coord@test.fabt.org", "FirstPending ZeroAssign",
+                new String[]{"COORDINATOR"});
+        HttpHeaders coordH = authHelper.headersForUser(coord);
+        // Deliberately skip any POST to /api/v1/shelters/{id}/coordinators —
+        // the coordinator has literally no shelter assignments.
+
+        ResponseEntity<String> resp = restTemplate.exchange(
+                "/api/v1/dv-referrals/pending/count", HttpMethod.GET,
+                new HttpEntity<>(coordH), String.class);
+        assertEquals(HttpStatus.OK, resp.getStatusCode());
+        String body = resp.getBody();
+        assertTrue(body.contains("\"count\":0"),
+                "zero-assignment coordinator must see count=0 — got: " + body);
+        assertTrue(body.contains("\"firstPending\":null"),
+                "zero-assignment coordinator must see firstPending=null (no NullPointerException, "
+                        + "no SQL empty-array error) — got: " + body);
+    }
+
+    /**
+     * Task 16.2.5 — additive change: pre-Phase-4 clients that destructure
+     * only {@code count} continue to work. The JSON must contain a parseable
+     * {@code count} field regardless of whether {@code firstPending} is
+     * populated. No contract break.
+     */
+    @Test
+    void tc_pendingCount_backwardCompatibleResponse() {
+        User coord = authHelper.setupUserWithDvAccess(
+                "firstpending-compat-coord@test.fabt.org", "FirstPending Compat",
+                new String[]{"COORDINATOR"});
+        HttpHeaders coordH = authHelper.headersForUser(coord);
+
+        TenantContext.runWithContext(authHelper.getTestTenantId(), true, () -> {
+            UUID shelter = createShelterWithHeaders(adminHeaders, true);
+            patchAvailabilityInTenant(shelter, "DV_SURVIVOR", 10, 3, 0, adminHeaders);
+            restTemplate.exchange("/api/v1/shelters/" + shelter + "/coordinators",
+                    HttpMethod.POST,
+                    new HttpEntity<>("{\"userId\":\"" + coord.getId() + "\"}", adminHeaders),
+                    String.class);
+            createReferral(shelter, outreachHeaders);
+        });
+
+        ResponseEntity<String> resp = restTemplate.exchange(
+                "/api/v1/dv-referrals/pending/count", HttpMethod.GET,
+                new HttpEntity<>(coordH), String.class);
+        assertEquals(HttpStatus.OK, resp.getStatusCode());
+        String body = resp.getBody();
+
+        // A pre-Phase-4 client parsing just { count: <int> } must still work.
+        // Jackson produces stable field order, but assert on substring rather
+        // than field position so this is resilient to re-ordering.
+        assertTrue(body.contains("\"count\":1"),
+                "pre-Phase-4 consumer parsing {count} must see count=1 — got: " + body);
+        assertTrue(body.contains("\"firstPending\":{"),
+                "firstPending populated object must be present on count>0 — got: " + body);
     }
 
     // =========================================================================

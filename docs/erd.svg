@@ -1392,7 +1392,7 @@
 <!-- referral_token -->
 <g id="referral_token" class="node">
 <title>referral_token</title>
-<g id="a_referral_token"><a xlink:title="referral_token&#10;&#13;&#10; &#160;Opaque referral designed to support VAWA requirements. Contains zero client PII.&#13;&#10; &#160;Hard&#45;deleted within 24 hours of terminal status.&#13;&#10; &#160;RLS inherits DV shelter access via shelter FK.&#13;&#10; &#160;">
+<g id="a_referral_token"><a xlink:title="referral_token&#10;&#13;&#10; &#160;Opaque referral designed to support VAWA requirements. Contains zero client PII.&#13;&#10; &#160;Hard&#45;deleted within 24 hours of terminal status.&#13;&#10; &#160;RLS inherits DV shelter access via shelter FK (dv_shelter_access policy).&#13;&#10; &#160;RLS does NOT enforce tenant isolation — that is enforced in the repository&#13;&#10; &#160;layer via findByIdAndTenantId (tasks 8.5/8.6, commit 366765c).&#13;&#10; &#160;">
 <ellipse fill="none" stroke="black" stroke-width="0" cx="492.15" cy="-3472.24" rx="400.86" ry="893.57"/>
 <polygon fill="#1d71b8" stroke="transparent" points="211.15,-4042.24 211.15,-4102.24 774.15,-4102.24 774.15,-4042.24 211.15,-4042.24"/>
 <polygon fill="none" stroke="#29235c" points="211.15,-4042.24 211.15,-4102.24 774.15,-4102.24 774.15,-4042.24 211.15,-4042.24"/>

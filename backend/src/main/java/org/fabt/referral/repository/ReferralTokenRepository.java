@@ -71,10 +71,25 @@ public class ReferralTokenRepository {
         return results.get(0);
     }
 
-    public Optional<ReferralToken> findById(UUID id) {
+    /**
+     * Find a referral by id, scoped to the caller's tenant. Returns
+     * {@link Optional#empty()} when either the id does not exist OR it
+     * belongs to a different tenant — callers that map the empty Optional
+     * to a 404 response get tenant isolation for free without leaking
+     * whether the id is valid in some other tenant (Marcus Webb D10 + N-4,
+     * tasks 8.5 / 8.6).
+     *
+     * <p><b>Do not add a non-tenant-scoped findById overload</b> without a
+     * security review. The system paths that need cross-tenant visibility
+     * (expire tasklet, escalation batch) use {@link #findAllPending()} and
+     * {@link #findEscalatedQueueByTenant(UUID)} with explicit tenant
+     * boundaries — they do not need to look up a single referral by id
+     * without a tenant filter.</p>
+     */
+    public Optional<ReferralToken> findByIdAndTenantId(UUID id, UUID tenantId) {
         List<ReferralToken> results = jdbcTemplate.query(
-                "SELECT * FROM referral_token WHERE id = ?",
-                ROW_MAPPER, id);
+                "SELECT * FROM referral_token WHERE id = ? AND tenant_id = ?",
+                ROW_MAPPER, id, tenantId);
         return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
     }
 
@@ -175,6 +190,61 @@ public class ReferralTokenRepository {
                 "SELECT COUNT(*) FROM referral_token WHERE shelter_id = ANY(?) AND status = 'PENDING'",
                 Integer.class, (Object) ids);
         return count != null ? count : 0;
+    }
+
+    /**
+     * Return the oldest PENDING referral across the supplied shelter set, or
+     * {@link Optional#empty()} when none exist.
+     *
+     * <p><b>Callers:</b> {@code ReferralTokenController#countPending} →
+     * {@code ReferralTokenService#findFirstPendingRoutingHint} wraps this in
+     * {@code PendingReferralCountResponse.firstPending} so the
+     * {@code CoordinatorReferralBanner} can deep-link to the pending referral
+     * without a second round-trip — closes the genesis gap of the
+     * notification-deep-linking change (design decision D-BP). See
+     * {@code openspec/changes/notification-deep-linking/design.md} for why
+     * "oldest first" is the chosen tie-break.</p>
+     *
+     * <p><b>Performance (task 16.1.5 closed 2026-04-14):</b> backed by
+     * {@code idx_referral_token_pending_created_at} — partial index on
+     * {@code (created_at ASC) WHERE status = 'PENDING'} added in
+     * V55. The planner chooses an ordered Index Scan on this partial
+     * index, walks rows in ascending {@code created_at} order,
+     * rechecks each row's {@code shelter_id} against the ANY array via
+     * a heap filter, and stops at the first match (LIMIT 1). No Sort
+     * step is required. Measured via pg_stat_statements over 100 runs
+     * per scenario on the dev stack:
+     * <pre>
+     *   Scale        Baseline (no V55)    With V55
+     *   500 rows     0.40 ms (Seq Scan)   0.12 ms
+     *   3500 rows    1.71 ms (Bitmap+Sort) 0.12 ms  (14× speedup)
+     * </pre>
+     * Worst-case walk (1-of-50 cold-tier shelter assignment) traverses
+     * 12 rows before hitting a match: 0.094 ms. The walk stays bounded
+     * because PENDING rows are thinly distributed across the
+     * created_at domain (SLA-bounded expiry in production).
+     * </p>
+     *
+     * <p><b>Authorization scoping (N-4, task 8.6 — pending audit):</b> this
+     * query has no caller-identity awareness — scoping is the responsibility
+     * of the controller, which builds {@code shelterIds} via
+     * {@code CoordinatorAssignmentRepository#findShelterIdsByUserId}. When
+     * task 8.6 (shelter-assignment authorization audit) tightens checks on
+     * {@code accept}/{@code reject}, the same tightening must reach
+     * {@code countPending}'s {@code firstPending} path so the hardening is
+     * consistent across every endpoint that surfaces a specific
+     * {@code referralId}. Flag added 2026-04-14 during Section 16
+     * warroom review (Marcus Webb).</p>
+     */
+    public Optional<ReferralToken> findOldestPendingByShelterIds(List<UUID> shelterIds) {
+        if (shelterIds.isEmpty()) return Optional.empty();
+        UUID[] ids = shelterIds.toArray(UUID[]::new);
+        List<ReferralToken> results = jdbcTemplate.query(
+                "SELECT * FROM referral_token "
+                + "WHERE shelter_id = ANY(?) AND status = 'PENDING' "
+                + "ORDER BY created_at ASC LIMIT 1",
+                ROW_MAPPER, (Object) ids);
+        return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
     }
 
     public int countPendingByShelterId(UUID shelterId) {

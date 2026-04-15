@@ -334,6 +334,117 @@ class NotificationRlsIntegrationTest extends BaseIntegrationTest {
         assertThat(afterNotifs.getBody()).doesNotContain("test.acted-critical");
     }
 
+    /**
+     * Task 9.2 — markActed scoped to caller recipient. Given two users A and B
+     * with notifications for the same referralId, A PATCH /{id}/acted on A's
+     * notification MUST NOT flip B's acted_at. Enforced at the UPDATE layer
+     * by the {@code recipient_id = :recipientId} predicate in
+     * {@code NotificationRepository.markActed}.
+     */
+    @Test
+    @DisplayName("Task 9.2 — markActed on user A does not affect user B's notification for the same referral")
+    void task_9_2_markActed_scopedToCallerRecipient() {
+        UUID tenantId = authHelper.getTestTenantId();
+        String sharedReferralId = UUID.randomUUID().toString();
+        String payload = "{\"referralId\":\"" + sharedReferralId + "\"}";
+
+        // Send the SAME notification (same type, same payload) to both users —
+        // simulates two coordinators both assigned to the same DV shelter
+        // both receiving a referral.requested fanout.
+        final UUID[] coordNotifId = new UUID[1];
+        final UUID[] outreachNotifId = new UUID[1];
+        TenantContext.runWithContext(tenantId, false, () -> {
+            coordNotifId[0] = notificationPersistenceService.send(
+                    tenantId, coordinatorUser.getId(),
+                    "referral.requested", "ACTION_REQUIRED", payload).getId();
+            outreachNotifId[0] = notificationPersistenceService.send(
+                    tenantId, outreachUser.getId(),
+                    "referral.requested", "ACTION_REQUIRED", payload).getId();
+        });
+
+        // Coordinator PATCHes /acted on their OWN notification.
+        ResponseEntity<Void> coordAct = restTemplate.exchange(
+                "/api/v1/notifications/" + coordNotifId[0] + "/acted",
+                HttpMethod.PATCH,
+                new HttpEntity<>(authHelper.coordinatorHeaders()),
+                Void.class);
+        assertThat(coordAct.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+
+        // Coordinator now tries to PATCH /acted on the OUTREACH worker's notification
+        // using their OWN JWT. The repository's recipient_id filter must no-op
+        // (return 0 rows updated) — outreach's acted_at must remain null.
+        ResponseEntity<Void> crossUserAct = restTemplate.exchange(
+                "/api/v1/notifications/" + outreachNotifId[0] + "/acted",
+                HttpMethod.PATCH,
+                new HttpEntity<>(authHelper.coordinatorHeaders()),
+                Void.class);
+        // Endpoint returns 204 even on no-op (idempotent contract — same as
+        // markReadOnOtherUsersNotificationIsNoop + markReadOnNonExistentUuid).
+        assertThat(crossUserAct.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+
+        // Verify at the database level: coord's acted, outreach's NOT acted.
+        Instant coordActedAt = jdbcTemplate.queryForObject(
+                "SELECT acted_at FROM notification WHERE id = ?",
+                Instant.class, coordNotifId[0]);
+        assertThat(coordActedAt)
+                .as("coordinator's own notification must be marked acted")
+                .isNotNull();
+
+        Instant outreachActedAt = jdbcTemplate.queryForObject(
+                "SELECT acted_at FROM notification WHERE id = ?",
+                Instant.class, outreachNotifId[0]);
+        assertThat(outreachActedAt)
+                .as("outreach worker's notification must NOT be affected by coordinator's cross-user PATCH /acted")
+                .isNull();
+    }
+
+    /**
+     * Task 9.4 — stale-referral fallback marks READ but NOT ACTED. X-1
+     * concurrency coverage: Coordinator A accepts a referral; Coordinator B
+     * later clicks their notification, useDeepLink's resolveTarget returns
+     * the non-PENDING referral, state machine transitions to 'stale', host
+     * effect calls {@code markNotificationsActedByPayload(..., 'stale')}
+     * which uses PATCH /{id}/read (not /acted). B's notification ends with
+     * read_at populated but acted_at null — preserves the lifecycle
+     * distinction between "I acted" and "I saw too late" (Design D3).
+     */
+    @Test
+    @DisplayName("Task 9.4 — PATCH /{id}/read sets read_at but NOT acted_at (stale-fallback contract)")
+    void task_9_4_markRead_doesNotSetActedAt() {
+        UUID tenantId = authHelper.getTestTenantId();
+        final UUID[] notifId = new UUID[1];
+        TenantContext.runWithContext(tenantId, false, () -> {
+            notifId[0] = notificationPersistenceService.send(
+                    tenantId, coordinatorUser.getId(),
+                    "referral.requested", "ACTION_REQUIRED",
+                    "{\"referralId\":\"" + UUID.randomUUID() + "\"}").getId();
+        });
+
+        // Coordinator's deep-link sees the referral as non-PENDING → stale.
+        // useDeepLink's 'stale' branch calls markNotificationsActedByPayload
+        // with outcome='stale' → PATCH /{id}/read.
+        ResponseEntity<Void> readResp = restTemplate.exchange(
+                "/api/v1/notifications/" + notifId[0] + "/read",
+                HttpMethod.PATCH,
+                new HttpEntity<>(authHelper.coordinatorHeaders()),
+                Void.class);
+        assertThat(readResp.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+
+        Instant readAt = jdbcTemplate.queryForObject(
+                "SELECT read_at FROM notification WHERE id = ?",
+                Instant.class, notifId[0]);
+        assertThat(readAt)
+                .as("read_at must be set — user acknowledged they saw the notification")
+                .isNotNull();
+
+        Instant actedAt = jdbcTemplate.queryForObject(
+                "SELECT acted_at FROM notification WHERE id = ?",
+                Instant.class, notifId[0]);
+        assertThat(actedAt)
+                .as("acted_at must remain null — stale fallback means 'I saw too late', NOT 'I acted'")
+                .isNull();
+    }
+
     @Test
     @DisplayName("markAllRead then count → returns only CRITICAL unread count")
     void markAllReadThenCountReturnsOnlyCriticalCount() {

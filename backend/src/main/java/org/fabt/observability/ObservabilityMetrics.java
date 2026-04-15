@@ -168,6 +168,79 @@ public class ObservabilityMetrics {
                 .register(registry);
     }
 
+    // --- notification-deep-linking metrics (Priya differentiator, Phase 4 9a.x) ---
+
+    /**
+     * Counter for notification deep-link clicks, tagged by the notification
+     * {@code type} (e.g., referral.requested, escalation.1h,
+     * SHELTER_DEACTIVATED), the clicking user's {@code role}, and the
+     * {@code outcome} of the click (success / stale / offline).
+     *
+     * <p>Incremented on every deep-link resolution the frontend reports via
+     * POST /api/v1/metrics/notification-deeplink-click. The resolution
+     * outcome maps 1:1 to useDeepLink's terminal dlState.kind:
+     * {@code 'done'} → success, {@code 'stale'} (404/403/race/timeout) →
+     * stale. The offline tag is emitted only by the frontend when
+     * navigator.onLine was false at the failure point — backend can't
+     * observe offline state directly.</p>
+     *
+     * <p>Clickthrough analysis uses this counter divided by the count of
+     * delivered notifications of the same type to produce the
+     * "deep-link click-through rate > 70%" success metric from the
+     * OpenSpec design doc.</p>
+     */
+    public Counter notificationDeepLinkClickCounter(String type, String role, String outcome) {
+        return Counter.builder("fabt.notification.deeplink.click.count")
+                .tag("type", type != null ? type : "unknown")
+                .tag("role", role != null ? role : "unknown")
+                .tag("outcome", outcome != null ? outcome : "unknown")
+                .register(registry);
+    }
+
+    /**
+     * Histogram of time-from-notification-to-successful-action, tagged by
+     * notification {@code type}. Measured server-side in the PATCH /acted
+     * handler as {@code now - notification.createdAt} the moment the
+     * markActed state transition fires.
+     *
+     * <p>This is the <b>primary success metric</b> for the
+     * notification-deep-linking change (Priya's lens in the OpenSpec):
+     * median time-from-notification-to-accept &lt; 30 seconds, baseline
+     * per coordinator self-report was 2-5 minutes. {@code publishPercentileHistogram}
+     * emits p50 / p95 / p99 buckets so the Grafana panel (task 9a.4) can
+     * render the full latency distribution.</p>
+     *
+     * <p>If the median reading exceeds 60 seconds after 2 weeks of pilot
+     * data, investigate UX — the deep-link may not be hitting the right
+     * target (OpenSpec design doc Success Targets).</p>
+     */
+    public Timer notificationTimeToActionTimer(String type) {
+        return Timer.builder("fabt.notification.time_to_action.seconds")
+                .tag("type", type != null ? type : "unknown")
+                .publishPercentileHistogram()
+                .register(registry);
+    }
+
+    /**
+     * Counter for stale deep-link resolutions — the notification referenced
+     * a target that no longer exists or the user lacks access to (404/403
+     * from the resolve fetch) OR the target didn't materialize in time
+     * (awaiting-target deadline). Tagged by notification {@code type} and
+     * user {@code role} so operations can see whether stale-rate correlates
+     * with a specific role (e.g., admins racing coordinators) or a specific
+     * escalation tier.
+     *
+     * <p>High stale rate indicates the notification delivery or routing is
+     * out of sync with the domain state — actionable signal for backend
+     * escalation-timing tuning.</p>
+     */
+    public Counter notificationStaleReferralCounter(String type, String role) {
+        return Counter.builder("fabt.notification.stale_referral.count")
+                .tag("type", type != null ? type : "unknown")
+                .tag("role", role != null ? role : "unknown")
+                .register(registry);
+    }
+
     public void setSurgeActive(boolean active) {
         surgeActive.set(active ? 1 : 0);
     }

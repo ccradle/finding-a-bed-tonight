@@ -179,6 +179,102 @@ channels:
         $ref: '#/components/messages/DvReferralEventMessage'
 
   # -----------------------------------------------------------------------
+  # DV referral lifecycle events — expiry, queue updates, admin actions
+  # Added in docs sync 2026-04-14 (notification-deep-linking task 13.5).
+  # All carry zero client PII (VAWA 34 U.S.C. 12291(b)(2)).
+  # -----------------------------------------------------------------------
+
+  dvReferralExpired:
+    address: dv-referral.expired
+    title: DV Referrals Expired (batch)
+    description: |
+      Published by the expiry tasklet (scheduled job) once per cycle when
+      one or more referral tokens have aged past their expires_at. Payload
+      is a BATCH — carries an array of expired token IDs rather than a
+      single row. One event per tasklet cycle, not one event per token.
+      Consumers typically invalidate caches for the affected tokens or
+      trigger downstream audit logging.
+    x-security:
+      dv-access-control: |
+        This event ALWAYS relates to DV shelters. ALL consumers MUST hold
+        the DV_REFERRAL authorization role.
+    messages:
+      dvReferralExpiredMessage:
+        $ref: '#/components/messages/DvReferralExpiredMessage'
+
+  referralQueueChanged:
+    address: referral.queue-changed
+    title: DV Referral Queue Changed
+    description: |
+      Queue-refresh signal emitted whenever a DV referral moves between
+      states (accept / reject / expire / reassign). Consumers — typically
+      the admin escalation queue SSE stream and the coordinator banner —
+      re-fetch their current view of the queue on receipt. Payload shape
+      is heterogeneous across emission sites because the CONTRACT is
+      "something changed; invalidate cached view", not "this specific
+      transition happened" (the domain-specific events — dv-referral.
+      responded, dv-referral.expired, referral.reassigned — carry those
+      details). Treat the payload as an opaque refresh hint.
+    x-security:
+      dv-access-control: |
+        This event ALWAYS relates to DV shelters. ALL consumers MUST hold
+        the DV_REFERRAL authorization role.
+    messages:
+      referralQueueChangedMessage:
+        $ref: '#/components/messages/ReferralQueueChangedMessage'
+
+  referralClaimed:
+    address: referral.claimed
+    title: DV Referral Claimed by Admin
+    description: |
+      Published when a CoC admin soft-claims a DV referral in the
+      escalation queue (coc-admin-escalation change). The claim is a
+      time-bounded lock (default 10 min) that signals "I am working this"
+      to other admins, auto-released via the minute-interval sweep when
+      claim_expires_at elapses without manual release. Payload carries
+      the referral ID, the claiming admin's user ID, and the claim
+      expiry timestamp.
+    x-security:
+      dv-access-control: |
+        This event ALWAYS relates to DV shelters. ALL consumers MUST hold
+        the DV_REFERRAL authorization role.
+    messages:
+      referralClaimedMessage:
+        $ref: '#/components/messages/ReferralClaimedMessage'
+
+  referralReleased:
+    address: referral.released
+    title: DV Referral Claim Released
+    description: |
+      Published when a DV referral admin claim is released — either
+      manually by the holding admin (reason="manual") or automatically
+      by the minute-interval sweep after claim_expires_at elapsed
+      (reason="timeout"). Carries only the referral ID and the release
+      reason; the previously-holding admin is NOT included in the event
+      (readers that need it should re-fetch from the audit trail).
+    x-security:
+      dv-access-control: |
+        This event ALWAYS relates to DV shelters. ALL consumers MUST hold
+        the DV_REFERRAL authorization role.
+    messages:
+      referralReleasedMessage:
+        $ref: '#/components/messages/ReferralReleasedMessage'
+
+  referralPolicyUpdated:
+    address: referral.policy-updated
+    title: DV Escalation Policy Updated
+    description: |
+      Published when a CoC admin creates a new escalation policy version
+      (append-only versioning per coc-admin-escalation design). Consumers
+      — typically the policy editor UI and the new-referral creation form
+      — refresh their view of the current policy. Carries the new
+      policy row ID, event_type scope (e.g. 'dv-referral.requested'), and
+      the version number for observability.
+    messages:
+      referralPolicyUpdatedMessage:
+        $ref: '#/components/messages/ReferralPolicyUpdatedMessage'
+
+  # -----------------------------------------------------------------------
   # User lifecycle events (v0.19.0 — admin-user-management)
   # -----------------------------------------------------------------------
 
@@ -388,6 +484,46 @@ operations:
     messages:
       - $ref: '#/channels/dvReferralResponded/messages/dvReferralRespondedMessage'
 
+  onDvReferralExpired:
+    action: receive
+    channel:
+      $ref: '#/channels/dvReferralExpired'
+    summary: Receive batched DV referral expiry events (DV_REFERRAL role required)
+    messages:
+      - $ref: '#/channels/dvReferralExpired/messages/dvReferralExpiredMessage'
+
+  onReferralQueueChanged:
+    action: receive
+    channel:
+      $ref: '#/channels/referralQueueChanged'
+    summary: Receive DV referral queue-refresh signals (DV_REFERRAL role required)
+    messages:
+      - $ref: '#/channels/referralQueueChanged/messages/referralQueueChangedMessage'
+
+  onReferralClaimed:
+    action: receive
+    channel:
+      $ref: '#/channels/referralClaimed'
+    summary: Receive DV referral admin-claim events (DV_REFERRAL role required)
+    messages:
+      - $ref: '#/channels/referralClaimed/messages/referralClaimedMessage'
+
+  onReferralReleased:
+    action: receive
+    channel:
+      $ref: '#/channels/referralReleased'
+    summary: Receive DV referral claim-release events (DV_REFERRAL role required)
+    messages:
+      - $ref: '#/channels/referralReleased/messages/referralReleasedMessage'
+
+  onReferralPolicyUpdated:
+    action: receive
+    channel:
+      $ref: '#/channels/referralPolicyUpdated'
+    summary: Receive escalation-policy update events
+    messages:
+      - $ref: '#/channels/referralPolicyUpdated/messages/referralPolicyUpdatedMessage'
+
   onUserDeactivated:
     action: receive
     channel:
@@ -525,6 +661,57 @@ components:
       contentType: application/json
       payload:
         $ref: '#/components/schemas/DvReferralEvent'
+
+    DvReferralExpiredMessage:
+      name: DvReferralExpiredMessage
+      title: DV Referrals Expired (batch)
+      summary: |
+        Published on dv-referral.expired. Batch payload — one event per
+        expiry tasklet cycle carrying an array of expired token IDs.
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/DvReferralExpiredEvent'
+
+    ReferralQueueChangedMessage:
+      name: ReferralQueueChangedMessage
+      title: DV Referral Queue Changed
+      summary: |
+        Published on referral.queue-changed. Opaque refresh signal — the
+        payload shape varies by emission site (accept/reject, expire,
+        reassign); consumers should treat it as "something changed, re-fetch".
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ReferralQueueChangedEvent'
+
+    ReferralClaimedMessage:
+      name: ReferralClaimedMessage
+      title: DV Referral Claimed
+      summary: |
+        Published on referral.claimed. Carries the referral ID, the
+        claiming admin, and the claim expiry timestamp.
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ReferralClaimedEvent'
+
+    ReferralReleasedMessage:
+      name: ReferralReleasedMessage
+      title: DV Referral Released
+      summary: |
+        Published on referral.released. Carries the referral ID and the
+        release reason (manual or timeout).
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ReferralReleasedEvent'
+
+    ReferralPolicyUpdatedMessage:
+      name: ReferralPolicyUpdatedMessage
+      title: DV Escalation Policy Updated
+      summary: |
+        Published on referral.policy-updated when a CoC admin creates a
+        new escalation policy version.
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ReferralPolicyUpdatedEvent'
 
     UserLifecycleMessage:
       name: UserLifecycleMessage
@@ -930,6 +1117,203 @@ components:
           type: string
           enum: [ACCEPTED, REJECTED]
           description: Shelter response. Present on dv-referral.responded events only.
+
+    # -- dv-referral.expired (batched expiry tasklet) -----------------------
+
+    DvReferralExpiredEvent:
+      allOf:
+        - $ref: '#/components/schemas/DomainEventEnvelope'
+        - type: object
+          properties:
+            type:
+              type: string
+              const: dv-referral.expired
+            payload:
+              $ref: '#/components/schemas/DvReferralExpiredPayload'
+
+    DvReferralExpiredPayload:
+      type: object
+      description: |
+        Batch payload emitted once per expiry tasklet cycle. Carries ALL
+        token IDs that moved from PENDING to EXPIRED in this cycle (typical
+        cardinality 0–10). Zero client PII.
+      required:
+        - token_ids
+      properties:
+        token_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: |
+            UUIDs of referral tokens that transitioned to EXPIRED this cycle.
+            Consumers typically invalidate per-token caches and write one
+            audit entry per id.
+
+    # -- referral.queue-changed (heterogeneous refresh signal) --------------
+
+    ReferralQueueChangedEvent:
+      allOf:
+        - $ref: '#/components/schemas/DomainEventEnvelope'
+        - type: object
+          properties:
+            type:
+              type: string
+              const: referral.queue-changed
+            payload:
+              $ref: '#/components/schemas/ReferralQueueChangedPayload'
+
+    ReferralQueueChangedPayload:
+      type: object
+      description: |
+        Opaque queue-refresh signal. Emission sites publish different
+        subsets of fields depending on the transition; consumers should
+        treat this payload as a hint to re-fetch their cached queue
+        rather than a structured state delta. Specific transitions carry
+        their own typed events (dv-referral.responded, dv-referral.expired,
+        etc.) — prefer those for transition-specific handling.
+      properties:
+        token_id:
+          type: string
+          format: uuid
+          description: Present on accept/reject/expire emission sites.
+        referralId:
+          type: string
+          format: uuid
+          description: Alternate spelling; present on reassign emission site.
+        shelter_id:
+          type: string
+          format: uuid
+          description: Present on accept/reject emission sites.
+        referring_user_id:
+          type: string
+          format: uuid
+          description: Present on accept/reject emission sites.
+        status:
+          type: string
+          enum: [ACCEPTED, REJECTED, EXPIRED]
+          description: Present on accept/reject/expire emission sites.
+        targetType:
+          type: string
+          enum: [COORDINATOR_GROUP, COC_ADMIN_GROUP, SPECIFIC_USER]
+          description: Present on reassign emission site.
+        recipientCount:
+          type: integer
+          description: Present on reassign emission site.
+
+    # -- referral.claimed -----------------------------------------------------
+
+    ReferralClaimedEvent:
+      allOf:
+        - $ref: '#/components/schemas/DomainEventEnvelope'
+        - type: object
+          properties:
+            type:
+              type: string
+              const: referral.claimed
+            payload:
+              $ref: '#/components/schemas/ReferralClaimedPayload'
+
+    ReferralClaimedPayload:
+      type: object
+      description: |
+        CoC admin soft-claims a DV referral from the escalation queue. The
+        claim is a time-bounded cooperative lock (default 10 minutes),
+        NOT a hard lock — another admin can override with override=true
+        (PagerDuty-style steal). Contains ZERO client PII.
+      required:
+        - referralId
+        - claimedByUserId
+        - claimedUntil
+      properties:
+        referralId:
+          type: string
+          format: uuid
+        claimedByUserId:
+          type: string
+          format: uuid
+          description: CoC admin who took the claim.
+        claimedUntil:
+          type: string
+          format: date-time
+          description: Auto-release timestamp (claim_expires_at).
+
+    # -- referral.released ---------------------------------------------------
+
+    ReferralReleasedEvent:
+      allOf:
+        - $ref: '#/components/schemas/DomainEventEnvelope'
+        - type: object
+          properties:
+            type:
+              type: string
+              const: referral.released
+            payload:
+              $ref: '#/components/schemas/ReferralReleasedPayload'
+
+    ReferralReleasedPayload:
+      type: object
+      description: |
+        DV referral claim released — manually by the holding admin or
+        automatically by the minute-interval sweep after claim_expires_at.
+        Does NOT include the previously-holding admin's user ID (the audit
+        trail is the authoritative record; the event minimizes bus noise).
+      required:
+        - referralId
+        - reason
+      properties:
+        referralId:
+          type: string
+          format: uuid
+        reason:
+          type: string
+          enum: [manual, timeout]
+          description: |
+            How the claim ended. 'manual' = the holding admin clicked
+            Release (or another admin override-released). 'timeout' =
+            the claim_expires_at elapsed and the minute-interval sweep
+            auto-released it.
+
+    # -- referral.policy-updated ---------------------------------------------
+
+    ReferralPolicyUpdatedEvent:
+      allOf:
+        - $ref: '#/components/schemas/DomainEventEnvelope'
+        - type: object
+          properties:
+            type:
+              type: string
+              const: referral.policy-updated
+            payload:
+              $ref: '#/components/schemas/ReferralPolicyUpdatedPayload'
+
+    ReferralPolicyUpdatedPayload:
+      type: object
+      description: |
+        CoC admin published a new escalation policy version (append-only
+        versioning per coc-admin-escalation design). Consumers refresh
+        their cached policy; no retroactive effect on already-created
+        referrals (each referral captures its policy_id at creation time
+        via V47's escalation_policy_id column).
+      required:
+        - policyId
+        - eventType
+        - version
+      properties:
+        policyId:
+          type: string
+          format: uuid
+          description: Primary key of the newly-inserted escalation_policy row.
+        eventType:
+          type: string
+          description: |
+            Event type this policy applies to. Current scope is
+            'dv-referral.requested' (the only escalation source today).
+            Distinct from the DomainEvent.type field on the wire —
+            it identifies WHICH workflow the policy governs.
+        version:
+          type: integer
+          description: Monotonically-increasing version number within the policy family.
 
     # -----------------------------------------------------------------------
     # User lifecycle events (v0.19.0 — admin-user-management)

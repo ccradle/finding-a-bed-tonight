@@ -1,6 +1,11 @@
 services:
   postgres:
     image: postgres:16-alpine
+    # Phase 4 perf-diagnostic — load pg_stat_statements so we can measure
+    # the markActed UPDATE + findById cost on warm dev DB (per
+    # docs/performance/nyc-scale-load-test-plan.md). track=all captures
+    # parse + plan + exec time per query plan.
+    command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements", "-c", "pg_stat_statements.track=all"]
     environment:
       POSTGRES_DB: fabt
       POSTGRES_USER: fabt

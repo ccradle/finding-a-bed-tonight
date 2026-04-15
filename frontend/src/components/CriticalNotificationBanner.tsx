@@ -53,8 +53,6 @@ export function CriticalNotificationBanner({ notifications }: CriticalNotificati
     (n) => !n.read && n.data?.severity === 'CRITICAL'
   );
 
-  if (criticalUnread.length === 0) return null;
-
   // CTA gating: only show the "Review pending escalations" button when at
   // least one CRITICAL notification is an escalation. The notification.type
   // field is the source of truth — we DO NOT match on title text or other
@@ -83,11 +81,27 @@ export function CriticalNotificationBanner({ notifications }: CriticalNotificati
   // Delegate the "which referral wins" selection to the pure helper so the
   // X-4 determinism contract (oldest first = most urgent) can be unit-tested
   // independently of React rendering (war-room M-1).
+  //
+  // **Rules-of-Hooks fix (Phase 4 diagnostic — React error #310 in prod build):**
+  // This {@code useMemo} MUST be called on every render, including renders
+  // where {@code criticalUnread} is empty. Previously the
+  // {@code if (criticalUnread.length === 0) return null} early-exit sat
+  // between the filter and this hook, so when the banner transitioned from
+  // "0 criticals" to "has criticals" (e.g. an SSE-delivered CRITICAL arrives
+  // after initial mount) React saw a changing hook count and threw
+  // {@code Minified React error #310} — "Rendered more hooks than during
+  // the previous render." Source-map decode pinned the offending frame to
+  // {@code CriticalNotificationBanner.tsx:86} (this line). Fix: compute the
+  // memoized value unconditionally, then apply the early return BELOW the
+  // hooks. Semantics unchanged (memoized value is unused when the component
+  // returns null).
   const coordinatorCtaReferralId = useMemo(
     () => (isCoordinator ? pickOldestEscalationReferralId(escalationCriticals) : null),
     [isCoordinator, escalationCriticals],
   );
   const showCoordinatorCta = coordinatorCtaReferralId !== null && !showEscalationCta;
+
+  if (criticalUnread.length === 0) return null;
 
   const handleCtaClick = () => {
     // React Router navigate with the hash anchor. AdminPanel reads

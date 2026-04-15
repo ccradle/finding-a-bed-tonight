@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import type { IntlShape } from 'react-intl';
 import {
   parseNotificationPayload,
   getNotificationMessageId,
@@ -347,5 +348,110 @@ describe('pickOldestEscalationReferralId — banner CTA selection', () => {
       notif('', { type: 'escalation.1h', referralId: 'ref-from-data-type' }, 1),
     ];
     expect(pickOldestEscalationReferralId(ns)).toBe('ref-from-data-type');
+  });
+});
+
+/**
+ * notification-deep-linking Phase 4 tasks 10.3 + 10.4 — explicit coverage
+ * for the three Phase 1 notification types previously rendered as
+ * "notifications.unknown": {@code SHELTER_DEACTIVATED},
+ * {@code HOLD_CANCELLED_SHELTER_DEACTIVATED}, {@code referral.reassigned}.
+ *
+ * <p>The {@code getNavigationPath} side is exercised above (task 10.1).
+ * These describe blocks pin the i18n-key mapping ({@code getNotificationMessageId})
+ * and — for {@code SHELTER_DEACTIVATED} specifically — the K-1 contract
+ * from Keisha that {@code getNotificationMessageValues} localizes the
+ * reason enum rather than surfacing the raw {@code TEMPORARY_CLOSURE}
+ * screen label.</p>
+ */
+
+describe('getNotificationMessageId — three new notification types (Phase 1)', () => {
+  it('SHELTER_DEACTIVATED maps to notifications.shelterDeactivated', () => {
+    const n = persistentNotification('SHELTER_DEACTIVATED', {
+      shelterId: 'sh-1',
+      shelterName: 'Harbor House',
+      reason: 'TEMPORARY_CLOSURE',
+    });
+    expect(getNotificationMessageId(n)).toBe('notifications.shelterDeactivated');
+  });
+
+  it('HOLD_CANCELLED_SHELTER_DEACTIVATED maps to notifications.holdCancelledShelterDeactivated', () => {
+    const n = persistentNotification('HOLD_CANCELLED_SHELTER_DEACTIVATED', {
+      reservationId: 'res-1',
+      shelterName: 'Harbor House',
+      reason: 'PERMANENT_CLOSURE',
+    });
+    expect(getNotificationMessageId(n)).toBe('notifications.holdCancelledShelterDeactivated');
+  });
+
+  it('referral.reassigned maps to notifications.referralReassigned', () => {
+    const n = persistentNotification('referral.reassigned', {
+      referralId: 'ref-1',
+    });
+    expect(getNotificationMessageId(n)).toBe('notifications.referralReassigned');
+  });
+
+  // Regression guard — an unknown type must still fall back to unknown and
+  // NOT match one of the three new types by accident (e.g. via substring).
+  it('unknown type still falls back to notifications.unknown, not a new-type key', () => {
+    const n = persistentNotification('SHELTER_DEACTIVATED_PARTIAL', {});
+    expect(getNotificationMessageId(n)).toBe('notifications.unknown');
+  });
+});
+
+describe('getNotificationMessageValues — K-1: SHELTER_DEACTIVATED reason localization (Keisha)', () => {
+  /**
+   * Minimal IntlShape stub for the test. Real production calls pass the
+   * full IntlShape from {@code useIntl()}; this stub only needs to honor
+   * the one method the values function calls, and to simulate a successful
+   * lookup by echoing a deterministic "localized" string. If the impl
+   * regressed to NOT consult intl at all, the assertion against the stub
+   * output would fail.
+   */
+  function makeIntlStub(lookup: Record<string, string>): IntlShape {
+    return {
+      formatMessage: ({ id }: { id: string }) =>
+        lookup[id] ?? id, // react-intl's fallback-to-id behavior
+    } as unknown as IntlShape;
+  }
+
+  it('without intl, reason is the raw enum (legacy / non-i18n callers)', () => {
+    const n = persistentNotification('SHELTER_DEACTIVATED', {
+      shelterName: 'Harbor House',
+      reason: 'TEMPORARY_CLOSURE',
+    });
+    const values = getNotificationMessageValues(n);
+    expect(values.reason).toBe('TEMPORARY_CLOSURE');
+    // localizedReason has no intl to consult → falls back to raw.
+    expect(values.localizedReason).toBe('TEMPORARY_CLOSURE');
+  });
+
+  it('with intl, localizedReason resolves via shelter.reason.<enum> key', () => {
+    const intl = makeIntlStub({
+      'shelter.reason.TEMPORARY_CLOSURE': 'Temporary closure',
+    });
+    const n = persistentNotification('SHELTER_DEACTIVATED', {
+      shelterName: 'Harbor House',
+      reason: 'TEMPORARY_CLOSURE',
+    });
+    const values = getNotificationMessageValues(n, intl);
+    // K-1 contract: localizedReason is the friendly string, raw reason is preserved.
+    expect(values.localizedReason).toBe('Temporary closure');
+    expect(values.reason).toBe('TEMPORARY_CLOSURE');
+  });
+
+  it('with intl but missing key, localizedReason falls through to the id (debuggable)', () => {
+    // react-intl returns the id when the message is not found in the catalog.
+    // The stub mirrors that behavior. The test documents the fallback shape
+    // so a future refactor that silently strips unknown reasons fails this test.
+    const intl = makeIntlStub({}); // no entries
+    const n = persistentNotification('SHELTER_DEACTIVATED', {
+      shelterName: 'Harbor House',
+      reason: 'BRAND_NEW_REASON_NOT_IN_CATALOG',
+    });
+    const values = getNotificationMessageValues(n, intl);
+    // Surfaces as the i18n id — operators grep logs for 'shelter.reason.*'
+    // to find untranslated enum values rather than seeing a silent empty.
+    expect(values.localizedReason).toBe('shelter.reason.BRAND_NEW_REASON_NOT_IN_CATALOG');
   });
 });

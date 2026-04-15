@@ -32,5 +32,11 @@ export default defineConfig({
     proxy: {
       '/api': 'http://localhost:8080'
     }
-  }
+  },
+  // Phase 4 diagnostic — enable sourcemaps so the minified stack trace
+  // from React error #310 (or any runtime error) resolves back to the
+  // original .tsx filenames. Temporary: revert before PR merge.
+  build: {
+    sourcemap: true,
+  },
 })

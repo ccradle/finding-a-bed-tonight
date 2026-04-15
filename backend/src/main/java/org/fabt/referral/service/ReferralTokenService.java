@@ -14,6 +14,7 @@ import tools.jackson.databind.ObjectMapper;
 
 import org.fabt.auth.service.UserService;
 import org.fabt.observability.ObservabilityMetrics;
+import org.fabt.referral.api.PendingReferralCountResponse;
 import org.fabt.referral.api.ReassignReferralRequest;
 import org.fabt.referral.domain.ReferralToken;
 import org.fabt.referral.repository.ReferralTokenRepository;
@@ -175,8 +176,7 @@ public class ReferralTokenService {
      */
     @Transactional
     public ReferralToken acceptToken(UUID tokenId, UUID respondedBy) {
-        ReferralToken token = repository.findById(tokenId)
-                .orElseThrow(() -> new NoSuchElementException("Referral token not found: " + tokenId));
+        ReferralToken token = findByIdOrThrow(tokenId);
 
         if (!token.isPending()) {
             throw new IllegalStateException("Token is not pending: " + token.getStatus());
@@ -229,8 +229,7 @@ public class ReferralTokenService {
             throw new IllegalArgumentException("Rejection reason is required");
         }
 
-        ReferralToken token = repository.findById(tokenId)
-                .orElseThrow(() -> new NoSuchElementException("Referral token not found: " + tokenId));
+        ReferralToken token = findByIdOrThrow(tokenId);
 
         if (!token.isPending()) {
             throw new IllegalStateException("Token is not pending: " + token.getStatus());
@@ -302,16 +301,43 @@ public class ReferralTokenService {
 
     /**
      * Single-token lookup for notification deep-linking (Issue #106).
-     * Tenant scoping is enforced at the SQL layer by RLS — a token from
-     * another tenant returns empty even if the UUID is guessed. Throws
-     * {@link NoSuchElementException} for both not-found and RLS-hidden
-     * rows so the caller surface a single "stale referral" message
-     * (D10 — no info leak between 404 and 403).
+     *
+     * <p><b>Tenant scoping (Marcus Webb D10 + N-4, tasks 8.5 / 8.6,
+     * closed 2026-04-14):</b> the query includes an explicit
+     * {@code tenant_id = ?} predicate against {@link TenantContext#getTenantId()}.
+     * A referral from another tenant returns {@link Optional#empty()} — which
+     * the caller throws as {@link NoSuchElementException}, which the global
+     * exception handler maps to 404. Callers receive a single "stale referral"
+     * surface regardless of whether the UUID is invalid OR belongs to another
+     * tenant (no information leak).</p>
+     *
+     * <p>Before 8.5 landed, the underlying repository query had NO tenant_id
+     * predicate and the {@code referral_token} RLS policy only checks that a
+     * shelter row exists (not that it belongs to the caller's tenant). A
+     * dv-access COORDINATOR in Tenant A could fetch ANY DV referral in ANY
+     * other tenant by UUID. The integration test
+     * {@code tc_getById_crossTenant_returns404_notForbidden} pins the fix.</p>
      */
     @Transactional(readOnly = true)
     public ReferralToken findById(UUID tokenId) {
-        return repository.findById(tokenId)
-            .orElseThrow(() -> new NoSuchElementException("Referral token not found: " + tokenId));
+        return findByIdOrThrow(tokenId);
+    }
+
+    /**
+     * Tenant-scoped single-token lookup used by every state-mutating path
+     * in this service ({@code acceptToken}, {@code rejectToken},
+     * {@code claimToken}, {@code releaseClaim}, {@code reassignToken},
+     * plus the public {@link #findById(UUID)}). Pulls the caller's
+     * {@code tenant_id} from {@link TenantContext} and delegates to
+     * {@link ReferralTokenRepository#findByIdAndTenantId(UUID, UUID)}.
+     * Throws {@link NoSuchElementException} on empty — mapped to 404 by
+     * {@code GlobalExceptionHandler}. All call sites go through this
+     * helper so the tenant-scoping invariant cannot be forgotten at one
+     * site while the others are hardened.
+     */
+    private ReferralToken findByIdOrThrow(UUID tokenId) {
+        return repository.findByIdAndTenantId(tokenId, TenantContext.getTenantId())
+                .orElseThrow(() -> new NoSuchElementException("Referral token not found: " + tokenId));
     }
 
     @Transactional(readOnly = true)
@@ -337,6 +363,54 @@ public class ReferralTokenService {
     @Transactional(readOnly = true)
     public int countPendingByShelterIds(List<UUID> shelterIds) {
         return repository.countPendingByShelterIds(shelterIds);
+    }
+
+    /**
+     * Find the oldest PENDING referral across the supplied shelter set. Pure
+     * domain method — returns the full {@link ReferralToken} for callers that
+     * need more than just routing identifiers. The notification-deep-linking
+     * count endpoint uses the thin wrapper
+     * {@link #findFirstPendingRoutingHint(List)} below, which maps this into
+     * the banner's DTO and keeps the controller free of domain-type knowledge.
+     *
+     * <p><b>Authorization scoping (N-4, task 8.6):</b> this method has no
+     * awareness of the caller — scoping lives entirely in the {@code
+     * shelterIds} list that the controller assembles via
+     * {@link org.fabt.shelter.repository.CoordinatorAssignmentRepository#findShelterIdsByUserId}.
+     * If task 8.6 ever tightens coordinator-shelter assignment checks on
+     * {@code accept}/{@code reject}, the same tightening must reach the
+     * controller that calls this method; the method itself is agnostic.</p>
+     */
+    @Transactional(readOnly = true)
+    public Optional<ReferralToken> findOldestPendingByShelterIds(List<UUID> shelterIds) {
+        return repository.findOldestPendingByShelterIds(shelterIds);
+    }
+
+    /**
+     * Build the {@code firstPending} routing hint for the coordinator
+     * banner's count-endpoint response (Issue #106, design decision D-BP).
+     * Wraps {@link #findOldestPendingByShelterIds(List)} and maps the
+     * resulting {@link ReferralToken} into the wire DTO so the controller
+     * doesn't need to know {@code ReferralToken}'s shape. Returns
+     * {@link Optional#empty()} when either no shelters are assigned or no
+     * pending referrals exist across the assigned set — the controller
+     * {@code .orElse(null)}s this into the DTO's nullable field.
+     *
+     * <p><b>Performance (Elena Vasquez, task 16.1.5 open gate):</b> the
+     * underlying query uses {@code idx_referral_token_shelter_status} for
+     * the WHERE filter and an engine-side sort on {@code created_at}. At
+     * pilot scale (1-5 pending per coordinator) this is negligible. At NYC
+     * pilot scale (200+ pending across 10+ shelters) a composite partial
+     * index {@code (shelter_id, created_at) WHERE status = 'PENDING'} may
+     * be warranted — decision is gated on EXPLAIN ANALYZE output per task
+     * 16.1.5.</p>
+     */
+    @Transactional(readOnly = true)
+    public Optional<PendingReferralCountResponse.FirstPending> findFirstPendingRoutingHint(
+            List<UUID> shelterIds) {
+        return findOldestPendingByShelterIds(shelterIds)
+                .map(token -> new PendingReferralCountResponse.FirstPending(
+                        token.getId(), token.getShelterId()));
     }
 
     @Transactional(readOnly = true)
@@ -379,7 +453,9 @@ public class ReferralTokenService {
             if (claimed.isEmpty()) {
                 // Diagnose why for the right error code (404 vs 409). This second
                 // read is OFF the hot path — only triggered on contention.
-                ReferralToken existing = repository.findById(tokenId).orElse(null);
+                // Tenant-scoped per 8.5 / 8.6 — cross-tenant tokens return null
+                // → 404, consistent with the getById leak fix.
+                ReferralToken existing = repository.findByIdAndTenantId(tokenId, TenantContext.getTenantId()).orElse(null);
                 if (existing == null) {
                     throw new NoSuchElementException("Referral token not found: " + tokenId);
                 }
@@ -429,7 +505,8 @@ public class ReferralTokenService {
     public void releaseToken(UUID tokenId, UUID adminId, boolean override) {
         int updated = repository.tryRelease(tokenId, adminId, override);
         if (updated == 0) {
-            ReferralToken existing = repository.findById(tokenId).orElse(null);
+            // Tenant-scoped diagnostic — cross-tenant tokens appear as NOT_FOUND.
+            ReferralToken existing = repository.findByIdAndTenantId(tokenId, TenantContext.getTenantId()).orElse(null);
             if (existing == null) {
                 throw new NoSuchElementException("Referral token not found: " + tokenId);
             }
@@ -445,7 +522,7 @@ public class ReferralTokenService {
             throw new AccessDeniedException("You do not hold the claim on this referral");
         }
 
-        ReferralToken token = repository.findById(tokenId).orElse(null);
+        ReferralToken token = repository.findByIdAndTenantId(tokenId, TenantContext.getTenantId()).orElse(null);
         UUID tenantId = token != null ? token.getTenantId() : TenantContext.getTenantId();
 
         publishAudit(adminId, tokenId, AuditEventTypes.DV_REFERRAL_RELEASED,
@@ -498,8 +575,7 @@ public class ReferralTokenService {
             throw new IllegalArgumentException("targetUserId is required for SPECIFIC_USER reassign");
         }
 
-        ReferralToken token = repository.findById(tokenId)
-                .orElseThrow(() -> new NoSuchElementException("Referral token not found: " + tokenId));
+        ReferralToken token = findByIdOrThrow(tokenId);
 
         // Marcus Webb #1 (war room round 3): cross-tenant guard. referral_token
         // RLS only checks dvAccess, NOT tenant — so a CoC admin in tenant A

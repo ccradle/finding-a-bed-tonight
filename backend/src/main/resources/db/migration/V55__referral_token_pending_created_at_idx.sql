@@ -1,0 +1,71 @@
+-- =====================================================================
+-- V55: Partial index on PENDING referral_token rows ordered by created_at
+-- =====================================================================
+-- Context:
+--   The notification-deep-linking change (Issue #106, Section 16, design
+--   decision D-BP) added a "firstPending" routing hint to
+--   `GET /api/v1/dv-referrals/pending/count` so the coordinator banner
+--   can deep-link directly to the oldest pending referral's shelter
+--   without the previous "alphabetically first DV shelter" fallback.
+--
+--   The backing query is:
+--     SELECT * FROM referral_token
+--     WHERE shelter_id = ANY(?) AND status = 'PENDING'
+--     ORDER BY created_at ASC
+--     LIMIT 1;
+--
+-- Performance findings (task 16.1.5, 2026-04-14 Elena Vasquez):
+--
+--   Measured on a dev-stack Testcontainers-equivalent (3,500 PENDING
+--   rows, 50 shelters, 50 coordinator assignments) via pg_stat_statements
+--   over 100 runs per scenario:
+--
+--     Scenario  Index                                                      Mean/call
+--     A         (none — existing idx_referral_token_shelter_status only)   1.71 ms
+--     B         (shelter_id, created_at) WHERE status='PENDING'            1.85 ms (worse)
+--     C         (created_at) WHERE status='PENDING'                        0.12 ms  ← 14×
+--
+--   Why C wins: the query has an ORDER BY created_at LIMIT 1. An ordered
+--   partial index on created_at lets Postgres do an Index Scan walking
+--   rows in ascending created_at order, rechecking each row's shelter_id
+--   against the ANY array via a heap filter, and STOPPING at the first
+--   match. No Sort step required. The V55 shape (shelter_id, created_at)
+--   orders WITHIN each shelter_id bucket, not globally — Postgres cannot
+--   collapse the 50 per-shelter sub-ranges into a globally-sorted stream
+--   without an explicit Sort, so the shape-B index went unused and left
+--   the bitmap-scan-plus-sort plan unchanged.
+--
+--   Worst-case scenario verified (1-of-50 cold-tier shelter assignment,
+--   3 matching rows in the whole system): Index Scan walks 12 rows,
+--   Execution Time 0.094 ms. The walk stays bounded because PENDING
+--   rows are thinly distributed across the created_at domain (8-hour
+--   working window in the seed; an SLA-bounded expiry in production).
+--
+-- This index:
+--   - Partial: only PENDING rows. Referral tokens quickly terminal to
+--     ACCEPTED / REJECTED / EXPIRED; a full-column index would waste
+--     space on rows the banner's count endpoint never reads. Typical
+--     row skew: < 1% PENDING at steady state.
+--   - Single column (created_at ASC). Leading column matches the query's
+--     ORDER BY so Postgres can terminate at LIMIT 1.
+--   - shelter_id filter is evaluated as a heap recheck. Acceptable because
+--     matches come early in the ordered walk (see worst-case above).
+--
+-- CONCURRENTLY is NOT used here: Flyway wraps migrations in a transaction
+-- and CREATE INDEX CONCURRENTLY is incompatible with transactions. At the
+-- target table sizes (hundreds of thousands of rows at NYC pilot scale),
+-- a plain CREATE INDEX completes in seconds with no user-visible impact.
+-- For larger operational surfaces, move the index creation into a
+-- @Scheduled backfill and mark V55 as data-only.
+-- =====================================================================
+
+-- IF NOT EXISTS so Flyway can apply cleanly on environments where a DBA
+-- manually pre-created this index during the 16.1.5 perf probe (dev
+-- stack). On clean environments the IF NOT EXISTS is a no-op.
+CREATE INDEX IF NOT EXISTS idx_referral_token_pending_created_at
+    ON referral_token (created_at ASC)
+    WHERE status = 'PENDING';
+
+-- Refresh planner statistics so the new index is considered by the next
+-- query's plan without waiting for autovacuum.
+ANALYZE referral_token;
