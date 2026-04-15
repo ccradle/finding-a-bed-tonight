@@ -1,5 +1,6 @@
 package org.fabt.shared.security;
 
+import java.lang.annotation.Documented;
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -13,10 +14,10 @@ import java.lang.annotation.Target;
  * variant — typically batch jobs, scheduled expirers, or reconciliation
  * tasklets that require platform-wide visibility by design.
  *
- * <p>The {@code justification} value is required and must be non-empty. It
- * becomes the author's future-self documentation: why this method is safe to
- * bypass the guard, and what invariant keeps it safe. Reviewers read the
- * justification during code review; the ArchUnit rule enforces its presence.
+ * <p>The justification string is required and must be non-empty. It becomes
+ * the author's future-self documentation: why this method is safe to bypass
+ * the guard, and what invariant keeps it safe. Reviewers read it during code
+ * review; the ArchUnit rule enforces its presence.
  *
  * <p>Paired with {@code TenantGuardArchitectureTest}, which scans every class
  * in {@code org.fabt.*.service} and {@code org.fabt.*.api} and fails the
@@ -51,6 +52,7 @@ import java.lang.annotation.Target;
  */
 @Target(ElementType.METHOD)
 @Retention(RetentionPolicy.RUNTIME)
+@Documented
 public @interface TenantUnscoped {
 
     /**

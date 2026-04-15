@@ -98,8 +98,8 @@ The rule does NOT cover every repository — non-tenant-owned repositories (e.g.
 ### See also
 
 - Design decisions D1–D10 in `openspec/changes/cross-tenant-isolation-audit/design.md`
-- RLS coverage map at `docs/security/rls-coverage.md` (which tables have RLS, what each policy enforces, and the corresponding service-layer guard)
-- SAFE-sites registry at `docs/security/safe-tenant-bypass-sites.md` (documented exemptions for methods the audit cleared)
+- RLS coverage map (**Phase 4 — not yet written**): will land at `docs/security/rls-coverage.md` documenting which tables have RLS, what each policy enforces, and the corresponding service-layer guard
+- SAFE-sites registry (**Phase 4 — not yet written**): will land at `docs/security/safe-tenant-bypass-sites.md` enumerating methods the audit cleared and why each is safe
 
 ---
 
