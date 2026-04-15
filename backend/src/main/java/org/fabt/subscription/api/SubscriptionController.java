@@ -41,9 +41,10 @@ public class SubscriptionController {
                description = "Register a callback URL to receive domain events of the specified type. "
                        + "The callback secret is used to compute HMAC-SHA256 signatures on delivered payloads.")
     public ResponseEntity<SubscriptionResponse> create(@Valid @RequestBody CreateSubscriptionRequest request) {
-        UUID tenantId = TenantContext.getTenantId();
+        // D11: service sources tenantId from TenantContext internally —
+        // no pass-through from controller (JwtAuthenticationFilter binds
+        // TenantContext before this handler runs).
         Subscription subscription = subscriptionService.create(
-                tenantId,
                 request.eventType(),
                 request.filter(),
                 request.callbackUrl(),

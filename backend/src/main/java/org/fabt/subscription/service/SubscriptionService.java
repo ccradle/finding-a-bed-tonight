@@ -12,6 +12,7 @@ import java.util.UUID;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 import org.fabt.shared.config.JsonString;
+import org.fabt.shared.web.TenantContext;
 import org.fabt.subscription.domain.Subscription;
 import org.fabt.subscription.repository.SubscriptionRepository;
 import org.fabt.subscription.repository.WebhookDeliveryLogRepository;
@@ -41,9 +42,19 @@ public class SubscriptionService {
         this.objectMapper = objectMapper;
     }
 
+    /**
+     * Creates a new webhook subscription for the caller's tenant.
+     *
+     * <p>Design D11 (URL-path-sink class): {@code tenantId} is sourced from
+     * {@link TenantContext#getTenantId()} internally. The service SHALL NOT
+     * accept {@code tenantId} as a parameter — symmetric with
+     * {@code TenantOAuth2ProviderService.create},
+     * {@code ApiKeyService.create}, and {@code ShelterService.create}.
+     */
     @Transactional
-    public Subscription create(UUID tenantId, String eventType, Map<String, Object> filter,
+    public Subscription create(String eventType, Map<String, Object> filter,
                                String callbackUrl, String callbackSecret) {
+        UUID tenantId = TenantContext.getTenantId();
         validateCallbackUrl(callbackUrl);
 
         // ID left null for INSERT (Lesson 64)
@@ -68,12 +79,45 @@ public class SubscriptionService {
         return subscriptionRepository.findByTenantId(tenantId);
     }
 
+    /**
+     * Cancels a webhook subscription.
+     *
+     * <p>Tenant-scoped: the subscription MUST belong to the caller's tenant
+     * (resolved from {@link TenantContext}). A cross-tenant id returns 404
+     * via {@link NoSuchElementException} — not 403 — to avoid existence
+     * disclosure (design D3). See {@link #findByIdOrThrow(UUID)} and the
+     * {@code cross-tenant-isolation-audit} change (task 2.4.3).
+     *
+     * <p>Pre-fix, a CoC admin in Tenant A could DELETE a subscription
+     * belonging to Tenant B — silent denial-of-service of Tenant B's
+     * webhook-driven integrations.
+     */
     @Transactional
     public void delete(UUID id) {
-        Subscription subscription = subscriptionRepository.findById(id)
-                .orElseThrow(() -> new NoSuchElementException("Subscription not found: " + id));
+        Subscription subscription = findByIdOrThrow(id);
         subscription.setStatus("CANCELLED");
         subscriptionRepository.save(subscription);
+    }
+
+    /**
+     * Tenant-scoped single-subscription lookup used by state-mutating paths
+     * that originate at the HTTP boundary ({@link #delete}). Pulls the
+     * caller's {@code tenantId} from {@link TenantContext} and delegates to
+     * {@link SubscriptionRepository#findByIdAndTenantId(UUID, UUID)}. Throws
+     * {@link NoSuchElementException} on empty — mapped to 404 by
+     * {@code GlobalExceptionHandler}.
+     *
+     * <p>Not used by the internal webhook-delivery paths ({@link #markFailing},
+     * {@link #deactivate}, {@link #recordDelivery}) — those are system-caller-
+     * only and operate on subscription ids that were already tenant-scoped
+     * upstream (by {@code findActiveByEventType} or similar). Phase 2.6
+     * renames those methods to {@code *Internal} and restricts callers to
+     * {@link org.fabt.subscription.service.WebhookDeliveryService} via
+     * ArchUnit.
+     */
+    private Subscription findByIdOrThrow(UUID id) {
+        return subscriptionRepository.findByIdAndTenantId(id, TenantContext.getTenantId())
+                .orElseThrow(() -> new NoSuchElementException("Subscription not found: " + id));
     }
 
     @Transactional

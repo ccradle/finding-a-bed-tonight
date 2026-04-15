@@ -1,6 +1,7 @@
 package org.fabt.subscription.repository;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import org.fabt.subscription.domain.Subscription;
@@ -15,4 +16,15 @@ public interface SubscriptionRepository extends CrudRepository<Subscription, UUI
 
     @Query("SELECT * FROM subscription WHERE event_type = :eventType AND status = 'ACTIVE'")
     List<Subscription> findActiveByEventType(@Param("eventType") String eventType);
+
+    /**
+     * Tenant-scoped single-subscription lookup for state-mutating paths
+     * (delete). Returns empty when the {@code id} exists but belongs to a
+     * different tenant — callers map empty to 404 (not 403) to avoid
+     * existence leak. See {@code cross-tenant-isolation-audit} design
+     * decisions D1 and D3.
+     */
+    @Query("SELECT * FROM subscription WHERE id = :id AND tenant_id = :tenantId")
+    Optional<Subscription> findByIdAndTenantId(@Param("id") UUID id,
+                                                @Param("tenantId") UUID tenantId);
 }
