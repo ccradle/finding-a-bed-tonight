@@ -90,6 +90,7 @@ Before implementing a new feature:
 3. **ArchUnit must pass** — module boundary violations will fail CI
 4. **No PII** — never log or store personally identifiable information of people experiencing homelessness
 5. **DV shelter safety** — domestic violence shelter data is protected by PostgreSQL Row Level Security. Never bypass RLS in application code.
+6. **Tenant-owned tables** — if your migration adds a new table with a `tenant_id` column, you must also add the table name to `TENANT_OWNED_TABLES` in `TenantPredicateCoverageTest` and the repository class to `TENANT_OWNED_REPO_NAMES` in `TenantGuardArchitectureTest`. The build will fail if these allowlists drift.
 
 ## Code Style
 
