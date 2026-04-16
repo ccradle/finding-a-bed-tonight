@@ -516,7 +516,47 @@ npx playwright test --project=nginx       # Run E2E through nginx proxy
 
 **Playwright BASE_URL:** Always use `BASE_URL=http://localhost:8081` when running Playwright with `--nginx`. Without it, Playwright defaults to Vite's `:5173` and bypasses the nginx proxy entirely, missing proxy-specific bugs. The `feedback_check_ports_before_assuming` memory captures this as a critical lesson.
 
-**Future:** Consider adding the nginx Playwright profile to CI as a weekly or pre-release job.
+#### Specs that depend on optional infrastructure (`requireReachable` pattern)
+
+Some specs verify behavior that only exists in the full dev/prod stack:
+- `cache-headers.spec.ts` and `sse-cache-regression.spec.ts` assert nginx-set
+  response headers and nginx-routed SSE behavior — they need `:8081`.
+- `manual-hold.spec.ts` test `(b)` reads the `fabt_http_access_denied_count_total`
+  counter from the management actuator — it needs `:9091` (only exposed by
+  `dev-start.sh --observability`).
+
+CI's `e2e-tests.yml` job starts only Vite + backend + Postgres (no nginx, no
+observability). Rather than failing in CI with `ECONNREFUSED`, these specs
+self-skip via the shared helper at
+`e2e/playwright/tests/_helpers/probe-target.ts`:
+
+```ts
+import { requireReachable } from './_helpers/probe-target';
+
+test.beforeAll(async () => {
+  await requireReachable(`${BASE_URL}/`, 'nginx (dev-start.sh --nginx)');
+});
+```
+
+The probe times out at 2500ms. When unreachable, every test in the suite
+reports as `skipped` with a one-line hint pointing at the missing dependency.
+Locally with the full stack, the probe succeeds in <50ms and tests run
+normally.
+
+**When writing a new spec that depends on optional infrastructure:** call
+`requireReachable(URL, 'what to spin up')` in a `beforeAll` (whole suite) or
+inline at the top of the individual test (one-off). Don't add a per-spec
+`fetch` + `try/catch` — use the helper so the skip-message format stays
+uniform across the test base.
+
+**Coverage gap caveat:** specs that skip in CI MUST have an equivalent
+unit/integration test that always runs. Example: `manual-hold.spec.ts (b)`
+is the E2E mirror of `OfflineHoldEndpointTest.coordinator_not_assigned_to_shelter_403`
+(Issue #102 RCA regression guard). When you add a `requireReachable` skip,
+note in the spec comment which non-Playwright test enforces the same
+invariant — Riley Cho's lens, war room 2026-04-16.
+
+**Future:** Consider adding the nginx Playwright profile to CI as a weekly or pre-release job, which would run the `requireReachable`-gated specs end-to-end on a known schedule.
 
 ### SSE Architecture
 

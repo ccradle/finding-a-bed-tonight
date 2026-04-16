@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { requireReachable } from './_helpers/probe-target';
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:8081';
 
@@ -11,8 +12,18 @@ const BASE_URL = process.env.BASE_URL || 'http://localhost:8081';
  *
  * Riley's lens: positive tests (correct headers present) AND negative
  * tests (dangerous headers absent).
+ *
+ * These assertions verify NGINX's response headers — the dev/prod
+ * reverse proxy is the system that owns these headers, not Vite. The
+ * suite skips when nginx isn't reachable (e.g. CI runs only Vite +
+ * backend; run dev-start.sh --nginx locally to exercise this spec).
  */
 test.describe('Cache Headers (#45)', () => {
+
+  test.beforeAll(async () => {
+    await requireReachable(`${BASE_URL}/`, 'nginx (dev-start.sh --nginx)');
+  });
+
 
   // --- sw.js: must NOT be cached ---
 
