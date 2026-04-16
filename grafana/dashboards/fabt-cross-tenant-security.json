@@ -1,0 +1,214 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "title": "FABT Cross-Tenant Security",
+  "uid": "fabt-cross-tenant-security",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "templating": {
+    "list": [
+      {
+        "name": "tenant",
+        "type": "query",
+        "label": "Tenant",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": {
+          "query": "label_values(fabt_bed_search_count_total, tenant_id)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "selected": true,
+          "text": ["All"],
+          "value": ["$__all"]
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "title": "Cross-Tenant 404s per Minute (by resource_type)",
+      "description": "fabt.security.cross_tenant_404s — Per design D9 (cross-tenant-isolation-audit), this counter increments on EVERY NoSuchElementException 404, intentionally not distinguishing cross-tenant probes from legitimate 'not found' responses (D3: 404-not-403 prevents existence leak). Spike-vs-baseline alerting recommended (1-min rate > 3× rolling 24h average), NOT absolute rate. Steady-state baseline ~5/min during business hours from typos and stale browser tabs. See docs/runbook.md §'Cross-Tenant Isolation Observability' for the investigation playbook.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "sum by (resource_type) (rate(fabt_security_cross_tenant_404s_total[1m]))",
+          "legendFormat": "{{resource_type}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.5 },
+              { "color": "red", "value": 2.0 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Cross-Tenant 404s — Total Over Time",
+      "description": "Rolling sum to spot anomalies vs. baseline. The threshold is spike-vs-baseline (1-min rate > 3× rolling 24h average), not absolute.",
+      "type": "stat",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(fabt_security_cross_tenant_404s_total[1h]))",
+          "legendFormat": "Last hour",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 100 },
+              { "color": "red", "value": 1000 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "SSRF-Blocked Webhooks",
+      "description": "fabt.webhook.delivery.failures{reason=ssrf_blocked} — SafeOutboundUrlValidator blocks at creation-time or dial-time per design D12. Any non-zero rate warrants investigation. Loopback/RFC1918 = admin config error. Link-local (cloud metadata) or previously-good URL now resolving private = DNS rebinding suspected.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(fabt_webhook_delivery_failures_total{reason=\"ssrf_blocked\"}[5m]))",
+          "legendFormat": "blocked",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 0.001 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Per-Tenant Bed Search Rate",
+      "description": "fabt.bed.search.count tagged with tenant_id (D16). Use the $tenant variable above to filter to a specific tenant's view.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (tenant_id) (rate(fabt_bed_search_count_total{tenant_id=~\"$tenant\"}[1m]))",
+          "legendFormat": "{{tenant_id}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Per-Tenant Webhook Delivery Rate",
+      "description": "fabt.webhook.delivery.count by tenant + status. A tenant with high failure rate may need their callback URL reviewed.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "targets": [
+        {
+          "expr": "sum by (tenant_id, status) (rate(fabt_webhook_delivery_count_total{tenant_id=~\"$tenant\"}[5m]))",
+          "legendFormat": "{{tenant_id}} ({{status}})",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Per-Tenant DV Referral Activity",
+      "description": "fabt.dv.referral.total by tenant + status. Watch for tenants where pending count grows without matching accept/reject — may indicate coordinator capacity issue.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "targets": [
+        {
+          "expr": "sum by (tenant_id, status) (rate(fabt_dv_referral_total{tenant_id=~\"$tenant\"}[5m]))",
+          "legendFormat": "{{tenant_id}} ({{status}})",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "title": "Per-Tenant 404 Rate",
+      "description": "fabt.http.not_found.count by path_prefix and tenant_id. Baseline shows static-asset 404s; spikes on /api/v1/* paths warrant cross-reference with cross_tenant_404s panel above.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "targets": [
+        {
+          "expr": "sum by (tenant_id, path_prefix) (rate(fabt_http_not_found_count_total{tenant_id=~\"$tenant\"}[5m]))",
+          "legendFormat": "{{tenant_id}} ({{path_prefix}})",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "tags": ["security", "cross-tenant", "fabt"],
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "refresh": "30s"
+}
