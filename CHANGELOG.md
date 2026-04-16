@@ -33,6 +33,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`docs/runbook.md`** — new "Cross-Tenant Isolation Observability" section: counter alert thresholds (spike-vs-baseline), SSRF investigation playbook (3 categories), tenant-tagged metrics list, `app.tenant_id` verification SQL.
 - **`CONTRIBUTING.md`** — new tenant-owned table allowlist rule: new migrations adding `tenant_id` columns must update both `TENANT_OWNED_TABLES` (TenantPredicateCoverageTest) and `TENANT_OWNED_REPO_NAMES` (TenantGuardArchitectureTest). Build fails on drift.
 
+### Security scanner findings
+- **ZAP baseline scan (2026-04-16):** 0 High, 1 Medium, 0 Low. The single Medium is the pre-existing `CSP: style-src unsafe-inline` (4 instances) introduced by IBM Carbon Design System. Accepted risk per warroom review (Marcus Webb + Alex + Jordan + Casey, 2026-04-16) — no realistic exploit path for FABT's no-user-HTML data model; tracked for removal upon IBM resolution of [carbon-design-system/ibm-products#5678](https://github.com/carbon-design-system/ibm-products/issues/5678). Full rationale + compensating controls: `docs/security/csp-policy.md`. Cross-tenant-specific ZAP probes (8 admin surfaces × Tenant A token + foreign UUIDs, 4 SSRF guard probes) all pass: 0 findings.
+
 ### Companion change
 - `openspec/changes/multi-tenant-production-readiness/` — proposal authored for the architectural items deferred from this audit (per-tenant JWT signing keys via HKDF, per-tenant encryption DEKs, `TenantScopedCacheService`, tenant-RLS on regulated tables realizing D14, per-tenant rate/pool/SSE buffer, file-storage audit, backup runbook). Ships in a follow-up release.
 
