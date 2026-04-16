@@ -13,9 +13,19 @@ import { defineConfig, devices } from '@playwright/test';
  *
  * To run a specific version check:
  *   BASE_URL=https://findabed.org npx playwright test --config=deploy/playwright.config.ts deploy-verify-v0.29.5 --trace on
+ *
+ * Cross-tenant smoke (Phase 5.3, cross-tenant-isolation-audit):
+ *   The cross-tenant-isolation.spec.ts lives in tests/ (it's also a
+ *   regression spec) and is included here via testMatch so it runs in
+ *   post-deploy smoke. Adds ≤30s to the smoke run (8 stateless API
+ *   calls + 1 login).
  */
 export default defineConfig({
-  testDir: '.',
+  testDir: '..',
+  testMatch: [
+    'deploy/**/*.spec.ts',
+    'tests/cross-tenant-isolation.spec.ts',
+  ],
   fullyParallel: false,
   retries: 0,
   workers: 1,
