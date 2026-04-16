@@ -70,6 +70,14 @@ jobs:
           FABT_DB_URL: jdbc:postgresql://localhost:5432/fabt
           FABT_DB_OWNER_USER: fabt
           FABT_DB_OWNER_PASSWORD: fabt
+          # Webhook callback HMAC + TOTP secret encryption. Without this,
+          # SubscriptionService.create / TotpService.* throw IllegalStateException
+          # which the GlobalExceptionHandler maps to 409 "Resource conflict" —
+          # the v0.40 Karate subscription-crud failure tracked in #103. The
+          # value is the same dev key dev-start.sh uses; SecretEncryptionService
+          # has a runtime guard rejecting this key under the prod profile, so
+          # it cannot leak to production. Source: SecretEncryptionService.java:42.
+          FABT_ENCRYPTION_KEY: s4FgjCrVQONb65lQmfYHyuvC7AL2VnkVufwB9ZihvlA=
           # CI-ONLY encryption key for SecretEncryptionService.
           # DO NOT use this key in production — generate a unique key with:
           #   openssl rand -base64 32
@@ -171,6 +179,14 @@ jobs:
           FABT_DB_URL: jdbc:postgresql://localhost:5432/fabt
           FABT_DB_OWNER_USER: fabt
           FABT_DB_OWNER_PASSWORD: fabt
+          # Webhook callback HMAC + TOTP secret encryption. Without this,
+          # SubscriptionService.create / TotpService.* throw IllegalStateException
+          # which the GlobalExceptionHandler maps to 409 "Resource conflict" —
+          # the v0.40 Karate subscription-crud failure tracked in #103. The
+          # value is the same dev key dev-start.sh uses; SecretEncryptionService
+          # has a runtime guard rejecting this key under the prod profile, so
+          # it cannot leak to production. Source: SecretEncryptionService.java:42.
+          FABT_ENCRYPTION_KEY: s4FgjCrVQONb65lQmfYHyuvC7AL2VnkVufwB9ZihvlA=
 
       - name: Wait for backend readiness
         run: |
@@ -305,6 +321,14 @@ jobs:
           FABT_DB_URL: jdbc:postgresql://localhost:5432/fabt
           FABT_DB_OWNER_USER: fabt
           FABT_DB_OWNER_PASSWORD: fabt
+          # Webhook callback HMAC + TOTP secret encryption. Without this,
+          # SubscriptionService.create / TotpService.* throw IllegalStateException
+          # which the GlobalExceptionHandler maps to 409 "Resource conflict" —
+          # the v0.40 Karate subscription-crud failure tracked in #103. The
+          # value is the same dev key dev-start.sh uses; SecretEncryptionService
+          # has a runtime guard rejecting this key under the prod profile, so
+          # it cannot leak to production. Source: SecretEncryptionService.java:42.
+          FABT_ENCRYPTION_KEY: s4FgjCrVQONb65lQmfYHyuvC7AL2VnkVufwB9ZihvlA=
           # Test-only TOTP encryption key (NOT the dev-start.sh key, NOT the production key)
           FABT_TOTP_ENCRYPTION_KEY: dGVzdC1vbmx5LXRvdHAtZW5jcnlwdGlvbi1rZXktMzI=
 
