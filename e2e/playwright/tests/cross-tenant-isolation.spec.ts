@@ -49,20 +49,28 @@ test.describe('Cross-tenant isolation (Issue #117)', () => {
     cocadminToken = await login(request, 'cocadmin@dev.fabt.org');
   });
 
+  // OAuth2ProviderController is mapped at /api/v1/tenants/{tenantId}/oauth2-providers
+  // — the URL-path {tenantId} exists for back-compat but the controller IGNORES it
+  // and sources tenant from TenantContext (Phase 2.1 D11 fix). We pass any UUID
+  // for the path-tenantId; the cross-tenant guard fires when the controller looks
+  // up the providerId for the JWT's tenant.
+
   test('OAuth2 provider update with foreign UUID → 404', async ({ request }) => {
-    const resp = await request.put(`${BASE}/api/v1/oauth2-providers/${randomUuid()}`, {
+    const resp = await request.put(`${BASE}/api/v1/tenants/${randomUuid()}/oauth2-providers/${randomUuid()}`, {
       headers: { Authorization: `Bearer ${adminToken}` },
       data: { clientId: 'attacker', clientSecret: 'attacker-secret', issuerUri: 'https://accounts.google.com' },
     });
     expect(resp.status()).toBe(404);
     const body = await resp.json();
     expect(body.error).toBe('not_found');
-    // Defense-in-depth: response must NOT echo the attacker's input
+    // Paranoid forward-looking check: response must NOT echo attacker input
+    // even in the message field. ErrorResponse envelope has no clientId
+    // field; this catches a hypothetical future bug that leaks input.
     expect(JSON.stringify(body)).not.toContain('attacker');
   });
 
   test('OAuth2 provider delete with foreign UUID → 404', async ({ request }) => {
-    const resp = await request.delete(`${BASE}/api/v1/oauth2-providers/${randomUuid()}`, {
+    const resp = await request.delete(`${BASE}/api/v1/tenants/${randomUuid()}/oauth2-providers/${randomUuid()}`, {
       headers: { Authorization: `Bearer ${adminToken}` },
     });
     expect(resp.status()).toBe(404);
@@ -76,7 +84,9 @@ test.describe('Cross-tenant isolation (Issue #117)', () => {
     expect(resp.status()).toBe(404);
     const body = await resp.json();
     expect(body.error).toBe('not_found');
-    // New plaintext key MUST NOT be in response (would be account takeover)
+    // Paranoid forward-looking check: ErrorResponse envelope has no
+    // plaintextKey field today; this catches a hypothetical future bug
+    // where a 404 path accidentally echoes the success-path response.
     expect(body.plaintextKey).toBeUndefined();
   });
 
@@ -103,7 +113,8 @@ test.describe('Cross-tenant isolation (Issue #117)', () => {
     expect(resp.status()).toBe(404);
     const body = await resp.json();
     expect(body.error).toBe('not_found');
-    // Plaintext code MUST NOT be in response (would be account takeover)
+    // Paranoid forward-looking check: 404 envelope has no code/plaintextCode
+    // fields today. Catches a hypothetical regression that leaks the secret.
     expect(body.code).toBeUndefined();
     expect(body.plaintextCode).toBeUndefined();
   });
@@ -123,7 +134,10 @@ test.describe('Cross-tenant isolation (Issue #117)', () => {
     expect(resp.status()).toBe(404);
     const body = await resp.json();
     expect(body.error).toBe('not_found');
-    // Backup codes MUST NOT be in response (account takeover pivot)
+    // Paranoid forward-looking check: 404 envelope has no backupCodes
+    // field today. Catches a hypothetical regression that returns the
+    // newly-generated codes (the success-path response) on a 404 — which
+    // would be account takeover pivot.
     expect(body.backupCodes).toBeUndefined();
   });
 });
