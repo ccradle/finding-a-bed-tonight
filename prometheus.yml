@@ -1,9 +1,18 @@
 # Prometheus scrape config for FABT.
 #
-# When running via ./dev-start.sh --observability, the backend starts with
-# management.server.port=9090, so actuator endpoints (including /actuator/prometheus)
-# are available on port 9090 without JWT authentication.
-# The application API on :8080 remains fully secured.
+# Scrape target uses the docker compose service name `backend` so it works
+# the same way on Linux Docker Engine (Oracle VM) and Docker Desktop
+# (macOS dev). The previous target `host.docker.internal:9091` only
+# resolves on macOS / Docker Desktop natively; on Linux it requires an
+# explicit `extra_hosts: ["host.docker.internal:host-gateway"]` in the
+# prometheus service config, which prod doesn't have. That mismatch left
+# Prometheus unable to scrape the backend on the VM (discovered during
+# v0.40 deploy 2026-04-16; pre-existing config bug from the original
+# operational-monitoring change set 2026-03-30).
+#
+# Backend's actuator runs on port 9091 under the `--observability` compose
+# profile (which prod and `dev-start.sh --observability` both use). The
+# application API on :8080 remains fully secured (JWT-required).
 
 global:
   scrape_interval: 15s
@@ -13,6 +22,6 @@ scrape_configs:
   - job_name: 'fabt-backend'
     metrics_path: '/actuator/prometheus'
     static_configs:
-      - targets: ['host.docker.internal:9091']
+      - targets: ['backend:9091']
         labels:
           application: 'finding-a-bed-tonight'
