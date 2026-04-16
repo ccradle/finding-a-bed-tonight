@@ -83,6 +83,7 @@ public class RlsDataSourceConfig {
         private void applyRlsContext(Connection conn) throws SQLException {
             boolean dvAccess = TenantContext.getDvAccess();
             java.util.UUID userId = TenantContext.getUserId();
+            java.util.UUID tenantId = TenantContext.getTenantId();
             try {
                 // Single round-trip: SET ROLE + set_config in one statement.
                 // Eliminates extra round-trips that compound under virtual thread
@@ -96,12 +97,21 @@ public class RlsDataSourceConfig {
                 // set_config('app.current_user_id', ...): session-scoped variable for notification RLS.
                 //   - Nil UUID when no user context (scheduled jobs, API key auth) → fails closed
                 //     (notification SELECT returns nothing, which is correct for system operations).
+                // set_config('app.tenant_id', ...): session-scoped variable installed as
+                //   infrastructure for multi-tenant-production-readiness D14 (tenant-RLS
+                //   on regulated tables). No current RLS policy reads it — Elena's
+                //   defense-in-depth insistence (D13). Empty string when null (scheduled-
+                //   task / batch-job case where TenantContext is unset).
                 // Callers bind context via TenantContext.runWithContext() BEFORE queries.
                 String userIdStr = userId != null ? userId.toString() : "00000000-0000-0000-0000-000000000000";
+                String tenantIdStr = tenantId != null ? tenantId.toString() : "";
                 try (java.sql.PreparedStatement pstmt = conn.prepareStatement(
-                        "SET ROLE fabt_app; SELECT set_config('app.dv_access', ?, false), set_config('app.current_user_id', ?, false)")) {
+                        "SET ROLE fabt_app; SELECT set_config('app.dv_access', ?, false), "
+                                + "set_config('app.current_user_id', ?, false), "
+                                + "set_config('app.tenant_id', ?, false)")) {
                     pstmt.setString(1, String.valueOf(dvAccess));
                     pstmt.setString(2, userIdStr);
+                    pstmt.setString(3, tenantIdStr);
                     pstmt.execute();
                 }
             } catch (SQLException e) {

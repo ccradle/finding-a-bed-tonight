@@ -179,7 +179,7 @@ public class AvailabilityService {
 
         eventBus.publish(new DomainEvent("availability.updated", tenantId, payload));
 
-        metrics.availabilityUpdateCounter(shelterId.toString(), updatedBy).increment();
+        metrics.availabilityUpdateCounter(updatedBy).increment();
         timerSample.stop(metrics.availabilityUpdateTimer());
 
         return AvailabilitySnapshot.from(saved);

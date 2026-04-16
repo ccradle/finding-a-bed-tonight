@@ -14,6 +14,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+// ObservabilityMetrics import removed — tenantTag() moved to TenantContext (shared.web)
 import org.fabt.shared.event.DomainEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,7 +45,10 @@ public class NotificationService {
     private final AtomicInteger activeConnections = new AtomicInteger(0);
     private final AtomicLong eventIdCounter = new AtomicLong(0);
     private final MeterRegistry meterRegistry;
-    private final Counter sendFailuresCounter;
+    // D16: SSE send-failure counter changed from constructor-cached to
+    // on-the-fly to support per-tenant tagging. Micrometer deduplicates
+    // by name+tags, so the register() call is a HashMap lookup, not a
+    // new counter each time.
     private final Timer eventDeliveryTimer;
 
     /**
@@ -55,8 +59,12 @@ public class NotificationService {
     public NotificationService(MeterRegistry meterRegistry) {
         this.meterRegistry = meterRegistry;
         meterRegistry.gauge("fabt.sse.connections.active", activeConnections);
-        this.sendFailuresCounter = Counter.builder("sse.send.failures.total")
+        // Seed the counter so it's visible in metrics registries at startup
+        // (SseStabilityTest asserts it exists). Per-tenant variants are created
+        // on-the-fly when sseSendFailures() is called with a real TenantContext.
+        Counter.builder("sse.send.failures.total")
                 .description("SSE send failures (dead connection detection)")
+                .tag("tenant_id", "system")
                 .register(meterRegistry);
         this.eventDeliveryTimer = Timer.builder("sse.event.delivery.duration")
                 .description("Time to deliver an event to all connected clients")
@@ -225,7 +233,7 @@ public class NotificationService {
                         .name("heartbeat")
                         .data("{}"));
             } catch (IOException e) {
-                sendFailuresCounter.increment();
+                sseSendFailures().increment();
                 log.warn("Heartbeat failed for user {}: {} — removing emitter", userId, e.getClass().getSimpleName());
                 // Remove from map FIRST to prevent onError callback race (Design D1)
                 if (emitters.remove(userId) != null) {
@@ -233,7 +241,7 @@ public class NotificationService {
                 }
                 try { entry.emitter().completeWithError(e); } catch (Exception ignored) { /* already completed */ }
             } catch (IllegalStateException e) {
-                sendFailuresCounter.increment();
+                sseSendFailures().increment();
                 log.warn("Heartbeat skipped for user {} (emitter already completed): {}", userId, e.getMessage());
                 if (emitters.remove(userId) != null) {
                     activeConnections.decrementAndGet();
@@ -480,7 +488,7 @@ public class NotificationService {
                 );
                 eventsSentCounter(eventType).increment();
             } catch (IOException e) {
-                sendFailuresCounter.increment();
+                sseSendFailures().increment();
                 log.warn("SSE event send failed for user {}: {} — removing emitter", entry.userId(), e.getClass().getSimpleName());
                 // Remove from map FIRST to prevent onError callback race (Design D1)
                 if (emitters.remove(entry.userId()) != null) {
@@ -488,7 +496,7 @@ public class NotificationService {
                 }
                 try { entry.emitter().completeWithError(e); } catch (Exception ignored) { /* already completed */ }
             } catch (IllegalStateException e) {
-                sendFailuresCounter.increment();
+                sseSendFailures().increment();
                 log.warn("SSE event skipped for user {} (emitter already completed): {}", entry.userId(), e.getMessage());
                 if (emitters.remove(entry.userId()) != null) {
                     activeConnections.decrementAndGet();
@@ -505,6 +513,13 @@ public class NotificationService {
         long eventId = eventIdCounter.incrementAndGet();
         bufferEvent(eventId, eventType, data, tenantId, requiresDvAccess);
         sendEvent(entry, eventType, data, eventId);
+    }
+
+    private Counter sseSendFailures() {
+        return Counter.builder("sse.send.failures.total")
+                .description("SSE send failures (dead connection detection)")
+                .tag("tenant_id", org.fabt.shared.web.TenantContext.tenantTag())
+                .register(meterRegistry);
     }
 
     private Counter eventsSentCounter(String eventType) {

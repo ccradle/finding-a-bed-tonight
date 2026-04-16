@@ -12,10 +12,12 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 
 import io.micrometer.core.instrument.MeterRegistry;
+import org.fabt.shared.security.TenantUnscoped;
 import io.micrometer.core.instrument.binder.cache.CaffeineCacheMetrics;
 
 import org.fabt.notification.domain.EscalationPolicy;
 import org.fabt.notification.repository.EscalationPolicyRepository;
+import org.fabt.shared.web.TenantContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -134,10 +136,17 @@ public class EscalationPolicyService {
     }
 
     /**
-     * Resolve a frozen policy by its id. Used by the escalation batch job to
-     * read the policy that a referral was snapshotted against at creation time.
+     * Resolve a frozen policy by its id — batch-callable, intentionally
+     * cross-tenant. Used by the escalation batch job to read the policy
+     * that a referral was snapshotted against at creation time.
+     *
+     * <p>Renamed from {@code findById} per design D7 to make the intent
+     * unambiguous: this method is reachable from
+     * {@link org.fabt.referral.batch.ReferralEscalationJobConfig} only;
+     * non-batch callers must use a tenant-scoped lookup.</p>
      */
-    public Optional<EscalationPolicy> findById(UUID id) {
+    @TenantUnscoped("batch-job policy snapshot resolution for referral escalation — platform-wide by design")
+    public Optional<EscalationPolicy> findByIdForBatch(UUID id) {
         if (id == null) {
             return Optional.empty();
         }
@@ -187,10 +196,16 @@ public class EscalationPolicyService {
     }
 
     /**
-     * Publish a new policy version for a tenant. Validates monotonic thresholds,
-     * valid roles, and valid severities BEFORE writing — invalid policies are
-     * rejected with {@link IllegalArgumentException} and never enter the
-     * append-only table.
+     * Publish a new policy version for the caller's tenant. Validates monotonic
+     * thresholds, valid roles, and valid severities BEFORE writing — invalid
+     * policies are rejected with {@link IllegalArgumentException} and never
+     * enter the append-only table.
+     *
+     * <p>Design D11 (URL-path-sink class): {@code tenantId} is sourced from
+     * {@link TenantContext#getTenantId()} internally. The service SHALL NOT
+     * accept {@code tenantId} as a parameter — symmetric with
+     * {@code TenantOAuth2ProviderService.create}, {@code ApiKeyService.create},
+     * and {@code SubscriptionService.create}.
      *
      * <p>On success, invalidates the {@code currentPolicyByTenant} cache entry
      * for this tenant + event type so the next {@link #getCurrentForTenant}
@@ -198,23 +213,29 @@ public class EscalationPolicyService {
      * invalidated because each policy id is immutable — old policies are still
      * valid lookups for {@code referral_token} rows that snapshotted them.</p>
      *
+     * <p>Platform-default policy rows ({@code tenant_id = NULL}) are seeded by
+     * Flyway V40 and are NOT mutable via this API path. If a future change
+     * needs to publish new platform-default versions, add a separate
+     * {@code updatePlatformDefault(...)} method with a
+     * {@code @TenantUnscoped("platform-default policy publication — intentionally cross-tenant")}
+     * annotation (Phase 3 ArchUnit Family B rule).</p>
+     *
      * @return the newly created policy with assigned id, version, and createdAt
      * @throws IllegalArgumentException if validation fails
      */
-    public EscalationPolicy update(UUID tenantId, String eventType,
+    public EscalationPolicy update(String eventType,
                                     List<EscalationPolicy.Threshold> thresholds,
                                     UUID actorUserId) {
+        // Validate first — failures throw IllegalArgumentException and don't
+        // need TenantContext. Tenant-source happens after validation so the
+        // unit test for invalid-policy rejection doesn't need a context wrap.
         validateThresholds(thresholds);
+        UUID tenantId = TenantContext.getTenantId();
         EscalationPolicy created = repository.insertNewVersion(tenantId, eventType, thresholds, actorUserId);
 
-        // Invalidate the tenant-specific entry; the next read will hit the DB
-        // and re-cache. Also invalidate the platform-default key if this update
-        // happens to be a platform-default (tenantId == null) write — same
-        // reasoning.
+        // Invalidate the tenant-specific cache entry; the next read will hit
+        // the DB and re-cache.
         currentPolicyByTenant.invalidate(new CurrentKey(tenantId, eventType));
-        if (tenantId == null) {
-            currentPolicyByTenant.invalidate(new CurrentKey(null, eventType));
-        }
         // Pre-populate by-id cache with the freshly inserted version.
         policyById.put(created.id(), created);
 

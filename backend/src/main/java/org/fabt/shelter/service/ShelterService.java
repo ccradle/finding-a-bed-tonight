@@ -470,7 +470,7 @@ public class ShelterService {
                         Map.of("shelterId", shelterId.toString(),
                                 "shelterName", shelter.getName(),
                                 "reason", reason.name()));
-                notificationPersistenceService.sendToAll(tenantId, dvUserIds,
+                notificationPersistenceService.sendToAll(dvUserIds,
                         "SHELTER_DEACTIVATED", "CRITICAL", broadcastPayload);
             } catch (tools.jackson.core.JacksonException e) {
                 log.error("Failed to serialize DV shelter deactivation broadcast", e);
@@ -502,7 +502,7 @@ public class ShelterService {
                                 "shelterId", shelter.getId().toString(),
                                 "shelterName", shelter.getName()));
                 notificationPersistenceService.send(
-                        tenantId, hold.userId(),
+                        hold.userId(),
                         "HOLD_CANCELLED_SHELTER_DEACTIVATED", "WARNING", payload);
             } catch (tools.jackson.core.JacksonException e) {
                 log.error("Failed to serialize hold cancellation notification for reservation {}",

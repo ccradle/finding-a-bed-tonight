@@ -990,3 +990,69 @@ curl -s https://findabed.org/actuator/prometheus | grep -E "fabt_notification_(d
 **Cross-tenant hardening flag.** v0.39 fixes the DV referral cross-tenant leak but an audit of the broader `findById(UUID)` pattern (Subscription, ApiKey, other services) is tracked in **GitHub issue #117** as a required gate for any multi-tenant production deployment. Demo site (single-tenant) is unaffected.
 
 **Tracking.** `openspec/changes/notification-deep-linking/` has the full phase breakdown. v0.39 release notes should call out the five operator-awareness items above (service worker, three-state bell, new nav entry, cross-tenant hardening disclosure, genesis-gap fix).
+
+## Cross-Tenant Access Behavior (Issue #117)
+
+**Cross-tenant access now returns 404 by design** (cross-tenant-isolation-audit, design D3). If a tenant admin reports "I can't rotate my API key / disable TOTP / delete a subscription / generate an access code / update an OAuth2 provider — getting 404," the first triage step is **confirm they are logged in to the correct tenant** before escalating. Common causes:
+
+- Multiple browser tabs across tenants → JWT in current tab is for a different tenant
+- Stale bookmark → URL contains a UUID from a previously-active tenant
+- Copy-paste from another admin's UI → UUID belongs to that admin's tenant
+
+The 404 (not 403) response shape is intentional — distinguishing "doesn't belong to your tenant" from "doesn't exist anywhere" would leak the existence of resources in other tenants.
+
+## Cross-Tenant Isolation Observability (Issue #117)
+
+The `cross-tenant-isolation-audit` change ships three operational signals.
+
+### `fabt.security.cross_tenant_404s`
+
+Counter incremented on every `NoSuchElementException`-derived 404. Per design D9, cross-tenant probes and legitimate "not found" responses are **intentionally indistinguishable** — both look the same on this counter. Tagged by `resource_type`.
+
+**Tag vocabulary** (extracted from exception message prefix):
+- `shelter`, `user`, `api_key`, `oauth2_provider`, `subscription`, `referral_token`, `tenant`, `target_user`, `unknown`
+
+**Alert threshold (Jordan):** spike-vs-baseline, NOT absolute rate. Steady-state baseline ~5/min during business hours (typos, race conditions during referral expiry, stale browser tabs). Alert when 1-minute rate > 3× rolling 24h average. One typo per hour is fine; 100 in a minute warrants investigation.
+
+**Investigation playbook:**
+1. Check `resource_type` tag — which surface is being probed?
+2. Cross-reference with `fabt.http.access_denied.count{role=...}` — same actor pattern?
+3. Check audit_events for the tenant_id of the affected resources — same actor probing multiple tenants?
+4. If `cross_tenant_404s` rate > 100/min and `access_denied` rate normal → likely a bot scanning UUIDs. Add IP rate-limit rule.
+
+### `fabt.webhook.delivery.failures{reason="ssrf_blocked"}`
+
+Counter incremented when `SafeOutboundUrlValidator` blocks a webhook delivery (creation-time or dial-time). Per design D12.
+
+**Alert threshold:** any non-zero rate during normal operations. SSRF blocks on legitimate webhooks indicate either (a) an admin misconfigured a URL (typed `localhost`, `192.168.x.x`, etc.) or (b) a real DNS rebinding attempt. Both warrant investigation.
+
+**Investigation playbook:**
+1. Check WARN logs for the URL that was blocked (validator logs URL + resolved IP + category).
+2. If category is `loopback` or `rfc1918` — admin config error, contact tenant.
+3. If category is `link-local` (cloud metadata) or the URL matches a previously-good public URL → DNS rebinding suspected. Capture the URL + DNS history; consider rate-limiting the source IP.
+
+### Tenant-tagged metrics (D16)
+
+9 per-request metrics now carry a `tenant_id` tag. In Grafana, use `$tenant` as a dashboard variable to filter:
+- `fabt.bed.search.count`, `fabt.availability.update.count`, `fabt.reservation.count`
+- `fabt.webhook.delivery.count`, `fabt.hmis.push.total`, `fabt.dv.referral.total`
+- `sse.send.failures.total`, `fabt.http.not_found.count`
+- `fabt.notification.deeplink.click.count`
+
+Batch timers (`fabt.escalation.batch.duration`, `fabt.bed.hold.reconciliation.batch.duration`) are NOT tagged — they aggregate across tenants by design.
+
+**Cardinality budget:** 9 metrics × ≤200 tenants = ≤1800 series. Within single-instance Prometheus budget. If tenants exceed 200, downsample with `tenant_id="other"` bucket for the long tail.
+
+### `app.tenant_id` PostgreSQL session variable (D13)
+
+Set on every connection borrow alongside `app.dv_access` and `app.current_user_id`. No RLS policy currently reads it — installed as defense-in-depth infrastructure for the companion change `multi-tenant-production-readiness` (D14 — tenant-RLS on regulated tables). Verify with:
+
+```sql
+-- From a backend-issued query (any connection):
+SELECT current_setting('app.tenant_id', true);
+-- Expected: tenant UUID for normal request, empty string for batch jobs
+```
+
+`TenantIdPoolBleedTest` runs 100 sequential alternating-tenant iterations to confirm no bleed across pool checkouts.
+
+**Tracking.** `openspec/changes/cross-tenant-isolation-audit/` has the full phase breakdown.

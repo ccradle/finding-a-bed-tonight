@@ -172,7 +172,7 @@ public class OAuth2RedirectController {
             }
 
             // Link or reject
-            LinkResult result = linkService.linkOrReject(providerName, sub, email, tenant.get().getId());
+            LinkResult result = linkService.linkOrReject(providerName, sub, email);
 
             if (result.success()) {
                 // Redirect to frontend with tokens

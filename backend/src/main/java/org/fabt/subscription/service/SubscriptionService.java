@@ -12,6 +12,9 @@ import java.util.UUID;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 import org.fabt.shared.config.JsonString;
+import org.fabt.shared.security.SafeOutboundUrlValidator;
+import org.fabt.shared.security.TenantUnscoped;
+import org.fabt.shared.web.TenantContext;
 import org.fabt.subscription.domain.Subscription;
 import org.fabt.subscription.repository.SubscriptionRepository;
 import org.fabt.subscription.repository.WebhookDeliveryLogRepository;
@@ -29,21 +32,34 @@ public class SubscriptionService {
     private final SubscriptionRepository subscriptionRepository;
     private final WebhookDeliveryLogRepository deliveryLogRepository;
     private final org.fabt.shared.security.SecretEncryptionService encryptionService;
+    private final SafeOutboundUrlValidator urlValidator;
     private final ObjectMapper objectMapper;
 
     public SubscriptionService(SubscriptionRepository subscriptionRepository,
                                WebhookDeliveryLogRepository deliveryLogRepository,
                                org.fabt.shared.security.SecretEncryptionService encryptionService,
+                               SafeOutboundUrlValidator urlValidator,
                                ObjectMapper objectMapper) {
         this.subscriptionRepository = subscriptionRepository;
         this.deliveryLogRepository = deliveryLogRepository;
         this.encryptionService = encryptionService;
+        this.urlValidator = urlValidator;
         this.objectMapper = objectMapper;
     }
 
+    /**
+     * Creates a new webhook subscription for the caller's tenant.
+     *
+     * <p>Design D11 (URL-path-sink class): {@code tenantId} is sourced from
+     * {@link TenantContext#getTenantId()} internally. The service SHALL NOT
+     * accept {@code tenantId} as a parameter — symmetric with
+     * {@code TenantOAuth2ProviderService.create},
+     * {@code ApiKeyService.create}, and {@code ShelterService.create}.
+     */
     @Transactional
-    public Subscription create(UUID tenantId, String eventType, Map<String, Object> filter,
+    public Subscription create(String eventType, Map<String, Object> filter,
                                String callbackUrl, String callbackSecret) {
+        UUID tenantId = TenantContext.getTenantId();
         validateCallbackUrl(callbackUrl);
 
         // ID left null for INSERT (Lesson 64)
@@ -68,16 +84,50 @@ public class SubscriptionService {
         return subscriptionRepository.findByTenantId(tenantId);
     }
 
+    /**
+     * Cancels a webhook subscription.
+     *
+     * <p>Tenant-scoped: the subscription MUST belong to the caller's tenant
+     * (resolved from {@link TenantContext}). A cross-tenant id returns 404
+     * via {@link NoSuchElementException} — not 403 — to avoid existence
+     * disclosure (design D3). See {@link #findByIdOrThrow(UUID)} and the
+     * {@code cross-tenant-isolation-audit} change (task 2.4.3).
+     *
+     * <p>Pre-fix, a CoC admin in Tenant A could DELETE a subscription
+     * belonging to Tenant B — silent denial-of-service of Tenant B's
+     * webhook-driven integrations.
+     */
     @Transactional
     public void delete(UUID id) {
-        Subscription subscription = subscriptionRepository.findById(id)
-                .orElseThrow(() -> new NoSuchElementException("Subscription not found: " + id));
+        Subscription subscription = findByIdOrThrow(id);
         subscription.setStatus("CANCELLED");
         subscriptionRepository.save(subscription);
     }
 
+    /**
+     * Tenant-scoped single-subscription lookup used by state-mutating paths
+     * that originate at the HTTP boundary ({@link #delete}). Pulls the
+     * caller's {@code tenantId} from {@link TenantContext} and delegates to
+     * {@link SubscriptionRepository#findByIdAndTenantId(UUID, UUID)}. Throws
+     * {@link NoSuchElementException} on empty — mapped to 404 by
+     * {@code GlobalExceptionHandler}.
+     *
+     * <p>Not used by the internal webhook-delivery paths ({@link #markFailing},
+     * {@link #deactivate}, {@link #recordDelivery}) — those are system-caller-
+     * only and operate on subscription ids that were already tenant-scoped
+     * upstream (by {@code findActiveByEventType} or similar). Phase 2.6
+     * renames those methods to {@code *Internal} and restricts callers to
+     * {@link org.fabt.subscription.service.WebhookDeliveryService} via
+     * ArchUnit.
+     */
+    private Subscription findByIdOrThrow(UUID id) {
+        return subscriptionRepository.findByIdAndTenantId(id, TenantContext.getTenantId())
+                .orElseThrow(() -> new NoSuchElementException("Subscription not found: " + id));
+    }
+
+    @TenantUnscoped("internal webhook-delivery callback updates failure state on the originating subscription; tenant context already established by the dispatching event")
     @Transactional
-    public void markFailing(UUID id, String error) {
+    public void markFailingInternal(UUID id, String error) {
         Subscription subscription = subscriptionRepository.findById(id)
                 .orElseThrow(() -> new NoSuchElementException("Subscription not found: " + id));
         subscription.setStatus("FAILING");
@@ -85,8 +135,9 @@ public class SubscriptionService {
         subscriptionRepository.save(subscription);
     }
 
+    @TenantUnscoped("internal webhook-delivery callback deactivates a subscription on permanent 410 Gone; tenant context already established by the dispatching event")
     @Transactional
-    public void deactivate(UUID id) {
+    public void deactivateInternal(UUID id) {
         Subscription subscription = subscriptionRepository.findById(id)
                 .orElseThrow(() -> new NoSuchElementException("Subscription not found: " + id));
         subscription.setStatus("DEACTIVATED");
@@ -96,20 +147,19 @@ public class SubscriptionService {
     /**
      * Admin-initiated status change. Only ACTIVE and PAUSED are valid admin-settable values.
      * Resetting to ACTIVE from DEACTIVATED or FAILING clears consecutive failure counter.
+     *
+     * <p>Design D11 (URL-path-sink class): {@code tenantId} is sourced from
+     * {@link TenantContext} via {@link #findByIdOrThrow} — the service SHALL
+     * NOT accept {@code tenantId} as a parameter. This replaces the prior
+     * manual {@code !subscription.getTenantId().equals(tenantId)} check.</p>
      */
     @Transactional
-    public Subscription updateStatus(UUID id, UUID tenantId, String newStatus) {
+    public Subscription updateStatus(UUID id, String newStatus) {
         if (!"ACTIVE".equals(newStatus) && !"PAUSED".equals(newStatus)) {
             throw new IllegalArgumentException("Only ACTIVE and PAUSED are valid admin-settable status values");
         }
 
-        Subscription subscription = subscriptionRepository.findById(id)
-                .orElseThrow(() -> new NoSuchElementException("Subscription not found: " + id));
-
-        // Tenant isolation — return 404 to avoid confirming existence in another tenant
-        if (!subscription.getTenantId().equals(tenantId)) {
-            throw new NoSuchElementException("Subscription not found: " + id);
-        }
+        Subscription subscription = findByIdOrThrow(id);
 
         // CANCELLED is terminal — cannot be reactivated
         if ("CANCELLED".equals(subscription.getStatus())) {
@@ -159,8 +209,9 @@ public class SubscriptionService {
      * For lite profile (single instance) this is acceptable. For multi-instance,
      * use SQL atomic increment: UPDATE subscription SET consecutive_failures = consecutive_failures + 1
      */
+    @TenantUnscoped("internal webhook-delivery callback records a delivery attempt against the originating subscription; tenant context already established by the dispatching event")
     @Transactional
-    public void recordDelivery(UUID subscriptionId, String eventType, Integer statusCode,
+    public void recordDeliveryInternal(UUID subscriptionId, String eventType, Integer statusCode,
                                 Integer responseTimeMs, int attemptNumber, String responseBody) {
         // Redact secrets/PII before persistence
         String redactedBody = WebhookResponseRedactor.redact(responseBody);
@@ -200,6 +251,7 @@ public class SubscriptionService {
      * Delete delivery logs older than 14 days. Runs daily.
      * NOTE: For multi-instance deployments, add ShedLock to prevent duplicate execution.
      */
+    @TenantUnscoped("daily retention purge — runs across all tenants")
     @Scheduled(fixedRate = 86_400_000) // daily
     @Transactional
     public void cleanupOldDeliveryLogs() {
@@ -209,12 +261,18 @@ public class SubscriptionService {
         }
     }
 
+    /**
+     * Validates an outbound webhook callback URL against SSRF attack classes.
+     *
+     * <p>Design D12 (cross-tenant-isolation-audit Phase 2.14): delegates to
+     * {@link SafeOutboundUrlValidator#validateAtCreation} — a three-layer
+     * check that rejects private-IP / cloud-metadata / link-local targets
+     * at creation time. Pre-fix, this was URL-parse-only — an attacker
+     * admin could configure {@code http://169.254.169.254/latest/meta-data/}
+     * to exfiltrate cloud-instance credentials on every webhook delivery.</p>
+     */
     private void validateCallbackUrl(String callbackUrl) {
-        try {
-            URI.create(callbackUrl).toURL();
-        } catch (MalformedURLException | IllegalArgumentException e) {
-            throw new IllegalArgumentException("Invalid callback URL: " + callbackUrl);
-        }
+        urlValidator.validateAtCreation(callbackUrl);
     }
 
     /**

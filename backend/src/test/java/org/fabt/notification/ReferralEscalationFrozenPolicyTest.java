@@ -163,7 +163,7 @@ class ReferralEscalationFrozenPolicyTest extends BaseIntegrationTest {
         UUID policyAId = readEscalationPolicyId(referralAId);
         assertThat(policyAId).as("Referral A must snapshot the seeded platform default policy").isNotNull();
 
-        EscalationPolicy policyA = escalationPolicyService.findById(policyAId).orElseThrow();
+        EscalationPolicy policyA = escalationPolicyService.findByIdForBatch(policyAId).orElseThrow();
         assertThat(policyA.thresholds())
                 .as("Seeded v1 policy must contain a 2h CRITICAL threshold")
                 .anyMatch(t -> "2h".equals(t.id())
@@ -175,7 +175,7 @@ class ReferralEscalationFrozenPolicyTest extends BaseIntegrationTest {
                 .findByTenantIdAndEmail(authHelper.getTestTenantId(), "frozen-cocadmin@test.fabt.org")
                 .orElseThrow().getId();
         TenantContext.runWithContext(authHelper.getTestTenantId(), true, () -> {
-            escalationPolicyService.update(authHelper.getTestTenantId(), "dv-referral",
+            escalationPolicyService.update("dv-referral",
                     List.of(
                             new EscalationPolicy.Threshold(
                                     "1_5h",
@@ -198,7 +198,7 @@ class ReferralEscalationFrozenPolicyTest extends BaseIntegrationTest {
         assertThat(policyBId).as("Policy A and Policy B MUST differ — otherwise the test passes for the wrong reason")
                 .isNotEqualTo(policyAId);
 
-        EscalationPolicy policyB = escalationPolicyService.findById(policyBId).orElseThrow();
+        EscalationPolicy policyB = escalationPolicyService.findByIdForBatch(policyBId).orElseThrow();
         assertThat(policyB.version()).isEqualTo(1); // first row for this tenant
         assertThat(policyB.thresholds()).extracting(EscalationPolicy.Threshold::id)
                 .containsExactly("1_5h", "4h");

@@ -17,6 +17,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.fabt.shared.web.TenantContext;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -42,12 +43,14 @@ class NotificationPaginationTest extends BaseIntegrationTest {
         // Clean up prior notifications
         jdbcTemplate.update("DELETE FROM notification WHERE recipient_id = ?", coordinator.getId());
 
-        // Create 7 test notifications
+        // Create 7 test notifications (D11: wrap in TenantContext for send())
         for (int i = 0; i < 7; i++) {
-            notificationPersistenceService.send(
-                    authHelper.getTestTenantId(), coordinator.getId(),
-                    "test.pagination", "INFO",
-                    "{\"index\": " + i + "}");
+            final int idx = i;
+            TenantContext.runWithContext(authHelper.getTestTenantId(), false, () ->
+                    notificationPersistenceService.send(
+                            coordinator.getId(),
+                            "test.pagination", "INFO",
+                            "{\"index\": " + idx + "}"));
         }
     }
 

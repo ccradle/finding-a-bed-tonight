@@ -13,6 +13,7 @@ public class AuditEventEntity {
     @Id
     private UUID id;
     private Instant timestamp;
+    private UUID tenantId;
     private UUID actorUserId;
     private UUID targetUserId;
     private String action;
@@ -21,8 +22,9 @@ public class AuditEventEntity {
 
     public AuditEventEntity() {}
 
-    public AuditEventEntity(UUID actorUserId, UUID targetUserId, String action,
+    public AuditEventEntity(UUID tenantId, UUID actorUserId, UUID targetUserId, String action,
                             JsonString details, String ipAddress) {
+        this.tenantId = tenantId;
         this.actorUserId = actorUserId;
         this.targetUserId = targetUserId;
         this.action = action;
@@ -35,6 +37,8 @@ public class AuditEventEntity {
     public void setId(UUID id) { this.id = id; }
     public Instant getTimestamp() { return timestamp; }
     public void setTimestamp(Instant timestamp) { this.timestamp = timestamp; }
+    public UUID getTenantId() { return tenantId; }
+    public void setTenantId(UUID tenantId) { this.tenantId = tenantId; }
     public UUID getActorUserId() { return actorUserId; }
     public void setActorUserId(UUID actorUserId) { this.actorUserId = actorUserId; }
     public UUID getTargetUserId() { return targetUserId; }

@@ -67,11 +67,11 @@ class EscalationPolicyServiceCacheMetricsTest {
         when(repository.findById(policyId)).thenReturn(Optional.of(policy));
 
         // First call → cache miss → DB load
-        Optional<EscalationPolicy> first = service.findById(policyId);
+        Optional<EscalationPolicy> first = service.findByIdForBatch(policyId);
         assertThat(first).isPresent();
 
         // Second call → cache hit (does NOT hit the repository)
-        Optional<EscalationPolicy> second = service.findById(policyId);
+        Optional<EscalationPolicy> second = service.findByIdForBatch(policyId);
         assertThat(second).isPresent();
 
         // Assert Micrometer hit counter is non-zero. The full metric name is
@@ -147,7 +147,7 @@ class EscalationPolicyServiceCacheMetricsTest {
                 .thenReturn(Optional.of(samplePolicy(policyId)));
 
         // Cold lookup — forces a miss
-        service.findById(policyId);
+        service.findByIdForBatch(policyId);
 
         FunctionCounter missCounter = registry.find("cache.gets")
                 .tag("cache", "fabt.escalation.policy.by-id")

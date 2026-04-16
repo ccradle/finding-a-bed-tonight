@@ -35,6 +35,16 @@ public final class TenantContext {
     }
 
     /**
+     * Tenant ID as a metric tag value (D16). Returns "system" for
+     * batch/scheduled contexts where TenantContext is unset. Safe for
+     * Micrometer tags (never null, never empty).
+     */
+    public static String tenantTag() {
+        UUID tid = getTenantId();
+        return tid != null ? tid.toString() : "system";
+    }
+
+    /**
      * Execute a {@link Runnable} with tenant context bound. Context is automatically
      * released when the action completes. Supports nesting (inner scope overrides outer).
      * userId defaults to null (system operation).

@@ -11,6 +11,7 @@ import org.fabt.auth.service.DynamicClientRegistrationSource;
 import org.fabt.auth.service.OAuth2AccountLinkService;
 import org.fabt.auth.service.OAuth2AccountLinkService.LinkResult;
 import org.fabt.auth.service.TenantOAuth2ProviderService;
+import org.fabt.shared.web.TenantContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -51,9 +52,10 @@ class OAuth2FlowIntegrationTest extends BaseIntegrationTest {
 
     @Test
     void dynamicRegistration_resolvesProviderFromDatabase() {
-        // Create a provider
-        providerService.create(tenantId, "testidp", "test-client-id",
-                "test-client-secret", "http://localhost:8180/realms/fabt-dev");
+        // Create a provider (D11: service pulls tenantId from TenantContext)
+        TenantContext.runWithContext(tenantId, false, () ->
+                providerService.create("testidp", "test-client-id",
+                        "test-client-secret", "https://login.microsoftonline.com/common/v2.0"));
 
         String registrationId = authHelper.getTestTenantSlug() + "-testidp";
         ClientRegistration reg = registrationSource.findByRegistrationId(registrationId);
@@ -71,8 +73,9 @@ class OAuth2FlowIntegrationTest extends BaseIntegrationTest {
 
     @Test
     void dynamicRegistration_cachesForSubsequentCalls() {
-        providerService.create(tenantId, "cached", "cached-id",
-                "cached-secret", "http://localhost:8180/realms/fabt-dev");
+        TenantContext.runWithContext(tenantId, false, () ->
+                providerService.create("cached", "cached-id",
+                        "cached-secret", "https://login.microsoftonline.com/common/v2.0"));
 
         String registrationId = authHelper.getTestTenantSlug() + "-cached";
         ClientRegistration first = registrationSource.findByRegistrationId(registrationId);
@@ -86,8 +89,8 @@ class OAuth2FlowIntegrationTest extends BaseIntegrationTest {
 
     @Test
     void linkOrReject_rejectsWhenNoUserExists() {
-        LinkResult result = linkService.linkOrReject(
-                "google", "google-subject-123", "unknown@example.com", tenantId);
+        LinkResult result = TenantContext.callWithContext(tenantId, false, () ->
+                linkService.linkOrReject("google", "google-subject-123", "unknown@example.com"));
 
         assertFalse(result.success());
         assertNotNull(result.error());
@@ -102,9 +105,9 @@ class OAuth2FlowIntegrationTest extends BaseIntegrationTest {
     @Test
     void linkOrReject_linksExistingUserByEmail() {
         // The outreach user was created in setUp
-        LinkResult result = linkService.linkOrReject(
-                "google", "google-subject-outreach",
-                TestAuthHelper.OUTREACH_EMAIL, tenantId);
+        LinkResult result = TenantContext.callWithContext(tenantId, false, () ->
+                linkService.linkOrReject("google", "google-subject-outreach",
+                        TestAuthHelper.OUTREACH_EMAIL));
 
         assertTrue(result.success());
         assertNotNull(result.accessToken());
@@ -115,15 +118,15 @@ class OAuth2FlowIntegrationTest extends BaseIntegrationTest {
     @Test
     void linkOrReject_subsequentLoginUsesExistingLink() {
         // First login — creates link
-        LinkResult first = linkService.linkOrReject(
-                "google", "google-subject-admin",
-                TestAuthHelper.ADMIN_EMAIL, tenantId);
+        LinkResult first = TenantContext.callWithContext(tenantId, false, () ->
+                linkService.linkOrReject("google", "google-subject-admin",
+                        TestAuthHelper.ADMIN_EMAIL));
         assertTrue(first.success());
 
         // Second login — uses existing link (doesn't query by email)
-        LinkResult second = linkService.linkOrReject(
-                "google", "google-subject-admin",
-                "different-email@example.com", tenantId);
+        LinkResult second = TenantContext.callWithContext(tenantId, false, () ->
+                linkService.linkOrReject("google", "google-subject-admin",
+                        "different-email@example.com"));
         assertTrue(second.success());
         assertEquals(first.userId(), second.userId());
     }
@@ -132,9 +135,11 @@ class OAuth2FlowIntegrationTest extends BaseIntegrationTest {
 
     @Test
     void dynamicRegistration_disabledProviderReturnsNull() {
-        TenantOAuth2Provider provider = providerService.create(tenantId, "disabled",
-                "disabled-id", "disabled-secret", "http://localhost:8180/realms/fabt-dev");
-        providerService.update(provider.getId(), null, null, null, false);
+        TenantOAuth2Provider provider = TenantContext.callWithContext(tenantId, false, () ->
+                providerService.create("disabled", "disabled-id", "disabled-secret",
+                        "https://login.microsoftonline.com/common/v2.0"));
+        TenantContext.runWithContext(tenantId, false, () ->
+                providerService.update(provider.getId(), null, null, null, false));
 
         String registrationId = authHelper.getTestTenantSlug() + "-disabled";
         ClientRegistration reg = registrationSource.findByRegistrationId(registrationId);
@@ -156,8 +161,9 @@ class OAuth2FlowIntegrationTest extends BaseIntegrationTest {
 
     @Test
     void publicProviderEndpoint_returnsEnabledProviders() {
-        providerService.create(tenantId, "pubtest", "pub-id",
-                "pub-secret", "http://localhost:8180/realms/fabt-dev");
+        TenantContext.runWithContext(tenantId, false, () ->
+                providerService.create("pubtest", "pub-id",
+                        "pub-secret", "https://login.microsoftonline.com/common/v2.0"));
 
         ResponseEntity<String> response = restTemplate.getForEntity(
                 "/api/v1/tenants/" + authHelper.getTestTenantSlug() + "/oauth2-providers/public",

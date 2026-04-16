@@ -31,6 +31,7 @@ import org.fabt.tenant.service.TenantService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.fabt.shared.security.TenantUnscoped;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -256,6 +257,7 @@ public class ReservationService implements HeldReservationCleaner {
         return reservation;
     }
 
+    @TenantUnscoped("system-scheduled reservation expiry runs platform-wide; tenant context is set from the fetched row")
     @Transactional
     public void expireReservation(UUID reservationId) {
         // Expiry runs as a system process — look up without tenant filter

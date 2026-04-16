@@ -83,7 +83,7 @@ public class ImportController {
             throw new IllegalArgumentException("HSDS file contains no importable organizations");
         }
 
-        ImportResult result = shelterImportService.importShelters(tenantId, "HSDS", filename, rows);
+        ImportResult result = shelterImportService.importShelters("HSDS", filename, rows);
         return ResponseEntity.status(HttpStatus.OK).body(ImportResultResponse.from(result));
     }
 
@@ -117,7 +117,7 @@ public class ImportController {
             throw new IllegalArgumentException("CSV file contains no data rows");
         }
 
-        ImportResult result = shelterImportService.importShelters(tenantId, "211_CSV", filename, rows);
+        ImportResult result = shelterImportService.importShelters("211_CSV", filename, rows);
         return ResponseEntity.status(HttpStatus.OK).body(ImportResultResponse.from(result));
     }
 

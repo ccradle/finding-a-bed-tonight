@@ -5,6 +5,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import org.fabt.shared.web.TenantContext;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -26,9 +27,13 @@ public class ObservabilityMetrics {
         registry.gauge("fabt.temperature.surge.gap", temperatureSurgeGap);
     }
 
+    // D16 tenant tag: delegates to TenantContext.TenantContext.tenantTag() (shared.web)
+    // to avoid module-boundary violations from callers in shared.web.
+
     public Counter bedSearchCounter(String populationType) {
         return Counter.builder("fabt.bed.search.count")
                 .tag("populationType", populationType != null ? populationType : "all")
+                .tag("tenant_id", TenantContext.tenantTag())
                 .register(registry);
     }
 
@@ -45,16 +50,20 @@ public class ObservabilityMetrics {
                 .register(registry);
     }
 
-    public Counter availabilityUpdateCounter(String shelterId, String actor) {
+    public Counter availabilityUpdateCounter(String actor) {
+        // D16 cardinality fix (warroom 2026-04-15): dropped shelterId tag.
+        // 200 tenants × 50 shelters = 10K series exceeded the ≤2000 budget.
+        // Per-shelter breakdown available via audit_events table, not metrics.
         return Counter.builder("fabt.availability.update.count")
-                .tag("shelterId", shelterId)
                 .tag("actor", actor)
+                .tag("tenant_id", TenantContext.tenantTag())
                 .register(registry);
     }
 
     public Counter reservationCounter(String status) {
         return Counter.builder("fabt.reservation.count")
                 .tag("status", status)
+                .tag("tenant_id", TenantContext.tenantTag())
                 .register(registry);
     }
 
@@ -80,6 +89,7 @@ public class ObservabilityMetrics {
         return Counter.builder("fabt.webhook.delivery.count")
                 .tag("event_type", eventType)
                 .tag("status", status)
+                .tag("tenant_id", TenantContext.tenantTag())
                 .register(registry);
     }
 
@@ -194,6 +204,7 @@ public class ObservabilityMetrics {
                 .tag("type", type != null ? type : "unknown")
                 .tag("role", role != null ? role : "unknown")
                 .tag("outcome", outcome != null ? outcome : "unknown")
+                .tag("tenant_id", TenantContext.tenantTag())
                 .register(registry);
     }
 

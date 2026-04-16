@@ -9,6 +9,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 import org.fabt.notification.domain.EscalationPolicy;
 import org.fabt.notification.repository.EscalationPolicyRepository;
+import org.fabt.shared.web.TenantContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -193,9 +194,9 @@ class EscalationPolicyServiceTest {
         EscalationPolicy p = validPolicy();
         when(repository.findById(p.id())).thenReturn(java.util.Optional.of(p));
 
-        assertThat(service.findById(p.id())).contains(p);
-        assertThat(service.findById(p.id())).contains(p);
-        assertThat(service.findById(p.id())).contains(p);
+        assertThat(service.findByIdForBatch(p.id())).contains(p);
+        assertThat(service.findByIdForBatch(p.id())).contains(p);
+        assertThat(service.findByIdForBatch(p.id())).contains(p);
 
         verify(repository, times(1)).findById(p.id());
     }
@@ -203,7 +204,7 @@ class EscalationPolicyServiceTest {
     @Test
     @DisplayName("findById returns empty for null id without hitting repository")
     void findByIdNullSafe() {
-        assertThat(service.findById(null)).isEmpty();
+        assertThat(service.findByIdForBatch(null)).isEmpty();
         verify(repository, never()).findById(any());
     }
 
@@ -251,22 +252,25 @@ class EscalationPolicyServiceTest {
         when(repository.findCurrentByTenantAndEventType(tenantId, "dv-referral"))
                 .thenReturn(java.util.Optional.of(v2));
 
-        EscalationPolicy returned = service.update(tenantId, "dv-referral", v2.thresholds(), actor);
+        EscalationPolicy returned = TenantContext.callWithContext(tenantId, false,
+                () -> service.update("dv-referral", v2.thresholds(), actor));
         assertThat(returned).isEqualTo(v2);
 
         assertThat(service.getCurrentForTenant(tenantId, "dv-referral")).contains(v2);
         // findById should be cached for v2 because update() pre-populates it.
-        assertThat(service.findById(v2.id())).contains(v2);
+        assertThat(service.findByIdForBatch(v2.id())).contains(v2);
         verify(repository, never()).findById(v2.id());
     }
 
     @Test
     @DisplayName("update rejects invalid policy without inserting")
     void updateRejectsInvalid() {
-        UUID tenantId = UUID.randomUUID();
         UUID actor = UUID.randomUUID();
 
-        assertThatThrownBy(() -> service.update(tenantId, "dv-referral",
+        // D11: update() validates BEFORE pulling TenantContext, so this
+        // invalid-policy test doesn't need a context wrap — validation
+        // throws IllegalArgumentException first.
+        assertThatThrownBy(() -> service.update("dv-referral",
                 List.of(threshold("z", Duration.ZERO, "INFO", "COORDINATOR")), actor))
                 .isInstanceOf(IllegalArgumentException.class);
 

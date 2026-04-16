@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { requireReachable } from './_helpers/probe-target';
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:8081';
 const API_URL = process.env.API_URL || 'http://localhost:8080';
@@ -14,8 +15,18 @@ const TENANT_SLUG = 'dev-coc';
  * 4. SSE heartbeats arrive through nginx
  *
  * Riley's lens: if ANY of these fail, the deploy is blocked.
+ *
+ * These assertions exercise nginx-specific behavior (SSE buffering off,
+ * cache headers on static assets, sw.js routing). The suite skips when
+ * nginx isn't reachable (CI runs only Vite + backend; run
+ * dev-start.sh --nginx locally to exercise this spec).
  */
 test.describe('SSE + Cache Regression Gate', () => {
+
+  test.beforeAll(async () => {
+    await requireReachable(`${BASE_URL}/`, 'nginx (dev-start.sh --nginx)');
+  });
+
 
   test('SSE connection establishes — no reconnecting banner after login', async ({ page }) => {
     await page.goto(`${BASE_URL}/login`);

@@ -5,6 +5,7 @@ import java.util.UUID;
 import org.fabt.BaseIntegrationTest;
 import org.fabt.TestAuthHelper;
 import org.fabt.auth.service.ApiKeyService;
+import org.fabt.shared.web.TenantContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -56,7 +57,8 @@ class ApiKeyRateLimitTest extends BaseIntegrationTest {
         authHelper.setupAdminUser();
 
         UUID tenantId = authHelper.getTestTenantId();
-        ApiKeyService.ApiKeyCreateResult result = apiKeyService.create(tenantId, null, "Rate Limit Test Key");
+        ApiKeyService.ApiKeyCreateResult result = TenantContext.callWithContext(tenantId, false,
+                () -> apiKeyService.create(null, "Rate Limit Test Key"));
         validApiKey = result.plaintextKey();
     }
 

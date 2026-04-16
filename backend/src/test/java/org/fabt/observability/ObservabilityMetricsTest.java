@@ -95,11 +95,10 @@ class ObservabilityMetricsTest {
 
     @Test
     void availabilityUpdateCounter_incrementsWithTags() {
-        Counter counter = metrics.availabilityUpdateCounter("shelter-123", "coordinator");
+        Counter counter = metrics.availabilityUpdateCounter("coordinator");
         counter.increment();
 
         Counter found = registry.find("fabt.availability.update.count")
-                .tag("shelterId", "shelter-123")
                 .tag("actor", "coordinator")
                 .counter();
         assertNotNull(found);

@@ -24,6 +24,7 @@ import org.fabt.shared.web.TenantContext;
 import org.fabt.analytics.config.BatchJobScheduler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.fabt.shared.security.TenantUnscoped;
 import org.springframework.batch.core.job.Job;
 import org.springframework.batch.core.job.builder.JobBuilder;
 import org.springframework.batch.core.repository.JobRepository;
@@ -148,6 +149,7 @@ public class ReferralEscalationJobConfig {
     }
 
     @Bean
+    @TenantUnscoped("Spring Batch iterates all tenants' pending referrals")
     public Tasklet escalationTasklet() {
         return (StepContribution contribution, ChunkContext chunkContext) -> {
             if (!TenantContext.getDvAccess()) {
@@ -230,8 +232,17 @@ public class ReferralEscalationJobConfig {
                             threshold.recipients(), token, roleRecipientCache);
 
                     if (!recipientIds.isEmpty()) {
-                        notificationPersistenceService.sendToAll(tenantId, recipientIds,
-                                type, threshold.severity(), payload);
+                        // D11 (2.4b): sendToAll pulls tenantId from TenantContext.
+                        // This batch path doesn't have TenantContext bound by default
+                        // (it iterates all tenants via the token loop); bind for the
+                        // send call so the service's D11 contract is satisfied.
+                        final String notifType = type;
+                        final String severity = threshold.severity();
+                        final String notifPayload = payload;
+                        final List<UUID> finalRecipients = recipientIds;
+                        org.fabt.shared.web.TenantContext.runWithContext(tenantId, false, () ->
+                                notificationPersistenceService.sendToAll(finalRecipients,
+                                        notifType, severity, notifPayload));
                         created++;
                     }
                 }
@@ -246,7 +257,7 @@ public class ReferralEscalationJobConfig {
                                         Map<UUID, EscalationPolicy> defaultPolicyByTenantCache) {
         UUID policyId = token.getEscalationPolicyId();
         if (policyId != null) {
-            return policyByIdCache.computeIfAbsent(policyId, id -> escalationPolicyService.findById(id)
+            return policyByIdCache.computeIfAbsent(policyId, id -> escalationPolicyService.findByIdForBatch(id)
                     .orElseGet(() -> getDefaultPolicy(token.getTenantId(), defaultPolicyByTenantCache)));
         }
         return getDefaultPolicy(token.getTenantId(), defaultPolicyByTenantCache);

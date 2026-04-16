@@ -13,7 +13,7 @@
 
     <groupId>org.fabt</groupId>
     <artifactId>finding-a-bed-tonight</artifactId>
-    <version>0.39.0</version>
+    <version>0.40.0</version>
     <name>Finding A Bed Tonight</name>
     <description>Open-source shelter bed availability platform</description>
 
@@ -198,6 +198,26 @@
             <groupId>com.tngtech.archunit</groupId>
             <artifactId>archunit-junit5</artifactId>
             <version>1.4.1</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- JSqlParser — SQL AST parser used by TenantPredicateCoverageTest
+             (D15) to walk @Query strings and assert tenant_id predicates on
+             tenant-owned tables. Also used internally by Spring Data as
+             JSqlParserQueryEnhancer; dual Apache 2.0 / LGPL 2.1. -->
+        <dependency>
+            <groupId>com.github.jsqlparser</groupId>
+            <artifactId>jsqlparser</artifactId>
+            <version>5.3</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- JavaParser — source-file parser used by TenantPredicateCoverageTest
+             to extract literal SQL string args passed to JdbcTemplate.query /
+             .update / .queryFor* in service code (queries not visible to the
+             @Query-reflection scan). Apache 2.0. -->
+        <dependency>
+            <groupId>com.github.javaparser</groupId>
+            <artifactId>javaparser-core</artifactId>
+            <version>3.26.4</version>
             <scope>test</scope>
         </dependency>
         <!-- GreenMail (embedded SMTP for email integration tests — no Docker needed) -->

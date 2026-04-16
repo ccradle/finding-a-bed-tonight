@@ -5,8 +5,8 @@ import java.util.UUID;
 
 import io.swagger.v3.oas.annotations.Operation;
 import org.fabt.auth.domain.User;
-import org.fabt.auth.repository.UserRepository;
 import org.fabt.auth.service.AccessCodeService;
+import org.fabt.auth.service.UserService;
 import org.fabt.shared.web.TenantContext;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -25,11 +25,11 @@ import org.springframework.web.bind.annotation.*;
 public class AccessCodeController {
 
     private final AccessCodeService accessCodeService;
-    private final UserRepository userRepository;
+    private final UserService userService;
 
-    public AccessCodeController(AccessCodeService accessCodeService, UserRepository userRepository) {
+    public AccessCodeController(AccessCodeService accessCodeService, UserService userService) {
         this.accessCodeService = accessCodeService;
-        this.userRepository = userRepository;
+        this.userService = userService;
     }
 
     @Operation(
@@ -43,13 +43,21 @@ public class AccessCodeController {
         UUID adminId = UUID.fromString(auth.getName());
         UUID tenantId = TenantContext.getTenantId();
 
-        // DV safeguard (D6): only DV-authorized admins can reset DV-authorized users
-        User targetUser = userRepository.findById(id)
-                .orElseThrow(() -> new java.util.NoSuchElementException("User not found"));
+        // Task 2.5.1 (VULN-MED): userService.getUser pulls tenantId from
+        // TenantContext and throws NoSuchElementException -> 404 on cross-
+        // tenant mismatch. Pre-fix, bare userRepository.findById allowed a
+        // Tenant A admin POST /api/v1/users/{tenantB-user-id}/generate-
+        // access-code to emit an ACCESS_CODE_GENERATED audit event in
+        // Tenant B with a Tenant A admin as actor (Casey's VAWA audit-
+        // trail falsification concern).
+        User targetUser = userService.getUser(id);
 
+        // DV safeguard (D6): only DV-authorized admins can reset DV-authorized users
         if (targetUser.isDvAccess()) {
-            User admin = userRepository.findById(adminId)
-                    .orElseThrow(() -> new IllegalStateException("Admin user not found"));
+            // Task 2.5.2 (D10): admin-self-lookup through userService for
+            // consistency with D2 convention. Admin id comes from JWT so
+            // practically safe, but uniform pattern preferred.
+            User admin = userService.getUser(adminId);
             if (!admin.isDvAccess()) {
                 return ResponseEntity.status(403).body(Map.of(
                         "error", "dv_access_required",

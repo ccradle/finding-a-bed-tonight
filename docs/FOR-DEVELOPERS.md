@@ -67,6 +67,42 @@ The backend is a **modular monolith** — not a flat package-by-layer structure.
 
 ---
 
+## Tenant-guard convention (the `findByIdAndTenantId` pattern)
+
+Every tenant-owned repository SHALL expose a `findByIdAndTenantId(UUID id, UUID tenantId)` method (or equivalent multi-key variant). Service-layer code SHALL look up resources via a private `findByIdOrThrow(UUID)` helper that pulls `tenantId` from `TenantContext` and throws `NoSuchElementException` → HTTP 404 on mismatch. Cross-tenant access returns **404 Not Found** (not 403 — 403 would confirm the resource exists in another tenant).
+
+### Reference implementation
+
+The canonical reference is `ReferralTokenService.findByIdOrThrow(UUID)` (introduced in v0.39.0 under Issue #106 Phase 4 Section 8.5/8.6). All seven DV-referral service call sites route through it. See `backend/src/main/java/org/fabt/referral/service/ReferralTokenService.java` and the corresponding `ReferralTokenRepository.findByIdAndTenantId(UUID, UUID)`.
+
+### When to use `@TenantUnscoped`
+
+A small number of methods legitimately need platform-wide visibility — batch jobs, scheduled expirers, reconciliation tasklets, system callers that set `TenantContext` from the fetched row rather than from the request. These methods mark themselves with `@TenantUnscoped("justification")` from `org.fabt.shared.security`. The annotation's value is required and must be non-empty at build time; it documents why the method is safe to bypass the tenant guard.
+
+Example:
+
+```java
+@TenantUnscoped("system-scheduled reservation expiry needs platform-wide visibility; tenant context is set from the fetched row")
+public void expireReservation(UUID reservationId) {
+    Reservation reservation = reservationRepository.findById(reservationId).orElseThrow();
+    // ... tenant-context set from reservation.getTenantId() before any further work ...
+}
+```
+
+### Build-time enforcement
+
+`TenantGuardArchitectureTest` (under `backend/src/test/java/org/fabt/architecture/`) is an ArchUnit rule that fails the build when a class in `org.fabt.*.service` or `org.fabt.*.api` calls `findById(UUID)` or `existsById(UUID)` on a tenant-owned repository without either (a) routing through a `findByIdAndTenantId` variant, or (b) carrying a non-empty `@TenantUnscoped` annotation on the calling method. The rule is strict from day one — advisory rules are ignored.
+
+The rule does NOT cover every repository — non-tenant-owned repositories (e.g., global reference data) are exempt. The Phase 3 activation of this rule encodes the whitelist.
+
+### See also
+
+- Design decisions D1–D10 in `openspec/changes/cross-tenant-isolation-audit/design.md`
+- RLS coverage map (**Phase 4 — not yet written**): will land at `docs/security/rls-coverage.md` documenting which tables have RLS, what each policy enforces, and the corresponding service-layer guard
+- SAFE-sites registry (**Phase 4 — not yet written**): will land at `docs/security/safe-tenant-bypass-sites.md` enumerating methods the audit cleared and why each is safe
+
+---
+
 ## MCP-Ready API Design
 
 The REST API is designed for future AI agent consumption via the Model Context Protocol (MCP). Six design requirements (REQ-MCP-1 through REQ-MCP-6) are satisfied in Phase 1:
@@ -480,7 +516,47 @@ npx playwright test --project=nginx       # Run E2E through nginx proxy
 
 **Playwright BASE_URL:** Always use `BASE_URL=http://localhost:8081` when running Playwright with `--nginx`. Without it, Playwright defaults to Vite's `:5173` and bypasses the nginx proxy entirely, missing proxy-specific bugs. The `feedback_check_ports_before_assuming` memory captures this as a critical lesson.
 
-**Future:** Consider adding the nginx Playwright profile to CI as a weekly or pre-release job.
+#### Specs that depend on optional infrastructure (`requireReachable` pattern)
+
+Some specs verify behavior that only exists in the full dev/prod stack:
+- `cache-headers.spec.ts` and `sse-cache-regression.spec.ts` assert nginx-set
+  response headers and nginx-routed SSE behavior — they need `:8081`.
+- `manual-hold.spec.ts` test `(b)` reads the `fabt_http_access_denied_count_total`
+  counter from the management actuator — it needs `:9091` (only exposed by
+  `dev-start.sh --observability`).
+
+CI's `e2e-tests.yml` job starts only Vite + backend + Postgres (no nginx, no
+observability). Rather than failing in CI with `ECONNREFUSED`, these specs
+self-skip via the shared helper at
+`e2e/playwright/tests/_helpers/probe-target.ts`:
+
+```ts
+import { requireReachable } from './_helpers/probe-target';
+
+test.beforeAll(async () => {
+  await requireReachable(`${BASE_URL}/`, 'nginx (dev-start.sh --nginx)');
+});
+```
+
+The probe times out at 2500ms. When unreachable, every test in the suite
+reports as `skipped` with a one-line hint pointing at the missing dependency.
+Locally with the full stack, the probe succeeds in <50ms and tests run
+normally.
+
+**When writing a new spec that depends on optional infrastructure:** call
+`requireReachable(URL, 'what to spin up')` in a `beforeAll` (whole suite) or
+inline at the top of the individual test (one-off). Don't add a per-spec
+`fetch` + `try/catch` — use the helper so the skip-message format stays
+uniform across the test base.
+
+**Coverage gap caveat:** specs that skip in CI MUST have an equivalent
+unit/integration test that always runs. Example: `manual-hold.spec.ts (b)`
+is the E2E mirror of `OfflineHoldEndpointTest.coordinator_not_assigned_to_shelter_403`
+(Issue #102 RCA regression guard). When you add a `requireReachable` skip,
+note in the spec comment which non-Playwright test enforces the same
+invariant — Riley Cho's lens, war room 2026-04-16.
+
+**Future:** Consider adding the nginx Playwright profile to CI as a weekly or pre-release job, which would run the `requireReachable`-gated specs end-to-end on a known schedule.
 
 ### SSE Architecture
 

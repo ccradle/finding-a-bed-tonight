@@ -20,4 +20,14 @@ public interface TenantOAuth2ProviderRepository extends CrudRepository<TenantOAu
 
     @Query("SELECT * FROM tenant_oauth2_provider WHERE tenant_id = :tenantId")
     List<TenantOAuth2Provider> findByTenantId(@Param("tenantId") UUID tenantId);
+
+    /**
+     * Tenant-scoped single-provider lookup for state-mutating paths.
+     * Returns empty when the {@code id} exists but belongs to a different
+     * tenant — callers map empty to 404 (not 403) to avoid existence leak.
+     * See {@code cross-tenant-isolation-audit} design decisions D1 and D3.
+     */
+    @Query("SELECT * FROM tenant_oauth2_provider WHERE id = :id AND tenant_id = :tenantId")
+    Optional<TenantOAuth2Provider> findByIdAndTenantId(@Param("id") UUID id,
+                                                        @Param("tenantId") UUID tenantId);
 }

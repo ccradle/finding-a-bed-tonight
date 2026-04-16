@@ -580,7 +580,7 @@ test.describe('Persistent Notifications', () => {
       //      localStorage naturally (same path as the fixture's loginAndSaveState).
       const bobContext = await browser.newContext();
       const bobPage = await bobContext.newPage();
-      await bobPage.goto(`${process.env.BASE_URL || 'http://localhost:8081'}/login`);
+      await bobPage.goto(`${process.env.BASE_URL || 'http://localhost:5173'}/login`);
       await bobPage.locator('[data-testid="login-tenant-slug"]').fill(TENANT_SLUG);
       await bobPage.locator('[data-testid="login-email"]').fill(bobEmail);
       await bobPage.locator('[data-testid="login-password"]').fill('admin123');

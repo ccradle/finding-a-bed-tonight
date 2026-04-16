@@ -1,0 +1,157 @@
+env:
+  contexts:
+  - name: cross-tenant-audit
+    urls:
+    - http://host.docker.internal:8080
+    excludePaths:
+    - "^http://host.docker.internal:8080/actuator/.*"
+  parameters:
+    failOnError: false
+    progressToStdout: true
+
+jobs:
+
+# =====================================================================
+# ANGLE 1 — Direct cross-tenant probes against the 5 admin surfaces
+# =====================================================================
+# Each requestor sends a probe with a real admin token + a foreign UUID
+# in the URL path. The expected response is 404 (NoSuchElementException
+# handled by GlobalExceptionHandler per design D3). ZAP's passive
+# scanner inspects each response for info disclosure, reflected input,
+# and inconsistent error envelopes.
+- type: requestor
+  parameters:
+    user: ""
+  requests:
+  # OAuth2 provider PUT cross-tenant
+  - url: http://host.docker.internal:8080/api/v1/tenants/__RANDOM_UUID_1__/oauth2-providers/__RANDOM_UUID_2__
+    method: PUT
+    headers:
+    - "Authorization:Bearer __ADMIN_TOKEN__"
+    - "Content-Type:application/json"
+    data: '{"clientId":"zap-attacker","clientSecret":"zap-attacker-secret","issuerUri":"https://accounts.google.com"}'
+    responseCode: 404
+
+  # OAuth2 provider DELETE cross-tenant
+  - url: http://host.docker.internal:8080/api/v1/tenants/__RANDOM_UUID_3__/oauth2-providers/__RANDOM_UUID_4__
+    method: DELETE
+    headers:
+    - "Authorization:Bearer __ADMIN_TOKEN__"
+    responseCode: 404
+
+  # API key rotate cross-tenant
+  - url: http://host.docker.internal:8080/api/v1/api-keys/__RANDOM_UUID_5__/rotate
+    method: POST
+    headers:
+    - "Authorization:Bearer __ADMIN_TOKEN__"
+    responseCode: 404
+
+  # API key deactivate cross-tenant
+  - url: http://host.docker.internal:8080/api/v1/api-keys/__RANDOM_UUID_6__
+    method: DELETE
+    headers:
+    - "Authorization:Bearer __ADMIN_TOKEN__"
+    responseCode: 404
+
+  # Subscription delete cross-tenant
+  - url: http://host.docker.internal:8080/api/v1/subscriptions/__RANDOM_UUID_7__
+    method: DELETE
+    headers:
+    - "Authorization:Bearer __ADMIN_TOKEN__"
+    responseCode: 404
+
+  # Generate access code cross-tenant (cocadmin role required)
+  - url: http://host.docker.internal:8080/api/v1/users/__RANDOM_UUID_8__/generate-access-code
+    method: POST
+    headers:
+    - "Authorization:Bearer __COCADMIN_TOKEN__"
+    responseCode: 404
+
+  # TOTP admin disable cross-tenant
+  - url: http://host.docker.internal:8080/api/v1/auth/totp/__RANDOM_UUID_9__
+    method: DELETE
+    headers:
+    - "Authorization:Bearer __COCADMIN_TOKEN__"
+    responseCode: 404
+
+  # TOTP regenerate codes cross-tenant
+  - url: http://host.docker.internal:8080/api/v1/auth/totp/__RANDOM_UUID_10__/regenerate-recovery-codes
+    method: POST
+    headers:
+    - "Authorization:Bearer __COCADMIN_TOKEN__"
+    responseCode: 404
+
+# =====================================================================
+# ANGLE 2 — SSRF guard validation (Phase 2.14, D12)
+# =====================================================================
+# Probes the SafeOutboundUrlValidator with the canonical attack URLs.
+# All should return 400 BAD_REQUEST.
+- type: requestor
+  parameters:
+    user: ""
+  requests:
+  # Cloud metadata endpoint (AWS/Azure/GCP)
+  - url: http://host.docker.internal:8080/api/v1/subscriptions
+    method: POST
+    headers:
+    - "Authorization:Bearer __ADMIN_TOKEN__"
+    - "Content-Type:application/json"
+    data: '{"eventType":"availability.updated","filter":{},"callbackUrl":"http://169.254.169.254/latest/meta-data/iam/security-credentials/","callbackSecret":"zap-test"}'
+    responseCode: 400
+
+  # Loopback (backend self-hijack)
+  - url: http://host.docker.internal:8080/api/v1/subscriptions
+    method: POST
+    headers:
+    - "Authorization:Bearer __ADMIN_TOKEN__"
+    - "Content-Type:application/json"
+    data: '{"eventType":"availability.updated","filter":{},"callbackUrl":"http://127.0.0.1:9091/actuator/prometheus","callbackSecret":"zap-test"}'
+    responseCode: 400
+
+  # RFC1918 private network
+  - url: http://host.docker.internal:8080/api/v1/subscriptions
+    method: POST
+    headers:
+    - "Authorization:Bearer __ADMIN_TOKEN__"
+    - "Content-Type:application/json"
+    data: '{"eventType":"availability.updated","filter":{},"callbackUrl":"http://192.168.1.1/internal-admin","callbackSecret":"zap-test"}'
+    responseCode: 400
+
+  # Non-http scheme (file://)
+  - url: http://host.docker.internal:8080/api/v1/subscriptions
+    method: POST
+    headers:
+    - "Authorization:Bearer __ADMIN_TOKEN__"
+    - "Content-Type:application/json"
+    data: '{"eventType":"availability.updated","filter":{},"callbackUrl":"file:///etc/passwd","callbackSecret":"zap-test"}'
+    responseCode: 400
+
+# =====================================================================
+# ANGLE 3 — passive scan picks up findings from Angles 1 + 2
+# =====================================================================
+- type: passiveScan-config
+  parameters:
+    enableTags: false
+    maxAlertsPerRule: 10
+
+- type: passiveScan-wait
+  parameters:
+    maxDuration: 1
+
+# =====================================================================
+# Reports — markdown + json for archive, traditional shape matches
+# the project's prior zap-api-report-v0.27 convention.
+# =====================================================================
+- type: report
+  parameters:
+    template: traditional-md
+    reportDir: /zap/wrk/
+    reportFile: zap-v0.40-cross-tenant.md
+    reportTitle: 'FABT v0.40 ZAP Cross-Tenant — multi-angle audit (Issue #117)'
+
+- type: report
+  parameters:
+    template: traditional-json
+    reportDir: /zap/wrk/
+    reportFile: zap-v0.40-cross-tenant.json
+    reportTitle: 'FABT v0.40 ZAP Cross-Tenant — multi-angle audit (Issue #117)'

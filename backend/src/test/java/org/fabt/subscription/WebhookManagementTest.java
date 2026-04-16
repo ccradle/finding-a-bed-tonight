@@ -140,7 +140,7 @@ class WebhookManagementTest extends BaseIntegrationTest {
     @DisplayName("PATCH PAUSED on DEACTIVATED subscription returns 409 (re-enable first)")
     void pauseDeactivatedSubscription_returns409() {
         // Deactivate via service (simulating 5 failures)
-        subscriptionService.deactivate(subscriptionId);
+        subscriptionService.deactivateInternal(subscriptionId);
 
         HttpHeaders headers = authHelper.adminHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -155,7 +155,7 @@ class WebhookManagementTest extends BaseIntegrationTest {
     @DisplayName("5 consecutive failures auto-disables subscription to DEACTIVATED")
     void autoDisableAfter5Failures() {
         for (int i = 0; i < 5; i++) {
-            subscriptionService.recordDelivery(subscriptionId, "availability.updated", 500, 100, i + 1, "Server Error");
+            subscriptionService.recordDeliveryInternal(subscriptionId, "availability.updated", 500, 100, i + 1, "Server Error");
         }
         // Check status in DB
         String status = jdbcTemplate.queryForObject(
@@ -169,7 +169,7 @@ class WebhookManagementTest extends BaseIntegrationTest {
     void reEnableResetsFailureCounter() {
         // Auto-disable
         for (int i = 0; i < 5; i++) {
-            subscriptionService.recordDelivery(subscriptionId, "availability.updated", 500, 100, i + 1, "Error");
+            subscriptionService.recordDeliveryInternal(subscriptionId, "availability.updated", 500, 100, i + 1, "Error");
         }
         // Re-enable
         HttpHeaders headers = authHelper.adminHeaders();
@@ -188,10 +188,10 @@ class WebhookManagementTest extends BaseIntegrationTest {
     void successResetsFailureCounter() {
         // 3 failures
         for (int i = 0; i < 3; i++) {
-            subscriptionService.recordDelivery(subscriptionId, "availability.updated", 500, 100, i + 1, "Error");
+            subscriptionService.recordDeliveryInternal(subscriptionId, "availability.updated", 500, 100, i + 1, "Error");
         }
         // 1 success
-        subscriptionService.recordDelivery(subscriptionId, "availability.updated", 200, 50, 4, "OK");
+        subscriptionService.recordDeliveryInternal(subscriptionId, "availability.updated", 200, 50, 4, "OK");
 
         Integer failures = jdbcTemplate.queryForObject(
                 "SELECT consecutive_failures FROM subscription WHERE id = ?", Integer.class, subscriptionId);
@@ -202,7 +202,7 @@ class WebhookManagementTest extends BaseIntegrationTest {
     @Test
     @DisplayName("recordDelivery persists entry in webhook_delivery_log")
     void deliveryLogPersisted() {
-        subscriptionService.recordDelivery(subscriptionId, "availability.updated", 200, 42, 1, "OK");
+        subscriptionService.recordDeliveryInternal(subscriptionId, "availability.updated", 200, 42, 1, "OK");
 
         Integer count = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM webhook_delivery_log WHERE subscription_id = ?",
@@ -215,7 +215,7 @@ class WebhookManagementTest extends BaseIntegrationTest {
     @DisplayName("Delivery log response body truncated to 1KB")
     void deliveryLogTruncated() {
         String longBody = "x".repeat(2048);
-        subscriptionService.recordDelivery(subscriptionId, "availability.updated", 200, 50, 1, longBody);
+        subscriptionService.recordDeliveryInternal(subscriptionId, "availability.updated", 200, 50, 1, longBody);
 
         String stored = jdbcTemplate.queryForObject(
                 "SELECT response_body FROM webhook_delivery_log WHERE subscription_id = ? ORDER BY attempted_at DESC LIMIT 1",
@@ -245,8 +245,8 @@ class WebhookManagementTest extends BaseIntegrationTest {
     @Test
     @DisplayName("GET deliveries returns recent delivery log entries")
     void getDeliveries() {
-        subscriptionService.recordDelivery(subscriptionId, "availability.updated", 200, 50, 1, "OK");
-        subscriptionService.recordDelivery(subscriptionId, "availability.updated", 500, 100, 2, "Error");
+        subscriptionService.recordDeliveryInternal(subscriptionId, "availability.updated", 200, 50, 1, "OK");
+        subscriptionService.recordDeliveryInternal(subscriptionId, "availability.updated", 500, 100, 2, "Error");
 
         HttpHeaders headers = authHelper.adminHeaders();
         ResponseEntity<List<Map<String, Object>>> resp = restTemplate.exchange(
@@ -263,13 +263,13 @@ class WebhookManagementTest extends BaseIntegrationTest {
     @DisplayName("1-4 failures set status to FAILING, 5th sets DEACTIVATED")
     void failureStateTransitions() {
         // 1 failure → FAILING
-        subscriptionService.recordDelivery(subscriptionId, "availability.updated", 500, 100, 1, "Error");
+        subscriptionService.recordDeliveryInternal(subscriptionId, "availability.updated", 500, 100, 1, "Error");
         String status1 = jdbcTemplate.queryForObject("SELECT status FROM subscription WHERE id = ?", String.class, subscriptionId);
         assertThat(status1).as("After 1 failure, status should be FAILING").isEqualTo("FAILING");
 
         // 4 failures total → still FAILING, consecutive_failures=4
         for (int i = 2; i <= 4; i++) {
-            subscriptionService.recordDelivery(subscriptionId, "availability.updated", 500, 100, i, "Error");
+            subscriptionService.recordDeliveryInternal(subscriptionId, "availability.updated", 500, 100, i, "Error");
         }
         String status4 = jdbcTemplate.queryForObject("SELECT status FROM subscription WHERE id = ?", String.class, subscriptionId);
         Integer count4 = jdbcTemplate.queryForObject("SELECT consecutive_failures FROM subscription WHERE id = ?", Integer.class, subscriptionId);
@@ -277,7 +277,7 @@ class WebhookManagementTest extends BaseIntegrationTest {
         assertThat(count4).as("After 4 failures, counter should be 4").isEqualTo(4);
 
         // 5th failure → DEACTIVATED
-        subscriptionService.recordDelivery(subscriptionId, "availability.updated", 500, 100, 5, "Error");
+        subscriptionService.recordDeliveryInternal(subscriptionId, "availability.updated", 500, 100, 5, "Error");
         String status5 = jdbcTemplate.queryForObject("SELECT status FROM subscription WHERE id = ?", String.class, subscriptionId);
         assertThat(status5).as("After 5 failures, status should be DEACTIVATED").isEqualTo("DEACTIVATED");
     }
@@ -320,7 +320,7 @@ class WebhookManagementTest extends BaseIntegrationTest {
     @DisplayName("Tenant B cannot GET delivery log for Tenant A's subscription (returns 404)")
     void crossTenantGetDeliveries_returns404() {
         // Create delivery for Tenant A's subscription
-        subscriptionService.recordDelivery(subscriptionId, "availability.updated", 200, 50, 1, "OK");
+        subscriptionService.recordDeliveryInternal(subscriptionId, "availability.updated", 200, 50, 1, "OK");
 
         // Create Tenant B
         String suffix = UUID.randomUUID().toString().substring(0, 8);

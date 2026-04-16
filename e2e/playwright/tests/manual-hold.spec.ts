@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { requireReachable } from './_helpers/probe-target';
 
 /**
  * T-55a — API-level Playwright coverage for POST /api/v1/shelters/{id}/manual-hold.
@@ -229,6 +230,16 @@ test.describe('T-55a: Manual hold endpoint (API-level regression guards)', () =>
   });
 
   test('(b) unassigned coordinator is rejected 403 — counter proves controller-level denial', async () => {
+    // The counter check requires the management actuator on PROMETHEUS_URL
+    // (default :9091, exposed only by dev-start.sh --observability). When
+    // unreachable — e.g. CI's e2e-tests.yml job — skip rather than fail.
+    // The exact same regression guard (counter-before/after delta == 1,
+    // distinguishing controller-body 403 from filter-chain 403) runs at
+    // integration-test level in OfflineHoldEndpointTest
+    // .coordinator_not_assigned_to_shelter_403 (Issue #102 RCA, Riley Cho
+    // war room 2026-04-11), so coverage is preserved.
+    await requireReachable(PROMETHEUS_URL, 'observability actuator (dev-start.sh --observability or PROMETHEUS_URL=)');
+
     const token = await loginAndGetToken(SEED_USERS.dvCoordinator);
     const shelters = await listShelters(token);
 

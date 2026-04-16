@@ -9,6 +9,8 @@ import org.fabt.BaseIntegrationTest;
 import org.fabt.TestAuthHelper;
 import org.fabt.auth.domain.User;
 import org.fabt.shared.security.SecretEncryptionService;
+import org.fabt.shared.web.TenantContext;
+import org.fabt.tenant.domain.Tenant;
 import org.fabt.auth.service.TotpService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -19,6 +21,7 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -37,6 +40,7 @@ class TotpAndAccessCodeIntegrationTest extends BaseIntegrationTest {
     @Autowired private TestAuthHelper authHelper;
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private TotpService totpService;
+    @Autowired private org.fabt.auth.service.AccessCodeService accessCodeService;
 
     @BeforeEach
     void setUp() {
@@ -548,5 +552,303 @@ class TotpAndAccessCodeIntegrationTest extends BaseIntegrationTest {
         // Must be 200, not 500 (constraint violation would cause 500)
         assertThat(loginResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(loginResponse.getBody()).containsKey("accessToken");
+    }
+
+    // ================================================================
+    // cross-tenant-isolation-audit (Issue #117) — Phase 2 task 2.3.3.
+    // Two regression tests pinning the userService.getUser refactor on
+    // TotpController.disableUserTotp + .adminRegenerateRecoveryCodes.
+    //
+    // THREAT MODEL (Marcus Webb, VULN-HIGH — account takeover precursor):
+    // pre-fix, a CoC admin in Tenant A could DELETE /api/v1/auth/totp/
+    // {tenantB-user-id} OR POST /api/v1/auth/totp/{tenantB-user-id}/
+    // regenerate-recovery-codes. The disable path removes a Tenant B
+    // user's 2FA shield; the regenerate path directly returns new
+    // backup codes in the response body — no additional steps needed
+    // for account takeover once the attacker gets those codes.
+    // ================================================================
+
+    @Test
+    @DisplayName("Cross-tenant TotpController.disableUserTotp → 404, Tenant B user's 2FA preserved")
+    void tc_disableUserTotp_crossTenant_returns404_leavesTenantBUser2FAIntact() {
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+
+        // Tenant B with a user enrolled in 2FA.
+        Tenant tenantB = authHelper.setupSecondaryTenant("xtenant-totp-disable-" + suffix);
+        User tenantBUser = authHelper.createUserInTenant(tenantB.getId(),
+                "totp-victim-" + suffix + "@test.fabt.org", "TOTP Victim",
+                new String[]{"OUTREACH_WORKER"}, false);
+
+        // Enroll tenantBUser in 2FA by setting the fields directly (bypass
+        // the self-enrollment flow — same shape as line 49 test setup).
+        String testSecret = totpService.generateSecret();
+        tenantBUser.setTotpEnabled(true);
+        tenantBUser.setTotpSecretEncrypted(totpService.encryptSecret(testSecret));
+        tenantBUser.setRecoveryCodes("[\"hash1\",\"hash2\"]");
+        tenantBUser.setUpdatedAt(java.time.Instant.now());
+        authHelper.getUserRepository().save(tenantBUser);
+
+        // Act: Tenant A's COC_ADMIN attempts to disable Tenant B user's 2FA.
+        HttpHeaders tenantAHeaders = authHelper.cocAdminHeaders();
+        ResponseEntity<String> attackResp = restTemplate.exchange(
+                "/api/v1/auth/totp/" + tenantBUser.getId(),
+                HttpMethod.DELETE,
+                new HttpEntity<>(tenantAHeaders),
+                String.class);
+
+        // Assert: 404 (not 403 — D3 symmetric, no existence disclosure).
+        assertThat(attackResp.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+
+        // Defense-in-depth: Tenant B user's 2FA state is byte-for-byte
+        // unchanged — totp_enabled is still true, encrypted secret intact,
+        // recovery codes intact, token_version NOT bumped (which would
+        // invalidate the user's existing sessions).
+        TenantContext.runWithContext(tenantB.getId(), false, () -> {
+            Map<String, Object> row = jdbcTemplate.queryForMap(
+                    "SELECT totp_enabled, totp_secret_encrypted, recovery_codes, token_version " +
+                            "FROM app_user WHERE id = ?::uuid",
+                    tenantBUser.getId());
+            assertThat((Boolean) row.get("totp_enabled"))
+                    .as("Tenant B user's 2FA must still be enabled — account-takeover attack blocked")
+                    .isTrue();
+            assertThat(row.get("totp_secret_encrypted"))
+                    .as("Tenant B user's TOTP secret must be preserved")
+                    .isNotNull();
+            assertThat(row.get("recovery_codes"))
+                    .as("Tenant B user's recovery codes must be preserved")
+                    .isNotNull();
+            assertThat(((Number) row.get("token_version")).intValue())
+                    .as("Tenant B user's token_version must NOT be bumped — existing sessions remain valid")
+                    .isEqualTo(tenantBUser.getTokenVersion());
+        });
+    }
+
+    @Test
+    @DisplayName("Cross-tenant TotpController.adminRegenerateRecoveryCodes → 404, no codes returned, Tenant B codes preserved")
+    void tc_adminRegenerateRecoveryCodes_crossTenant_returns404_noCodesLeaked() {
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+
+        Tenant tenantB = authHelper.setupSecondaryTenant("xtenant-totp-regen-" + suffix);
+        User tenantBUser = authHelper.createUserInTenant(tenantB.getId(),
+                "regen-victim-" + suffix + "@test.fabt.org", "Regen Victim",
+                new String[]{"OUTREACH_WORKER"}, false);
+
+        String originalCodesJson = "[\"original-hash-1\",\"original-hash-2\"]";
+        String testSecret = totpService.generateSecret();
+        tenantBUser.setTotpEnabled(true);
+        tenantBUser.setTotpSecretEncrypted(totpService.encryptSecret(testSecret));
+        tenantBUser.setRecoveryCodes(originalCodesJson);
+        tenantBUser.setUpdatedAt(java.time.Instant.now());
+        authHelper.getUserRepository().save(tenantBUser);
+
+        // Act: Tenant A's COC_ADMIN attempts to regenerate Tenant B user's
+        // backup codes — pre-fix would return the new plaintext codes in
+        // the response body, giving the attacker direct account takeover.
+        HttpHeaders tenantAHeaders = authHelper.cocAdminHeaders();
+        ResponseEntity<String> attackResp = restTemplate.exchange(
+                "/api/v1/auth/totp/" + tenantBUser.getId() + "/regenerate-recovery-codes",
+                HttpMethod.POST,
+                new HttpEntity<>(tenantAHeaders),
+                String.class);
+
+        // Assert: 404 + response body does NOT contain the string "backupCodes"
+        // (the JSON response key from the success path).
+        assertThat(attackResp.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        if (attackResp.getBody() != null) {
+            assertThat(attackResp.getBody())
+                    .as("404 response must NOT leak backup codes — account-takeover pivot blocked")
+                    .doesNotContain("backupCodes");
+        }
+
+        // Defense-in-depth: Tenant B user's recovery_codes column is unchanged.
+        TenantContext.runWithContext(tenantB.getId(), false, () -> {
+            String codes = jdbcTemplate.queryForObject(
+                    "SELECT recovery_codes FROM app_user WHERE id = ?::uuid",
+                    String.class, tenantBUser.getId());
+            assertThat(codes)
+                    .as("Tenant B user's recovery codes must be unchanged — attacker's 'regenerate' attempt did NOT rotate them")
+                    .isEqualTo(originalCodesJson);
+        });
+    }
+
+    // ================================================================
+    // cross-tenant-isolation-audit (Issue #117) — Phase 2 task 2.5.3.
+    // Two regression tests pinning the userService.getUser refactor on
+    // AccessCodeController.generateAccessCode target + admin lookups.
+    //
+    // THREAT MODEL (Casey's VAWA audit-trail falsification concern,
+    // VULN-MED): pre-fix, a CoC admin in Tenant A could POST /api/v1/
+    // users/{tenantB-user-id}/generate-access-code. The controller's
+    // bare userRepository.findById returned the Tenant B user. The
+    // service then INSERTed a row into one_time_access_code with
+    // (user_id=tenantBUser, tenant_id=tenantA, created_by=tenantAAdmin)
+    // AND emitted an ACCESS_CODE_GENERATED audit event naming the
+    // Tenant A admin as actor for an action against a Tenant B user.
+    //
+    // The attacker CANNOT actually take over the Tenant B user with
+    // this code (validateCode uses findByTenantIdAndEmail and the
+    // tenant context at redemption time is the victim's, not the
+    // attacker's — a code inserted with tenant_id=tenantA won't match
+    // the victim's login lookup). BUT:
+    //   1. Tenant B's audit_events has a forged entry with a Tenant A
+    //      actor — per-tenant audit integrity broken (VAWA).
+    //   2. one_time_access_code has a mismatched (user_id, tenant_id)
+    //      row — data-integrity rot.
+    // Post-fix: both paths blocked at 404 before any insert or audit.
+    // ================================================================
+
+    @Test
+    @DisplayName("Cross-tenant access code generation → 404, no audit event, no one_time_access_code row")
+    void tc_generateAccessCode_crossTenant_returns404_noAuditNoCodeRow() {
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+
+        // Tenant B with a user.
+        Tenant tenantB = authHelper.setupSecondaryTenant("xtenant-accesscode-" + suffix);
+        User tenantBUser = authHelper.createUserInTenant(tenantB.getId(),
+                "accesscode-victim-" + suffix + "@test.fabt.org", "Access Code Victim",
+                new String[]{"OUTREACH_WORKER"}, false);
+
+        // Baseline: audit_events rows naming Tenant B user and one_time_access_code rows for Tenant B user — both zero.
+        TenantContext.runWithContext(tenantB.getId(), false, () -> {
+            Integer auditBefore = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM audit_events WHERE action = ? AND target_user_id = ?::uuid",
+                    Integer.class, "ACCESS_CODE_GENERATED", tenantBUser.getId());
+            assertThat(auditBefore).as("Tenant B user must start with zero ACCESS_CODE_GENERATED events").isZero();
+
+            Integer codeBefore = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM one_time_access_code WHERE user_id = ?::uuid",
+                    Integer.class, tenantBUser.getId());
+            assertThat(codeBefore).as("Tenant B user must start with zero access codes").isZero();
+        });
+
+        // Act: Tenant A's COC_ADMIN attempts to generate an access code for Tenant B's user.
+        HttpHeaders tenantAHeaders = authHelper.cocAdminHeaders();
+        ResponseEntity<String> attackResp = restTemplate.exchange(
+                "/api/v1/users/" + tenantBUser.getId() + "/generate-access-code",
+                HttpMethod.POST,
+                new HttpEntity<>(tenantAHeaders),
+                String.class);
+
+        // Assert: 404 (not 200, not 403 — D3 symmetric).
+        assertThat(attackResp.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+
+        // Defense-in-depth Casey VAWA: no ACCESS_CODE_GENERATED audit event
+        // was emitted for Tenant B's user. Pre-fix, this would have fired
+        // with a Tenant A admin as actor — a forged audit entry.
+        TenantContext.runWithContext(tenantB.getId(), false, () -> {
+            Integer auditAfter = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM audit_events WHERE action = ? AND target_user_id = ?::uuid",
+                    Integer.class, "ACCESS_CODE_GENERATED", tenantBUser.getId());
+            assertThat(auditAfter)
+                    .as("No ACCESS_CODE_GENERATED audit entry must exist for Tenant B user — pre-fix bug emitted one with a cross-tenant actor")
+                    .isZero();
+
+            // No access code row inserted referencing Tenant B's user.
+            Integer codeAfter = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM one_time_access_code WHERE user_id = ?::uuid",
+                    Integer.class, tenantBUser.getId());
+            assertThat(codeAfter)
+                    .as("No one_time_access_code row must reference Tenant B user — data-integrity invariant")
+                    .isZero();
+        });
+    }
+
+    @Test
+    @DisplayName("Cross-tenant access code — DV-authorized user → 404 (DV check not reached pre-tenant-guard)")
+    void tc_generateAccessCode_crossTenant_dvUser_returns404_dvCheckNotReached() {
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+
+        // Tenant B with a dv-authorized user.
+        Tenant tenantB = authHelper.setupSecondaryTenant("xtenant-ac-dv-" + suffix);
+        User tenantBDvUser = authHelper.createUserInTenant(tenantB.getId(),
+                "ac-dv-victim-" + suffix + "@test.fabt.org", "DV Access Code Victim",
+                new String[]{"OUTREACH_WORKER"}, true); // dvAccess=true
+
+        // Act: Tenant A's (non-dv) COC_ADMIN attempts to generate access code for Tenant B's DV user.
+        // Pre-fix: bare findById would return the user, then check admin.isDvAccess() → 403 dv_access_required.
+        // Post-fix: userService.getUser throws NoSuchElementException → 404 BEFORE the DV check runs.
+        // Why this matters: 403 leaks existence (caller learns the user exists in SOME tenant + is dv);
+        // 404 does not.
+        HttpHeaders tenantAHeaders = authHelper.cocAdminHeaders();
+        ResponseEntity<String> attackResp = restTemplate.exchange(
+                "/api/v1/users/" + tenantBDvUser.getId() + "/generate-access-code",
+                HttpMethod.POST,
+                new HttpEntity<>(tenantAHeaders),
+                String.class);
+
+        assertThat(attackResp.getStatusCode())
+                .as("DV existence must not leak via 403 pre-tenant-guard; must be 404 from the tenant-scoped lookup first")
+                .isEqualTo(HttpStatus.NOT_FOUND);
+        if (attackResp.getBody() != null) {
+            assertThat(attackResp.getBody())
+                    .as("404 response body must not contain 'dv' — a 403 with dv_access_required would leak")
+                    .doesNotContain("dv_access_required");
+        }
+    }
+
+    // ================================================================
+    // Phase 2 closeout warroom (2026-04-15) — Marcus Webb action item:
+    // pin the FK justification on AccessCodeService.validateCode's
+    // @TenantUnscopedQuery. The annotation claims user_id implies tenant
+    // because the user is looked up via findByTenantIdAndEmail before
+    // any code-row query. This test exercises the email-collision case
+    // (same email in tenants A and B) to prove the FK chain holds: a
+    // raw access code generated for tenant A's user MUST NOT validate
+    // for tenant B's user even when emails are byte-equal.
+    // ================================================================
+
+    @Test
+    @DisplayName("Cross-tenant access-code validate via email collision → 401, code not consumed")
+    void tc_validateAccessCode_codeFromOtherTenant_emailCollision_returns401() {
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        String collidingEmail = "collide-" + suffix + "@test.fabt.org";
+
+        // Tenant A user (default test tenant) — generate a real access code.
+        UUID tenantAId = authHelper.getTestTenantId();
+        User tenantAUser = authHelper.createUserInTenant(tenantAId,
+                collidingEmail, "Tenant A Collider",
+                new String[]{"OUTREACH_WORKER"}, false);
+        UUID adminAId = authHelper.getUserRepository()
+                .findByTenantIdAndEmail(tenantAId, "cocadmin@test.fabt.org")
+                .orElseThrow().getId();
+
+        String rawCodeIssuedToTenantA = TenantContext.callWithContext(tenantAId, false, () ->
+                accessCodeService.generateCode(tenantAUser.getId(), adminAId, tenantAId));
+
+        // Tenant B with a user at the SAME EMAIL — the collision precondition.
+        Tenant tenantB = authHelper.setupSecondaryTenant("xtenant-accesscode-collide-" + suffix);
+        User tenantBUser = authHelper.createUserInTenant(tenantB.getId(),
+                collidingEmail, "Tenant B Collider",
+                new String[]{"OUTREACH_WORKER"}, false);
+        String tenantBSlug = TenantContext.callWithContext(tenantB.getId(), false, () ->
+                jdbcTemplate.queryForObject("SELECT slug FROM tenant WHERE id = ?::uuid",
+                        String.class, tenantB.getId()));
+
+        // Act: present tenant A's raw code to tenant B's login surface.
+        String body = String.format("""
+                {"email":"%s","tenantSlug":"%s","code":"%s"}
+                """, collidingEmail, tenantBSlug, rawCodeIssuedToTenantA);
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        ResponseEntity<String> resp = restTemplate.exchange(
+                "/api/v1/auth/access-code", HttpMethod.POST,
+                new HttpEntity<>(body, headers), String.class);
+
+        // Assert: 401 — the SELECT WHERE user_id = tenantBUser.id finds no
+        // row because the code was issued under tenantAUser.id. FK chain
+        // holds even with email collision.
+        assertThat(resp.getStatusCode())
+                .as("Cross-tenant access-code presentation via email collision must be rejected")
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+
+        // Defense-in-depth: tenant A's code row is still unused.
+        TenantContext.runWithContext(tenantAId, false, () -> {
+            Boolean used = jdbcTemplate.queryForObject(
+                    "SELECT used FROM one_time_access_code WHERE user_id = ?::uuid AND created_by = ?::uuid",
+                    Boolean.class, tenantAUser.getId(), adminAId);
+            assertThat(used)
+                    .as("Tenant A's access code must NOT have been consumed by the cross-tenant attempt")
+                    .isFalse();
+        });
     }
 }

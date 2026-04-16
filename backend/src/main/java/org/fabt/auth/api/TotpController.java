@@ -12,6 +12,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import org.fabt.auth.domain.User;
 import org.fabt.auth.repository.UserRepository;
 import org.fabt.auth.service.TotpService;
+import org.fabt.auth.service.UserService;
 import org.fabt.shared.audit.AuditEventRecord;
 import org.fabt.shared.web.TenantContext;
 import org.slf4j.Logger;
@@ -36,13 +37,16 @@ public class TotpController {
     private static final Logger log = LoggerFactory.getLogger(TotpController.class);
     private final TotpService totpService;
     private final UserRepository userRepository;
+    private final UserService userService;
     private final ObjectMapper objectMapper;
     private final ApplicationEventPublisher eventPublisher;
 
     public TotpController(TotpService totpService, UserRepository userRepository,
-                          ObjectMapper objectMapper, ApplicationEventPublisher eventPublisher) {
+                          UserService userService, ObjectMapper objectMapper,
+                          ApplicationEventPublisher eventPublisher) {
         this.totpService = totpService;
         this.userRepository = userRepository;
+        this.userService = userService;
         this.objectMapper = objectMapper;
         this.eventPublisher = eventPublisher;
     }
@@ -175,8 +179,12 @@ public class TotpController {
     @DeleteMapping("/totp/{id}")
     @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
     public ResponseEntity<?> disableUserTotp(@PathVariable UUID id) {
-        User user = userRepository.findById(id)
-                .orElseThrow(() -> new java.util.NoSuchElementException("User not found"));
+        // D1/D3: userService.getUser(id) pulls tenantId from TenantContext
+        // and throws NoSuchElementException -> 404 on cross-tenant access.
+        // Pre-fix, bare userRepository.findById(id) allowed a CoC admin in
+        // Tenant A to disable 2FA for a Tenant B user — account-takeover
+        // precursor (Marcus Webb, VULN-HIGH).
+        User user = userService.getUser(id);
 
         if (!user.isTotpEnabled()) {
             return ResponseEntity.ok(Map.of("message", "Sign-in verification was not enabled."));
@@ -200,8 +208,13 @@ public class TotpController {
     @PostMapping("/totp/{id}/regenerate-recovery-codes")
     @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
     public ResponseEntity<?> adminRegenerateRecoveryCodes(@PathVariable UUID id) {
-        User user = userRepository.findById(id)
-                .orElseThrow(() -> new java.util.NoSuchElementException("User not found"));
+        // D1/D3: userService.getUser(id) pulls tenantId from TenantContext
+        // and throws NoSuchElementException -> 404 on cross-tenant access.
+        // Pre-fix, bare userRepository.findById(id) allowed a CoC admin in
+        // Tenant A to regenerate backup codes for a Tenant B user — and
+        // the response body returned those new codes (VULN-HIGH: direct
+        // account takeover, no additional steps required).
+        User user = userService.getUser(id);
 
         if (!user.isTotpEnabled()) {
             return ResponseEntity.badRequest().body(Map.of(

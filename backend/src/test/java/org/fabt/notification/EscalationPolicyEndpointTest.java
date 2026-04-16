@@ -7,6 +7,8 @@ import org.fabt.BaseIntegrationTest;
 import org.fabt.TestAuthHelper;
 import org.fabt.auth.domain.User;
 import org.fabt.notification.service.EscalationPolicyService;
+import org.fabt.shared.web.TenantContext;
+import org.fabt.tenant.domain.Tenant;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -347,5 +349,71 @@ class EscalationPolicyEndpointTest extends BaseIntegrationTest {
         } catch (java.sql.SQLException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    // ================================================================
+    // cross-tenant-isolation-audit (Issue #117) — Phase 2 task 2.4a.1.
+    // URL-path-sink class per design D11 (warroom 2026-04-15 scope
+    // expansion). Pre-fix: EscalationPolicyService.update(UUID tenantId,
+    // ...) accepted tenantId as the first parameter. Not a live
+    // vulnerability because the controller sources from TenantContext,
+    // but the signature invited future caller misuse — Phase 3 ArchUnit
+    // Family B rule would flag. Post-fix: signature drops tenantId;
+    // service pulls from TenantContext internally.
+    //
+    // This regression test confirms that a PATCH to the escalation-
+    // policy endpoint writes under the caller's JWT tenant, matching
+    // the D11 contract. The controller's URL path does NOT carry a
+    // {tenantId} variable (path is /api/v1/admin/escalation-policy/
+    // {eventType}), so there is no URL-path-sink attack surface; this
+    // is a signature-correctness pin for the post-D11 code.
+    // ================================================================
+
+    @Test
+    @DisplayName("D11 (2.4a): PATCH escalation-policy writes under caller's JWT tenant, not any supplied value")
+    void tc_updatePolicy_afterD11Refactor_writesUnderCallerJwtTenant() {
+        UUID tenantAId = authHelper.getTestTenantId();
+
+        // Act: CoC admin in Tenant A PATCHes the policy.
+        String body = """
+                {
+                  "thresholds": [
+                    {"id": "d11_pin_1h", "at": "PT1H", "severity": "ACTION_REQUIRED", "recipients": ["COORDINATOR"]},
+                    {"id": "d11_pin_2h", "at": "PT2H", "severity": "CRITICAL", "recipients": ["COC_ADMIN"]}
+                  ]
+                }
+                """;
+        ResponseEntity<String> resp = restTemplate.exchange(
+                "/api/v1/admin/escalation-policy/dv-referral",
+                HttpMethod.PATCH,
+                new HttpEntity<>(body, cocAdminHeaders),
+                String.class);
+        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        // Assert: the newly-inserted row carries the caller's tenant_id,
+        // sourced from TenantContext (D11), not from any attacker-supplied
+        // value. Since escalation_policy is append-only we look at the
+        // most recent row for (tenant_id=tenantA, event_type='dv-referral').
+        TenantContext.runWithContext(tenantAId, false, () -> {
+            Integer count = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM escalation_policy " +
+                            "WHERE tenant_id = ?::uuid AND event_type = ? " +
+                            "AND EXISTS (SELECT 1 FROM jsonb_array_elements(thresholds) e WHERE e->>'id' = 'd11_pin_1h')",
+                    Integer.class, tenantAId, "dv-referral");
+            assertThat(count)
+                    .as("Policy row must exist under Tenant A with the d11_pin_1h marker threshold")
+                    .isEqualTo(1);
+
+            // Verify zero rows under OTHER tenants with the marker — confirms
+            // the service did not smuggle the write into a different tenant.
+            Integer crossTenantRows = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM escalation_policy " +
+                            "WHERE (tenant_id IS NULL OR tenant_id <> ?::uuid) AND event_type = ? " +
+                            "AND EXISTS (SELECT 1 FROM jsonb_array_elements(thresholds) e WHERE e->>'id' = 'd11_pin_1h')",
+                    Integer.class, tenantAId, "dv-referral");
+            assertThat(crossTenantRows)
+                    .as("No cross-tenant write — the D11-refactored signature cannot land in any other tenant")
+                    .isZero();
+        });
     }
 }

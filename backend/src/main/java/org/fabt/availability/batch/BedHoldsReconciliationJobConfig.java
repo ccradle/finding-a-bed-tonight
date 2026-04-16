@@ -18,6 +18,7 @@ import org.fabt.shared.web.TenantContext;
 import org.fabt.analytics.config.BatchJobScheduler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.fabt.shared.security.TenantUnscoped;
 import org.springframework.batch.core.job.Job;
 import org.springframework.batch.core.job.builder.JobBuilder;
 import org.springframework.batch.core.repository.JobRepository;
@@ -114,6 +115,7 @@ public class BedHoldsReconciliationJobConfig {
     }
 
     @Bean
+    @TenantUnscoped("Spring Batch reconciler — platform-wide defense-in-depth for bed_availability drift")
     public Tasklet reconciliationTasklet() {
         return (StepContribution contribution, ChunkContext chunkContext) -> {
             // dvAccess=true is bound by BatchJobScheduler.runJob() before Spring Batch
@@ -195,7 +197,14 @@ public class BedHoldsReconciliationJobConfig {
     private void writeAuditRowDirect(Map<String, Object> details) {
         try {
             JsonString detailsJson = new JsonString(objectMapper.writeValueAsString(details));
+            // cross-tenant-isolation-audit Phase 2.12: batch reconciler emits
+            // platform-wide audit events (tenant_id=null is semantically
+            // correct here — the reconciliation is not tenant-scoped by design).
+            // This is a legitimate @TenantUnscoped path for audit data; Phase
+            // 3 ArchUnit rules accept it because the batch-job package is
+            // exempt from the service-layer tenant guard.
             AuditEventEntity entity = new AuditEventEntity(
+                    null,                                // tenant id (platform-wide batch)
                     null,                                // actor user id
                     null,                                // target user id
                     AuditEventTypes.BED_HOLDS_RECONCILED,

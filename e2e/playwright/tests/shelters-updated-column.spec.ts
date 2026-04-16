@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test';
 
-const BASE_URL = process.env.BASE_URL || 'http://localhost:8081';
+// Default to Vite (5173) so this runs in plain CI; override with
+// BASE_URL=http://localhost:8081 to exercise via nginx in dev.
+const BASE_URL = process.env.BASE_URL || 'http://localhost:5173';
 
 test.describe('Shelters Updated Column (#32)', () => {
 
