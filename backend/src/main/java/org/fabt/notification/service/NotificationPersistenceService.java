@@ -165,8 +165,9 @@ public class NotificationPersistenceService {
         if (n != null && n.getCreatedAt() != null && recipientId.equals(n.getRecipientId())) {
             // Guard: only record if the found notification belongs to the
             // acting user. Prevents a cross-user metric poisoning if the
-            // pre-update findById ever races a delete (can't happen under
-            // RLS but defense-in-depth).
+            // pre-update findById ever races a delete. Defense-in-depth
+            // (notification table has no RLS — service-layer is the guard
+            // per design D1).
             Duration elapsed = Duration.between(n.getCreatedAt(), Instant.now());
             metrics.notificationTimeToActionTimer(n.getType()).record(elapsed);
         }
