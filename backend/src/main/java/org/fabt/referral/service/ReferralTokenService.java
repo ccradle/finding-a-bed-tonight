@@ -802,6 +802,7 @@ public class ReferralTokenService {
     private Counter dvReferralCounter(String status) {
         return Counter.builder("fabt.dv.referral.total")
                 .tag("status", status)
+                .tag("tenant_id", org.fabt.shared.web.TenantContext.tenantTag())
                 .register(meterRegistry);
     }
 

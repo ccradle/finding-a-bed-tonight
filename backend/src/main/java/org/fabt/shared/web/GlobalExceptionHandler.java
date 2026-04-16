@@ -44,6 +44,7 @@ public class GlobalExceptionHandler {
         String firstSegment = extractFirstPathSegment(path);
         Counter.builder("fabt.http.not_found.count")
                 .tag("path_prefix", firstSegment)
+                .tag("tenant_id", TenantContext.tenantTag())
                 .register(meterRegistry)
                 .increment();
         return ResponseEntity
@@ -124,6 +125,14 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(NoSuchElementException.class)
     public ResponseEntity<ErrorResponse> handleNotFound(NoSuchElementException ex) {
         log.warn("Not found (NoSuchElementException): {}", ex.getMessage());
+        // D9 (cross-tenant-isolation-audit Phase 4.4): emit counter on
+        // EVERY tenant-owned resource 404, intentionally not distinguishing
+        // cross-tenant probes from legitimate "not found" — both look
+        // identical by design (D3: 404-not-403).
+        Counter.builder("fabt.security.cross_tenant_404s")
+                .tag("resource_type", extractResourceType(ex.getMessage()))
+                .register(meterRegistry)
+                .increment();
         Locale locale = LocaleContextHolder.getLocale();
         String message = messageSource.getMessage("error.not_found", null, ex.getMessage(), locale);
         return ResponseEntity
@@ -193,5 +202,18 @@ public class GlobalExceptionHandler {
         String trimmed = path.startsWith("/") ? path.substring(1) : path;
         int slash = trimmed.indexOf('/');
         return "/" + (slash > 0 ? trimmed.substring(0, slash) : trimmed);
+    }
+
+    /**
+     * Extract a lowercase resource type from a NoSuchElementException
+     * message like "Shelter not found: 123..." → "shelter". Falls back
+     * to "unknown" for unrecognized formats.
+     */
+    private static String extractResourceType(String message) {
+        if (message == null) return "unknown";
+        int idx = message.toLowerCase(java.util.Locale.ROOT).indexOf(" not found");
+        if (idx <= 0) return "unknown";
+        return message.substring(0, idx).toLowerCase(java.util.Locale.ROOT)
+                .replaceAll("[^a-z_]", "_").trim();
     }
 }

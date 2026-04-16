@@ -232,7 +232,10 @@ public class HmisPushService {
     }
 
     private Counter pushCounter(String vendor) {
-        return Counter.builder("fabt.hmis.push.total").tag("vendor", vendor).register(meterRegistry);
+        return Counter.builder("fabt.hmis.push.total")
+                .tag("vendor", vendor)
+                .tag("tenant_id", org.fabt.shared.web.TenantContext.tenantTag())
+                .register(meterRegistry);
     }
 
     private Counter pushFailureCounter(String vendor) {
