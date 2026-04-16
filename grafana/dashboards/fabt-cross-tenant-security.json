@@ -18,14 +18,8 @@
         "name": "tenant",
         "type": "query",
         "label": "Tenant",
-        "datasource": {
-          "type": "prometheus",
-          "uid": "prometheus"
-        },
-        "query": {
-          "query": "label_values(fabt_bed_search_count_total, tenant_id)",
-          "refId": "PrometheusVariableQueryEditor-VariableQuery"
-        },
+        "query": "label_values(fabt_bed_search_count_total, tenant_id)",
+        "refresh": 1,
         "includeAll": true,
         "multi": true,
         "current": {
