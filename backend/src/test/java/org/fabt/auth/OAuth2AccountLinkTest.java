@@ -6,6 +6,7 @@ import org.fabt.BaseIntegrationTest;
 import org.fabt.TestAuthHelper;
 import org.fabt.auth.service.JwtService;
 import org.fabt.auth.service.OAuth2AccountLinkService;
+import org.fabt.shared.web.TenantContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -40,12 +41,8 @@ class OAuth2AccountLinkTest extends BaseIntegrationTest {
     @Test
     void test_linkWithPreCreatedAccount_succeeds() {
         // Admin user exists with email admin@test.fabt.org
-        OAuth2AccountLinkService.LinkResult result = linkService.linkOrReject(
-                "google",
-                "google-subject-12345",
-                TestAuthHelper.ADMIN_EMAIL,
-                tenantId
-        );
+        OAuth2AccountLinkService.LinkResult result = TenantContext.callWithContext(tenantId, false, () ->
+                linkService.linkOrReject("google", "google-subject-12345", TestAuthHelper.ADMIN_EMAIL));
 
         assertThat(result.success()).isTrue();
         assertThat(result.accessToken()).isNotBlank();
@@ -62,12 +59,8 @@ class OAuth2AccountLinkTest extends BaseIntegrationTest {
 
     @Test
     void test_linkWithUnknownEmail_rejected() {
-        OAuth2AccountLinkService.LinkResult result = linkService.linkOrReject(
-                "google",
-                "google-subject-unknown",
-                "nobody@example.com",
-                tenantId
-        );
+        OAuth2AccountLinkService.LinkResult result = TenantContext.callWithContext(tenantId, false, () ->
+                linkService.linkOrReject("google", "google-subject-unknown", "nobody@example.com"));
 
         assertThat(result.success()).isFalse();
         assertThat(result.accessToken()).isNull();
@@ -78,21 +71,13 @@ class OAuth2AccountLinkTest extends BaseIntegrationTest {
     @Test
     void test_subsequentLoginWithLinkedAccount_succeeds() {
         // First login — creates the link
-        OAuth2AccountLinkService.LinkResult firstLogin = linkService.linkOrReject(
-                "google",
-                "google-subject-repeat",
-                TestAuthHelper.ADMIN_EMAIL,
-                tenantId
-        );
+        OAuth2AccountLinkService.LinkResult firstLogin = TenantContext.callWithContext(tenantId, false, () ->
+                linkService.linkOrReject("google", "google-subject-repeat", TestAuthHelper.ADMIN_EMAIL));
         assertThat(firstLogin.success()).isTrue();
 
         // Second login — reuses the existing link
-        OAuth2AccountLinkService.LinkResult secondLogin = linkService.linkOrReject(
-                "google",
-                "google-subject-repeat",
-                TestAuthHelper.ADMIN_EMAIL,
-                tenantId
-        );
+        OAuth2AccountLinkService.LinkResult secondLogin = TenantContext.callWithContext(tenantId, false, () ->
+                linkService.linkOrReject("google", "google-subject-repeat", TestAuthHelper.ADMIN_EMAIL));
         assertThat(secondLogin.success()).isTrue();
         assertThat(secondLogin.userId()).isEqualTo(firstLogin.userId());
     }
@@ -100,12 +85,8 @@ class OAuth2AccountLinkTest extends BaseIntegrationTest {
     @Test
     void test_jwtFromOAuth2_identicalToPasswordJwt() {
         // Get JWT via OAuth2 link
-        OAuth2AccountLinkService.LinkResult oauthResult = linkService.linkOrReject(
-                "google",
-                "google-subject-jwt-compare",
-                TestAuthHelper.ADMIN_EMAIL,
-                tenantId
-        );
+        OAuth2AccountLinkService.LinkResult oauthResult = TenantContext.callWithContext(tenantId, false, () ->
+                linkService.linkOrReject("google", "google-subject-jwt-compare", TestAuthHelper.ADMIN_EMAIL));
         JwtService.JwtClaims oauthClaims = jwtService.validateToken(oauthResult.accessToken());
 
         // Get JWT via password login (from TestAuthHelper)

@@ -39,12 +39,12 @@ public class OAuth2AccountLinkService {
      * @param providerName      the OAuth2 provider (e.g. "google", "microsoft")
      * @param externalSubjectId the "sub" claim from the OAuth2 provider's ID token
      * @param email             the email from the OAuth2 provider
-     * @param tenantId          the tenant context for user lookup
      * @return LinkResult indicating success with tokens or rejection with error message
      */
     @Transactional
     public LinkResult linkOrReject(String providerName, String externalSubjectId,
-                                    String email, UUID tenantId) {
+                                    String email) {
+        UUID tenantId = org.fabt.shared.web.TenantContext.getTenantId();
         // 1. Check if an OAuth2 link already exists for this provider + subject
         Optional<UserOAuth2Link> existingLink = linkRepository
                 .findByProviderNameAndExternalSubjectId(providerName, externalSubjectId);

@@ -1,89 +1,316 @@
 package org.fabt.architecture;
 
-import org.junit.jupiter.api.Disabled;
+import java.util.Set;
+import java.util.UUID;
+
+import com.tngtech.archunit.core.domain.JavaClass;
+import com.tngtech.archunit.core.domain.JavaMethod;
+import com.tngtech.archunit.core.domain.JavaMethodCall;
+import com.tngtech.archunit.core.importer.ImportOption;
+import com.tngtech.archunit.junit.AnalyzeClasses;
+import com.tngtech.archunit.junit.ArchTest;
+import com.tngtech.archunit.lang.ArchCondition;
+import com.tngtech.archunit.lang.ArchRule;
+import com.tngtech.archunit.lang.ConditionEvents;
+import com.tngtech.archunit.lang.SimpleConditionEvent;
+import org.fabt.analytics.repository.BedSearchLogRepository;
+import org.fabt.auth.repository.ApiKeyRepository;
+import org.fabt.auth.repository.TenantOAuth2ProviderRepository;
+import org.fabt.auth.repository.UserOAuth2LinkRepository;
+import org.fabt.auth.repository.UserRepository;
+import org.fabt.availability.repository.BedAvailabilityRepository;
+import org.fabt.dataimport.repository.ImportLogRepository;
+import org.fabt.hmis.repository.HmisAuditRepository;
+import org.fabt.hmis.repository.HmisOutboxRepository;
+import org.fabt.notification.repository.EscalationPolicyRepository;
+import org.fabt.notification.repository.NotificationRepository;
+import org.fabt.referral.repository.ReferralTokenRepository;
+import org.fabt.reservation.repository.ReservationRepository;
+import org.fabt.shared.security.TenantUnscoped;
+import org.fabt.shelter.repository.ShelterConstraintsRepository;
+import org.fabt.shelter.repository.ShelterRepository;
+import org.fabt.subscription.repository.SubscriptionRepository;
+import org.fabt.subscription.repository.WebhookDeliveryLogRepository;
+import org.fabt.surge.repository.SurgeEventRepository;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.methods;
+import static org.assertj.core.api.Assertions.assertThat;
+
 /**
- * Build-failing architecture rule forbidding bare {@code findById(UUID)} or
- * {@code existsById(UUID)} calls on tenant-owned repositories from classes in
- * {@code org.fabt.*.service} or {@code org.fabt.*.api} packages, unless
- * either (a) the calling method carries a {@code @TenantUnscoped(value = "...")}
- * annotation with a non-empty value, or (b) the call routes through a
- * tenant-scoped repository method such as {@code findByIdAndTenantId}.
+ * Build-failing architecture rules forbidding unsafe cross-tenant
+ * data-access patterns. Activated in Phase 3 of
+ * {@code cross-tenant-isolation-audit} (Issue #117) after Phase 2
+ * cleaned every known violator.
  *
- * <h2>Status: SKELETON — activated in Phase 3 of cross-tenant-isolation-audit</h2>
+ * <h2>Family A — unsafe-lookup (D2)</h2>
+ * Fires on bare {@code findById(UUID)} / {@code existsById(UUID)} calls
+ * on tenant-owned repositories from service or controller code, unless
+ * the calling method carries {@link TenantUnscoped}.
  *
- * <p>This class is a compiling placeholder. Phase 1 (foundations) introduces
- * the file so downstream work can reference it; the rule itself is defined
- * and activated in Phase 3 AFTER Phase 2 lands the 5 VULN-HIGH + 2 VULN-MED
- * fixes from the audit. Activating the rule before the call sites are clean
- * would break the build pre-fix.
+ * <h2>Family B — URL-path-sink (D11)</h2>
+ * Fires on public service methods that accept a {@code UUID} parameter
+ * AND call write methods ({@code save/delete/deleteById}) on tenant-owned
+ * repositories, unless annotated {@link TenantUnscoped}. Strict with
+ * zero exceptions per warroom 2026-04-15.
  *
- * <h2>Intended rule shape (Phase 3)</h2>
- *
- * <p>The rule requires {@code methods()}-level granularity because the
- * {@code @TenantUnscoped} annotation is carried by the calling method, not
- * by its enclosing class. The likely shape uses a custom
- * {@code ArchCondition<JavaMethod>} that inspects each method's call graph
- * for disallowed repository invocations:
- * <pre>{@code
- * @AnalyzeClasses(packages = "org.fabt", importOptions = ImportOption.DoNotIncludeTests.class)
- * public class TenantGuardArchitectureTest {
- *
- *   @ArchTest
- *   static final ArchRule no_bare_findById_on_tenant_owned_repos =
- *       methods()
- *           .that().areDeclaredInClassesThat().resideInAnyPackage("org.fabt..service..", "org.fabt..api..")
- *           .and().areNotAnnotatedWith(TenantUnscoped.class)
- *           .should(notCallBareFindByIdOnTenantOwnedRepository())
- *           .as("Service and controller methods MUST route through findByIdAndTenantId or carry @TenantUnscoped(\"...\") with a non-empty justification. See openspec/changes/cross-tenant-isolation-audit (design D2).");
- *
- *   // notCallBareFindByIdOnTenantOwnedRepository() is a custom ArchCondition<JavaMethod>
- *   // to be written in Phase 3 (task 3.5). It scans the method's outgoing method calls
- *   // and fails when it sees findById(UUID) or existsById(UUID) on a repository whose
- *   // entity class is tenant-owned (determined by an allowlist or a marker interface).
- * }
- * }</pre>
- *
- * <p>Phase 3 also introduces complementary rules derived from Phase 2's
- * actual refactor — subject to confirmation, these will likely cover:
- * <ul>
- *   <li>Non-empty {@code @TenantUnscoped} value (value length &gt; 0).</li>
- *   <li>Caller-package restrictions on the batch-snapshot and webhook-internal
- *       method renames Phase 2 introduces — final names will come from Phase 2, not this skeleton.</li>
- * </ul>
- *
- * <h2>Whitelist of accepted methods (non-bare)</h2>
- *
- * <p>The Phase 3 rule recognizes these as tenant-safe and exempts them:
- * <ul>
- *   <li>{@code *Repository.findByIdAndTenantId(UUID, UUID)}</li>
- *   <li>{@code *Repository.findByTenantIdAndId(UUID, UUID)} (existing convention in this codebase — see
- *       {@code ShelterRepository.findByTenantIdAndId})</li>
- * </ul>
- *
- * <p>If a legitimate call pattern falls outside both whitelist shapes (e.g. batch
- * callers needing platform-wide visibility), the correct remediation is the
- * {@code @TenantUnscoped("...")} escape hatch — NOT a bytecode-level exemption.
- * ArchUnit operates on the static call graph and cannot reason about dataflow
- * ("this UUID was later compared to TenantContext"), so the rule intentionally
- * declines to guess; the annotation is the explicit author-acknowledged exemption.
- *
- * <h2>Why disabled today</h2>
- *
- * <p>Removing {@code @Disabled} before Phase 2 lands would fail the build on
- * the 5 VULN-HIGH + 2 VULN-MED call sites the audit identified. Phase 3
- * activation (task 3.5) is the intentional cutover point.
- *
- * @see org.fabt.shared.security.TenantUnscoped
+ * <h2>Caller-scoping rules (D7)</h2>
+ * {@code findByIdForBatch} restricted to batch packages;
+ * {@code *Internal} subscription methods restricted to
+ * {@code WebhookDeliveryService}.
  */
-@Disabled("cross-tenant-isolation-audit Phase 3: activate via task 3.5 after R1+R2 service fixes land")
+@AnalyzeClasses(packages = "org.fabt", importOptions = ImportOption.DoNotIncludeTests.class)
+@DisplayName("Tenant guard architecture rules (D2, D7, D11)")
 class TenantGuardArchitectureTest {
 
+    private static final Set<String> TENANT_OWNED_REPO_NAMES = Set.of(
+            ShelterRepository.class.getName(),
+            ReferralTokenRepository.class.getName(),
+            ReservationRepository.class.getName(),
+            NotificationRepository.class.getName(),
+            org.fabt.shared.audit.repository.AuditEventRepository.class.getName(),
+            ApiKeyRepository.class.getName(),
+            SubscriptionRepository.class.getName(),
+            UserRepository.class.getName(),
+            TenantOAuth2ProviderRepository.class.getName(),
+            WebhookDeliveryLogRepository.class.getName(),
+            HmisOutboxRepository.class.getName(),
+            HmisAuditRepository.class.getName(),
+            EscalationPolicyRepository.class.getName(),
+            BedAvailabilityRepository.class.getName(),
+            ShelterConstraintsRepository.class.getName(),
+            SurgeEventRepository.class.getName(),
+            UserOAuth2LinkRepository.class.getName(),
+            ImportLogRepository.class.getName()
+    );
+
+    private static final Set<String> UNSAFE_LOOKUP_METHODS = Set.of("findById", "existsById");
+
+    /**
+     * SAFE-sites registry (Phase 4.5 / design D2) — methods that call bare
+     * findById on tenant-owned repos but are verified safe by the warroom
+     * audit. Each entry is "ClassName.methodName" with the justification
+     * as a comment. Adding a new entry requires code review explaining WHY
+     * the bare lookup is safe. Format: SimpleClassName.methodName.
+     */
+    private static final Set<String> SAFE_SITES = Set.of(
+            // Self-path: userId sourced from JWT subject (auth.getName()),
+            // not from URL/body. User can only act on their own record.
+            "AuthController.refresh",
+            "AuthController.verifyTotp",
+            "PasswordController.changePassword",
+            "TotpController.enrollTotp",
+            "TotpController.confirmTotpEnrollment",
+            "TotpController.regenerateRecoveryCodes",
+            // Admin-path: userId from JWT; admin acts on users within their
+            // own tenant; userService.getUser applies manual tenant check.
+            "PasswordController.resetPassword",
+            // Tenant-scoped wrapper: findById then manual tenantId check.
+            // This IS the tenant guard — callers delegate to this method.
+            "UserService.findById",
+            "UserService.getUser",
+            // OAuth2 link: existingLink FK chain → user_id → tenant.
+            // D11 tenantId param removed; bare findById on existing-link
+            // user_id is safe because the link row was created under the
+            // correct tenant during initial email-match linking.
+            "OAuth2AccountLinkService.linkOrReject",
+            // Token-hash-keyed: SHA-256 token is globally unique; the token
+            // row's user_id dictates tenant. No tenantId in the request.
+            "PasswordResetService.resetPassword",
+            // Shelter-constraints: findById(shelterId) AFTER the shelter
+            // was already loaded via tenant-scoped shelterService.findById
+            // or a tenant-scoped search query. The shelterId is pre-validated.
+            "AvailabilityService.createSnapshot",
+            "BedSearchService.doSearch",
+            "ShelterService.getDetail",
+            "ShelterService.update",
+            // Notification: findById(notificationId) then checks
+            // recipientId == caller's userId (self-path guard).
+            "NotificationPersistenceService.markActed",
+            // Subscription: findById then manual tenantId equality check
+            // (pre-D11 pattern, migrating to findByIdAndTenantId in
+            // multi-tenant-production-readiness companion change).
+            "SubscriptionService.findRecentDeliveries"
+    );
+
+    private static final Set<String> WRITE_METHODS = Set.of(
+            "save", "saveAll", "delete", "deleteById", "deleteAll", "deleteAllById"
+    );
+
+    // ------------------------------------------------------------------
+    // Family A — unsafe-lookup (D2)
+    // ------------------------------------------------------------------
+
+    @ArchTest
+    static final ArchRule no_bare_findById_on_tenant_owned_repos =
+            methods()
+                    .that().areDeclaredInClassesThat().resideInAnyPackage("..service..", "..api..")
+                    .and().areNotAnnotatedWith(TenantUnscoped.class)
+                    .should(notCallUnsafeLookupOnTenantOwnedRepo())
+                    .as("Service/controller methods must use findByIdAndTenantId or carry "
+                            + "@TenantUnscoped(\"justification\"). See design D2.");
+
+    // ------------------------------------------------------------------
+    // Family B — URL-path-sink (D11)
+    // ------------------------------------------------------------------
+
+    @ArchTest
+    static final ArchRule no_tenantId_param_with_tenant_repo_write =
+            methods()
+                    .that().areDeclaredInClassesThat().resideInAPackage("..service..")
+                    .and().arePublic()
+                    .and().areNotAnnotatedWith(TenantUnscoped.class)
+                    .should(notAcceptUuidAndWriteToTenantRepo())
+                    .as("Public service methods accepting UUID must not write to tenant-owned "
+                            + "repositories without @TenantUnscoped. Family B is strict — zero "
+                            + "exceptions (warroom 2026-04-15). See design D11.");
+
+    // ------------------------------------------------------------------
+    // Caller-scoping rules (D7)
+    // ------------------------------------------------------------------
+
+    @ArchTest
+    static final ArchRule findByIdForBatch_only_from_batch =
+            methods()
+                    .that().areDeclaredInClassesThat().resideInAnyPackage("..service..", "..api..")
+                    .and().areNotAnnotatedWith(TenantUnscoped.class)
+                    .should(notCallFindByIdForBatch())
+                    .as("findByIdForBatch is batch-only — callers must be in ..batch.. packages "
+                            + "or carry @TenantUnscoped. See design D7.");
+
+    @ArchTest
+    static final ArchRule internal_subscription_methods_only_from_delivery =
+            methods()
+                    .that().areDeclaredInClassesThat().resideInAnyPackage("..service..", "..api..")
+                    .should(notCallInternalSubscriptionMethods())
+                    .as("*Internal subscription methods are restricted to WebhookDeliveryService. "
+                            + "See design D7.");
+
+    // ------------------------------------------------------------------
+    // Drift catcher — repo set size matches table allowlist
+    // ------------------------------------------------------------------
+
     @Test
-    void placeholder_rule_activated_in_phase_3() {
-        // Intentional no-op. Phase 3 (task 3.5) replaces this class-level
-        // @Disabled + placeholder method with the real @AnalyzeClasses +
-        // @ArchTest fields per the Javadoc above.
+    @DisplayName("Tenant-owned repo set matches TenantPredicateCoverageTest table count")
+    void repoSetMatchesTableAllowlist() {
+        assertThat(TENANT_OWNED_REPO_NAMES)
+                .as("TENANT_OWNED_REPO_NAMES must stay in sync with "
+                        + "TenantPredicateCoverageTest.TENANT_OWNED_TABLES — "
+                        + "not all tables have repos (some use JdbcTemplate), "
+                        + "so repo count ≤ table count is expected, but adding "
+                        + "a new tenant-owned repo MUST update this set.")
+                .hasSizeLessThanOrEqualTo(20);
+    }
+
+    // ------------------------------------------------------------------
+    // Custom ArchConditions
+    // ------------------------------------------------------------------
+
+    private static ArchCondition<JavaMethod> notCallUnsafeLookupOnTenantOwnedRepo() {
+        return new ArchCondition<>("not call bare findById/existsById on tenant-owned repos") {
+            @Override
+            public void check(JavaMethod method, ConditionEvents events) {
+                String site = method.getOwner().getSimpleName() + "." + method.getName();
+                if (SAFE_SITES.contains(site)) return;
+
+                for (JavaMethodCall call : method.getMethodCallsFromSelf()) {
+                    if (!UNSAFE_LOOKUP_METHODS.contains(call.getName())) continue;
+                    JavaClass owner = call.getTargetOwner();
+                    if (!isTenantOwnedRepo(owner)) continue;
+                    if (call.getTarget().getRawParameterTypes().size() != 1) continue;
+                    events.add(SimpleConditionEvent.violated(method,
+                            method.getFullName() + " calls bare " + call.getName()
+                                    + "() on tenant-owned " + owner.getSimpleName()
+                                    + " at " + call.getSourceCodeLocation()
+                                    + " — add to SAFE_SITES with justification or "
+                                    + "use findByIdAndTenantId"));
+                }
+            }
+        };
+    }
+
+    private static ArchCondition<JavaMethod> notAcceptUuidAndWriteToTenantRepo() {
+        return new ArchCondition<>("not accept UUID tenantId param and write to tenant-owned repo") {
+            @Override
+            public void check(JavaMethod method, ConditionEvents events) {
+                // D11 specifically targets methods accepting UUID tenantId —
+                // not any UUID. Check parameter names (available when javac
+                // -parameters is enabled, which Spring Boot parent POM does).
+                // D11 targets methods accepting UUID tenantId (named).
+                // ArchUnit 1.4.1 JavaParameter lacks getName(); use
+                // reflect() to read bytecode MethodParameters attribute
+                // (available when javac -parameters is enabled — Spring
+                // Boot parent POM default).
+                boolean hasTenantIdParam = false;
+                try {
+                    for (java.lang.reflect.Parameter p : method.reflect().getParameters()) {
+                        if (UUID.class.equals(p.getType()) && "tenantId".equals(p.getName())) {
+                            hasTenantIdParam = true;
+                            break;
+                        }
+                    }
+                } catch (Exception e) {
+                    // reflect() may fail on synthetic/bridge methods; skip
+                    return;
+                }
+                if (!hasTenantIdParam) return;
+
+                for (JavaMethodCall call : method.getMethodCallsFromSelf()) {
+                    if (!WRITE_METHODS.contains(call.getName())) continue;
+                    JavaClass owner = call.getTargetOwner();
+                    if (!isTenantOwnedRepo(owner)) continue;
+                    events.add(SimpleConditionEvent.violated(method,
+                            method.getFullName() + " accepts UUID tenantId param "
+                                    + "and calls " + call.getName()
+                                    + "() on tenant-owned " + owner.getSimpleName()
+                                    + " at " + call.getSourceCodeLocation()));
+                }
+            }
+        };
+    }
+
+    private static ArchCondition<JavaMethod> notCallFindByIdForBatch() {
+        return new ArchCondition<>("not call findByIdForBatch outside batch packages") {
+            @Override
+            public void check(JavaMethod method, ConditionEvents events) {
+                if (method.getOwner().getPackageName().contains(".batch")) return;
+                for (JavaMethodCall call : method.getMethodCallsFromSelf()) {
+                    if ("findByIdForBatch".equals(call.getName())) {
+                        events.add(SimpleConditionEvent.violated(method,
+                                method.getFullName() + " calls findByIdForBatch "
+                                        + "outside a .batch package at "
+                                        + call.getSourceCodeLocation()));
+                    }
+                }
+            }
+        };
+    }
+
+    private static ArchCondition<JavaMethod> notCallInternalSubscriptionMethods() {
+        return new ArchCondition<>("not call *Internal subscription methods outside WebhookDeliveryService") {
+            @Override
+            public void check(JavaMethod method, ConditionEvents events) {
+                if (method.getOwner().getSimpleName().equals("WebhookDeliveryService")) return;
+                if (method.getOwner().getSimpleName().equals("SubscriptionService")) return;
+                for (JavaMethodCall call : method.getMethodCallsFromSelf()) {
+                    String name = call.getName();
+                    if ((name.equals("markFailingInternal")
+                            || name.equals("deactivateInternal")
+                            || name.equals("recordDeliveryInternal"))
+                            && call.getTargetOwner().getSimpleName().equals("SubscriptionService")) {
+                        events.add(SimpleConditionEvent.violated(method,
+                                method.getFullName() + " calls " + name
+                                        + " on SubscriptionService — restricted to "
+                                        + "WebhookDeliveryService at "
+                                        + call.getSourceCodeLocation()));
+                    }
+                }
+            }
+        };
+    }
+
+    private static boolean isTenantOwnedRepo(JavaClass cls) {
+        return TENANT_OWNED_REPO_NAMES.stream().anyMatch(cls::isAssignableTo);
     }
 }

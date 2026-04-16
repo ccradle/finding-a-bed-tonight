@@ -100,8 +100,9 @@ public class ShelterImportService {
     // SELECT policy rejection (SQL state 42501 INSUFFICIENT PRIVILEGE, mapped by Spring
     // to the misleading "bad SQL grammar" error). Individual shelterService.create/update
     // are @Transactional themselves. Portfolio lessons #60, #62, #79. War room 2026-04-13.
-    public ImportResult importShelters(UUID tenantId, String importType, String filename,
+    public ImportResult importShelters(String importType, String filename,
                                        List<ShelterImportRow> rows) throws Exception {
+        UUID tenantId = org.fabt.shared.web.TenantContext.getTenantId();
         // Always dvAccess=true for admin imports. The import endpoint is
         // COC_ADMIN/PLATFORM_ADMIN only. Setting it here — BEFORE any connection
         // acquisition — ensures the DelegatingDataSource bakes the correct session

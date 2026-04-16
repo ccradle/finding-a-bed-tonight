@@ -89,8 +89,8 @@ class OAuth2FlowIntegrationTest extends BaseIntegrationTest {
 
     @Test
     void linkOrReject_rejectsWhenNoUserExists() {
-        LinkResult result = linkService.linkOrReject(
-                "google", "google-subject-123", "unknown@example.com", tenantId);
+        LinkResult result = TenantContext.callWithContext(tenantId, false, () ->
+                linkService.linkOrReject("google", "google-subject-123", "unknown@example.com"));
 
         assertFalse(result.success());
         assertNotNull(result.error());
@@ -105,9 +105,9 @@ class OAuth2FlowIntegrationTest extends BaseIntegrationTest {
     @Test
     void linkOrReject_linksExistingUserByEmail() {
         // The outreach user was created in setUp
-        LinkResult result = linkService.linkOrReject(
-                "google", "google-subject-outreach",
-                TestAuthHelper.OUTREACH_EMAIL, tenantId);
+        LinkResult result = TenantContext.callWithContext(tenantId, false, () ->
+                linkService.linkOrReject("google", "google-subject-outreach",
+                        TestAuthHelper.OUTREACH_EMAIL));
 
         assertTrue(result.success());
         assertNotNull(result.accessToken());
@@ -118,15 +118,15 @@ class OAuth2FlowIntegrationTest extends BaseIntegrationTest {
     @Test
     void linkOrReject_subsequentLoginUsesExistingLink() {
         // First login — creates link
-        LinkResult first = linkService.linkOrReject(
-                "google", "google-subject-admin",
-                TestAuthHelper.ADMIN_EMAIL, tenantId);
+        LinkResult first = TenantContext.callWithContext(tenantId, false, () ->
+                linkService.linkOrReject("google", "google-subject-admin",
+                        TestAuthHelper.ADMIN_EMAIL));
         assertTrue(first.success());
 
         // Second login — uses existing link (doesn't query by email)
-        LinkResult second = linkService.linkOrReject(
-                "google", "google-subject-admin",
-                "different-email@example.com", tenantId);
+        LinkResult second = TenantContext.callWithContext(tenantId, false, () ->
+                linkService.linkOrReject("google", "google-subject-admin",
+                        "different-email@example.com"));
         assertTrue(second.success());
         assertEquals(first.userId(), second.userId());
     }
