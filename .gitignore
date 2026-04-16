@@ -82,3 +82,9 @@ logs/
 .pid-*
 **/.terraform/
 **/.terraform.lock.hcl
+
+# ZAP scan artifacts — wrapper substitutes JWT tokens into plan template,
+# substituted plan and any *.bak files MUST NEVER be committed (contain
+# real session credentials). Reports go to docs/security/ explicitly.
+zap-wrk/cross-tenant-plan.yaml
+zap-wrk/*.bak

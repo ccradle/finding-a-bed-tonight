@@ -1,0 +1,39 @@
+env:
+  contexts:
+  - name: local-cross-tenant-audit
+    urls:
+    - http://host.docker.internal:8081
+    - http://host.docker.internal:8080
+    excludePaths:
+    - "^http://host.docker.internal:8080/actuator/.*"
+  parameters:
+    failOnError: true
+    progressToStdout: true
+jobs:
+- type: passiveScan-config
+  parameters:
+    enableTags: false
+    maxAlertsPerRule: 10
+- type: spider
+  parameters:
+    maxDuration: 2
+    url: http://host.docker.internal:8081
+- type: spider
+  parameters:
+    maxDuration: 2
+    url: http://host.docker.internal:8080
+- type: passiveScan-wait
+  parameters:
+    maxDuration: 1
+- type: report
+  parameters:
+    template: traditional-md
+    reportDir: /zap/wrk/
+    reportFile: zap-v0.40-local.md
+    reportTitle: 'FABT v0.40 ZAP Baseline — cross-tenant-isolation-audit'
+- type: report
+  parameters:
+    template: traditional-json
+    reportDir: /zap/wrk/
+    reportFile: zap-v0.40-local.json
+    reportTitle: 'FABT v0.40 ZAP Baseline — cross-tenant-isolation-audit'
