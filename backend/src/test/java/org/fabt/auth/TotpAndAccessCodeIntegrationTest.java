@@ -21,6 +21,7 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -39,6 +40,7 @@ class TotpAndAccessCodeIntegrationTest extends BaseIntegrationTest {
     @Autowired private TestAuthHelper authHelper;
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private TotpService totpService;
+    @Autowired private org.fabt.auth.service.AccessCodeService accessCodeService;
 
     @BeforeEach
     void setUp() {
@@ -782,5 +784,71 @@ class TotpAndAccessCodeIntegrationTest extends BaseIntegrationTest {
                     .as("404 response body must not contain 'dv' — a 403 with dv_access_required would leak")
                     .doesNotContain("dv_access_required");
         }
+    }
+
+    // ================================================================
+    // Phase 2 closeout warroom (2026-04-15) — Marcus Webb action item:
+    // pin the FK justification on AccessCodeService.validateCode's
+    // @TenantUnscopedQuery. The annotation claims user_id implies tenant
+    // because the user is looked up via findByTenantIdAndEmail before
+    // any code-row query. This test exercises the email-collision case
+    // (same email in tenants A and B) to prove the FK chain holds: a
+    // raw access code generated for tenant A's user MUST NOT validate
+    // for tenant B's user even when emails are byte-equal.
+    // ================================================================
+
+    @Test
+    @DisplayName("Cross-tenant access-code validate via email collision → 401, code not consumed")
+    void tc_validateAccessCode_codeFromOtherTenant_emailCollision_returns401() {
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        String collidingEmail = "collide-" + suffix + "@test.fabt.org";
+
+        // Tenant A user (default test tenant) — generate a real access code.
+        UUID tenantAId = authHelper.getTestTenantId();
+        User tenantAUser = authHelper.createUserInTenant(tenantAId,
+                collidingEmail, "Tenant A Collider",
+                new String[]{"OUTREACH_WORKER"}, false);
+        UUID adminAId = authHelper.getUserRepository()
+                .findByTenantIdAndEmail(tenantAId, "cocadmin@test.fabt.org")
+                .orElseThrow().getId();
+
+        String rawCodeIssuedToTenantA = TenantContext.callWithContext(tenantAId, false, () ->
+                accessCodeService.generateCode(tenantAUser.getId(), adminAId, tenantAId));
+
+        // Tenant B with a user at the SAME EMAIL — the collision precondition.
+        Tenant tenantB = authHelper.setupSecondaryTenant("xtenant-accesscode-collide-" + suffix);
+        User tenantBUser = authHelper.createUserInTenant(tenantB.getId(),
+                collidingEmail, "Tenant B Collider",
+                new String[]{"OUTREACH_WORKER"}, false);
+        String tenantBSlug = TenantContext.callWithContext(tenantB.getId(), false, () ->
+                jdbcTemplate.queryForObject("SELECT slug FROM tenant WHERE id = ?::uuid",
+                        String.class, tenantB.getId()));
+
+        // Act: present tenant A's raw code to tenant B's login surface.
+        String body = String.format("""
+                {"email":"%s","tenantSlug":"%s","code":"%s"}
+                """, collidingEmail, tenantBSlug, rawCodeIssuedToTenantA);
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        ResponseEntity<String> resp = restTemplate.exchange(
+                "/api/v1/auth/access-code", HttpMethod.POST,
+                new HttpEntity<>(body, headers), String.class);
+
+        // Assert: 401 — the SELECT WHERE user_id = tenantBUser.id finds no
+        // row because the code was issued under tenantAUser.id. FK chain
+        // holds even with email collision.
+        assertThat(resp.getStatusCode())
+                .as("Cross-tenant access-code presentation via email collision must be rejected")
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+
+        // Defense-in-depth: tenant A's code row is still unused.
+        TenantContext.runWithContext(tenantAId, false, () -> {
+            Boolean used = jdbcTemplate.queryForObject(
+                    "SELECT used FROM one_time_access_code WHERE user_id = ?::uuid AND created_by = ?::uuid",
+                    Boolean.class, tenantAUser.getId(), adminAId);
+            assertThat(used)
+                    .as("Tenant A's access code must NOT have been consumed by the cross-tenant attempt")
+                    .isFalse();
+        });
     }
 }

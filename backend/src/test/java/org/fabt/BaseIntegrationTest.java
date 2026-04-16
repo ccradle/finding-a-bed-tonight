@@ -2,6 +2,7 @@ package org.fabt;
 
 import com.icegreen.greenmail.util.GreenMail;
 import com.icegreen.greenmail.util.ServerSetup;
+import org.junit.jupiter.api.AfterEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.resttestclient.TestRestTemplate;
@@ -75,4 +76,25 @@ public abstract class BaseIntegrationTest {
 
     @Autowired
     protected TestRestTemplate restTemplate;
+
+    /**
+     * Per-test GreenMail purge — the canonical pattern per GreenMail docs
+     * for shared-singleton-across-classes setups. Without this, the
+     * {@code getReceivedMessages()} array accumulates across the entire JVM
+     * run, and the JUnit 5 default {@code MethodOrderer} (deterministic but
+     * intentionally non-obvious) can re-order tests when methods are
+     * added/removed — making any "messages since baseline index" pattern
+     * fragile.
+     *
+     * <p>Established 2026-04-15 after a test-ordering reshuffle caused
+     * {@code EmailPasswordResetIntegrationTest.happyPath} to read another
+     * test's residual email via the (now-removed) {@code greenMailBaseline}
+     * pattern. Fix per
+     * <a href="https://github.com/greenmail-mail-test/greenmail/blob/master/greenmail-core/src/test/java/com/icegreen/greenmail/examples/ExamplePurgeAllEmailsTest.java">
+     * GreenMail's own ExamplePurgeAllEmailsTest</a>.
+     */
+    @AfterEach
+    void purgeGreenMailMailboxes() throws Exception {
+        GREEN_MAIL.purgeEmailFromAllMailboxes();
+    }
 }
