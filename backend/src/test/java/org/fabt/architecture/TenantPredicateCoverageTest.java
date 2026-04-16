@@ -334,7 +334,7 @@ class TenantPredicateCoverageTest {
 
     /**
      * Apply the predicate rule to a single SQL string at a given location.
-     * Returns a violation message string, or null if compliant.
+     * Returns a violation message string, or null if the SQL passes the rule.
      */
     private static String checkSql(String location, String sql, TenantUnscopedQuery escape) {
         Statement stmt;

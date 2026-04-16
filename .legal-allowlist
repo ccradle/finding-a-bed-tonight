@@ -14,6 +14,7 @@ not certified
 has not been independently certified
 has not been certified by HUD
 has not undergone a formal third-party
+not "CSP compliant"
 
 # Code comments — technical facts, not compliance claims
 clock_timestamp() guarantees
