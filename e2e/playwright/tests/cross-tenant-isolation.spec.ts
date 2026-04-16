@@ -13,12 +13,15 @@ import { test, expect, APIRequestContext } from '@playwright/test';
  * Per Phase 5.3.3: this entire spec must add ≤ 30 seconds to post-deploy
  * smoke runtime.
  *
- * Usage:
+ * Default target: localhost:8080 (matches Karate's `baseUrl` default in
+ * karate-config.js). CI runs the backend on localhost so the regular
+ * `npx playwright test` exercise stays in-cluster. For post-deploy smoke
+ * against the deployed env, override:
  *   cd e2e/playwright
  *   FABT_BASE_URL=https://findabed.org npx playwright test cross-tenant-isolation --project chromium
  */
 
-const BASE = process.env.FABT_BASE_URL ?? 'https://findabed.org';
+const BASE = process.env.FABT_BASE_URL ?? 'http://localhost:8080';
 
 type LoginResp = { accessToken: string; refreshToken: string };
 
