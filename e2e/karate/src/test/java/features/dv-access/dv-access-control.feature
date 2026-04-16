@@ -48,16 +48,20 @@ Feature: DV Shelter Access Control — Blocking Canary Gate
     # COC_ADMIN user with dvAccess=false to prove that the ROLE alone is not
     # sufficient — dvAccess is the gate. Per feedback_isolated_test_data: tests
     # must create own data, not depend on seed assumptions.
+    #
+    # Use a per-run unique email so re-running this feature against the same
+    # DB doesn't hit the (tenant_id, email) UNIQUE constraint on app_user.
+    * def uniqueEmail = 'dv-canary-noaccess-' + java.util.UUID.randomUUID() + '@dev.fabt.org'
     * configure headers = { Authorization: '#(adminAuthHeader)' }
     Given path '/api/v1/users'
-    And request { email: 'dv-canary-noaccess@dev.fabt.org', displayName: 'DV Canary No Access', password: 'TestPassword123!', roles: ['COC_ADMIN'], dvAccess: false }
+    And request { email: '#(uniqueEmail)', displayName: 'DV Canary No Access', password: 'TestPassword123!', roles: ['COC_ADMIN'], dvAccess: false }
     When method POST
     Then status 201
     * def testUserId = response.id
 
     # Login as the new user
     Given url loginUrl
-    And request { email: 'dv-canary-noaccess@dev.fabt.org', password: 'TestPassword123!', tenantSlug: '#(tenantSlug)' }
+    And request { email: '#(uniqueEmail)', password: 'TestPassword123!', tenantSlug: '#(tenantSlug)' }
     When method POST
     Then status 200
     * def noDvToken = response.accessToken
