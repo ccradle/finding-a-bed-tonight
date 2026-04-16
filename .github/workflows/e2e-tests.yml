@@ -246,24 +246,6 @@ jobs:
           name: karate-report
           path: e2e/karate/target/karate-reports/
 
-      # Surface backend diagnostic log lines + upload full backend.log
-      # so PR-level investigations (e.g. #103 / #125) can see backend
-      # output that the Karate/Playwright stdout doesn't capture.
-      - name: Surface backend DIAG logs
-        if: always()
-        run: |
-          echo "=== DIAG lines from backend.log ==="
-          grep -E "DIAG\[" logs/backend.log || echo "(no DIAG lines)"
-          echo "=== last 200 lines of backend.log ==="
-          tail -200 logs/backend.log
-
-      - name: Upload backend.log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-log
-          path: logs/backend.log
-
       # --- Playwright UI Tests ---
       - name: Install Playwright dependencies
         working-directory: e2e/playwright

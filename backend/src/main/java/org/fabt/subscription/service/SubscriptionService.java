@@ -59,22 +59,8 @@ public class SubscriptionService {
     @Transactional
     public Subscription create(String eventType, Map<String, Object> filter,
                                String callbackUrl, String callbackSecret) {
-        // DIAGNOSTIC (project_v040_subscription_crud_karate_ci_only): tactical
-        // logging to surface the root cause of the CI-only Karate 409. Remove
-        // once the cause is identified and a proper fix is in. Per
-        // feedback_keep_diagnostics_until_green — keep until tests pass.
         UUID tenantId = TenantContext.getTenantId();
-        log.info("DIAG[v040-sub-409] create() entered tenantId={} eventType={} url={} threadName={}",
-                tenantId, eventType, callbackUrl, Thread.currentThread().getName());
-        try {
-            log.info("DIAG[v040-sub-409] validateCallbackUrl about to resolve url={}", callbackUrl);
-            validateCallbackUrl(callbackUrl);
-            log.info("DIAG[v040-sub-409] validateCallbackUrl passed url={}", callbackUrl);
-        } catch (RuntimeException ex) {
-            log.warn("DIAG[v040-sub-409] validateCallbackUrl threw {} on url={} message={}",
-                    ex.getClass().getName(), callbackUrl, ex.getMessage());
-            throw ex;
-        }
+        validateCallbackUrl(callbackUrl);
 
         // ID left null for INSERT (Lesson 64)
         Subscription subscription = new Subscription();
@@ -90,17 +76,7 @@ public class SubscriptionService {
         subscription.setExpiresAt(Instant.now().plus(365, ChronoUnit.DAYS));
         subscription.setCreatedAt(Instant.now());
 
-        try {
-            Subscription saved = subscriptionRepository.save(subscription);
-            log.info("DIAG[v040-sub-409] save() succeeded id={} tenantId={}",
-                    saved.getId(), saved.getTenantId());
-            return saved;
-        } catch (RuntimeException ex) {
-            log.warn("DIAG[v040-sub-409] save() threw {} message={} subscription.tenantId={} subscription.eventType={} subscription.callbackUrl={}",
-                    ex.getClass().getName(), ex.getMessage(),
-                    subscription.getTenantId(), subscription.getEventType(), subscription.getCallbackUrl());
-            throw ex;
-        }
+        return subscriptionRepository.save(subscription);
     }
 
     @Transactional(readOnly = true)
