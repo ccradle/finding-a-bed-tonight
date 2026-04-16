@@ -991,6 +991,16 @@ curl -s https://findabed.org/actuator/prometheus | grep -E "fabt_notification_(d
 
 **Tracking.** `openspec/changes/notification-deep-linking/` has the full phase breakdown. v0.39 release notes should call out the five operator-awareness items above (service worker, three-state bell, new nav entry, cross-tenant hardening disclosure, genesis-gap fix).
 
+## Cross-Tenant Access Behavior (Issue #117)
+
+**Cross-tenant access now returns 404 by design** (cross-tenant-isolation-audit, design D3). If a tenant admin reports "I can't rotate my API key / disable TOTP / delete a subscription / generate an access code / update an OAuth2 provider — getting 404," the first triage step is **confirm they are logged in to the correct tenant** before escalating. Common causes:
+
+- Multiple browser tabs across tenants → JWT in current tab is for a different tenant
+- Stale bookmark → URL contains a UUID from a previously-active tenant
+- Copy-paste from another admin's UI → UUID belongs to that admin's tenant
+
+The 404 (not 403) response shape is intentional — distinguishing "doesn't belong to your tenant" from "doesn't exist anywhere" would leak the existence of resources in other tenants.
+
 ## Cross-Tenant Isolation Observability (Issue #117)
 
 The `cross-tenant-isolation-audit` change ships three operational signals.

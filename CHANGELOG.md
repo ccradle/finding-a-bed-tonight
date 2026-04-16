@@ -5,6 +5,39 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.40.0] — 2026-04-16 — cross-tenant-isolation-audit (Issue #117)
+
+### Added
+- **Build-time tenant-isolation guards** — `TenantGuardArchitectureTest` (4 ArchUnit rules: bare `findById` on tenant-owned repos, `UUID tenantId` parameters on service writes, `findByIdForBatch` caller scoping, `*Internal` subscription method scoping) + `TenantPredicateCoverageTest` (JSqlParser + JavaParser SQL static analysis for missing `tenant_id` predicates). New violations now fail the build.
+- **`@TenantUnscoped("justification")` + `@TenantUnscopedQuery("justification")`** annotations for explicit, reviewed bypass of the tenant-guard convention. 21 placements across batch jobs, scheduled tasks, and FK-scoped queries — each carrying a non-empty rationale.
+- **`SafeOutboundUrlValidator`** — three-layer SSRF guard (scheme/syntax + DNS resolution + dial-time re-resolution) on every outbound URL the platform dials. Designed to mitigate the DNS rebinding bypass class (CVE-2026-27127). Applied to webhook callback URLs, OAuth2 issuer URIs, HMIS endpoints. 31 unit tests covering loopback, link-local (cloud metadata), RFC1918, ULA IPv6, multicast, malformed schemes.
+- **`fabt.security.cross_tenant_404s`** Micrometer counter — increments on every `NoSuchElementException`-derived 404, tagged by `resource_type`. Per design D9 intentionally indistinguishable between cross-tenant probes and legitimate "not found" (D3 prevents existence leak). Grafana dashboard `fabt-cross-tenant-security.json` with 7 panels + `$tenant` template variable.
+- **Per-tenant metric tagging (D16)** — 9 per-request Micrometer metrics now carry `tenant_id` tag (bed search, availability update, reservation, webhook delivery, HMIS push, DV referral, SSE failures, HTTP not_found, deeplink click). Cardinality budget ≤200 tenants × 9 metrics = ≤1800 series. Batch timers excluded.
+- **`app.tenant_id` PostgreSQL session variable** — set on every connection borrow alongside `app.dv_access` and `app.current_user_id`. Defense-in-depth infrastructure for the companion change `multi-tenant-production-readiness` (D14 — tenant-RLS on regulated tables). `TenantIdPoolBleedTest` runs 100 alternating-tenant iterations to confirm no pool bleed.
+- **E2E cross-tenant smoke specs** — Playwright `cross-tenant-isolation.spec.ts` + Karate `cross-tenant-isolation.feature` exercise the 5 admin surfaces (OAuth2, API key, TOTP, subscription, access code) with foreign UUIDs against the live deployed system. Run in post-deploy smoke; ≤30s runtime delta per spec.
+
+### Fixed (security)
+- **5 VULN-HIGH cross-tenant leaks** — `TenantOAuth2ProviderService.update/delete`, `ApiKeyService.rotate/deactivate`, `TotpController.disableUserTotp`/`adminRegenerateRecoveryCodes`, `SubscriptionService.delete`, `AccessCodeController.generateAccessCode`. Pre-fix: a CoC admin in Tenant A could mutate Tenant B resources by UUID. Post-fix: `findByIdAndTenantId` returns empty → 404 (D3 — no existence leak).
+- **2 VULN-MED cross-tenant leaks** — `AccessCodeController.generateAccessCode` admin lookup + `EscalationPolicyService.update`.
+- **2 LIVE VULN-HIGH leaks** found during audit — `audit_events` cross-tenant read (V57 added `tenant_id` column + backfill + service-layer filter); webhook callback URL SSRF (D12 three-layer validator above).
+- **Final D11 sweep** — `NotificationPersistenceService.send/sendToAll`, `HmisPushService.createOutboxEntries`, `SubscriptionService.updateStatus`, `OAuth2AccountLinkService.linkOrReject`, `ShelterImportService.importShelters` — dropped `UUID tenantId` parameters; sourced from `TenantContext` internally. Family B ArchUnit rule now strict with zero exceptions.
+- **`NotificationPersistenceService:169` Javadoc** — corrected misleading "can't happen under RLS" comment (notification table has no RLS — service-layer is the guard per D1).
+
+### Migrations
+- **V57** — `audit_events.tenant_id` column + backfill from `target_user_id`/`actor_user_id` joins + composite index `(tenant_id, target_user_id, timestamp DESC)`. Forward-only, idempotent.
+- **V58** — `COMMENT ON POLICY dv_referral_token_access ON referral_token` correction (D5). Comment-only — no behavioral change.
+
+### Docs
+- **`docs/security/rls-coverage.md`** — RLS coverage map: 9 RLS-enabled tables + 14 service-layer-only tenant-owned tables, each with policy name, what it enforces, service-layer guard, and cross-tenant test reference.
+- **`docs/security/safe-tenant-bypass-sites.md`** — SAFE-sites registry: 16 methods that call bare `findById` on tenant-owned repos but are verified safe (self-path JWT-keyed, FK-chain-scoped, token-hash-keyed, pre-validated). Companion to `TenantGuardArchitectureTest.SAFE_SITES`.
+- **`docs/runbook.md`** — new "Cross-Tenant Isolation Observability" section: counter alert thresholds (spike-vs-baseline), SSRF investigation playbook (3 categories), tenant-tagged metrics list, `app.tenant_id` verification SQL.
+- **`CONTRIBUTING.md`** — new tenant-owned table allowlist rule: new migrations adding `tenant_id` columns must update both `TENANT_OWNED_TABLES` (TenantPredicateCoverageTest) and `TENANT_OWNED_REPO_NAMES` (TenantGuardArchitectureTest). Build fails on drift.
+
+### Companion change
+- `openspec/changes/multi-tenant-production-readiness/` — proposal authored for the architectural items deferred from this audit (per-tenant JWT signing keys via HKDF, per-tenant encryption DEKs, `TenantScopedCacheService`, tenant-RLS on regulated tables realizing D14, per-tenant rate/pool/SSE buffer, file-storage audit, backup runbook). Ships in a follow-up release.
+
+---
+
 ## [v0.39.0] — 2026-04-15 — notification-deep-linking Phases 1-4 (Issue #106)
 
 ### Added
