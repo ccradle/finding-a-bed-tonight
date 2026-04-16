@@ -62,6 +62,21 @@
 
 If a tenant admin reports "I get 404 trying to rotate my API key / disable TOTP / etc." after this deploy, **first triage step is to confirm they are logged in to the correct tenant** before escalating. Common causes: multiple browser tabs across tenants, stale bookmark, copy-paste from another admin's UI. See `docs/runbook.md` "Cross-Tenant Access Behavior" section.
 
+## Demo allowlist threat-model audit (NEW in v0.40, 2026-04-16)
+
+`DemoGuardFilter.ALLOWED_MUTATIONS` was audited as part of the cross-tenant-audit closeout. Four entries were removed because they enabled cross-visitor break or persistent-abuse vectors on the public demo site (`https://findabed.org`):
+
+| Endpoint | Vector | Severity |
+|---|---|---|
+| `POST /api/v1/auth/enroll-totp` | Stores pending TOTP secret on the shared seed account | MEDIUM |
+| `POST /api/v1/auth/confirm-totp-enrollment` | Sets `totp_enabled=true` + bumps `token_version` → invalidates all existing JWTs AND requires every subsequent visitor logging in as the shared seed account to provide a TOTP code only the original enroller has → **account-hijack vector** | CRITICAL |
+| `POST /api/v1/subscriptions` | Persistent (365-day) outbound-dial configuration the demo backend will attempt for every matching event → outbound-dial amplification, exfiltration via attacker-chosen public webhook URL, persistent state pollution visible in Admin UI to other visitors | HIGH |
+| `DELETE /api/v1/subscriptions/*` | Pair with the create | HIGH |
+
+Public-URL POST/DELETE on these endpoints now returns `403 demo_restricted` with a friendly message. **Operators verify these flows via the SSH tunnel pattern** (`X-FABT-Traffic-Source=tunnel`, Design D2 — internal traffic bypasses demoguard).
+
+**No real-user impact** — the demo personas (outreach worker, coordinator, CoC admin, foundation officer, hospital social worker) don't use these surfaces during demos. IT integrators evaluating webhook integration set up their own dev environment.
+
 ## What Does NOT Change
 
 - **No new env vars.**
@@ -179,21 +194,58 @@ curl -s https://findabed.org/actuator/prometheus | grep fabt_security_cross_tena
 # https://grafana.findabed.org/d/fabt-cross-tenant-security
 ```
 
-### **GATING final check — webhook subscription create + delete on prod (per Elena + Riley + Alex)**
+### **GATING final check — webhook subscription create + delete (FROM INSIDE THE VM)**
 
-This is the v0.40-specific smoke that proves the CI Karate `subscription-crud` 409 (tracked in #103) is NOT a real production race. Use the admin UI on the live site:
+> **⚠ Cannot be run from outside.** v0.40 demoguard threat-model audit (2026-04-16) closed the public allowlist for webhook subscription create + delete. Public-URL POST/DELETE on `/api/v1/subscriptions` now returns `403 demo_restricted`. Operators verify via the SSH tunnel pattern (`X-FABT-Traffic-Source=tunnel`, Design D2) — internal traffic bypasses demoguard.
 
-1. Log in as `cocadmin@dev.fabt.org` on `https://findabed.org`.
-2. Admin panel → Webhooks tab → **Create new subscription**:
-   - Event type: `availability.updated`
-   - Callback URL: `https://example.com/v0.40-postdeploy-smoke` (any public URL — `example.com` confirms the SSRF guard accepts public IPs)
-   - Callback secret: any test value
-3. Submit. **Must return 201 Created and the subscription must appear in the list.**
-4. Click the new subscription's delete (cancel) button. **Must return 204 No Content.**
+This proves the CI Karate `subscription-crud` 409 (resolved in PR #125) is NOT a real production race. Run from inside the VM:
 
-If step 3 returns 409 → the CI Karate failure is a real production race, NOT a CI environment quirk. **Roll back per the Rollback Criteria section.** This is a P0 user-impact regression for any pilot tenant who would create webhook subscriptions in v0.40.
+```bash
+ssh -i ~/.ssh/fabt-oracle ubuntu@150.136.221.232
 
-If both 3 + 4 succeed → v0.40 is healthy in production. The CI Karate flake stays as a separate test-infrastructure investigation per #103.
+# === ON VM (internal traffic — bypasses demoguard) ===
+
+# Login as admin against localhost backend (NOT findabed.org)
+TOKEN=$(curl -s -X POST -H "Content-Type: application/json" \
+  -d '{"tenantSlug":"dev-coc","email":"admin@dev.fabt.org","password":"admin123"}' \
+  http://localhost:8080/api/v1/auth/login | jq -r .accessToken)
+
+# Create — must return 201
+SUB=$(curl -s -w "\n%{http_code}" -X POST -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"eventType":"availability.updated","callbackUrl":"https://example.com/v0.40-postdeploy-smoke","callbackSecret":"smoke-test-secret"}' \
+  http://localhost:8080/api/v1/subscriptions)
+echo "$SUB"
+# Expected: trailing 201. Body: {"id":"<uuid>","status":"ACTIVE",...}
+
+SUB_ID=$(echo "$SUB" | head -n 1 | jq -r .id)
+
+# Delete — must return 204
+curl -s -o /dev/null -w "%{http_code}\n" -X DELETE \
+  -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8080/api/v1/subscriptions/$SUB_ID
+# Expected: 204
+```
+
+**Outcomes:**
+- Create returns **201** → v0.40 webhook flow healthy on prod ✓
+- Create returns **409 "Resource conflict"** → encryption key not configured in prod env (separate from CI fix). Check `~/fabt-secrets/.env.prod` has `FABT_ENCRYPTION_KEY=<key>`. Roll back per Rollback Criteria until env is set.
+- Create returns **403 demo_restricted** → you're not actually inside the VM bypass path; check that container nginx is setting `X-FABT-Traffic-Source=tunnel` for `localhost:8080` traffic. If the request went through Cloudflare somehow, demoguard correctly blocks it (this is the new v0.40 behavior).
+
+### Cross-tenant smoke — also from inside (per Riley's WAF caveat + demoguard audit)
+
+The cross-tenant Karate + Playwright probes hit 5 admin surfaces with foreign UUIDs. ALL of them are admin-only mutations correctly blocked by demoguard from public URLs (oauth2-providers, api-keys, auth/totp, users/*/generate-access-code) — including subscriptions DELETE now (post-audit). To exercise the full 8-probe matrix against the v0.40 backend, run from inside:
+
+```bash
+# ALSO ON VM
+cd ~/finding-a-bed-tonight/e2e/karate
+mvn test -Dtest=KarateRunnerTest \
+  -Dkarate.options="features/security/cross-tenant-isolation.feature" \
+  -DbaseUrl=http://localhost:8081
+# Expected: 14/14 green (8 negative + 5 positive control + 1 ignored metric).
+```
+
+Public-URL Karate against `https://findabed.org` will return mostly `403 demo_restricted` for the cross-tenant probes — that's demoguard working as designed, NOT a v0.40 regression. The from-inside run is the authoritative verification.
 
 ## Rollback Criteria
 

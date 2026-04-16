@@ -46,8 +46,14 @@ public class DemoGuardFilter extends OncePerRequestFilter {
             new AllowedMutation("POST", "/api/v1/auth/login"),
             new AllowedMutation("POST", "/api/v1/auth/refresh"),
             new AllowedMutation("POST", "/api/v1/auth/verify-totp"),
-            new AllowedMutation("POST", "/api/v1/auth/enroll-totp"),
-            new AllowedMutation("POST", "/api/v1/auth/confirm-totp-enrollment"),
+            // TOTP enroll + confirm-enrollment intentionally NOT allowlisted —
+            // confirm-totp-enrollment sets totp_enabled=true AND increments
+            // token_version, which (a) invalidates all existing JWTs (logging
+            // out concurrent demo visitors) and (b) requires every subsequent
+            // visitor logging in as the shared seed account to provide a TOTP
+            // code only the original enroller has. Effectively an account-
+            // hijack vector on the public demo. Removed in v0.40 demoguard
+            // threat-model audit (2026-04-16).
             new AllowedMutation("POST", "/api/v1/auth/access-code"),
             // Bed operations
             new AllowedMutation("POST", "/api/v1/queries/beds"),
@@ -73,10 +79,18 @@ public class DemoGuardFilter extends OncePerRequestFilter {
             // Notifications (read/acted/read-all are safe — they only mark timestamps)
             new AllowedMutation("PATCH", "/api/v1/notifications/*/read"),
             new AllowedMutation("PATCH", "/api/v1/notifications/*/acted"),
-            new AllowedMutation("POST", "/api/v1/notifications/read-all"),
-            // Webhooks
-            new AllowedMutation("POST", "/api/v1/subscriptions"),
-            new AllowedMutation("DELETE", "/api/v1/subscriptions/*")
+            new AllowedMutation("POST", "/api/v1/notifications/read-all")
+            // Webhook subscription create/delete intentionally NOT allowlisted —
+            // creates a persistent (365-day default expiry) outbound-dial
+            // configuration the demo backend will then attempt for every
+            // matching domain event. Abuse vectors: outbound-dial amplification,
+            // exfiltration via webhook payloads, persistent state pollution
+            // visible in the Admin UI to other demo visitors. SafeOutboundUrl-
+            // Validator (v0.40) blocks RFC1918/loopback/cloud-metadata but
+            // public attacker-chosen URLs would still be accepted. The IT
+            // integrator persona who would legitimately use this surface
+            // should set up their own dev environment, not the public demo.
+            // Removed in v0.40 demoguard threat-model audit (2026-04-16).
     );
 
     @Override
@@ -173,6 +187,15 @@ public class DemoGuardFilter extends OncePerRequestFilter {
     }
 
     private static String getBlockMessage(String path) {
+        if (path.equals("/api/v1/auth/enroll-totp") || path.equals("/api/v1/auth/confirm-totp-enrollment")) {
+            return "Two-factor enrollment is disabled in the demo environment — would require subsequent visitors to "
+                    + "provide a TOTP code only the original enroller has, locking everyone else out of the shared "
+                    + "demo accounts.";
+        }
+        if (path.startsWith("/api/v1/subscriptions")) {
+            return "Webhook subscription management is disabled in the demo environment. IT integrators evaluating "
+                    + "webhook integration should set up their own dev environment.";
+        }
         if (path.startsWith("/api/v1/users")) return "User management is disabled in the demo environment.";
         // Manual offline holds have cross-visitor impact (a held bed disappears from
         // other visitors' bed search results), so they are intentionally not allowlisted

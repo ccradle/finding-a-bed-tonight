@@ -118,6 +118,62 @@ class DemoGuardFilterTest {
         assertThat(response.getContentAsString()).contains("Data import is disabled");
     }
 
+    // --- v0.40 demoguard threat-model audit (regression guards) ---
+
+    @Test
+    void totp_enroll_blocked() throws ServletException, IOException {
+        // Account-hijack vector: confirm-totp-enrollment sets totp_enabled=true +
+        // increments token_version on the shared seed account, locking out every
+        // subsequent demo visitor. Removed from allowlist 2026-04-16.
+        request.setMethod("POST");
+        request.setRequestURI("/api/v1/auth/enroll-totp");
+
+        filter.doFilterInternal(request, response, chain);
+
+        verifyNoInteractions(chain);
+        assertThat(response.getStatus()).isEqualTo(403);
+        assertThat(response.getContentAsString()).contains("Two-factor enrollment is disabled");
+    }
+
+    @Test
+    void totp_confirm_enrollment_blocked() throws ServletException, IOException {
+        request.setMethod("POST");
+        request.setRequestURI("/api/v1/auth/confirm-totp-enrollment");
+
+        filter.doFilterInternal(request, response, chain);
+
+        verifyNoInteractions(chain);
+        assertThat(response.getStatus()).isEqualTo(403);
+        assertThat(response.getContentAsString()).contains("Two-factor enrollment is disabled");
+    }
+
+    @Test
+    void subscription_create_blocked() throws ServletException, IOException {
+        // Abuse vector: outbound-dial amplification, exfiltration via attacker-
+        // chosen public webhook URL, persistent state pollution (365-day expiry).
+        // Removed from allowlist 2026-04-16.
+        request.setMethod("POST");
+        request.setRequestURI("/api/v1/subscriptions");
+
+        filter.doFilterInternal(request, response, chain);
+
+        verifyNoInteractions(chain);
+        assertThat(response.getStatus()).isEqualTo(403);
+        assertThat(response.getContentAsString()).contains("Webhook subscription management is disabled");
+    }
+
+    @Test
+    void subscription_delete_blocked() throws ServletException, IOException {
+        request.setMethod("DELETE");
+        request.setRequestURI("/api/v1/subscriptions/00000000-0000-0000-0000-000000000001");
+
+        filter.doFilterInternal(request, response, chain);
+
+        verifyNoInteractions(chain);
+        assertThat(response.getStatus()).isEqualTo(403);
+        assertThat(response.getContentAsString()).contains("Webhook subscription management is disabled");
+    }
+
     // --- Allowlisted safe mutations pass through ---
 
     @Test
