@@ -64,7 +64,10 @@ class JwtServiceSecurityAttackTest {
     private JwtService service() {
         Environment env = mock(Environment.class);
         when(env.getActiveProfiles()).thenReturn(new String[]{"lite", "test"});
-        return new JwtService(SECRET, 15, 7, mapper, env);
+        // Phase A4 new dependencies are null because every test in this file
+        // exercises the LEGACY validate path (no kid header). The legacy path
+        // does not touch keyDerivation/kidRegistry/revokedKidCache.
+        return new JwtService(SECRET, 15, 7, mapper, env, null, null, null);
     }
 
     /** Issue a real, well-formed token via the service so tampering tests have a baseline. */

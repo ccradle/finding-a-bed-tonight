@@ -15,7 +15,10 @@ class SecurityStartupTest {
     private JwtService createService(String secret, String... activeProfiles) {
         Environment env = mock(Environment.class);
         when(env.getActiveProfiles()).thenReturn(activeProfiles);
-        return new JwtService(secret, 15, 7, objectMapper, env);
+        // Phase A4: new deps null — this test only exercises @PostConstruct
+        // validation (validateJwtSecret), not validateToken. Null new-path
+        // deps never get called from this test surface.
+        return new JwtService(secret, 15, 7, objectMapper, env, null, null, null);
     }
 
     @Test
