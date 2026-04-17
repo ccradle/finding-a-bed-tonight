@@ -129,14 +129,21 @@ public class KidRegistryService {
     }
 
     private void ensureActiveGeneration(UUID tenantId) {
-        // PK conflict on (tenant_id, generation) absorbs the race; on success
-        // the new row has active=TRUE. Partial unique index
-        // tenant_key_material_active_per_tenant prevents two simultaneous
-        // active rows from coexisting per tenant.
+        // ON CONFLICT DO NOTHING (no target) absorbs ANY unique violation:
+        // - PK conflict on (tenant_id, generation) — bootstrap race winner
+        // - Partial unique on (tenant_id) WHERE active=TRUE — a rotated
+        //   tenant already has an active row at generation > 1; gen 1 is
+        //   inactive, but inserting (tenant, 1, TRUE) would still violate
+        //   the partial unique. Caught by the post-A3 warroom test
+        //   KidRegistryServiceCacheInvalidationTest before it could ship.
+        // The narrow ON CONFLICT (tenant_id, generation) form was wrong;
+        // the tenant might already be on a higher generation when a
+        // findOrCreateActiveKid call arrives after a rotation has bumped
+        // the generation but before this caller's cache entry expired.
         jdbc.update(
                 "INSERT INTO tenant_key_material (tenant_id, generation, active) "
                 + "VALUES (?, 1, TRUE) "
-                + "ON CONFLICT (tenant_id, generation) DO NOTHING",
+                + "ON CONFLICT DO NOTHING",
                 tenantId);
     }
 
@@ -178,6 +185,37 @@ public class KidRegistryService {
         return jdbc.queryForObject(
                 "SELECT kid FROM kid_to_tenant_key WHERE tenant_id = ? AND generation = ?",
                 UUID.class, tenantId, generation);
+    }
+
+    // ------------------------------------------------------------------
+    // Cache invalidation hooks for rotation (task 2.12)
+    // ------------------------------------------------------------------
+
+    /**
+     * Evicts the cached active kid for a tenant. Phase A4's
+     * {@code bumpJwtKeyGeneration(tenantId)} MUST call this immediately
+     * after writing the new active row to {@code tenant_key_material},
+     * otherwise the 5-minute {@link #tenantToActiveKidCache} TTL would
+     * cause up to 5 minutes of post-rotation encrypts to use the OLD
+     * generation's kid.
+     *
+     * <p>Idempotent — safe to call when no entry is cached.
+     */
+    public void invalidateTenantActiveKid(UUID tenantId) {
+        tenantToActiveKidCache.invalidate(tenantId);
+    }
+
+    /**
+     * Evicts a specific kid from the resolution cache. Used by tenant
+     * hard-delete (Phase F crypto-shred) before the
+     * {@code kid_to_tenant_key} row is dropped, so any in-flight decrypt
+     * attempts see the deletion immediately rather than serving stale
+     * cached resolutions for up to 1 hour.
+     *
+     * <p>Idempotent.
+     */
+    public void invalidateKidResolution(UUID kid) {
+        kidToResolutionCache.invalidate(kid);
     }
 
     /** Result of a kid lookup. */
