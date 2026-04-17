@@ -158,10 +158,16 @@ public class V74__reencrypt_secrets_under_per_tenant_deks extends BaseJavaMigrat
         Connection conn = context.getConnection();
 
         // D36 / C-A5-N9: dev-skip path. Prod boot already fails-fast without
-        // the key, so this branch is only reachable in dev/CI.
+        // the key, so this branch is only reachable in dev/CI. The system-
+        // property fallback exists to give integration tests a knob (where
+        // env vars are hard to set) without relaxing prod semantics — the
+        // Phase 0 startup guard already runs in prod before Flyway.
         String base64Key = System.getenv("FABT_ENCRYPTION_KEY");
         if (base64Key == null || base64Key.isBlank()) {
             base64Key = System.getenv("FABT_TOTP_ENCRYPTION_KEY");
+        }
+        if (base64Key == null || base64Key.isBlank()) {
+            base64Key = System.getProperty("fabt.encryption-key");
         }
         if (base64Key == null || base64Key.isBlank()) {
             log.warn("V74: FABT_ENCRYPTION_KEY not set — skipping re-encryption. "
