@@ -96,14 +96,23 @@ class TenantGuardUnitTest {
         when(providerRepo.findByTenantIdAndProviderName(TENANT_ID, "okta"))
                 .thenReturn(Optional.empty());
         when(providerRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        when(encryptionService.encrypt("plain-secret")).thenReturn("CIPHERTEXT");
+        // Phase A5 D38: encrypt flow now goes through encryptForTenant with
+        // KeyPurpose.OAUTH2_CLIENT_SECRET. Stub the new typed API and verify
+        // the same method is invoked.
+        when(encryptionService.encryptForTenant(
+                TENANT_ID,
+                org.fabt.shared.security.KeyPurpose.OAUTH2_CLIENT_SECRET,
+                "plain-secret")).thenReturn("CIPHERTEXT");
 
         var service = new TenantOAuth2ProviderService(providerRepo, urlValidator, encryptionService);
         TenantContext.runWithContext(TENANT_ID, false, () ->
                 service.create("okta", "client-x", "plain-secret",
                         "https://login.microsoftonline.com/common/v2.0"));
 
-        verify(encryptionService).encrypt("plain-secret");
+        verify(encryptionService).encryptForTenant(
+                TENANT_ID,
+                org.fabt.shared.security.KeyPurpose.OAUTH2_CLIENT_SECRET,
+                "plain-secret");
     }
 
     @Test

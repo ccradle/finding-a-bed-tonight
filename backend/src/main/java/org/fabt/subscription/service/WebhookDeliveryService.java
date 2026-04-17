@@ -126,7 +126,8 @@ public class WebhookDeliveryService {
             ));
 
             // Decrypt the stored secret for HMAC computation (AES-256-GCM at rest)
-            String hmacKey = subscriptionService.decryptCallbackSecret(subscription.getCallbackSecretHash());
+            String hmacKey = subscriptionService.decryptCallbackSecret(
+                    subscription.getTenantId(), subscription.getCallbackSecretHash());
             String signature = "sha256=" + computeHmacSha256(hmacKey, jsonBody);
 
             // D12 (cross-tenant-isolation-audit Phase 2.14): dial-time SSRF
@@ -280,7 +281,8 @@ public class WebhookDeliveryService {
         }
 
         // Decrypt the stored secret for HMAC computation (AES-256-GCM at rest)
-        String hmacKey = subscriptionService.decryptCallbackSecret(subscription.getCallbackSecretHash());
+        String hmacKey = subscriptionService.decryptCallbackSecret(
+                subscription.getTenantId(), subscription.getCallbackSecretHash());
         String signature = "sha256=" + computeHmacSha256(hmacKey, jsonBody);
 
         log.debug("Delivering event {} to {} for subscription {}",

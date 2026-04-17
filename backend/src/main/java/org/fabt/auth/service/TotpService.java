@@ -3,6 +3,7 @@ package org.fabt.auth.service;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 import dev.samstevens.totp.code.CodeGenerator;
 import dev.samstevens.totp.code.CodeVerifier;
@@ -14,6 +15,7 @@ import dev.samstevens.totp.secret.DefaultSecretGenerator;
 import dev.samstevens.totp.secret.SecretGenerator;
 import dev.samstevens.totp.time.SystemTimeProvider;
 
+import org.fabt.shared.security.KeyPurpose;
 import org.springframework.stereotype.Service;
 
 /**
@@ -121,17 +123,28 @@ public class TotpService {
     }
 
     /**
-     * Decrypt a stored TOTP secret for verification.
+     * Decrypt a stored TOTP secret for verification, scoped to the owning
+     * tenant's DEK. Phase A5 D38: the controller must pass {@code tenantId}
+     * explicitly because the MFA-verify flow runs before a SecurityContext
+     * is bound — there is no {@code TenantContext} to implicit-scope against.
+     * The controller has {@code user.getTenantId()} in hand; passing it here
+     * is the right plumbing.
+     *
+     * <p>v0 ciphertexts (pre-V74) continue to decrypt via the defense-in-depth
+     * v0 fallback path in {@code SecretEncryptionService.decryptForTenant} —
+     * no caller-side fallback logic needed here.
      */
-    public String decryptSecret(String encrypted) {
-        return encryptionService.decrypt(encrypted);
+    public String decryptSecret(UUID tenantId, String encrypted) {
+        return encryptionService.decryptForTenant(tenantId, KeyPurpose.TOTP, encrypted);
     }
 
     /**
-     * Encrypt a TOTP secret for storage.
+     * Encrypt a TOTP secret for storage under the owning tenant's DEK.
+     * Phase A5 D38: {@code tenantId} explicit for the same reason as
+     * {@link #decryptSecret}.
      */
-    public String encryptSecret(String plaintext) {
-        return encryptionService.encrypt(plaintext);
+    public String encryptSecret(UUID tenantId, String plaintext) {
+        return encryptionService.encryptForTenant(tenantId, KeyPurpose.TOTP, plaintext);
     }
 
     public boolean isEncryptionConfigured() {

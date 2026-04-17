@@ -5,7 +5,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [Unreleased] — multi-tenant-production-readiness Phases 0 + A (Issue #126)
+## [Unreleased] — multi-tenant-production-readiness Phases 0 + A + A5 (Issue #126)
+
+### ⚠️ v0.41 → v0.42 is effectively ONE-WAY
+
+V74 re-encrypts every existing TOTP / webhook / OAuth2 / HMIS ciphertext from the single-platform-key v0 envelope to per-tenant-DEK v1 envelopes. **v0.41 container images do NOT understand v1 envelopes** — deploying v0.41 against a post-V74 database breaks TOTP login, webhook signing, OAuth2 SSO, and HMIS outbound calls silently at request time. Rollback requires restoring the pre-deploy pg_dump backup (runbook 2.16).
+
+**Release gate:** v0.42 MUST ship Phase 0 + Phase A + Phase A5 (V74) together. No valid Phase-0-only v0.41.x release line exists. Per C-A5-N8, the V74 migration itself refuses to run without V60 + V61 applied — release-process belt-and-suspenders.
+
+### Phase A5 — V74 re-encrypt migration + callsite refactor (task 2.13)
+
+**Completes Phase A** — sweeps every existing v0 ciphertext (single-platform-key) to a v1 per-tenant-DEK envelope; refactors all encrypt/decrypt callsites to the typed `encryptForTenant` / `decryptForTenant` API.
+
+#### Added — Phase A5
+- **`V74__reencrypt_secrets_under_per_tenant_deks.java`** — idempotent Java Flyway migration sweeping four columns: `app_user.totp_secret_encrypted`, `subscription.callback_secret_hash`, `tenant_oauth2_provider.client_secret_encrypted`, and `tenant.config → hmis_vendors[].api_key_encrypted`. Preflights Phase A presence (fails loudly without V60+V61), bounds `lock_timeout`+`statement_timeout`, filters `WHERE tenant_id IS NOT NULL`, takes `FOR UPDATE` row locks, round-trip-verifies each re-encrypted row before commit, hardens the JSONB parser with explicit `StreamReadConstraints`, and emits a `SYSTEM_MIGRATION_V74_REENCRYPT` audit row with expanded JSONB (`duration_ms`, master-KEK fingerprint, Flyway session role, per-column reencrypted/skipped-v1/skipped-null-tenant counts).
+- **`SecretEncryptionService` v0-fallback observability (C-A5-N4)** — every v0 decrypt post-V74 increments `fabt.security.v0_decrypt_fallback.count` (tagged by purpose + tenant_id) and emits a throttled `CIPHERTEXT_V0_DECRYPT` audit event (≤ 1 per tenant+purpose per 60s). Catches both stuck-row repair cases AND hostile v0-forgery downgrade attacks.
+- **Service-layer per-tenant refactor (D38 + D39).** `TotpService.encryptSecret/decryptSecret`, `SubscriptionService.decryptCallbackSecret`, and `HmisConfigService.encryptApiKey/decryptApiKey` now take `UUID tenantId` explicitly. `SubscriptionService.create` + `TenantOAuth2ProviderService.create`/`update` + `DynamicClientRegistrationSource.decryptClientSecret` internally call `encryptForTenant` / `decryptForTenant` with the appropriate `KeyPurpose`. All four controllers/delivery paths (`TotpController` x2, `AuthController` MFA verify, `WebhookDeliveryService` x2) pass the tenantId from the `User` / `Subscription` in hand.
+- **`design-a5-v74-reencrypt.md`** — 42 decisions (D30–D42) + 10 warroom-resolved questions + 12-row risk register + 10 critical + 7 strong-warning items from the Marcus + Jordan + Sam warroom.
+
+#### Hardened — Phase A5
+- **`SecretEncryptionService.encrypt/decrypt` legacy methods** marked `@Deprecated(since = "v0.42", forRemoval = true)` targeting Phase L. Retained only for V74 migration internal use; ArchUnit Family F will block application-code use post-Phase-L.
+- **`CiphertextV0Decoder`** class-level Javadoc carries an explicit "DO NOT REMOVE — defense-in-depth contract per design-a5-v74 D42" statement with pointer to the design doc, protecting the permanent v0 fallback path from future YAGNI-deletion.
+
+#### Test coverage — Phase A5
+- **`V74ReencryptIntegrationTest`** (6 cases) — T1 happy-path round-trip, T2 idempotency on re-run, T3 cross-tenant DEK separation, T5 empty-state no-op, T9 audit row shape, T11 `KeyPurpose.values()` round-trip.
+- **Existing service ITs (`HmisEncryptionRoundTripIntegrationTest`, `OAuth2EncryptionRoundTripIntegrationTest`, `TotpAndAccessCodeIntegrationTest`, `TenantGuardUnitTest`, `PerTenantEncryptionIntegrationTest`, `V59ReencryptPlaintextCredentialsTest`)** updated to assert v1 envelope production post-refactor — 49/49 green.
+
+#### Migrations — Phase A5
+- **V74** — single Java migration. One transaction. Commit semantics: Flyway atomic rollback on mid-migration failure; no reverse migration. See runbook 2.16 for pre-deploy pg_dump procedure.
 
 ### Phase A — Per-tenant JWT signing keys + DEK derivation (PR forthcoming)
 

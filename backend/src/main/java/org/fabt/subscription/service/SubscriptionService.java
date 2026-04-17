@@ -12,6 +12,7 @@ import java.util.UUID;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 import org.fabt.shared.config.JsonString;
+import org.fabt.shared.security.KeyPurpose;
 import org.fabt.shared.security.SafeOutboundUrlValidator;
 import org.fabt.shared.security.TenantUnscoped;
 import org.fabt.shared.web.TenantContext;
@@ -71,7 +72,11 @@ public class SubscriptionService {
         // Encrypt the callback secret with AES-256-GCM for storage at rest.
         // Decrypted on delivery to compute HMAC-SHA256 signatures.
         // Field name is still callbackSecretHash (pre-existing column) — stores encrypted value.
-        subscription.setCallbackSecretHash(encryptionService.encrypt(callbackSecret));
+        // Phase A5 D38: encrypted under the per-tenant DEK, not the shared
+        // platform key. The column name rename to callback_secret_encrypted
+        // is a separate housekeeping migration.
+        subscription.setCallbackSecretHash(
+                encryptionService.encryptForTenant(tenantId, KeyPurpose.WEBHOOK_SECRET, callbackSecret));
         subscription.setStatus("ACTIVE");
         subscription.setExpiresAt(Instant.now().plus(365, ChronoUnit.DAYS));
         subscription.setCreatedAt(Instant.now());
@@ -277,10 +282,15 @@ public class SubscriptionService {
 
     /**
      * Decrypt a stored webhook callback secret for HMAC computation.
-     * Public so WebhookDeliveryService can call it.
+     * Public so {@link WebhookDeliveryService} can call it.
+     *
+     * <p>Phase A5 D38: tenant-scoped. The delivery path always has the
+     * {@code Subscription} object in hand, so {@code subscription.getTenantId()}
+     * is the right source. v0 ciphertexts (pre-V74) continue to decrypt via
+     * the defense-in-depth v0 fallback in {@code SecretEncryptionService}.
      */
-    public String decryptCallbackSecret(String encryptedSecret) {
-        return encryptionService.decrypt(encryptedSecret);
+    public String decryptCallbackSecret(UUID tenantId, String encryptedSecret) {
+        return encryptionService.decryptForTenant(tenantId, KeyPurpose.WEBHOOK_SECRET, encryptedSecret);
     }
 
     private JsonString toJsonString(Map<String, Object> filter) {

@@ -409,7 +409,7 @@ class TotpAndAccessCodeIntegrationTest extends BaseIntegrationTest {
         if (!totpService.isEncryptionConfigured()) return null;
 
         String secret = totpService.generateSecret();
-        user.setTotpSecretEncrypted(totpService.encryptSecret(secret));
+        user.setTotpSecretEncrypted(totpService.encryptSecret(user.getTenantId(), secret));
         user.setTotpEnabled(true);
 
         TotpService.BackupCodes codes = totpService.generateBackupCodes();
@@ -583,7 +583,7 @@ class TotpAndAccessCodeIntegrationTest extends BaseIntegrationTest {
         // the self-enrollment flow — same shape as line 49 test setup).
         String testSecret = totpService.generateSecret();
         tenantBUser.setTotpEnabled(true);
-        tenantBUser.setTotpSecretEncrypted(totpService.encryptSecret(testSecret));
+        tenantBUser.setTotpSecretEncrypted(totpService.encryptSecret(tenantBUser.getTenantId(), testSecret));
         tenantBUser.setRecoveryCodes("[\"hash1\",\"hash2\"]");
         tenantBUser.setUpdatedAt(java.time.Instant.now());
         authHelper.getUserRepository().save(tenantBUser);
@@ -636,7 +636,7 @@ class TotpAndAccessCodeIntegrationTest extends BaseIntegrationTest {
         String originalCodesJson = "[\"original-hash-1\",\"original-hash-2\"]";
         String testSecret = totpService.generateSecret();
         tenantBUser.setTotpEnabled(true);
-        tenantBUser.setTotpSecretEncrypted(totpService.encryptSecret(testSecret));
+        tenantBUser.setTotpSecretEncrypted(totpService.encryptSecret(tenantBUser.getTenantId(), testSecret));
         tenantBUser.setRecoveryCodes(originalCodesJson);
         tenantBUser.setUpdatedAt(java.time.Instant.now());
         authHelper.getUserRepository().save(tenantBUser);

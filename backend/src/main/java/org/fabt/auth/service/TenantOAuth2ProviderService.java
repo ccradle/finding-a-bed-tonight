@@ -8,6 +8,7 @@ import java.util.UUID;
 
 import org.fabt.auth.domain.TenantOAuth2Provider;
 import org.fabt.auth.repository.TenantOAuth2ProviderRepository;
+import org.fabt.shared.security.KeyPurpose;
 import org.fabt.shared.security.SafeOutboundUrlValidator;
 import org.fabt.shared.security.SecretEncryptionService;
 import org.fabt.shared.web.TenantContext;
@@ -72,7 +73,10 @@ public class TenantOAuth2ProviderService {
         provider.setProviderName(providerName);
         provider.setClientId(clientId);
         if (clientSecret != null) {
-            provider.setClientSecretEncrypted(encryptionService.encrypt(clientSecret));
+            // Phase A5 D38: per-tenant DEK under KeyPurpose.OAUTH2_CLIENT_SECRET.
+            provider.setClientSecretEncrypted(
+                    encryptionService.encryptForTenant(
+                            tenantId, KeyPurpose.OAUTH2_CLIENT_SECRET, clientSecret));
         }
         provider.setIssuerUri(issuerUri);
         provider.setEnabled(true);
@@ -100,7 +104,11 @@ public class TenantOAuth2ProviderService {
             provider.setClientId(clientId);
         }
         if (clientSecret != null) {
-            provider.setClientSecretEncrypted(encryptionService.encrypt(clientSecret));
+            // Phase A5 D38: re-use the provider's existing tenantId (the
+            // update path is already tenant-scoped via findByIdOrThrow).
+            provider.setClientSecretEncrypted(
+                    encryptionService.encryptForTenant(
+                            provider.getTenantId(), KeyPurpose.OAUTH2_CLIENT_SECRET, clientSecret));
         }
         if (issuerUri != null && !issuerUri.isBlank()) {
             // D12: same SSRF validation on update — an attacker admin

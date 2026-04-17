@@ -323,8 +323,10 @@ public class AuthController {
                     .body(new ErrorBody("Invalid verification token."));
         }
 
-        // Try TOTP code first
-        String secret = totpService.decryptSecret(user.getTotpSecretEncrypted());
+        // Try TOTP code first (Phase A5: tenant-scoped per D38 — MFA verify
+        // runs before SecurityContext binding; tenantId comes from the User
+        // row we just loaded, not from TenantContext)
+        String secret = totpService.decryptSecret(user.getTenantId(), user.getTotpSecretEncrypted());
         boolean codeValid = totpService.verifyCode(secret, code);
 
         // If TOTP failed, try as backup code

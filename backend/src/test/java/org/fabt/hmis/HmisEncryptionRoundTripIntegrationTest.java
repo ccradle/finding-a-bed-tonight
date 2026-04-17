@@ -9,6 +9,7 @@ import org.fabt.TestAuthHelper;
 import org.fabt.hmis.domain.HmisVendorConfig;
 import org.fabt.hmis.domain.HmisVendorType;
 import org.fabt.hmis.service.HmisConfigService;
+import org.fabt.shared.security.KeyPurpose;
 import org.fabt.shared.security.SecretEncryptionService;
 import org.fabt.tenant.service.TenantService;
 import org.junit.jupiter.api.AfterEach;
@@ -77,28 +78,31 @@ class HmisEncryptionRoundTripIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("encryptApiKey produces ciphertext that round-trips through SecretEncryptionService")
+    @DisplayName("encryptApiKey produces v1 ciphertext that round-trips through decryptForTenant")
     void encryptApiKeyRoundTripsThroughSharedService() {
         String plaintext = "hmis-api-key-" + UUID.randomUUID();
-        String ciphertext = hmisConfigService.encryptApiKey(plaintext);
+        String ciphertext = hmisConfigService.encryptApiKey(tenantId, plaintext);
 
         assertNotEquals(plaintext, ciphertext);
-        assertEquals(plaintext, encryptionService.decrypt(ciphertext));
+        // Phase A5 D38: encryptApiKey now writes v1 envelope bytes under the
+        // tenant's HMIS DEK. Round-trip must go through the typed API.
+        assertEquals(plaintext,
+                encryptionService.decryptForTenant(tenantId, KeyPurpose.HMIS_API_KEY, ciphertext));
     }
 
     @Test
     @DisplayName("encryptApiKey returns null/blank inputs unchanged (safe-by-default)")
     void encryptApiKeyHandlesNullAndBlank() {
-        assertEquals(null, hmisConfigService.encryptApiKey(null));
-        assertEquals("", hmisConfigService.encryptApiKey(""));
-        assertEquals("   ", hmisConfigService.encryptApiKey("   "));
+        assertEquals(null, hmisConfigService.encryptApiKey(tenantId, null));
+        assertEquals("", hmisConfigService.encryptApiKey(tenantId, ""));
+        assertEquals("   ", hmisConfigService.encryptApiKey(tenantId, "   "));
     }
 
     @Test
     @DisplayName("getVendors decrypts hmis_vendors[].api_key_encrypted ciphertext back to plaintext")
     void getVendorsDecryptsCiphertextOnRead() {
         String plaintext = "round-trip-key-" + UUID.randomUUID();
-        String ciphertext = hmisConfigService.encryptApiKey(plaintext);
+        String ciphertext = hmisConfigService.encryptApiKey(tenantId, plaintext);
 
         tenantService.updateConfig(tenantId, Map.of(
                 "hmis_vendors", List.of(Map.of(
@@ -159,7 +163,7 @@ class HmisEncryptionRoundTripIntegrationTest extends BaseIntegrationTest {
                                 "id", UUID.randomUUID().toString(),
                                 "type", HmisVendorType.CLARITY.name(),
                                 "base_url", "https://on.test",
-                                "api_key_encrypted", hmisConfigService.encryptApiKey(enabledPlain),
+                                "api_key_encrypted", hmisConfigService.encryptApiKey(tenantId, enabledPlain),
                                 "enabled", true,
                                 "push_interval_hours", 6
                         ),
@@ -167,7 +171,7 @@ class HmisEncryptionRoundTripIntegrationTest extends BaseIntegrationTest {
                                 "id", UUID.randomUUID().toString(),
                                 "type", HmisVendorType.CLIENTTRACK.name(),
                                 "base_url", "https://off.test",
-                                "api_key_encrypted", hmisConfigService.encryptApiKey(disabledPlain),
+                                "api_key_encrypted", hmisConfigService.encryptApiKey(tenantId, disabledPlain),
                                 "enabled", false,
                                 "push_interval_hours", 6
                         )
