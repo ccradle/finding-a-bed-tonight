@@ -8,11 +8,9 @@ import java.util.Base64;
 import javax.crypto.Cipher;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
-import javax.crypto.spec.SecretKeySpec;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 /**
@@ -38,38 +36,16 @@ public class SecretEncryptionService {
     private final SecureRandom secureRandom = new SecureRandom();
     private final boolean configured;
 
-    // The dev-start.sh key — committed to the public repo, MUST NOT be used in production
-    private static final String DEV_KEY = "s4FgjCrVQONb65lQmfYHyuvC7AL2VnkVufwB9ZihvlA=";
-
-    public SecretEncryptionService(
-            @Value("${fabt.encryption-key:${fabt.totp.encryption-key:}}") String base64Key,
-            org.springframework.core.env.Environment environment) {
-        java.util.Set<String> profiles = java.util.Set.of(environment.getActiveProfiles());
-        boolean prodProfile = profiles.contains("prod");
-
-        if (base64Key == null || base64Key.isBlank()) {
-            if (prodProfile) {
-                throw new IllegalStateException(
-                        "FABT_ENCRYPTION_KEY is required in the prod profile. "
-                        + "Generate with: openssl rand -base64 32. "
-                        + "Phase 0 of multi-tenant-production-readiness made credential encryption mandatory.");
-            }
-            log.warn("FABT_ENCRYPTION_KEY not set in a non-prod profile — falling back to the committed dev key. "
-                    + "Do not deploy with this configuration.");
-            base64Key = DEV_KEY;
-        }
-
-        if (DEV_KEY.equals(base64Key) && prodProfile) {
-            throw new IllegalStateException(
-                    "FABT_ENCRYPTION_KEY must not use the dev-start.sh key in production. "
-                    + "Generate a unique key with: openssl rand -base64 32");
-        }
-        byte[] keyBytes = Base64.getDecoder().decode(base64Key);
-        if (keyBytes.length != 32) {
-            throw new IllegalArgumentException(
-                    "FABT_ENCRYPTION_KEY must be 32 bytes (256 bits). Got: " + keyBytes.length);
-        }
-        this.secretKey = new SecretKeySpec(keyBytes, "AES");
+    /**
+     * Phase A3 D17: validation + key bytes now owned by {@link MasterKekProvider}.
+     * This constructor reads the platform key from the provider; the dev-key
+     * fallback / prod-fail-fast / wrong-length / dev-key-in-prod-rejection
+     * logic that lived here previously is now in one place. {@code configured}
+     * is always true post-A3 because the provider throws on any invalid input
+     * before this constructor runs.
+     */
+    public SecretEncryptionService(MasterKekProvider masterKekProvider) {
+        this.secretKey = masterKekProvider.getPlatformKey();
         this.configured = true;
     }
 

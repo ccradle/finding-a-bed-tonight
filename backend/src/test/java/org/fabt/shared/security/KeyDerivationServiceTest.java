@@ -45,7 +45,10 @@ class KeyDerivationServiceTest {
     }
 
     private KeyDerivationService service(String key) {
-        return new KeyDerivationService(key, profile("dev"));
+        // A3 D17: KeyDerivationService now consumes MasterKekProvider; the
+        // env-var validation it used to do is owned by the provider. Tests
+        // wire a fresh provider per call with a non-prod profile.
+        return new KeyDerivationService(new MasterKekProvider(key, profile("dev")));
     }
 
     // ------------------------------------------------------------------
@@ -149,38 +152,12 @@ class KeyDerivationServiceTest {
         assertThrows(IllegalArgumentException.class, () -> svc.deriveKey(TENANT_X, "   "));
     }
 
-    @Test
-    @DisplayName("prod profile + no key → constructor throws")
-    void prodWithoutKeyThrows() {
-        IllegalStateException ex = assertThrows(IllegalStateException.class,
-                () -> new KeyDerivationService(null, profile("prod")));
-        assertTrue(ex.getMessage().contains("required in the prod profile"));
-    }
-
-    @Test
-    @DisplayName("non-prod + no key → DEV_KEY fallback (configured + working)")
-    void nonProdWithoutKeyFallsBack() {
-        KeyDerivationService svc = new KeyDerivationService(null, profile("dev"));
-        // If fallback works, derivation succeeds without throwing
-        SecretKey k = svc.deriveKey(TENANT_X, "totp");
-        assertEquals(32, k.getEncoded().length);
-    }
-
-    @Test
-    @DisplayName("prod + DEV_KEY explicit → constructor throws (mirrors SecretEncryptionService C2)")
-    void prodWithDevKeyThrows() {
-        String devKey = "s4FgjCrVQONb65lQmfYHyuvC7AL2VnkVufwB9ZihvlA=";
-        assertThrows(IllegalStateException.class,
-                () -> new KeyDerivationService(devKey, profile("prod")));
-    }
-
-    @Test
-    @DisplayName("Wrong-length KEK rejected")
-    void wrongLengthKekRejected() {
-        String shortKey = java.util.Base64.getEncoder().encodeToString(new byte[16]);
-        assertThrows(IllegalArgumentException.class,
-                () -> new KeyDerivationService(shortKey, profile("dev")));
-    }
+    // ------------------------------------------------------------------
+    // Note: prod-fail-fast / DEV_KEY-fallback / wrong-length / dev-key-prod
+    // tests previously lived here. After A3 D17 those moved to
+    // MasterKekProviderTest — KeyDerivationService no longer owns the
+    // validation logic; it consumes a pre-validated MasterKekProvider.
+    // ------------------------------------------------------------------
 
     // ------------------------------------------------------------------
     // Cross-property: derived keys are usable inputs for encryption

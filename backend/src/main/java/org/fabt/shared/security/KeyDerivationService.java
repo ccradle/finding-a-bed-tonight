@@ -3,17 +3,12 @@ package org.fabt.shared.security;
 import java.nio.charset.StandardCharsets;
 import java.nio.ByteBuffer;
 import java.security.GeneralSecurityException;
-import java.util.Base64;
 import java.util.UUID;
 
 import javax.crypto.Mac;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
 
 /**
@@ -56,8 +51,6 @@ import org.springframework.stereotype.Service;
 @Service
 public class KeyDerivationService {
 
-    private static final Logger log = LoggerFactory.getLogger(KeyDerivationService.class);
-
     /** Per RFC 5869 §2.1 — HMAC-SHA256 outputs 32 bytes. */
     private static final int HMAC_SHA256_OUTPUT_LENGTH = 32;
 
@@ -67,51 +60,17 @@ public class KeyDerivationService {
     /** Version tag for derivation context — bump on derivation-scheme changes. */
     private static final String CONTEXT_VERSION = "v1";
 
-    /** Dev-start.sh key, committed to the public repo. Mirrors {@link SecretEncryptionService#DEV_KEY}. */
-    private static final String DEV_KEY = "s4FgjCrVQONb65lQmfYHyuvC7AL2VnkVufwB9ZihvlA=";
-
     private final byte[] masterKekBytes;
 
     /**
-     * Reads the same {@code FABT_ENCRYPTION_KEY} env var that
-     * {@link SecretEncryptionService} validates. Mirrors that service's
-     * prod-fail-fast / non-prod-DEV_KEY-fallback semantics so both services
-     * agree on which bytes constitute the master KEK in any given environment.
-     *
-     * <p>Phase A task 2.6 will refactor both services to share a single
-     * {@code MasterKekProvider} bean. Until then, the duplicate validation
-     * is intentional and the two implementations stay in lockstep.
+     * Reads master KEK bytes from {@link MasterKekProvider}, the single
+     * source of truth for {@code FABT_ENCRYPTION_KEY} validation. Per
+     * design D17 (A3 design draft) — the previous duplicate validation
+     * (prod-fail-fast / non-prod-DEV_KEY-fallback / wrong-length /
+     * dev-key-prod-rejection) now lives in one place.
      */
-    public KeyDerivationService(
-            @Value("${fabt.encryption-key:${fabt.totp.encryption-key:}}") String base64Key,
-            Environment environment) {
-        java.util.Set<String> profiles = java.util.Set.of(environment.getActiveProfiles());
-        boolean prodProfile = profiles.contains("prod");
-
-        if (base64Key == null || base64Key.isBlank()) {
-            if (prodProfile) {
-                throw new IllegalStateException(
-                        "FABT_ENCRYPTION_KEY is required in the prod profile. "
-                        + "Generate with: openssl rand -base64 32. "
-                        + "Phase A's KeyDerivationService cannot derive per-tenant DEKs without a master KEK.");
-            }
-            log.warn("FABT_ENCRYPTION_KEY not set in a non-prod profile — KeyDerivationService falling back to the committed dev key. "
-                    + "Do not deploy with this configuration.");
-            base64Key = DEV_KEY;
-        }
-
-        if (DEV_KEY.equals(base64Key) && prodProfile) {
-            throw new IllegalStateException(
-                    "FABT_ENCRYPTION_KEY must not use the dev-start.sh key in production. "
-                    + "Generate a unique key with: openssl rand -base64 32");
-        }
-
-        byte[] decoded = Base64.getDecoder().decode(base64Key);
-        if (decoded.length != 32) {
-            throw new IllegalArgumentException(
-                    "FABT_ENCRYPTION_KEY must be 32 bytes (256 bits). Got: " + decoded.length);
-        }
-        this.masterKekBytes = decoded;
+    public KeyDerivationService(MasterKekProvider masterKekProvider) {
+        this.masterKekBytes = masterKekProvider.getMasterKekBytes();
     }
 
     // -----------------------------------------------------------------

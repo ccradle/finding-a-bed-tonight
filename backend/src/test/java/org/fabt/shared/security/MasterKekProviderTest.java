@@ -1,25 +1,30 @@
 package org.fabt.shared.security;
 
+import javax.crypto.SecretKey;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.env.Environment;
 import org.springframework.mock.env.MockEnvironment;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Unit tests for the C2 hardening of {@link SecretEncryptionService}'s
- * constructor: prod profile rejects missing/dev keys; non-prod profile
- * silently falls back to the committed dev key; {@code configured=true}
- * is the new invariant.
+ * Unit tests for {@link MasterKekProvider} — the single source of truth for
+ * {@code FABT_ENCRYPTION_KEY} validation. These were originally
+ * {@code SecretEncryptionServiceConstructorTest} (Phase 0 C2 hardening
+ * tests) and migrated here in Checkpoint A3 D17 when the validation logic
+ * extracted out of {@link SecretEncryptionService}.
  *
  * <p>Pure constructor logic — no Spring context. Uses {@link MockEnvironment}
  * to vary active profiles.
  */
-@DisplayName("SecretEncryptionService constructor (C2)")
-class SecretEncryptionServiceConstructorTest {
+@DisplayName("MasterKekProvider — FABT_ENCRYPTION_KEY validation (D17, ex-C2)")
+class MasterKekProviderTest {
 
     private static final String DEV_KEY = "s4FgjCrVQONb65lQmfYHyuvC7AL2VnkVufwB9ZihvlA=";
     private static final String REAL_KEY = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
@@ -35,7 +40,7 @@ class SecretEncryptionServiceConstructorTest {
     void prodWithoutKeyThrows() {
         Environment prod = profile("prod");
         IllegalStateException ex = assertThrows(IllegalStateException.class,
-                () -> new SecretEncryptionService(null, prod));
+                () -> new MasterKekProvider(null, prod));
         assertTrue(ex.getMessage().contains("required in the prod profile"),
                 "error must explain the prod requirement; was: " + ex.getMessage());
     }
@@ -45,7 +50,7 @@ class SecretEncryptionServiceConstructorTest {
     void prodWithBlankKeyThrows() {
         Environment prod = profile("prod");
         assertThrows(IllegalStateException.class,
-                () -> new SecretEncryptionService("   ", prod));
+                () -> new MasterKekProvider("   ", prod));
     }
 
     @Test
@@ -53,44 +58,45 @@ class SecretEncryptionServiceConstructorTest {
     void prodWithDevKeyThrows() {
         Environment prod = profile("prod");
         IllegalStateException ex = assertThrows(IllegalStateException.class,
-                () -> new SecretEncryptionService(DEV_KEY, prod));
+                () -> new MasterKekProvider(DEV_KEY, prod));
         assertTrue(ex.getMessage().contains("must not use the dev-start.sh key"),
                 "error must mention the dev-key block; was: " + ex.getMessage());
     }
 
     @Test
-    @DisplayName("prod profile + real 32-byte key → constructed, configured=true, round-trip works")
+    @DisplayName("prod profile + real 32-byte key → constructed, both accessors work")
     void prodWithRealKeyWorks() {
         Environment prod = profile("prod");
-        SecretEncryptionService svc = new SecretEncryptionService(REAL_KEY, prod);
-        assertTrue(svc.isConfigured());
-        assertEquals("hello", svc.decrypt(svc.encrypt("hello")));
+        MasterKekProvider provider = new MasterKekProvider(REAL_KEY, prod);
+        SecretKey platformKey = provider.getPlatformKey();
+        assertNotNull(platformKey);
+        assertEquals(32, platformKey.getEncoded().length);
+        assertEquals("AES", platformKey.getAlgorithm());
+        assertEquals(32, provider.getMasterKekBytes().length);
     }
 
     @Test
-    @DisplayName("non-prod profile + no key → falls back to DEV_KEY, configured=true")
+    @DisplayName("non-prod profile + no key → falls back to DEV_KEY")
     void nonProdWithoutKeyFallsBackToDevKey() {
         Environment dev = profile("dev");
-        SecretEncryptionService svc = new SecretEncryptionService(null, dev);
-        assertTrue(svc.isConfigured());
-        // Round-trip works using the implicit dev fallback
-        assertEquals("hello", svc.decrypt(svc.encrypt("hello")));
+        MasterKekProvider provider = new MasterKekProvider(null, dev);
+        assertNotNull(provider.getPlatformKey());
     }
 
     @Test
     @DisplayName("test profile + no key → falls back to DEV_KEY (CI / Testcontainers path)")
     void testProfileWithoutKeyFallsBackToDevKey() {
         Environment test = profile("test", "lite");
-        SecretEncryptionService svc = new SecretEncryptionService(null, test);
-        assertTrue(svc.isConfigured());
+        MasterKekProvider provider = new MasterKekProvider(null, test);
+        assertNotNull(provider.getPlatformKey());
     }
 
     @Test
     @DisplayName("non-prod profile + dev key explicit → accepted")
     void nonProdWithDevKeyExplicitWorks() {
         Environment dev = profile("dev");
-        SecretEncryptionService svc = new SecretEncryptionService(DEV_KEY, dev);
-        assertTrue(svc.isConfigured());
+        MasterKekProvider provider = new MasterKekProvider(DEV_KEY, dev);
+        assertNotNull(provider.getPlatformKey());
     }
 
     @Test
@@ -100,14 +106,29 @@ class SecretEncryptionServiceConstructorTest {
         String shortKey = java.util.Base64.getEncoder().encodeToString(new byte[16]);
         Environment dev = profile("dev");
         assertThrows(IllegalArgumentException.class,
-                () -> new SecretEncryptionService(shortKey, dev));
+                () -> new MasterKekProvider(shortKey, dev));
     }
 
     @Test
     @DisplayName("no profiles active + no key → falls back to DEV_KEY (default-profile case)")
     void noProfileWithoutKeyFallsBackToDevKey() {
         Environment empty = profile();
-        SecretEncryptionService svc = new SecretEncryptionService(null, empty);
-        assertTrue(svc.isConfigured());
+        MasterKekProvider provider = new MasterKekProvider(null, empty);
+        assertNotNull(provider.getPlatformKey());
+    }
+
+    @Test
+    @DisplayName("getMasterKekBytes returns a defensive clone — caller mutation does not affect provider state")
+    void getMasterKekBytesReturnsDefensiveClone() {
+        MasterKekProvider provider = new MasterKekProvider(REAL_KEY, profile("dev"));
+        byte[] firstCall = provider.getMasterKekBytes();
+        byte[] secondCall = provider.getMasterKekBytes();
+        assertNotSame(firstCall, secondCall, "each call must return a fresh array");
+        // Mutate the first copy
+        java.util.Arrays.fill(firstCall, (byte) 0);
+        // Provider's internal state must be intact — verified via second-call equality with a fresh derivation
+        byte[] thirdCall = provider.getMasterKekBytes();
+        assertEquals(java.util.Arrays.toString(secondCall), java.util.Arrays.toString(thirdCall),
+                "mutating the returned array must not affect the canonical copy");
     }
 }
