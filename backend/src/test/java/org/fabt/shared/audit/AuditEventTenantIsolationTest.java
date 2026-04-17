@@ -147,10 +147,8 @@ class AuditEventTenantIsolationTest extends BaseIntegrationTest {
                     .isZero();
         });
 
-        // Cleanup — DELETE is RLS'd; run under the SYSTEM sentinel so the policy matches.
-        org.fabt.testsupport.WithTenantContext.doAsSystem(() ->
-            jdbcTemplate.update(
-                "DELETE FROM audit_events WHERE target_user_id = ?::uuid AND tenant_id = ?::uuid",
-                orphanTarget, TenantContext.SYSTEM_TENANT_ID));
+        // Phase B V70: audit_events is append-only (REVOKE DELETE from fabt_app).
+        // No cleanup — target UUID is per-test random so no contamination
+        // risk across runs; Testcontainers reset on class boot handles the rest.
     }
 }

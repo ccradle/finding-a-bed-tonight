@@ -76,11 +76,9 @@ class AuditEventPhaseBRegressionTest extends BaseIntegrationTest {
                     + "if 0, the proxy-bypass regression is back")
                 .isEqualTo(1);
 
-        // Cleanup
-        WithTenantContext.doAsSystem(() ->
-            jdbcTemplate.update(
-                "DELETE FROM audit_events WHERE action = ? AND tenant_id = ?::uuid",
-                action, TenantContext.SYSTEM_TENANT_ID));
+        // No cleanup — Phase B V70 REVOKEd DELETE on audit_events (append-only
+        // audit posture per G2). Action name is UUID-unique per test run, so
+        // no contamination between runs. Testcontainers starts fresh anyway.
     }
 
     @Test
@@ -100,11 +98,7 @@ class AuditEventPhaseBRegressionTest extends BaseIntegrationTest {
                     + "'publisher forgot TenantContext' go silent")
                 .isEqualTo(1.0);
 
-        // Cleanup
-        WithTenantContext.doAsSystem(() ->
-            jdbcTemplate.update(
-                "DELETE FROM audit_events WHERE action = ? AND tenant_id = ?::uuid",
-                action, TenantContext.SYSTEM_TENANT_ID));
+        // No cleanup — V70 REVOKEd DELETE on audit_events.
     }
 
     private double counterValue(String action) {

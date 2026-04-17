@@ -461,11 +461,10 @@ class TotpAndAccessCodeIntegrationTest extends BaseIntegrationTest {
         assertThat(codeResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
         String code = (String) codeResponse.getBody().get("code");
 
-        // Clear existing audit events for clean assertion. Post-Phase-B:
-        // DELETE on audit_events is RLS'd (FORCE); run inside tenant binding.
+        // Phase B V70: audit_events is append-only (REVOKE DELETE). Can't
+        // pre-clean. Filter assertion by the specific ACCESS_CODE_USED action
+        // + most recent row (single user so no cross-test contamination).
         UUID tenantId = authHelper.getTestTenantId();
-        org.fabt.testsupport.WithTenantContext.doAs(tenantId, () ->
-            jdbcTemplate.update("DELETE FROM audit_events WHERE target_user_id = ?", outreachUser.getId()));
 
         // Login with access code
         ResponseEntity<Map<String, Object>> loginResponse = restTemplate.exchange(
@@ -479,9 +478,14 @@ class TotpAndAccessCodeIntegrationTest extends BaseIntegrationTest {
 
         // Verify audit event: actor_user_id = target_user_id (self-authentication).
         // Post-Phase-B: SELECT on audit_events is RLS'd; wrap in tenant binding.
+        // V70 REVOKE makes audit append-only, so prior-test ACCESS_CODE_USED rows
+        // for this user may linger — ORDER BY timestamp DESC LIMIT 1 picks the
+        // row we just wrote.
         var events = org.fabt.testsupport.WithTenantContext.readAs(tenantId, () ->
             jdbcTemplate.queryForList(
-                "SELECT actor_user_id, target_user_id, action, ip_address FROM audit_events WHERE target_user_id = ? AND action = 'ACCESS_CODE_USED'",
+                "SELECT actor_user_id, target_user_id, action, ip_address FROM audit_events "
+                + "WHERE target_user_id = ? AND action = 'ACCESS_CODE_USED' "
+                + "ORDER BY timestamp DESC LIMIT 1",
                 outreachUser.getId()));
         assertThat(events).as("ACCESS_CODE_USED audit event should exist").hasSize(1);
         assertThat(events.get(0).get("actor_user_id")).as("actor_user_id should equal target_user_id").isEqualTo(outreachUser.getId());
@@ -500,9 +504,8 @@ class TotpAndAccessCodeIntegrationTest extends BaseIntegrationTest {
                 new ParameterizedTypeReference<>() {});
         String code = (String) codeResponse.getBody().get("code");
 
+        // Phase B V70: audit_events append-only. No pre-clean.
         UUID ipTenantId = authHelper.getTestTenantId();
-        org.fabt.testsupport.WithTenantContext.doAs(ipTenantId, () ->
-            jdbcTemplate.update("DELETE FROM audit_events WHERE target_user_id = ?", outreachUser.getId()));
 
         restTemplate.exchange("/api/v1/auth/access-code", HttpMethod.POST,
                 new HttpEntity<>(Map.of(
@@ -511,9 +514,11 @@ class TotpAndAccessCodeIntegrationTest extends BaseIntegrationTest {
                         "code", code)),
                 new ParameterizedTypeReference<Map<String, Object>>() {});
 
+        // Phase B V70: audit append-only; filter + ORDER BY to get the just-written row.
         var events = org.fabt.testsupport.WithTenantContext.readAs(ipTenantId, () ->
             jdbcTemplate.queryForList(
-                "SELECT ip_address FROM audit_events WHERE target_user_id = ? AND action = 'ACCESS_CODE_USED'",
+                "SELECT ip_address FROM audit_events WHERE target_user_id = ? AND action = 'ACCESS_CODE_USED' "
+                + "ORDER BY timestamp DESC LIMIT 1",
                 outreachUser.getId()));
         assertThat(events).hasSize(1);
         assertThat(events.get(0).get("ip_address")).as("IP address should be recorded").isNotNull();
