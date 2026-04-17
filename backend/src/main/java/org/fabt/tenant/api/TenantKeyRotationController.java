@@ -1,10 +1,11 @@
-package org.fabt.shared.security;
+package org.fabt.tenant.api;
 
 import java.util.Map;
 import java.util.UUID;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import org.fabt.shared.security.TenantKeyRotationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
