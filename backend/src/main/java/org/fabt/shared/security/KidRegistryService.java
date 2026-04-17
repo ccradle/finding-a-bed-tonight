@@ -91,6 +91,14 @@ public class KidRegistryService {
         if (cached != null) {
             return cached;
         }
+        // Phase B RLS binding (post-V68/V69): the INSERT-on-conflict dance into
+        // tenant_key_material + kid_to_tenant_key is FORCE-RLS'd. This method
+        // takes tenantId explicitly + is inside @Transactional, so
+        // set_config('app.tenant_id', ?, true) with is_local=true scopes the
+        // override to this tx only. B11 ArchUnit rule forbids nested
+        // runWithContext inside @Transactional, so we use set_config instead.
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                String.class, tenantId.toString());
         ensureActiveGeneration(tenantId);
         int activeGeneration = getActiveGeneration(tenantId);
         UUID kid = findOrCreateKid(tenantId, activeGeneration);

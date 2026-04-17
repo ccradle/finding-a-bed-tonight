@@ -92,6 +92,17 @@ public class TenantKeyRotationService {
      */
     @Transactional
     public RotationResult bumpJwtKeyGeneration(UUID tenantId, UUID actorUserId) {
+        // 0. Phase B RLS binding. Post-V68/V69, tenant_key_material +
+        //    kid_to_tenant_key writes are FORCE-RLS'd. This method takes
+        //    tenantId explicitly + is already inside @Transactional, so
+        //    set_config('app.tenant_id', ?, true) with is_local=true scopes
+        //    the override to this tx only. Matches D46's parameterized-
+        //    set_config pattern (no SET LOCAL string interpolation). B11
+        //    ArchUnit rule forbids nested runWithContext inside @Transactional,
+        //    so we use SET-via-set_config instead.
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                String.class, tenantId.toString());
+
         // 1a. Acquire per-tenant advisory lock (C-A4-3 — warroom Marcus).
         //     Without serialization, two simultaneous PLATFORM_ADMIN-triggered
         //     rotations would both see the same currentGen, both INSERT

@@ -9,7 +9,9 @@ import org.fabt.shared.web.TenantContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
 /**
@@ -34,10 +36,13 @@ public class AuditEventService {
 
     private final AuditEventRepository repository;
     private final ObjectMapper objectMapper;
+    private final JdbcTemplate jdbc;
 
-    public AuditEventService(AuditEventRepository repository, ObjectMapper objectMapper) {
+    public AuditEventService(AuditEventRepository repository, ObjectMapper objectMapper,
+                              JdbcTemplate jdbc) {
         this.repository = repository;
         this.objectMapper = objectMapper;
+        this.jdbc = jdbc;
     }
 
     @EventListener
@@ -49,31 +54,83 @@ public class AuditEventService {
             }
 
             // Tenant isolation: pull tenantId from TenantContext (bound by the
-            // publisher's request/batch scope). null is defensible for
-            // historical/orphan cases but we log WARN so operators can catch
-            // publisher sites that forgot to wrap in runWithContext.
+            // publisher's request/batch scope). Phase B D55 three-level lookup:
+            //   1. TenantContext.getTenantId() — request/batch scope
+            //   2. current_setting('app.tenant_id') — services that took
+            //      tenantId as an explicit parameter and did set_config
+            //      (e.g. TenantKeyRotationService, KidRegistryService)
+            //   3. SYSTEM_TENANT_ID sentinel — with WARN log
+            // Row's tenant_id is always populated and the FORCE-RLS policy
+            // succeeds. WARN surfaces publishers that forgot to bind.
             UUID tenantId = TenantContext.getTenantId();
             if (tenantId == null) {
+                tenantId = tryReadSessionTenantId();
+            }
+            if (tenantId == null) {
+                tenantId = TenantContext.SYSTEM_TENANT_ID;
                 log.warn("Audit event published without TenantContext bound: action={}, actor={}, target={}. "
-                        + "Row will be persisted with tenant_id=NULL; investigate publisher for missing "
-                        + "TenantContext.runWithContext wrap.",
+                        + "Row persisted under SYSTEM_TENANT_ID sentinel; investigate publisher for missing "
+                        + "TenantContext.runWithContext wrap (Phase B D55).",
                         event.action(), event.actorUserId(), event.targetUserId());
             }
 
-            AuditEventEntity entity = new AuditEventEntity(
-                    tenantId,
-                    event.actorUserId(),
-                    event.targetUserId(),
-                    event.action(),
-                    details,
-                    event.ipAddress());
-
-            repository.save(entity);
+            persistWithTenantBinding(tenantId, event, details);
             log.debug("Audit event persisted: action={}, actor={}, target={}, tenant={}",
                     event.action(), event.actorUserId(), event.targetUserId(), tenantId);
         } catch (Exception e) {
             log.error("Failed to persist audit event: action={}, error={}",
                     event.action(), e.getMessage());
+        }
+    }
+
+    /**
+     * Persists the audit event in its own transaction with
+     * {@code set_config('app.tenant_id', ?, true)} bound FIRST, so the
+     * FORCE-RLS policy on {@code audit_events} (V68/V69) accepts the row.
+     *
+     * <p>Necessary because the publishing request may have finished its
+     * outer tx by the time this EventListener fires (the @EventListener
+     * is synchronous but may run post-commit for transactional publishers)
+     * OR may not have bound {@code TenantContext} at all (scheduled jobs,
+     * batch contexts). is_local=true scopes the override to this tx only,
+     * so the connection returns to the pool with session state intact.
+     */
+    @Transactional
+    protected void persistWithTenantBinding(UUID tenantId, AuditEventRecord event, JsonString details) {
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                String.class, tenantId.toString());
+        AuditEventEntity entity = new AuditEventEntity(
+                tenantId,
+                event.actorUserId(),
+                event.targetUserId(),
+                event.action(),
+                details,
+                event.ipAddress());
+        repository.save(entity);
+    }
+
+    /**
+     * Second-tier lookup for tenant context: services like
+     * {@code TenantKeyRotationService} and {@code KidRegistryService} take
+     * tenantId as an explicit parameter and set {@code app.tenant_id} via
+     * set_config at the start of their @Transactional method (per Phase B
+     * D46 pattern). When such a service publishes an audit event, the
+     * ScopedValue-bound TenantContext may not be set, but the session's
+     * {@code app.tenant_id} IS. Read it here.
+     *
+     * <p>Returns null if unset, empty, or malformed — in which case the
+     * outer fallback to SYSTEM_TENANT_ID kicks in.
+     */
+    private UUID tryReadSessionTenantId() {
+        try {
+            String raw = jdbc.queryForObject(
+                    "SELECT current_setting('app.tenant_id', true)", String.class);
+            if (raw == null || raw.isBlank()) {
+                return null;
+            }
+            return UUID.fromString(raw);
+        } catch (Exception ignore) {
+            return null;
         }
     }
 
