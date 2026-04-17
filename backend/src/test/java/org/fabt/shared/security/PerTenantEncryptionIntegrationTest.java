@@ -229,6 +229,36 @@ class PerTenantEncryptionIntegrationTest extends BaseIntegrationTest {
     }
 
     // ------------------------------------------------------------------
+    // T8 — unknown-kid path collapses to CrossTenantCiphertextException
+    //      (C-A3-1: no 404-vs-403 tenant-existence side channel)
+    // ------------------------------------------------------------------
+
+    @Test
+    @DisplayName("T8 — unknown kid surfaces as CrossTenantCiphertextException with sentinel actualTenantId")
+    void unknownKidCollapsesToCrossTenantWithSentinel() {
+        // Construct a v1 envelope with a synthetic random kid that's
+        // guaranteed not registered in kid_to_tenant_key.
+        UUID neverRegisteredKid = UUID.randomUUID();
+        byte[] iv = new byte[12];
+        // Provide a 16-byte tag-shaped payload so EncryptionEnvelope's constructor
+        // accepts it. The bytes don't need to decrypt — the kid lookup throws first.
+        byte[] ciphertextWithTag = new byte[16];
+        EncryptionEnvelope envelope = new EncryptionEnvelope(neverRegisteredKid, iv, ciphertextWithTag);
+        String stored = envelope.encode();
+
+        CrossTenantCiphertextException ex = assertThrows(CrossTenantCiphertextException.class,
+                () -> encryption.decryptForTenant(tenantA, KeyPurpose.TOTP, stored));
+
+        assertEquals(neverRegisteredKid, ex.getKid(),
+                "exception must carry the offending kid");
+        assertEquals(tenantA, ex.getExpectedTenantId(),
+                "expectedTenantId is the caller's tenant");
+        assertEquals(SecretEncryptionService.UNKNOWN_KID_SENTINEL_TENANT, ex.getActualTenantId(),
+                "actualTenantId is the sentinel UUID per C-A3-1 — distinguishes unknown-kid from "
+                + "wrong-tenant-kid in audit logs without leaking to the client");
+    }
+
+    // ------------------------------------------------------------------
     // T7 — cold-cache perf SLO (E4 light)
     // ------------------------------------------------------------------
 

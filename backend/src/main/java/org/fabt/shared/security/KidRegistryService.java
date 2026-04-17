@@ -1,9 +1,12 @@
 package org.fabt.shared.security;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.UUID;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -43,6 +46,35 @@ public class KidRegistryService {
 
     private final JdbcTemplate jdbc;
 
+    /**
+     * Per warroom W-A3-1: hot-path cache for {@link #findOrCreateActiveKid}.
+     * Without it every encrypt does 2-3 DB queries; at production webhook-
+     * delivery rates (~1000/sec) that's an unnecessary 2k DB queries/sec.
+     *
+     * <p>5-minute TTL bounds staleness post-rotation. Phase A doesn't yet
+     * implement {@code bumpJwtKeyGeneration} (task 2.12); when it does,
+     * the rotation flow must {@link Cache#invalidate} the affected
+     * tenant's entry in this cache.
+     */
+    private final Cache<UUID, UUID> tenantToActiveKidCache = Caffeine.newBuilder()
+            .maximumSize(10_000)
+            .expireAfterWrite(Duration.ofMinutes(5))
+            .build();
+
+    /**
+     * Per warroom W-A3-1: hot-path cache for {@link #resolveKid}.
+     * JWT validate (Phase A4) hits this on every authenticated request;
+     * caching is required for sub-microsecond validate.
+     *
+     * <p>1-hour TTL because (kid → tenant) is immutable: once a kid is
+     * registered, it never re-points. Cache eviction only on tenant
+     * hard-delete (Phase F crypto-shred).
+     */
+    private final Cache<UUID, KidResolution> kidToResolutionCache = Caffeine.newBuilder()
+            .maximumSize(100_000)
+            .expireAfterWrite(Duration.ofHours(1))
+            .build();
+
     public KidRegistryService(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
@@ -55,9 +87,15 @@ public class KidRegistryService {
      */
     @Transactional
     public UUID findOrCreateActiveKid(UUID tenantId) {
+        UUID cached = tenantToActiveKidCache.getIfPresent(tenantId);
+        if (cached != null) {
+            return cached;
+        }
         ensureActiveGeneration(tenantId);
         int activeGeneration = getActiveGeneration(tenantId);
-        return findOrCreateKid(tenantId, activeGeneration);
+        UUID kid = findOrCreateKid(tenantId, activeGeneration);
+        tenantToActiveKidCache.put(tenantId, kid);
+        return kid;
     }
 
     /**
@@ -67,8 +105,13 @@ public class KidRegistryService {
      */
     @Transactional(readOnly = true)
     public KidResolution resolveKid(UUID kid) {
+        KidResolution cached = kidToResolutionCache.getIfPresent(kid);
+        if (cached != null) {
+            return cached;
+        }
+        KidResolution resolved;
         try {
-            return jdbc.queryForObject(
+            resolved = jdbc.queryForObject(
                     "SELECT kid, tenant_id, generation FROM kid_to_tenant_key WHERE kid = ?",
                     (rs, rowNum) -> new KidResolution(
                             (UUID) rs.getObject("kid"),
@@ -76,8 +119,13 @@ public class KidRegistryService {
                             rs.getInt("generation")),
                     kid);
         } catch (EmptyResultDataAccessException notFound) {
+            // Not cached — caller (decryptForTenant) translates to
+            // CrossTenantCiphertextException with sentinel actualTenantId
+            // per C-A3-1.
             throw new NoSuchElementException("kid not registered: " + kid);
         }
+        kidToResolutionCache.put(kid, resolved);
+        return resolved;
     }
 
     private void ensureActiveGeneration(UUID tenantId) {

@@ -32,6 +32,16 @@ public class SecretEncryptionService {
     private static final int GCM_IV_LENGTH = 12;
     private static final int GCM_TAG_LENGTH = 128;
 
+    /**
+     * Sentinel UUID written to {@link CrossTenantCiphertextException#getActualTenantId()}
+     * when the kid is not registered in {@code kid_to_tenant_key}. Per C-A3-1:
+     * unknown-kid and wrong-tenant-kid both surface as 403 to clients (no
+     * tenant-existence side-channel). The sentinel discriminates the two
+     * paths in audit logs without leaking to callers.
+     */
+    static final java.util.UUID UNKNOWN_KID_SENTINEL_TENANT =
+            java.util.UUID.fromString("00000000-0000-0000-0000-000000000000");
+
     private final SecretKey secretKey;
     private final SecureRandom secureRandom = new SecureRandom();
     private final boolean configured;
@@ -101,7 +111,19 @@ public class SecretEncryptionService {
             return CiphertextV0Decoder.decrypt(masterKekProvider.getPlatformKey(), stored);
         }
         EncryptionEnvelope envelope = EncryptionEnvelope.decode(stored);
-        KidRegistryService.KidResolution resolved = kidRegistryService.resolveKid(envelope.kid());
+        KidRegistryService.KidResolution resolved;
+        try {
+            resolved = kidRegistryService.resolveKid(envelope.kid());
+        } catch (java.util.NoSuchElementException unknownKid) {
+            // C-A3-1: an unregistered kid is presented as cross-tenant rejection
+            // (same 403 response, same audit action) so an attacker cannot
+            // distinguish "kid doesn't exist anywhere" (would be 404) from
+            // "kid exists for a different tenant" (403). The sentinel
+            // actualTenantId in the audit JSONB discriminates the two cases
+            // for incident responders without leaking to the client.
+            throw new CrossTenantCiphertextException(
+                    envelope.kid(), tenantId, UNKNOWN_KID_SENTINEL_TENANT);
+        }
         if (!resolved.tenantId().equals(tenantId)) {
             throw new CrossTenantCiphertextException(envelope.kid(), tenantId, resolved.tenantId());
         }
