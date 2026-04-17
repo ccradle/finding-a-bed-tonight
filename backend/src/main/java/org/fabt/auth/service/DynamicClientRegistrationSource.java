@@ -6,7 +6,10 @@ import java.util.concurrent.TimeUnit;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import org.fabt.auth.domain.TenantOAuth2Provider;
+import org.fabt.shared.security.SecretEncryptionService;
 import org.fabt.tenant.service.TenantService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.oauth2.client.registration.ClientRegistration;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
@@ -23,8 +26,11 @@ import org.springframework.stereotype.Component;
 @Component
 public class DynamicClientRegistrationSource implements ClientRegistrationRepository {
 
+    private static final Logger log = LoggerFactory.getLogger(DynamicClientRegistrationSource.class);
+
     private final TenantOAuth2ProviderService providerService;
     private final TenantService tenantService;
+    private final SecretEncryptionService encryptionService;
 
     private final Cache<String, ClientRegistration> cache = Caffeine.newBuilder()
             .expireAfterWrite(5, TimeUnit.MINUTES)
@@ -32,9 +38,11 @@ public class DynamicClientRegistrationSource implements ClientRegistrationReposi
             .build();
 
     public DynamicClientRegistrationSource(TenantOAuth2ProviderService providerService,
-                                                TenantService tenantService) {
+                                                TenantService tenantService,
+                                                SecretEncryptionService encryptionService) {
         this.providerService = providerService;
         this.tenantService = tenantService;
+        this.encryptionService = encryptionService;
     }
 
     @Override
@@ -64,7 +72,7 @@ public class DynamicClientRegistrationSource implements ClientRegistrationReposi
 
         ClientRegistration registration = ClientRegistration.withRegistrationId(registrationId)
                 .clientId(p.getClientId())
-                .clientSecret(p.getClientSecretEncrypted()) // TODO: decrypt when encryption is implemented
+                .clientSecret(decryptClientSecret(p.getClientSecretEncrypted()))
                 .clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
                 .authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
                 .redirectUri("{baseUrl}/oauth2/callback/" + registrationId)
@@ -79,6 +87,26 @@ public class DynamicClientRegistrationSource implements ClientRegistrationReposi
 
         cache.put(registrationId, registration);
         return registration;
+    }
+
+    /**
+     * Decrypts a stored OAuth2 client secret. Falls back to the stored value
+     * on decrypt failure so legacy plaintext providers remain functional until
+     * Flyway V74 re-encrypts them. Mirrors the same tolerance pattern used by
+     * {@code HmisConfigService.decryptApiKey}. Without this fallback, the
+     * window between Phase 0 deploy and V74 completion would hard-fail every
+     * OAuth2 login.
+     */
+    private String decryptClientSecret(String stored) {
+        if (stored == null || stored.isBlank()) {
+            return stored;
+        }
+        try {
+            return encryptionService.decrypt(stored);
+        } catch (RuntimeException e) {
+            log.debug("client_secret_encrypted is not valid ciphertext; returning plaintext fallback");
+            return stored;
+        }
     }
 
     /**

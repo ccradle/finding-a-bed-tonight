@@ -44,26 +44,33 @@ public class SecretEncryptionService {
     public SecretEncryptionService(
             @Value("${fabt.encryption-key:${fabt.totp.encryption-key:}}") String base64Key,
             org.springframework.core.env.Environment environment) {
+        java.util.Set<String> profiles = java.util.Set.of(environment.getActiveProfiles());
+        boolean prodProfile = profiles.contains("prod");
+
         if (base64Key == null || base64Key.isBlank()) {
-            log.warn("FABT_ENCRYPTION_KEY not configured — features requiring encryption (TOTP, webhook HMAC) will be unavailable");
-            this.secretKey = null;
-            this.configured = false;
-        } else {
-            // Reject the dev key in production — it's committed to the public repo
-            java.util.Set<String> profiles = java.util.Set.of(environment.getActiveProfiles());
-            if (DEV_KEY.equals(base64Key) && profiles.contains("prod")) {
+            if (prodProfile) {
                 throw new IllegalStateException(
-                        "FABT_ENCRYPTION_KEY must not use the dev-start.sh key in production. "
-                        + "Generate a unique key with: openssl rand -base64 32");
+                        "FABT_ENCRYPTION_KEY is required in the prod profile. "
+                        + "Generate with: openssl rand -base64 32. "
+                        + "Phase 0 of multi-tenant-production-readiness made credential encryption mandatory.");
             }
-            byte[] keyBytes = Base64.getDecoder().decode(base64Key);
-            if (keyBytes.length != 32) {
-                throw new IllegalArgumentException(
-                        "FABT_ENCRYPTION_KEY must be 32 bytes (256 bits). Got: " + keyBytes.length);
-            }
-            this.secretKey = new SecretKeySpec(keyBytes, "AES");
-            this.configured = true;
+            log.warn("FABT_ENCRYPTION_KEY not set in a non-prod profile — falling back to the committed dev key. "
+                    + "Do not deploy with this configuration.");
+            base64Key = DEV_KEY;
         }
+
+        if (DEV_KEY.equals(base64Key) && prodProfile) {
+            throw new IllegalStateException(
+                    "FABT_ENCRYPTION_KEY must not use the dev-start.sh key in production. "
+                    + "Generate a unique key with: openssl rand -base64 32");
+        }
+        byte[] keyBytes = Base64.getDecoder().decode(base64Key);
+        if (keyBytes.length != 32) {
+            throw new IllegalArgumentException(
+                    "FABT_ENCRYPTION_KEY must be 32 bytes (256 bits). Got: " + keyBytes.length);
+        }
+        this.secretKey = new SecretKeySpec(keyBytes, "AES");
+        this.configured = true;
     }
 
     /**

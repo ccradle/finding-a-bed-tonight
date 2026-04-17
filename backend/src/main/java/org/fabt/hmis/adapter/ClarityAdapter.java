@@ -35,7 +35,7 @@ public class ClarityAdapter implements HmisVendorAdapter {
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.set("X-API-Key", config.apiKeyEncrypted()); // TODO: decrypt in production
+        headers.set("X-API-Key", config.apiKeyEncrypted());
         HttpEntity<String> entity = new HttpEntity<>(json, headers);
 
         String url = config.baseUrl() + "/inventory";

@@ -9,6 +9,7 @@ import java.util.UUID;
 import org.fabt.auth.domain.TenantOAuth2Provider;
 import org.fabt.auth.repository.TenantOAuth2ProviderRepository;
 import org.fabt.shared.security.SafeOutboundUrlValidator;
+import org.fabt.shared.security.SecretEncryptionService;
 import org.fabt.shared.web.TenantContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,11 +19,14 @@ public class TenantOAuth2ProviderService {
 
     private final TenantOAuth2ProviderRepository providerRepository;
     private final SafeOutboundUrlValidator urlValidator;
+    private final SecretEncryptionService encryptionService;
 
     public TenantOAuth2ProviderService(TenantOAuth2ProviderRepository providerRepository,
-                                        SafeOutboundUrlValidator urlValidator) {
+                                        SafeOutboundUrlValidator urlValidator,
+                                        SecretEncryptionService encryptionService) {
         this.providerRepository = providerRepository;
         this.urlValidator = urlValidator;
+        this.encryptionService = encryptionService;
     }
 
     /**
@@ -67,9 +71,9 @@ public class TenantOAuth2ProviderService {
         provider.setTenantId(tenantId);
         provider.setProviderName(providerName);
         provider.setClientId(clientId);
-        // TODO: Encrypt client secret with Vault/KMS before storing in production.
-        // For MVP, storing as-is. This is a known technical debt item.
-        provider.setClientSecretEncrypted(clientSecret);
+        if (clientSecret != null) {
+            provider.setClientSecretEncrypted(encryptionService.encrypt(clientSecret));
+        }
         provider.setIssuerUri(issuerUri);
         provider.setEnabled(true);
         provider.setCreatedAt(Instant.now());
@@ -96,8 +100,7 @@ public class TenantOAuth2ProviderService {
             provider.setClientId(clientId);
         }
         if (clientSecret != null) {
-            // TODO: Encrypt client secret with Vault/KMS before storing in production.
-            provider.setClientSecretEncrypted(clientSecret);
+            provider.setClientSecretEncrypted(encryptionService.encrypt(clientSecret));
         }
         if (issuerUri != null && !issuerUri.isBlank()) {
             // D12: same SSRF validation on update — an attacker admin

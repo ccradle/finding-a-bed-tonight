@@ -5,6 +5,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased] — multi-tenant-production-readiness Phase 0 (Issue #126)
+
+### Added
+- **OAuth2 client secret encryption at rest** — `TenantOAuth2ProviderService.create/update` now wrap the `client_secret` value with `SecretEncryptionService.encrypt()` before persisting to `tenant_oauth2_provider.client_secret_encrypted`. `DynamicClientRegistrationSource.findByRegistrationId` decrypts on read so OAuth2 login receives plaintext. Closes the latent A4 plaintext-at-rest exposure flagged in the predecessor audit (#117).
+- **HMIS API key encryption at rest** — `HmisConfigService.getVendors` now decrypts `tenant.config -> hmis_vendors[].api_key_encrypted` so adapters (`ClientTrackAdapter`, `ClarityAdapter`) receive plaintext. New `HmisConfigService.encryptApiKey(String)` helper exposed for the typed vendor-CRUD endpoints that platform-hardening will add.
+- **Plaintext-tolerant decrypt fallbacks** — both `DynamicClientRegistrationSource.decryptClientSecret` and `HmisConfigService.decryptApiKey` return the stored value on decryption failure (logged at debug). Keeps every existing pre-V59 deployment working through the brief window between Phase 0 ship and the V59 migration completing, and preserves dev-environment workflows.
+- **`docs/architecture/tenancy-model.md`** — pool-by-default + silo-on-trigger ADR. Documents the hybrid tenancy model FABT offers (discriminator + RLS pooled tier; per-CoC silo tier on HIPAA BAA / VAWA-DV / data-residency / procurement triggers). Per-component isolation spectrum matrix. Sign-offs from Marcus / Alex / Casey / Jordan / Sam / Maria / Devon / Riley.
+- **`docs/security/timing-attack-acceptance.md`** — UUID-not-secret ADR. Authoritative acceptance of the 404-timing residual risk on `findByIdAndTenantId` paths. Documents revisit conditions.
+
+### Migrations
+- **V59** (Java migration) — `db.migration.V59__reencrypt_plaintext_credentials` re-encrypts existing plaintext OAuth2 client secrets and HMIS API keys idempotently. `looksLikeCiphertext` try-decrypt guard skips already-encrypted rows; safe to re-run after partial failure. Writes one `audit_events` row (`SYSTEM_MIGRATION_V59_REENCRYPT`) inside the same transaction. Skips silently when `FABT_ENCRYPTION_KEY` is unset (dev/CI without encryption configured); the runtime services tolerate plaintext storage in that mode.
+
+### Hardened
+- **`SecretEncryptionService` constructor — prod profile fail-fast on missing key.** Production deployments that omit `FABT_ENCRYPTION_KEY` (or supply a blank value) now throw `IllegalStateException` at startup. Non-prod profiles transparently fall back to the committed `DEV_KEY` with a warn log so dev/CI workflows continue without env-var churn. Implements the pattern from `feedback_dev_keys_prod_guard.md`. **Operator action required before next prod deploy:** export `FABT_ENCRYPTION_KEY` (32-byte base64) on the Oracle VM. Generate with `openssl rand -base64 32`.
+- **`TenantOAuth2ProviderService.create` null-guards `clientSecret`** — matches the existing `update()` pattern. Prevents NPE in `encryptionService.encrypt(null)` when callers pass null.
+
+### Test coverage
+- **`SecretEncryptionServiceConstructorTest`** — 9 tests covering prod no-key / blank-key / dev-key throws, prod real-key happy path, non-prod DEV_KEY auto-fallback, wrong-length key rejection, no-profile default behaviour.
+- **`V59ReencryptPlaintextCredentialsTest`** — 6 reflection-driven tests on the migration's duplicated AES-GCM helpers (round-trip, non-determinism, ciphertext-acceptance, plaintext-rejection, foreign-key-rejection, short-Base64-rejection).
+- **`OAuth2EncryptionRoundTripIntegrationTest`** — 4 Testcontainers tests: create-persists-ciphertext, findByRegistrationId-returns-plaintext, update-rewraps, legacy-plaintext-resolves-via-fallback.
+- **`HmisEncryptionRoundTripIntegrationTest`** — 5 Testcontainers tests: encryptApiKey round-trip, null/blank passthrough, getVendors decrypt-on-read, legacy plaintext fallback, getEnabledVendors filters disabled.
+- **`TenantGuardUnitTest`** — 2 new tests for OAuth2 provider create's null-guard contract (encrypts non-null secret, no encryption call when secret is null).
+
+### Companion change
+- This is the first PR of the 236-task `multi-tenant-production-readiness` change tracked at #126. Phase A (per-tenant HKDF DEKs) builds on the encryption infrastructure landed here.
+
+---
+
 ## [v0.40.0] — 2026-04-16 — cross-tenant-isolation-audit (Issue #117)
 
 ### Added

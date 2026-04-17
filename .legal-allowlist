@@ -32,3 +32,6 @@ zap-report
 
 # Support model — describes the category of open-source software, not FABT specifically
 production-grade open-source
+
+# Casey review checklist — meta-text describing the rule, not claims
+casey-review-checklist

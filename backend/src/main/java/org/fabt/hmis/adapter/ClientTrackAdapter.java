@@ -35,7 +35,7 @@ public class ClientTrackAdapter implements HmisVendorAdapter {
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.set("Authorization", "ApiKey " + config.apiKeyEncrypted()); // TODO: decrypt
+        headers.set("Authorization", "ApiKey " + config.apiKeyEncrypted());
         HttpEntity<String> entity = new HttpEntity<>(json, headers);
 
         String url = config.baseUrl() + "/api/inventory";
