@@ -102,6 +102,20 @@ CREATE TABLE IF NOT EXISTS kid_to_tenant_key (
 CREATE INDEX IF NOT EXISTS kid_to_tenant_key_by_tenant
     ON kid_to_tenant_key (tenant_id, generation);
 
+-- Per A3 D20 + warroom E2: enforce exactly one kid per (tenant, generation).
+-- KidRegistryService.firstEncryptForGeneration uses
+-- "INSERT ... ON CONFLICT (tenant_id, generation) DO NOTHING RETURNING kid"
+-- to atomically lazy-register; this UNIQUE index is the constraint that makes
+-- the conflict-resolution path correct under concurrent first-encrypts.
+--
+-- Schema amendment from the original A1 V61: in-place edit per
+-- feedback_flyway_immutable_after_apply.md exemption window (V61 only ever
+-- applied to ephemeral Testcontainers DBs to date, never persistent).
+-- DEV ENVIRONMENT NOTE: any developer who already pulled a pre-A3 V61 must
+-- run ./dev-start.sh --fresh once to apply the new index.
+CREATE UNIQUE INDEX IF NOT EXISTS kid_to_tenant_key_unique_per_generation
+    ON kid_to_tenant_key (tenant_id, generation);
+
 COMMENT ON TABLE kid_to_tenant_key IS
     'Server-side opaque-kid → (tenant, generation) registry per design D1. Populated on JWT sign, read on validate. Cached in-memory at the application layer.';
 COMMENT ON COLUMN kid_to_tenant_key.kid IS
