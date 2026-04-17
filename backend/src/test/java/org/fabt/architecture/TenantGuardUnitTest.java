@@ -65,7 +65,7 @@ class TenantGuardUnitTest {
         when(providerRepo.findByIdAndTenantId(ENTITY_ID, TENANT_ID))
                 .thenReturn(Optional.of(provider));
 
-        var service = new TenantOAuth2ProviderService(providerRepo, urlValidator);
+        var service = new TenantOAuth2ProviderService(providerRepo, urlValidator, encryptionService);
         TenantContext.runWithContext(TENANT_ID, false, () -> service.delete(ENTITY_ID));
 
         verify(providerRepo).findByIdAndTenantId(eq(ENTITY_ID), eq(TENANT_ID));
@@ -81,11 +81,46 @@ class TenantGuardUnitTest {
                 .thenReturn(Optional.of(provider));
         when(providerRepo.save(any())).thenReturn(provider);
 
-        var service = new TenantOAuth2ProviderService(providerRepo, urlValidator);
+        var service = new TenantOAuth2ProviderService(providerRepo, urlValidator, encryptionService);
         TenantContext.runWithContext(TENANT_ID, false, () ->
                 service.update(ENTITY_ID, null, null, null, null));
 
         verify(providerRepo).findByIdAndTenantId(eq(ENTITY_ID), eq(TENANT_ID));
+    }
+
+    @Test
+    @DisplayName("OAuth2 provider create with non-null secret invokes encryption (W6 happy path)")
+    void providerCreate_encryptsNonNullSecret() {
+        org.fabt.shared.security.SafeOutboundUrlValidator urlValidator =
+                org.mockito.Mockito.mock(org.fabt.shared.security.SafeOutboundUrlValidator.class);
+        when(providerRepo.findByTenantIdAndProviderName(TENANT_ID, "okta"))
+                .thenReturn(Optional.empty());
+        when(providerRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(encryptionService.encrypt("plain-secret")).thenReturn("CIPHERTEXT");
+
+        var service = new TenantOAuth2ProviderService(providerRepo, urlValidator, encryptionService);
+        TenantContext.runWithContext(TENANT_ID, false, () ->
+                service.create("okta", "client-x", "plain-secret",
+                        "https://login.microsoftonline.com/common/v2.0"));
+
+        verify(encryptionService).encrypt("plain-secret");
+    }
+
+    @Test
+    @DisplayName("OAuth2 provider create with null secret stores null without calling encrypt (W6 guard)")
+    void providerCreate_nullSecretSkipsEncrypt() {
+        org.fabt.shared.security.SafeOutboundUrlValidator urlValidator =
+                org.mockito.Mockito.mock(org.fabt.shared.security.SafeOutboundUrlValidator.class);
+        when(providerRepo.findByTenantIdAndProviderName(TENANT_ID, "google"))
+                .thenReturn(Optional.empty());
+        when(providerRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        var service = new TenantOAuth2ProviderService(providerRepo, urlValidator, encryptionService);
+        TenantContext.runWithContext(TENANT_ID, false, () ->
+                service.create("google", "client-y", null,
+                        "https://accounts.google.com"));
+
+        org.mockito.Mockito.verifyNoInteractions(encryptionService);
     }
 
     // ------------------------------------------------------------------
