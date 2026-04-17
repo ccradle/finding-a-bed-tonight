@@ -192,6 +192,70 @@ public class GlobalExceptionHandler {
         return null;
     }
 
+    /**
+     * Phase A4 D25 — cross-tenant JWT rejection. JwtService.validate
+     * detected that the JWT's kid resolves to a different tenant than
+     * the body claim's tenantId — the kid-confusion attack. Mapped to
+     * 403 with the D3 envelope. An audit_events row tagged
+     * {@code CROSS_TENANT_JWT_REJECTED} is published per warroom W1
+     * with enriched JSONB shape including the offending JWT's body
+     * claims for incident-response forensics.
+     */
+    @ExceptionHandler(org.fabt.shared.security.CrossTenantJwtException.class)
+    public ResponseEntity<ErrorResponse> handleCrossTenantJwt(
+            org.fabt.shared.security.CrossTenantJwtException ex) {
+        log.warn("Cross-tenant JWT rejected: kid={} expected={} actual={} sub={}",
+                ex.getKid(), ex.getExpectedTenantId(), ex.getActualTenantId(),
+                ex.getClaimsSub());
+
+        Counter.builder("fabt.security.cross_tenant_jwt_rejected.count")
+                .tag("expected_tenant", ex.getExpectedTenantId().toString())
+                .register(meterRegistry)
+                .increment();
+
+        java.util.UUID actorUserId = currentActorUserId();
+        String sourceIp = currentSourceIp();
+        java.util.Map<String, Object> details = new java.util.LinkedHashMap<>();
+        details.put("kid", ex.getKid().toString());
+        details.put("expectedTenantId", ex.getExpectedTenantId().toString());
+        details.put("actualTenantId", ex.getActualTenantId().toString());
+        details.put("actorUserId", actorUserId == null ? "null" : actorUserId.toString());
+        details.put("sourceIp", sourceIp == null ? "null" : sourceIp);
+        // W1 — enriched body-claim fields aid forensic reconstruction
+        details.put("claimsTenantId", ex.getExpectedTenantId().toString());
+        details.put("claimsSub", ex.getClaimsSub() == null ? "null" : ex.getClaimsSub().toString());
+        details.put("claimsIat", ex.getClaimsIat() == null ? "null" : ex.getClaimsIat());
+        details.put("claimsExp", ex.getClaimsExp() == null ? "null" : ex.getClaimsExp());
+        eventPublisher.publishEvent(new org.fabt.shared.audit.AuditEventRecord(
+                actorUserId, null, "CROSS_TENANT_JWT_REJECTED", details, sourceIp));
+
+        return ResponseEntity
+                .status(HttpStatus.FORBIDDEN)
+                .body(new ErrorResponse("cross_tenant",
+                        "JWT does not belong to the requested tenant.", 403));
+    }
+
+    /**
+     * Phase A4 D26 — revoked-kid JWT. The kid is on the
+     * {@code jwt_revocations} blocklist. Mapped to 401 (NOT 403) — this
+     * is an expired-credential scenario; clients should re-authenticate.
+     * No audit event (would flood the log post-rotation as every
+     * in-flight prior-generation token fails this way until natural
+     * expiry); just the per-replica counter for visibility.
+     */
+    @ExceptionHandler(org.fabt.shared.security.RevokedJwtException.class)
+    public ResponseEntity<ErrorResponse> handleRevokedJwt(
+            org.fabt.shared.security.RevokedJwtException ex) {
+        log.debug("Revoked JWT validated: kid={}", ex.getKid());
+        Counter.builder("fabt.security.revoked_jwt_validate.count")
+                .register(meterRegistry)
+                .increment();
+        return ResponseEntity
+                .status(HttpStatus.UNAUTHORIZED)
+                .body(new ErrorResponse("token_revoked",
+                        "Token has been revoked. Re-authenticate.", 401));
+    }
+
     @ExceptionHandler(NoSuchElementException.class)
     public ResponseEntity<ErrorResponse> handleNotFound(NoSuchElementException ex) {
         log.warn("Not found (NoSuchElementException): {}", ex.getMessage());
