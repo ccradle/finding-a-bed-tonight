@@ -32,10 +32,13 @@ public class GlobalExceptionHandler {
 
     private final MessageSource messageSource;
     private final MeterRegistry meterRegistry;
+    private final org.springframework.context.ApplicationEventPublisher eventPublisher;
 
-    public GlobalExceptionHandler(MessageSource messageSource, MeterRegistry meterRegistry) {
+    public GlobalExceptionHandler(MessageSource messageSource, MeterRegistry meterRegistry,
+                                   org.springframework.context.ApplicationEventPublisher eventPublisher) {
         this.messageSource = messageSource;
         this.meterRegistry = meterRegistry;
+        this.eventPublisher = eventPublisher;
     }
 
     @ExceptionHandler(NoResourceFoundException.class)
@@ -138,14 +141,55 @@ public class GlobalExceptionHandler {
             org.fabt.shared.security.CrossTenantCiphertextException ex) {
         log.warn("Cross-tenant ciphertext rejected: kid={} expected={} actual={}",
                 ex.getKid(), ex.getExpectedTenantId(), ex.getActualTenantId());
+
         Counter.builder("fabt.security.cross_tenant_ciphertext_rejected.count")
                 .tag("expected_tenant", ex.getExpectedTenantId().toString())
                 .register(meterRegistry)
                 .increment();
+
+        // audit_events publish per warroom Q5 — JSONB shape:
+        // {kid, expectedTenantId, actualTenantId, actorUserId, sourceIp}
+        java.util.UUID actorUserId = currentActorUserId();
+        String sourceIp = currentSourceIp();
+        java.util.Map<String, Object> details = java.util.Map.of(
+                "kid", ex.getKid().toString(),
+                "expectedTenantId", ex.getExpectedTenantId().toString(),
+                "actualTenantId", ex.getActualTenantId().toString(),
+                "actorUserId", actorUserId == null ? "null" : actorUserId.toString(),
+                "sourceIp", sourceIp == null ? "null" : sourceIp);
+        eventPublisher.publishEvent(new org.fabt.shared.audit.AuditEventRecord(
+                actorUserId,
+                null, // no targetUserId — the target is a ciphertext, not a user
+                "CROSS_TENANT_CIPHERTEXT_REJECTED",
+                details,
+                sourceIp));
+
         return ResponseEntity
                 .status(HttpStatus.FORBIDDEN)
                 .body(new ErrorResponse("cross_tenant",
                         "Ciphertext does not belong to the requested tenant.", 403));
+    }
+
+    private static java.util.UUID currentActorUserId() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || auth.getName() == null) return null;
+        try {
+            return java.util.UUID.fromString(auth.getName());
+        } catch (IllegalArgumentException notAUuid) {
+            return null;
+        }
+    }
+
+    private static String currentSourceIp() {
+        try {
+            var attrs = org.springframework.web.context.request.RequestContextHolder.currentRequestAttributes();
+            if (attrs instanceof org.springframework.web.context.request.ServletRequestAttributes sra) {
+                return sra.getRequest().getRemoteAddr();
+            }
+        } catch (IllegalStateException noRequestBound) {
+            // happens when called outside a request context (e.g., from a scheduled task)
+        }
+        return null;
     }
 
     @ExceptionHandler(NoSuchElementException.class)
