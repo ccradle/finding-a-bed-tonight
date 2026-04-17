@@ -35,18 +35,85 @@ public class SecretEncryptionService {
     private final SecretKey secretKey;
     private final SecureRandom secureRandom = new SecureRandom();
     private final boolean configured;
+    private final MasterKekProvider masterKekProvider;
+    private final KeyDerivationService keyDerivationService;
+    private final KidRegistryService kidRegistryService;
 
     /**
      * Phase A3 D17: validation + key bytes now owned by {@link MasterKekProvider}.
-     * This constructor reads the platform key from the provider; the dev-key
-     * fallback / prod-fail-fast / wrong-length / dev-key-in-prod-rejection
-     * logic that lived here previously is now in one place. {@code configured}
-     * is always true post-A3 because the provider throws on any invalid input
-     * before this constructor runs.
+     * Phase A3 D18+D21: per-tenant typed encrypt/decrypt added; legacy v0 path
+     * preserved via {@link CiphertextV0Decoder}. The provider, derivation
+     * service, and kid registry are injected together because the v1 encrypt
+     * path needs all three.
      */
-    public SecretEncryptionService(MasterKekProvider masterKekProvider) {
+    public SecretEncryptionService(
+            MasterKekProvider masterKekProvider,
+            KeyDerivationService keyDerivationService,
+            KidRegistryService kidRegistryService) {
+        this.masterKekProvider = masterKekProvider;
+        this.keyDerivationService = keyDerivationService;
+        this.kidRegistryService = kidRegistryService;
         this.secretKey = masterKekProvider.getPlatformKey();
         this.configured = true;
+    }
+
+    // ------------------------------------------------------------------
+    // Phase A3 typed per-tenant API
+    // ------------------------------------------------------------------
+
+    /**
+     * Encrypts {@code plaintext} for storage under the per-tenant DEK
+     * derived for {@code (tenantId, purpose)}. Wraps the result in a v1
+     * {@link EncryptionEnvelope} carrying the kid registered for the
+     * tenant's active generation.
+     *
+     * <p>Lazy bootstrap: the first encrypt for a tenant creates its
+     * {@code tenant_key_material} active generation + kid via
+     * {@link KidRegistryService#findOrCreateActiveKid(java.util.UUID)}.
+     * Subsequent encrypts reuse the same kid until rotation.
+     */
+    public String encryptForTenant(java.util.UUID tenantId, KeyPurpose purpose, String plaintext) {
+        java.util.UUID kid = kidRegistryService.findOrCreateActiveKid(tenantId);
+        SecretKey dek = purpose.deriveKey(keyDerivationService, tenantId);
+        try {
+            byte[] iv = new byte[GCM_IV_LENGTH];
+            secureRandom.nextBytes(iv);
+            Cipher cipher = Cipher.getInstance(ALGORITHM);
+            cipher.init(Cipher.ENCRYPT_MODE, dek, new GCMParameterSpec(GCM_TAG_LENGTH, iv));
+            byte[] ciphertextWithTag = cipher.doFinal(plaintext.getBytes(StandardCharsets.UTF_8));
+            return new EncryptionEnvelope(kid, iv, ciphertextWithTag).encode();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to encrypt secret for tenant " + tenantId, e);
+        }
+    }
+
+    /**
+     * Decrypts a stored ciphertext for the given tenant + purpose. Routes
+     * to the v0 legacy path if the bytes don't carry the v1 magic.
+     *
+     * @throws CrossTenantCiphertextException if the kid resolves to a
+     *         different tenant than {@code tenantId}
+     */
+    public String decryptForTenant(java.util.UUID tenantId, KeyPurpose purpose, String stored) {
+        byte[] decoded = java.util.Base64.getDecoder().decode(stored);
+        if (!EncryptionEnvelope.isV1Envelope(decoded)) {
+            // v0 fallback — Phase 0 single-platform-key envelope
+            return CiphertextV0Decoder.decrypt(masterKekProvider.getPlatformKey(), stored);
+        }
+        EncryptionEnvelope envelope = EncryptionEnvelope.decode(stored);
+        KidRegistryService.KidResolution resolved = kidRegistryService.resolveKid(envelope.kid());
+        if (!resolved.tenantId().equals(tenantId)) {
+            throw new CrossTenantCiphertextException(envelope.kid(), tenantId, resolved.tenantId());
+        }
+        SecretKey dek = purpose.deriveKey(keyDerivationService, tenantId);
+        try {
+            Cipher cipher = Cipher.getInstance(ALGORITHM);
+            cipher.init(Cipher.DECRYPT_MODE, dek, new GCMParameterSpec(GCM_TAG_LENGTH, envelope.iv()));
+            byte[] plaintext = cipher.doFinal(envelope.ciphertextWithTag());
+            return new String(plaintext, StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to decrypt v1 ciphertext for tenant " + tenantId, e);
+        }
     }
 
     /**

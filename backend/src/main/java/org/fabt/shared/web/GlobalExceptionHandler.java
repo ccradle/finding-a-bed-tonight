@@ -122,6 +122,32 @@ public class GlobalExceptionHandler {
                 .body(new ErrorResponse("conflict", message, 409));
     }
 
+    /**
+     * Phase A3 D21 — cross-tenant ciphertext rejection. The decrypt path
+     * detected that the kid in a v1 envelope resolves to a different
+     * tenant than the caller requested. Mapped to 403 with the D3
+     * envelope; an audit_events row tagged
+     * {@code CROSS_TENANT_CIPHERTEXT_REJECTED} is published with the kid
+     * + expected/actual tenants + actor + IP per warroom Q5 (audit
+     * publish wired in a follow-up commit when the ApplicationEventPublisher
+     * + ServletRequest accessors are confirmed; for now this handler
+     * counters the metric and returns 403 cleanly).
+     */
+    @ExceptionHandler(org.fabt.shared.security.CrossTenantCiphertextException.class)
+    public ResponseEntity<ErrorResponse> handleCrossTenantCiphertext(
+            org.fabt.shared.security.CrossTenantCiphertextException ex) {
+        log.warn("Cross-tenant ciphertext rejected: kid={} expected={} actual={}",
+                ex.getKid(), ex.getExpectedTenantId(), ex.getActualTenantId());
+        Counter.builder("fabt.security.cross_tenant_ciphertext_rejected.count")
+                .tag("expected_tenant", ex.getExpectedTenantId().toString())
+                .register(meterRegistry)
+                .increment();
+        return ResponseEntity
+                .status(HttpStatus.FORBIDDEN)
+                .body(new ErrorResponse("cross_tenant",
+                        "Ciphertext does not belong to the requested tenant.", 403));
+    }
+
     @ExceptionHandler(NoSuchElementException.class)
     public ResponseEntity<ErrorResponse> handleNotFound(NoSuchElementException ex) {
         log.warn("Not found (NoSuchElementException): {}", ex.getMessage());
