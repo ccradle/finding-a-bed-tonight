@@ -146,6 +146,42 @@ class GlobalExceptionHandlerJwtTest {
         assertEquals("null", details.get("claimsExp"));
     }
 
+    @Test
+    @DisplayName("C-A4-1 — unknown-kid path (null expectedTenantId) → handler does NOT NPE; tag = 'unknown'")
+    void crossTenantJwt_unknownKidPath_doesNotNpe() {
+        SimpleMeterRegistry meters = new SimpleMeterRegistry();
+        AtomicReference<Object> captured = new AtomicReference<>();
+        GlobalExceptionHandler handler = new GlobalExceptionHandler(
+                new StaticMessageSource(), meters, captured::set);
+
+        // Unknown-kid path constructs the exception per the C-A3-1 sentinel
+        // pattern: kid + null expectedTenantId + sentinel actualTenantId +
+        // null body claims (the JWT body was never parsed).
+        UUID sentinel = UUID.fromString("00000000-0000-0000-0000-000000000000");
+        ResponseEntity<ErrorResponse> response = handler.handleCrossTenantJwt(
+                new CrossTenantJwtException(KID, null, sentinel, null, null, null));
+
+        // Pre-fix: this would NPE on .toString() of the null expected tenant.
+        // Post-fix: 403 returned cleanly + counter tagged "unknown" + audit
+        // shape preserved with "unknown" string for null fields.
+        assertEquals(HttpStatus.FORBIDDEN, response.getStatusCode());
+        assertEquals("cross_tenant", response.getBody().error());
+
+        // Counter tag uses literal "unknown" (not crash on null)
+        double count = meters.find("fabt.security.cross_tenant_jwt_rejected.count")
+                .tag("expected_tenant", "unknown")
+                .counter().count();
+        assertEquals(1.0, count);
+
+        // Audit JSONB carries "unknown" so dashboards can group by tag without filtering null
+        AuditEventRecord record = (AuditEventRecord) captured.get();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> details = (Map<String, Object>) record.details();
+        assertEquals("unknown", details.get("expectedTenantId"));
+        assertEquals("unknown", details.get("claimsTenantId"));
+        assertEquals(sentinel.toString(), details.get("actualTenantId"));
+    }
+
     // ------------------------------------------------------------------
     // RevokedJwtException → 401, no audit (D26)
     // ------------------------------------------------------------------

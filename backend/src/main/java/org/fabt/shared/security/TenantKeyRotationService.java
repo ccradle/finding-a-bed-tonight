@@ -92,10 +92,31 @@ public class TenantKeyRotationService {
      */
     @Transactional
     public RotationResult bumpJwtKeyGeneration(UUID tenantId, UUID actorUserId) {
-        // 1. Snapshot current active generation. queryForObject throws
-        //    EmptyResultDataAccessException when there's no row — translate
-        //    to a clearer IllegalStateException so callers get an actionable
-        //    message instead of a Spring DAO exception.
+        // 1a. Acquire per-tenant advisory lock (C-A4-3 — warroom Marcus).
+        //     Without serialization, two simultaneous PLATFORM_ADMIN-triggered
+        //     rotations would both see the same currentGen, both INSERT
+        //     (tenant, currentGen+1, TRUE), the second silently absorbed by
+        //     ON CONFLICT DO NOTHING, but step 7's audit publish runs for
+        //     BOTH — duplicate JWT_KEY_GENERATION_BUMPED rows for one
+        //     logical rotation.
+        //
+        //     pg_advisory_xact_lock is transaction-scoped — released on
+        //     commit/rollback. Locking the active row directly with FOR
+        //     UPDATE has a subtle race: when thread A flips the row to
+        //     inactive, thread B's lock-released SELECT no longer matches
+        //     the WHERE active = TRUE predicate and returns 0 rows.
+        //     Per-tenant advisory lock sidesteps that — B waits for A,
+        //     then re-runs the active-row lookup against the post-commit
+        //     state and finds gen N+1.
+        //
+        //     Argument: hash of tenantId.mostSigBits (bigint required).
+        jdbc.queryForObject("SELECT pg_advisory_xact_lock(?)",
+                Object.class, tenantId.getMostSignificantBits());
+
+        // 1b. Snapshot current active generation. queryForObject throws
+        //     EmptyResultDataAccessException when there's no row — translate
+        //     to a clearer IllegalStateException so callers get an actionable
+        //     message instead of a Spring DAO exception.
         Integer currentGen;
         try {
             currentGen = jdbc.queryForObject(
@@ -123,9 +144,14 @@ public class TenantKeyRotationService {
                 + "WHERE tenant_id = ? AND generation = ?",
                 UUID.class, tenantId, currentGen);
 
-        // 3. Mark current gen inactive
+        // 3. Mark current gen inactive. clock_timestamp() (wall-clock at
+        //    statement time) instead of NOW() (transaction-start timestamp)
+        //    because NOW() can be earlier than a row's created_at if the
+        //    inserting tx started AFTER this rotation tx — would violate
+        //    the V61 CHECK constraint rotated_at >= created_at. Caught by
+        //    concurrentRotationsSerialize.
         jdbc.update(
-                "UPDATE tenant_key_material SET active = FALSE, rotated_at = NOW() "
+                "UPDATE tenant_key_material SET active = FALSE, rotated_at = clock_timestamp() "
                 + "WHERE tenant_id = ? AND generation = ?",
                 tenantId, currentGen);
 
@@ -140,12 +166,19 @@ public class TenantKeyRotationService {
 
         // 5. Bulk-add prior-gen kids to jwt_revocations
         //    (W5: 7-day ceiling = refresh-token max lifetime)
+        //    W-A4-4 (warroom Elena): ON CONFLICT DO UPDATE GREATEST so
+        //    that if a kid is somehow already revoked with a SHORTER
+        //    expires_at, the rotation's longer ceiling wins. Plain
+        //    DO NOTHING would keep the shorter expiry and the token
+        //    could expire from the blocklist before its natural
+        //    refresh-token lifetime.
         if (!kidsToRevoke.isEmpty()) {
             jdbc.update(
                     "INSERT INTO jwt_revocations (kid, expires_at) "
                     + "SELECT kid, NOW() + INTERVAL '7 days' "
                     + "FROM kid_to_tenant_key WHERE tenant_id = ? AND generation = ? "
-                    + "ON CONFLICT (kid) DO NOTHING",
+                    + "ON CONFLICT (kid) DO UPDATE "
+                    + "  SET expires_at = GREATEST(jwt_revocations.expires_at, EXCLUDED.expires_at)",
                     tenantId, currentGen);
         }
 

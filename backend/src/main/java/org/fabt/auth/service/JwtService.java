@@ -19,6 +19,8 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.Expiry;
 import jakarta.annotation.PostConstruct;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.fabt.auth.domain.User;
 import org.fabt.shared.security.CrossTenantJwtException;
 import org.fabt.shared.security.KeyDerivationService;
@@ -85,9 +87,12 @@ public class JwtService {
     // Phase A4 dependencies. Optional (null in pre-A4 unit tests) so the
     // standalone JwtServiceSecurityAttackTest + SecurityStartupTest can
     // exercise the legacy path without wiring per-tenant infrastructure.
+    // W-A4-3: prod profile asserts non-null at construction so a Spring
+    // wiring error can never silently downgrade prod to legacy v0 tokens.
     private final KeyDerivationService keyDerivationService;
     private final KidRegistryService kidRegistryService;
     private final RevokedKidCache revokedKidCache;
+    private final MeterRegistry meterRegistry;
 
     public JwtService(
             @Value("${fabt.jwt.secret:default-dev-secret-change-in-production}") String secret,
@@ -97,7 +102,8 @@ public class JwtService {
             Environment environment,
             KeyDerivationService keyDerivationService,
             KidRegistryService kidRegistryService,
-            RevokedKidCache revokedKidCache) {
+            RevokedKidCache revokedKidCache,
+            MeterRegistry meterRegistry) {
         this.secret = secret;
         this.secretKey = secret.getBytes(StandardCharsets.UTF_8);
         this.accessTokenExpiryMinutes = accessTokenExpiryMinutes;
@@ -107,6 +113,21 @@ public class JwtService {
         this.keyDerivationService = keyDerivationService;
         this.kidRegistryService = kidRegistryService;
         this.revokedKidCache = revokedKidCache;
+        this.meterRegistry = meterRegistry;
+
+        // W-A4-3 — prod profile must have all 3 new deps wired or A4's
+        // per-tenant signing silently downgrades to legacy v0 tokens
+        // forever. Fail-fast at startup matches MasterKekProvider's
+        // prod-no-key pattern (Phase 0 C2 hardening).
+        java.util.Set<String> profiles = java.util.Set.of(environment.getActiveProfiles());
+        if (profiles.contains("prod")) {
+            if (keyDerivationService == null || kidRegistryService == null || revokedKidCache == null) {
+                throw new IllegalStateException(
+                        "Phase A4 dependencies (KeyDerivationService, KidRegistryService, "
+                        + "RevokedKidCache) must be wired in the prod profile — null dep "
+                        + "would silently downgrade JWT signing to legacy FABT_JWT_SECRET path.");
+            }
+        }
         this.claimsCache = Caffeine.newBuilder()
                 .maximumSize(10_000)
                 .expireAfter(new Expiry<String, JwtClaims>() {
@@ -285,6 +306,17 @@ public class JwtService {
      * permanently zero.
      */
     private JwtClaims validateLegacy(String[] parts) {
+        // C-A4-2 (warroom): increment counter every time the legacy path
+        // runs so operators can monitor cutover-window traffic. A spike
+        // during the 7-day window could indicate forgotten clients OR
+        // forgery attempts presenting old-format tokens. Counter survives
+        // legacy-code-path removal as a permanent zero post-window.
+        if (meterRegistry != null) {
+            Counter.builder("fabt.security.legacy_jwt_validate.count")
+                    .register(meterRegistry)
+                    .increment();
+        }
+
         String signaturePart = parts[2];
         String cacheKey = sha256Hex(signaturePart);
 

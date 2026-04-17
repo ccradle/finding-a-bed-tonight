@@ -208,8 +208,14 @@ public class GlobalExceptionHandler {
                 ex.getKid(), ex.getExpectedTenantId(), ex.getActualTenantId(),
                 ex.getClaimsSub());
 
+        // C-A4-1: the unknown-kid path constructs the exception with
+        // expectedTenantId=null (the body claim wasn't even parsed). NPE-guard
+        // every dereference. Use literal "unknown" so dashboards + audit
+        // queries can still group by tag value without filtering null.
+        String expectedTag = ex.getExpectedTenantId() == null
+                ? "unknown" : ex.getExpectedTenantId().toString();
         Counter.builder("fabt.security.cross_tenant_jwt_rejected.count")
-                .tag("expected_tenant", ex.getExpectedTenantId().toString())
+                .tag("expected_tenant", expectedTag)
                 .register(meterRegistry)
                 .increment();
 
@@ -217,12 +223,13 @@ public class GlobalExceptionHandler {
         String sourceIp = currentSourceIp();
         java.util.Map<String, Object> details = new java.util.LinkedHashMap<>();
         details.put("kid", ex.getKid().toString());
-        details.put("expectedTenantId", ex.getExpectedTenantId().toString());
+        details.put("expectedTenantId", expectedTag);
         details.put("actualTenantId", ex.getActualTenantId().toString());
         details.put("actorUserId", actorUserId == null ? "null" : actorUserId.toString());
         details.put("sourceIp", sourceIp == null ? "null" : sourceIp);
-        // W1 — enriched body-claim fields aid forensic reconstruction
-        details.put("claimsTenantId", ex.getExpectedTenantId().toString());
+        // W1 — enriched body-claim fields. claimsTenantId mirrors expected
+        // (the body's tenantId == what we expected the kid to resolve to).
+        details.put("claimsTenantId", expectedTag);
         details.put("claimsSub", ex.getClaimsSub() == null ? "null" : ex.getClaimsSub().toString());
         details.put("claimsIat", ex.getClaimsIat() == null ? "null" : ex.getClaimsIat());
         details.put("claimsExp", ex.getClaimsExp() == null ? "null" : ex.getClaimsExp());
