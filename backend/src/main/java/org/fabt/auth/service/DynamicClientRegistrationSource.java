@@ -5,7 +5,10 @@ import java.util.concurrent.TimeUnit;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import java.util.UUID;
+
 import org.fabt.auth.domain.TenantOAuth2Provider;
+import org.fabt.shared.security.KeyPurpose;
 import org.fabt.shared.security.SecretEncryptionService;
 import org.fabt.tenant.service.TenantService;
 import org.slf4j.Logger;
@@ -72,7 +75,7 @@ public class DynamicClientRegistrationSource implements ClientRegistrationReposi
 
         ClientRegistration registration = ClientRegistration.withRegistrationId(registrationId)
                 .clientId(p.getClientId())
-                .clientSecret(decryptClientSecret(p.getClientSecretEncrypted()))
+                .clientSecret(decryptClientSecret(p.getTenantId(), p.getClientSecretEncrypted()))
                 .clientAuthenticationMethod(ClientAuthenticationMethod.CLIENT_SECRET_BASIC)
                 .authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
                 .redirectUri("{baseUrl}/oauth2/callback/" + registrationId)
@@ -90,19 +93,23 @@ public class DynamicClientRegistrationSource implements ClientRegistrationReposi
     }
 
     /**
-     * Decrypts a stored OAuth2 client secret. Falls back to the stored value
-     * on decrypt failure so legacy plaintext providers remain functional until
-     * Flyway V74 re-encrypts them. Mirrors the same tolerance pattern used by
-     * {@code HmisConfigService.decryptApiKey}. Without this fallback, the
-     * window between Phase 0 deploy and V74 completion would hard-fail every
-     * OAuth2 login.
+     * Decrypts a stored OAuth2 client secret under the owning tenant's DEK.
+     * Phase A5 D38: per-tenant-scoped. The v0 fallback path inside
+     * {@link SecretEncryptionService#decryptForTenant} handles legacy
+     * pre-V74 ciphertexts without a caller-side try/catch being required.
+     *
+     * <p>Plaintext-tolerance fallback preserved for direct-DB-edit cases:
+     * if an admin/operator set {@code client_secret_encrypted} to raw
+     * plaintext post-V74 (not encrypted, not v0, not v1), decrypt throws
+     * and we pass the value through. Consistent with
+     * {@code HmisConfigService.decryptApiKey}'s tolerance.
      */
-    private String decryptClientSecret(String stored) {
+    private String decryptClientSecret(UUID tenantId, String stored) {
         if (stored == null || stored.isBlank()) {
             return stored;
         }
         try {
-            return encryptionService.decrypt(stored);
+            return encryptionService.decryptForTenant(tenantId, KeyPurpose.OAUTH2_CLIENT_SECRET, stored);
         } catch (RuntimeException e) {
             log.debug("client_secret_encrypted is not valid ciphertext; returning plaintext fallback");
             return stored;

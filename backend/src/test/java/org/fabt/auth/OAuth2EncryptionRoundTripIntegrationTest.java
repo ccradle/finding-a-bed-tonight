@@ -10,6 +10,7 @@ import org.fabt.auth.domain.TenantOAuth2Provider;
 import org.fabt.auth.repository.TenantOAuth2ProviderRepository;
 import org.fabt.auth.service.DynamicClientRegistrationSource;
 import org.fabt.auth.service.TenantOAuth2ProviderService;
+import org.fabt.shared.security.KeyPurpose;
 import org.fabt.shared.security.SecretEncryptionService;
 import org.fabt.shared.web.TenantContext;
 import org.junit.jupiter.api.BeforeEach;
@@ -71,7 +72,9 @@ class OAuth2EncryptionRoundTripIntegrationTest extends BaseIntegrationTest {
         assertNotNull(stored, "stored secret must be non-null");
         assertNotEquals(plaintextSecret, stored,
                 "stored secret must be ciphertext, not plaintext");
-        assertEquals(plaintextSecret, encryptionService.decrypt(stored),
+        // Phase A5 D38: v1 envelope — use decryptForTenant with OAUTH2_CLIENT_SECRET.
+        assertEquals(plaintextSecret,
+                encryptionService.decryptForTenant(tenantId, KeyPurpose.OAUTH2_CLIENT_SECRET, stored),
                 "ciphertext must decrypt to the original plaintext");
     }
 
@@ -110,7 +113,8 @@ class OAuth2EncryptionRoundTripIntegrationTest extends BaseIntegrationTest {
                 .getClientSecretEncrypted();
 
         assertNotEquals(firstStored, secondStored, "stored ciphertext must change on update");
-        assertEquals(secondSecret, encryptionService.decrypt(secondStored));
+        assertEquals(secondSecret,
+                encryptionService.decryptForTenant(tenantId, KeyPurpose.OAUTH2_CLIENT_SECRET, secondStored));
     }
 
     @Test

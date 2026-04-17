@@ -23,6 +23,24 @@ import javax.crypto.spec.GCMParameterSpec;
  * The platform key arrives as an explicit {@link SecretKey} parameter
  * sourced from {@link MasterKekProvider#getPlatformKey()} on the call
  * site.
+ *
+ * <h2>DO NOT REMOVE — defense-in-depth contract per design-a5-v74 D42 + W-A5-5</h2>
+ *
+ * This class MUST NOT be deleted, even if a future grep shows it unused.
+ * The caller ({@link SecretEncryptionService#decryptForTenant}) selects
+ * this path via a magic-byte check on the stored ciphertext, NOT via
+ * exception-catch fallback. Removing this class would eliminate the
+ * defense-in-depth guarantee that a V74-skipped row (transient lock,
+ * operator DB edit, disaster-recovery partial restore) still decrypts
+ * cleanly. See {@code openspec/changes/multi-tenant-production-readiness/
+ * design-a5-v74-reencrypt.md} §D42 for the full rationale.
+ *
+ * <p>Observability on every v0-fallback call is wired in
+ * {@link SecretEncryptionService#recordV0DecryptFallback} —
+ * {@code fabt.security.v0_decrypt_fallback.count} counter + throttled
+ * {@code CIPHERTEXT_V0_DECRYPT} audit event. Post-V74 a non-zero rate
+ * is either a stuck-row repair indicator or a downgrade-attack signal;
+ * either way, it is surveilled.
  */
 final class CiphertextV0Decoder {
 

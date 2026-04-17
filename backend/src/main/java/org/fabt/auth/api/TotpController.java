@@ -77,7 +77,9 @@ public class TotpController {
 
         // Store pending secret (encrypted) — will be activated on confirmation
         // This allows only one pending enrollment at a time (concurrent enrollment replaces previous)
-        user.setTotpSecretEncrypted(totpService.encryptSecret(secret));
+        // Phase A5 D38: tenantId threaded through so the secret is encrypted
+        // under the owning tenant's per-tenant DEK, not the shared platform key.
+        user.setTotpSecretEncrypted(totpService.encryptSecret(user.getTenantId(), secret));
         user.setUpdatedAt(java.time.Instant.now());
         userRepository.save(user);
 
@@ -114,8 +116,8 @@ public class TotpController {
                     "message", "No enrollment in progress. Start with POST /api/v1/auth/enroll-totp."));
         }
 
-        // Decrypt and verify
-        String secret = totpService.decryptSecret(user.getTotpSecretEncrypted());
+        // Decrypt and verify (Phase A5: tenant-scoped per D38)
+        String secret = totpService.decryptSecret(user.getTenantId(), user.getTotpSecretEncrypted());
         if (!totpService.verifyCode(secret, code)) {
             return ResponseEntity.status(401).body(Map.of(
                     "error", "invalid_code",
