@@ -1,4 +1,4 @@
-package org.fabt.shared.security;
+package org.fabt.tenant.api;
 
 import java.util.UUID;
 
