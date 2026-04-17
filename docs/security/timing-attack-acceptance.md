@@ -27,7 +27,7 @@ The difference is typically sub-millisecond. A side-channel attacker with precis
    - any content of the row
    - whether the caller would be authorized to read X if they were in its tenant
 
-3. **The 404 response body is already public information.** Every D3-compliant endpoint returns a standard `{"error":"not_found","status":404,...}` envelope regardless of why the row was filtered. The body leaks no information; timing is the only channel.
+3. **The 404 response body is already public information.** Every endpoint that follows the D3 envelope contract returns a standard `{"error":"not_found","status":404,...}` payload regardless of why the row was filtered. The body leaks no information; timing is the only channel.
 
 4. **Mitigation cost is user-facing.** Two mitigations were considered:
    - Constant-time 404 via fixed `Thread.sleep(floor_ms)` at the end of the request path. Adds 20–100ms of latency to every 404 (which are the common case for cross-tenant probes). Unambiguously worse UX for honest users; also fights against Sam's p95 < 500ms global SLO.

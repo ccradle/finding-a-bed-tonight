@@ -11,6 +11,7 @@ import org.fabt.hmis.domain.HmisVendorType;
 import org.fabt.hmis.service.HmisConfigService;
 import org.fabt.shared.security.SecretEncryptionService;
 import org.fabt.tenant.service.TenantService;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -61,6 +62,18 @@ class HmisEncryptionRoundTripIntegrationTest extends BaseIntegrationTest {
     void setUp() {
         authHelper.setupTestTenant();
         tenantId = authHelper.getTestTenantId();
+    }
+
+    /**
+     * Reset tenant config to empty after every test so the {@code hmis_vendors}
+     * entries this class writes don't bleed into downstream classes that share
+     * the same Testcontainers-singleton {@code test-tenant} (e.g.
+     * {@code HmisBridgeIntegrationTest} expects zero vendors). Per
+     * {@code feedback_isolated_test_data.md}.
+     */
+    @AfterEach
+    void clearTenantConfig() {
+        tenantService.updateConfig(tenantId, java.util.Map.of());
     }
 
     @Test

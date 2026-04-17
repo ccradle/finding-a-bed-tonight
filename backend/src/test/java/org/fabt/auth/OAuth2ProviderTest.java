@@ -210,6 +210,18 @@ class OAuth2ProviderTest extends BaseIntegrationTest {
         UUID tenantBProviderId = UUID.fromString(
                 createResp.getBody().replaceAll(".*\"id\"\\s*:\\s*\"([^\"]+)\".*", "$1"));
 
+        // Capture Tenant B's stored values BEFORE the attack so the post-attack
+        // assertion can compare byte-for-byte against the legitimate state. Since
+        // Phase 0 of multi-tenant-production-readiness, client_secret_encrypted
+        // is ciphertext (not plaintext), so a literal "legitimate-secret-b"
+        // expectation would fail even when the attack was correctly blocked.
+        Map<String, Object> tenantBBefore = TenantContext.callWithContext(
+                tenantB.getId(), false, () ->
+                jdbcTemplate.queryForMap(
+                        "SELECT client_id, client_secret_encrypted, issuer_uri, enabled " +
+                                "FROM tenant_oauth2_provider WHERE id = ?::uuid",
+                        tenantBProviderId));
+
         // Act: Tenant A's COC_ADMIN attempts to overwrite Tenant B's provider
         // with an attacker-controlled issuerUri — the core VULN-HIGH scenario.
         HttpHeaders tenantAHeaders = authHelper.adminHeaders();
@@ -235,16 +247,16 @@ class OAuth2ProviderTest extends BaseIntegrationTest {
                     tenantBProviderId);
             assertThat(row.get("client_id"))
                     .as("Tenant B's clientId must be unchanged after cross-tenant PUT attempt")
-                    .isEqualTo("legitimate-client-b");
+                    .isEqualTo(tenantBBefore.get("client_id"));
             assertThat(row.get("client_secret_encrypted"))
                     .as("Tenant B's clientSecret must be unchanged after cross-tenant PUT attempt")
-                    .isEqualTo("legitimate-secret-b");
+                    .isEqualTo(tenantBBefore.get("client_secret_encrypted"));
             assertThat(row.get("issuer_uri"))
                     .as("Tenant B's issuerUri must be unchanged — attacker-controlled OIDC hijack blocked")
-                    .isEqualTo("https://login.microsoftonline.com/b/v2.0");
+                    .isEqualTo(tenantBBefore.get("issuer_uri"));
             assertThat((Boolean) row.get("enabled"))
                     .as("Tenant B's enabled flag must be unchanged")
-                    .isTrue();
+                    .isEqualTo(tenantBBefore.get("enabled"));
         });
     }
 
