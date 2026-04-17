@@ -11,6 +11,22 @@
 -- (tenant lifecycle) populate / consume these tables; this migration only
 -- creates the schema.
 --
+-- DEFERRED CONCERN: Marcus warroom flagged that fabt_app could in principle
+-- INSERT into tenant_key_material / kid_to_tenant_key to escalate (associate
+-- a kid with another tenant's key material, then use that kid to validate a
+-- forged JWT). The clean RLS fix is non-trivial because the JWT validate
+-- path looks up kid_to_tenant_key BEFORE TenantContext is bound (the kid
+-- lookup IS the binding step). Deferring to Phase B task 3.4 (V67 D14 RLS
+-- rollout). Two interim defenses keep this acceptable in Phase A:
+--
+--   1. opaque-random kid (UUID) — attacker cannot guess valid kids
+--   2. JwtService.validate cross-checks claim.tenantId against kid-resolved
+--      tenant (task 2.10) — kid-confusion attack rejected with audit event
+--
+-- jwt_revocations is intrinsically platform-scoped (no tenant_id column);
+-- protected by kid-secrecy + revocations being additive-only via the
+-- service layer.
+--
 -- ----------------------------------------------------------------------
 -- 1. tenant_key_material — per-tenant DEK generation history
 -- ----------------------------------------------------------------------

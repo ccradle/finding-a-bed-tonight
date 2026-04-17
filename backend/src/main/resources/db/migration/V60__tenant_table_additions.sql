@@ -47,16 +47,12 @@ CREATE TYPE tenant_state AS ENUM (
     'DELETED'
 );
 
+-- Single ALTER TABLE acquires one ACCESS EXCLUSIVE lock instead of four;
+-- per Elena's PG-recommended pattern for batched column additions.
 ALTER TABLE tenant
-    ADD COLUMN IF NOT EXISTS state tenant_state NOT NULL DEFAULT 'ACTIVE';
-
-ALTER TABLE tenant
-    ADD COLUMN IF NOT EXISTS jwt_key_generation INT NOT NULL DEFAULT 1;
-
-ALTER TABLE tenant
-    ADD COLUMN IF NOT EXISTS data_residency_region VARCHAR(50) NOT NULL DEFAULT 'us-any';
-
-ALTER TABLE tenant
+    ADD COLUMN IF NOT EXISTS state tenant_state NOT NULL DEFAULT 'ACTIVE',
+    ADD COLUMN IF NOT EXISTS jwt_key_generation INT NOT NULL DEFAULT 1,
+    ADD COLUMN IF NOT EXISTS data_residency_region VARCHAR(50) NOT NULL DEFAULT 'us-any',
     ADD COLUMN IF NOT EXISTS oncall_email VARCHAR(255);
 
 COMMENT ON COLUMN tenant.state IS

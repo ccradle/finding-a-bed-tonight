@@ -114,17 +114,58 @@ public class KeyDerivationService {
         this.masterKekBytes = decoded;
     }
 
+    // -----------------------------------------------------------------
+    // Public typed derivation methods — one per canonical purpose.
+    //
+    // Per Marcus warroom W3: an unbounded String purpose parameter is a
+    // footgun (typo "jwt-sigm" silently derives a different deterministic
+    // key, breaking the JWT contract). The compiler-enforced typed API
+    // forces every call site to pick from a closed set, eliminating typo
+    // and made-up-purpose risks at build time.
+    //
+    // To add a new purpose: add a public deriveXxxKey method here and a
+    // matching string constant. ArchUnit Family F (task 13.3, Phase L)
+    // will additionally restrict who can extend this class.
+    // -----------------------------------------------------------------
+
+    /** Derives the per-tenant JWT signing key (HMAC-SHA256). */
+    public SecretKey deriveJwtSigningKey(UUID tenantId) {
+        return deriveKey(tenantId, "jwt-sign");
+    }
+
+    /** Derives the per-tenant TOTP shared-secret encryption DEK (AES-256-GCM). */
+    public SecretKey deriveTotpKey(UUID tenantId) {
+        return deriveKey(tenantId, "totp");
+    }
+
+    /** Derives the per-tenant webhook-callback secret encryption DEK (AES-256-GCM). */
+    public SecretKey deriveWebhookSecretKey(UUID tenantId) {
+        return deriveKey(tenantId, "webhook-secret");
+    }
+
+    /** Derives the per-tenant OAuth2 client-secret encryption DEK (AES-256-GCM). */
+    public SecretKey deriveOauth2ClientSecretKey(UUID tenantId) {
+        return deriveKey(tenantId, "oauth2-client-secret");
+    }
+
+    /** Derives the per-tenant HMIS API-key encryption DEK (AES-256-GCM). */
+    public SecretKey deriveHmisApiKey(UUID tenantId) {
+        return deriveKey(tenantId, "hmis-api-key");
+    }
+
     /**
-     * Derives a 32-byte key for the given tenant + purpose. Deterministic:
-     * same inputs always yield the same output. Throws on null/empty inputs.
+     * Derives a 32-byte key for the given tenant + purpose. Private; callers
+     * must use the typed {@code deriveXxxKey} methods above so the purpose
+     * value is constrained at compile time. Same-input determinism is the
+     * core property exploited by the encryption refactor: DEKs are never
+     * persisted; they are recomputed on every encrypt/decrypt call.
      *
-     * @param tenantId  the tenant whose key is being derived (used as both salt and info component)
-     * @param purpose   the key's role — one of {@code jwt-sign}, {@code totp},
-     *                  {@code webhook-secret}, {@code oauth2-client-secret},
-     *                  {@code hmis-api-key}, or future additions
-     * @return a 32-byte {@link SecretKey} suitable for AES-256-GCM or HMAC-SHA256
+     * <p>Package-private rather than {@code private} only so the test in
+     * the same package can exercise separation-by-purpose against arbitrary
+     * purpose strings. Application code outside this package must go
+     * through the typed methods above.
      */
-    public SecretKey deriveKey(UUID tenantId, String purpose) {
+    SecretKey deriveKey(UUID tenantId, String purpose) {
         if (tenantId == null) {
             throw new IllegalArgumentException("tenantId must be non-null");
         }
@@ -156,35 +197,47 @@ public class KeyDerivationService {
      * RFC 5869 HKDF-SHA256. Two steps:
      * <ol>
      *   <li><b>Extract</b>: PRK = HMAC-SHA256(salt, ikm)</li>
-     *   <li><b>Expand</b>: T(1) = HMAC-SHA256(PRK, info || 0x01)
-     *       — single block since L &le; 32 bytes for our use case</li>
+     *   <li><b>Expand</b>: T(N) = HMAC-SHA256(PRK, T(N-1) || info || N)
+     *       — chained until L bytes accumulated; T(0) is empty.</li>
      * </ol>
-     * For L &gt; 32 bytes, additional T(N) blocks would chain T(N-1) || info || N.
-     * We don't need that here — derived keys are always 32 bytes.
+     * Package-private so {@code KeyDerivationServiceKatTest} can validate
+     * against RFC 5869 Appendix A test vectors directly without reflection.
      */
-    private static byte[] hkdfSha256(byte[] ikm, byte[] salt, byte[] info, int outputLength) {
+    static byte[] hkdfSha256(byte[] ikm, byte[] salt, byte[] info, int outputLength) {
         if (outputLength <= 0 || outputLength > 255 * HMAC_SHA256_OUTPUT_LENGTH) {
             throw new IllegalArgumentException("outputLength out of range: " + outputLength);
         }
         try {
+            // Per RFC 5869 §2.2: if salt is not provided, it is set to a
+            // string of HashLen (32) zeros. JCE rejects empty-byte SecretKeySpec
+            // with "Empty key", so we substitute the spec-mandated default.
+            byte[] effectiveSalt = (salt == null || salt.length == 0)
+                    ? new byte[HMAC_SHA256_OUTPUT_LENGTH]
+                    : salt;
+
             // Extract — PRK = HMAC-SHA256(salt, ikm)
             Mac extractMac = Mac.getInstance("HmacSHA256");
-            extractMac.init(new SecretKeySpec(salt, "HmacSHA256"));
+            extractMac.init(new SecretKeySpec(effectiveSalt, "HmacSHA256"));
             byte[] prk = extractMac.doFinal(ikm);
 
-            // Expand — T(1) = HMAC-SHA256(PRK, info || 0x01)
+            // Expand — T(N) = HMAC-SHA256(PRK, T(N-1) || info || byte(N))
+            // Chained until L bytes accumulated; T(0) is empty.
+            int blocks = (outputLength + HMAC_SHA256_OUTPUT_LENGTH - 1) / HMAC_SHA256_OUTPUT_LENGTH;
             Mac expandMac = Mac.getInstance("HmacSHA256");
             expandMac.init(new SecretKeySpec(prk, "HmacSHA256"));
-            expandMac.update(info);
-            expandMac.update((byte) 0x01);
-            byte[] t1 = expandMac.doFinal();
-
-            // Single-block path — outputLength is always &le; 32 here
-            if (outputLength == HMAC_SHA256_OUTPUT_LENGTH) {
-                return t1;
-            }
             byte[] result = new byte[outputLength];
-            System.arraycopy(t1, 0, result, 0, outputLength);
+            byte[] previousBlock = new byte[0];
+            int written = 0;
+            for (int i = 1; i <= blocks; i++) {
+                expandMac.reset();
+                expandMac.update(previousBlock);
+                expandMac.update(info);
+                expandMac.update((byte) i);
+                previousBlock = expandMac.doFinal();
+                int copyLen = Math.min(HMAC_SHA256_OUTPUT_LENGTH, outputLength - written);
+                System.arraycopy(previousBlock, 0, result, written, copyLen);
+                written += copyLen;
+            }
             return result;
         } catch (GeneralSecurityException e) {
             throw new IllegalStateException("HKDF-SHA256 failed — JDK should ship HmacSHA256", e);
