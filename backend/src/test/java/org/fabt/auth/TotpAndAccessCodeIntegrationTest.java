@@ -242,9 +242,12 @@ class TotpAndAccessCodeIntegrationTest extends BaseIntegrationTest {
         var admin = authHelper.setupCocAdminUser();
 
         String codeHash = authHelper.getPasswordService().hash("EXPIRED12345");
-        jdbcTemplate.update(
+        // Post-Phase-B: one_time_access_code INSERT is RESTRICTIVE by tenant_id;
+        // wrap in the test tenant's context so the policy accepts the row.
+        org.fabt.testsupport.WithTenantContext.doAs(authHelper.getTestTenantId(), () ->
+            jdbcTemplate.update(
                 "INSERT INTO one_time_access_code (user_id, tenant_id, code_hash, expires_at, created_by) VALUES (?, ?, ?, NOW() - INTERVAL '1 hour', ?)",
-                outreachUser.getId(), authHelper.getTestTenantId(), codeHash, admin.getId());
+                outreachUser.getId(), authHelper.getTestTenantId(), codeHash, admin.getId()));
 
         ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
                 "/api/v1/auth/access-code", HttpMethod.POST,

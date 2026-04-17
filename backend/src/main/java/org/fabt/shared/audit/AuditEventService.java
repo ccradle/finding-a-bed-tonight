@@ -11,7 +11,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
 /**
@@ -37,12 +36,14 @@ public class AuditEventService {
     private final AuditEventRepository repository;
     private final ObjectMapper objectMapper;
     private final JdbcTemplate jdbc;
+    private final AuditEventPersister persister;
 
     public AuditEventService(AuditEventRepository repository, ObjectMapper objectMapper,
-                              JdbcTemplate jdbc) {
+                              JdbcTemplate jdbc, AuditEventPersister persister) {
         this.repository = repository;
         this.objectMapper = objectMapper;
         this.jdbc = jdbc;
+        this.persister = persister;
     }
 
     @EventListener
@@ -74,39 +75,18 @@ public class AuditEventService {
                         event.action(), event.actorUserId(), event.targetUserId());
             }
 
-            persistWithTenantBinding(tenantId, event, details);
+            // Phase B D55 + Bug A/D fix: delegate to a separate Spring bean
+            // so the @Transactional proxy engages (self-invocation within
+            // this class would bypass it and leave set_config(is_local=true)
+            // running in an implicit single-statement tx → reverted before
+            // the INSERT → FORCE RLS rejection on orphan paths).
+            persister.persist(tenantId, event, details);
             log.debug("Audit event persisted: action={}, actor={}, target={}, tenant={}",
                     event.action(), event.actorUserId(), event.targetUserId(), tenantId);
         } catch (Exception e) {
             log.error("Failed to persist audit event: action={}, error={}",
                     event.action(), e.getMessage());
         }
-    }
-
-    /**
-     * Persists the audit event in its own transaction with
-     * {@code set_config('app.tenant_id', ?, true)} bound FIRST, so the
-     * FORCE-RLS policy on {@code audit_events} (V68/V69) accepts the row.
-     *
-     * <p>Necessary because the publishing request may have finished its
-     * outer tx by the time this EventListener fires (the @EventListener
-     * is synchronous but may run post-commit for transactional publishers)
-     * OR may not have bound {@code TenantContext} at all (scheduled jobs,
-     * batch contexts). is_local=true scopes the override to this tx only,
-     * so the connection returns to the pool with session state intact.
-     */
-    @Transactional
-    protected void persistWithTenantBinding(UUID tenantId, AuditEventRecord event, JsonString details) {
-        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
-                String.class, tenantId.toString());
-        AuditEventEntity entity = new AuditEventEntity(
-                tenantId,
-                event.actorUserId(),
-                event.targetUserId(),
-                event.action(),
-                details,
-                event.ipAddress());
-        repository.save(entity);
     }
 
     /**

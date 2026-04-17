@@ -26,6 +26,7 @@ import org.fabt.auth.service.JwtService;
 import org.fabt.auth.service.PasswordResetService;
 import org.fabt.auth.service.PasswordService;
 import org.fabt.auth.service.TotpService;
+import org.fabt.shared.web.TenantContext;
 import org.fabt.tenant.domain.Tenant;
 import org.fabt.tenant.service.TenantService;
 import org.springframework.http.HttpStatus;
@@ -253,9 +254,17 @@ public class AuthController {
                     .body(new ErrorBody("Invalid credentials"));
         }
 
-        // Publish audit event OUTSIDE the @Transactional boundary (avoids rollback-only marking)
+        // Publish audit event OUTSIDE the @Transactional boundary (avoids rollback-only marking).
+        // Phase B: bind TenantContext to the user's tenant so AuditEventService's
+        // @EventListener (synchronous, same thread) picks it up and attributes
+        // the row to the user's tenant rather than falling back to SYSTEM_TENANT_ID.
+        // This is a pre-auth endpoint — no TenantContextFilter ran — but we
+        // have the user + their tenantId in hand from validateCode.
         log.info("Access code login successful for user {}", user.getId());
-        eventPublisher.publishEvent(new AuditEventRecord(user.getId(), user.getId(), "ACCESS_CODE_USED", null, request.getRemoteAddr()));
+        TenantContext.runWithContext(user.getTenantId(), user.getId(), false, () ->
+            eventPublisher.publishEvent(
+                new AuditEventRecord(user.getId(), user.getId(), "ACCESS_CODE_USED",
+                        null, request.getRemoteAddr())));
 
         // Issue JWTs with mustChangePassword flag
         String accessToken = jwtService.generateAccessTokenWithPasswordChange(user);
