@@ -3,11 +3,14 @@ package org.fabt.shared.audit;
 import java.util.List;
 import java.util.UUID;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.fabt.shared.audit.repository.AuditEventRepository;
 import org.fabt.shared.config.JsonString;
 import org.fabt.shared.web.TenantContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.event.EventListener;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -37,13 +40,16 @@ public class AuditEventService {
     private final ObjectMapper objectMapper;
     private final JdbcTemplate jdbc;
     private final AuditEventPersister persister;
+    private final MeterRegistry meterRegistry;
 
     public AuditEventService(AuditEventRepository repository, ObjectMapper objectMapper,
-                              JdbcTemplate jdbc, AuditEventPersister persister) {
+                              JdbcTemplate jdbc, AuditEventPersister persister,
+                              ObjectProvider<MeterRegistry> meterRegistryProvider) {
         this.repository = repository;
         this.objectMapper = objectMapper;
         this.jdbc = jdbc;
         this.persister = persister;
+        this.meterRegistry = meterRegistryProvider.getIfAvailable();
     }
 
     @EventListener
@@ -69,6 +75,18 @@ public class AuditEventService {
             }
             if (tenantId == null) {
                 tenantId = TenantContext.SYSTEM_TENANT_ID;
+                // Per Marcus warroom + D62: counter fires on every SYSTEM_TENANT_ID
+                // fallback (observability for "publisher forgot to bind"). The
+                // WARN log fires throttled by Logback DuplicateMessageFilter
+                // in logback-spring.xml; the counter is unrate-limited so
+                // Prometheus sees the true rate. Alerting threshold: any
+                // non-zero 1-hour rate after v0.43 + 7d.
+                if (meterRegistry != null) {
+                    Counter.builder("fabt.audit.system_insert.count")
+                            .tag("action", event.action() == null ? "unknown" : event.action())
+                            .register(meterRegistry)
+                            .increment();
+                }
                 log.warn("Audit event published without TenantContext bound: action={}, actor={}, target={}. "
                         + "Row persisted under SYSTEM_TENANT_ID sentinel; investigate publisher for missing "
                         + "TenantContext.runWithContext wrap (Phase B D55).",
@@ -84,6 +102,22 @@ public class AuditEventService {
             log.debug("Audit event persisted: action={}, actor={}, target={}, tenant={}",
                     event.action(), event.actorUserId(), event.targetUserId(), tenantId);
         } catch (Exception e) {
+            // Per Marcus warroom: every audit-insert failure is a security-
+            // relevant signal. The counter unmasks silent RLS rejections
+            // that the catch block would otherwise swallow. Tagged by
+            // SQLState when available so RLS-violation (42501) is
+            // distinguishable from schema/constraint failures.
+            if (meterRegistry != null) {
+                String sqlState = (e instanceof org.springframework.jdbc.UncategorizedSQLException u
+                        && u.getSQLException() != null)
+                        ? u.getSQLException().getSQLState()
+                        : "unknown";
+                Counter.builder("fabt.audit.rls_rejected.count")
+                        .tag("action", event.action() == null ? "unknown" : event.action())
+                        .tag("sqlstate", sqlState == null ? "unknown" : sqlState)
+                        .register(meterRegistry)
+                        .increment();
+            }
             log.error("Failed to persist audit event: action={}, error={}",
                     event.action(), e.getMessage());
         }

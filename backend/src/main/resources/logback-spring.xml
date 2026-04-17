@@ -25,6 +25,23 @@
         </encoder>
     </appender>
 
+    <!--
+        Phase B D55 / Sam warroom W-B-5: rate-limit the
+        "Audit event published without TenantContext bound" WARN.
+        DuplicateMessageFilter drops same-message repeats across the JVM;
+        without it, a runaway scheduled job could flood Loki with 10k
+        identical WARN lines per minute and mask the real signal. The
+        companion Micrometer counter (fabt.audit.system_insert.count) is
+        unrate-limited so Prometheus still sees the true rate.
+
+        allowedRepetitions=0 means every occurrence after the first within
+        the cache window is suppressed. cacheSize=500 bounds memory.
+    -->
+    <turboFilter class="ch.qos.logback.classic.turbo.DuplicateMessageFilter">
+        <allowedRepetitions>0</allowedRepetitions>
+        <cacheSize>500</cacheSize>
+    </turboFilter>
+
     <!-- Local profile: plain-text output -->
     <springProfile name="local">
         <root level="INFO">

@@ -101,14 +101,19 @@ class AuditEventTenantIsolationTest extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("Audit insert without TenantContext logs warning and persists with tenant_id=NULL")
-    void tc_audit_insert_withoutTenantContext_logsWarning_persistsOrphan() {
-        // This test documents the defensive behavior when an audit event is
-        // published from a path without TenantContext bound (shouldn't happen
-        // in current code, but defense-in-depth). The row persists with
-        // tenant_id=NULL and the service logs a WARN. Operators monitoring
-        // for "Audit event published without TenantContext bound" can catch
-        // publisher sites missing TenantContext.runWithContext wrap.
+    @DisplayName("Audit insert without TenantContext logs warning and persists under SYSTEM_TENANT_ID (Phase B D55)")
+    void tc_audit_insert_withoutTenantContext_logsWarning_persistsUnderSystemSentinel() {
+        // Pre-Phase-B behavior: row persisted with tenant_id=NULL (orphan).
+        // Post-Phase-B D55: AuditEventService falls back to SYSTEM_TENANT_ID
+        // sentinel (00000000-0000-0000-0000-000000000001) so the FORCE-RLS
+        // policy on audit_events accepts the INSERT. Plus WARN log so
+        // operators can catch publisher sites missing TenantContext.runWithContext.
+        //
+        // This test documents + regression-guards the SYSTEM_TENANT_ID fallback
+        // path — the row MUST land, MUST carry SYSTEM_TENANT_ID, and MUST be
+        // invisible to any real tenant's query. (Prod operators monitor
+        // fabt.audit.system_insert.count counter + WARN log rate as the
+        // "publisher forgot to bind" signal.)
 
         UUID orphanTarget = UUID.randomUUID();
         UUID orphanActor = UUID.randomUUID();
@@ -117,19 +122,19 @@ class AuditEventTenantIsolationTest extends BaseIntegrationTest {
         eventPublisher.publishEvent(new AuditEventRecord(
                 orphanActor, orphanTarget, "ORPHAN_AUDIT_TEST", null, null));
 
-        // Verify row persisted with tenant_id=NULL. Query via root connection
-        // since no tenant context is bound.
-        Integer nullTenantCount = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM audit_events WHERE target_user_id = ?::uuid AND tenant_id IS NULL",
-                Integer.class, orphanTarget);
-        assertThat(nullTenantCount)
-                .as("Orphan audit event (TenantContext unbound) persists with tenant_id=NULL")
+        // Verify row persisted under SYSTEM_TENANT_ID. Read under the SYSTEM
+        // sentinel context so FORCE RLS doesn't filter it.
+        Integer systemTenantCount = org.fabt.testsupport.WithTenantContext.readAsSystem(() ->
+            jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM audit_events "
+                + "WHERE target_user_id = ?::uuid AND tenant_id = ?::uuid",
+                Integer.class, orphanTarget, TenantContext.SYSTEM_TENANT_ID));
+        assertThat(systemTenantCount)
+                .as("Orphan audit event (TenantContext unbound) persists with tenant_id=SYSTEM_TENANT_ID per D55")
                 .isEqualTo(1);
 
-        // Verify it would NOT leak to a cross-tenant query: if a Tenant A
-        // admin queried for orphanTarget, the repository's
-        // WHERE tenant_id = :tenantId would not match NULL, so the row stays
-        // invisible.
+        // Verify it does NOT leak to a cross-tenant query: a Tenant A admin
+        // querying for orphanTarget cannot see the SYSTEM_TENANT_ID row.
         authHelper.setupTestTenant();
         UUID tenantAId = authHelper.getTestTenantId();
         TenantContext.runWithContext(tenantAId, false, () -> {
@@ -138,12 +143,14 @@ class AuditEventTenantIsolationTest extends BaseIntegrationTest {
                             + "WHERE target_user_id = ?::uuid AND tenant_id = ?::uuid",
                     Integer.class, orphanTarget, tenantAId);
             assertThat(visibleToTenantA)
-                    .as("Orphan audit event with tenant_id=NULL must not be visible to any tenant-scoped query")
+                    .as("Orphan audit event under SYSTEM_TENANT_ID must not be visible to any tenant-scoped query")
                     .isZero();
         });
 
-        // Cleanup
-        jdbcTemplate.update("DELETE FROM audit_events WHERE target_user_id = ?::uuid AND tenant_id IS NULL",
-                orphanTarget);
+        // Cleanup — DELETE is RLS'd; run under the SYSTEM sentinel so the policy matches.
+        org.fabt.testsupport.WithTenantContext.doAsSystem(() ->
+            jdbcTemplate.update(
+                "DELETE FROM audit_events WHERE target_user_id = ?::uuid AND tenant_id = ?::uuid",
+                orphanTarget, TenantContext.SYSTEM_TENANT_ID));
     }
 }
