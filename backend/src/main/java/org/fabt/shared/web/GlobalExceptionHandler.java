@@ -32,10 +32,13 @@ public class GlobalExceptionHandler {
 
     private final MessageSource messageSource;
     private final MeterRegistry meterRegistry;
+    private final org.springframework.context.ApplicationEventPublisher eventPublisher;
 
-    public GlobalExceptionHandler(MessageSource messageSource, MeterRegistry meterRegistry) {
+    public GlobalExceptionHandler(MessageSource messageSource, MeterRegistry meterRegistry,
+                                   org.springframework.context.ApplicationEventPublisher eventPublisher) {
         this.messageSource = messageSource;
         this.meterRegistry = meterRegistry;
+        this.eventPublisher = eventPublisher;
     }
 
     @ExceptionHandler(NoResourceFoundException.class)
@@ -120,6 +123,144 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.CONFLICT)
                 .body(new ErrorResponse("conflict", message, 409));
+    }
+
+    /**
+     * Phase A3 D21 — cross-tenant ciphertext rejection. The decrypt path
+     * detected that the kid in a v1 envelope resolves to a different
+     * tenant than the caller requested. Mapped to 403 with the D3
+     * envelope; an audit_events row tagged
+     * {@code CROSS_TENANT_CIPHERTEXT_REJECTED} is published with the kid
+     * + expected/actual tenants + actor + IP per warroom Q5 (audit
+     * publish wired in a follow-up commit when the ApplicationEventPublisher
+     * + ServletRequest accessors are confirmed; for now this handler
+     * counters the metric and returns 403 cleanly).
+     */
+    @ExceptionHandler(org.fabt.shared.security.CrossTenantCiphertextException.class)
+    public ResponseEntity<ErrorResponse> handleCrossTenantCiphertext(
+            org.fabt.shared.security.CrossTenantCiphertextException ex) {
+        log.warn("Cross-tenant ciphertext rejected: kid={} expected={} actual={}",
+                ex.getKid(), ex.getExpectedTenantId(), ex.getActualTenantId());
+
+        Counter.builder("fabt.security.cross_tenant_ciphertext_rejected.count")
+                .tag("expected_tenant", ex.getExpectedTenantId().toString())
+                .register(meterRegistry)
+                .increment();
+
+        // audit_events publish per warroom Q5 — JSONB shape:
+        // {kid, expectedTenantId, actualTenantId, actorUserId, sourceIp}
+        java.util.UUID actorUserId = currentActorUserId();
+        String sourceIp = currentSourceIp();
+        java.util.Map<String, Object> details = java.util.Map.of(
+                "kid", ex.getKid().toString(),
+                "expectedTenantId", ex.getExpectedTenantId().toString(),
+                "actualTenantId", ex.getActualTenantId().toString(),
+                "actorUserId", actorUserId == null ? "null" : actorUserId.toString(),
+                "sourceIp", sourceIp == null ? "null" : sourceIp);
+        eventPublisher.publishEvent(new org.fabt.shared.audit.AuditEventRecord(
+                actorUserId,
+                null, // no targetUserId — the target is a ciphertext, not a user
+                "CROSS_TENANT_CIPHERTEXT_REJECTED",
+                details,
+                sourceIp));
+
+        return ResponseEntity
+                .status(HttpStatus.FORBIDDEN)
+                .body(new ErrorResponse("cross_tenant",
+                        "Ciphertext does not belong to the requested tenant.", 403));
+    }
+
+    private static java.util.UUID currentActorUserId() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || auth.getName() == null) return null;
+        try {
+            return java.util.UUID.fromString(auth.getName());
+        } catch (IllegalArgumentException notAUuid) {
+            return null;
+        }
+    }
+
+    private static String currentSourceIp() {
+        try {
+            var attrs = org.springframework.web.context.request.RequestContextHolder.currentRequestAttributes();
+            if (attrs instanceof org.springframework.web.context.request.ServletRequestAttributes sra) {
+                return sra.getRequest().getRemoteAddr();
+            }
+        } catch (IllegalStateException noRequestBound) {
+            // happens when called outside a request context (e.g., from a scheduled task)
+        }
+        return null;
+    }
+
+    /**
+     * Phase A4 D25 — cross-tenant JWT rejection. JwtService.validate
+     * detected that the JWT's kid resolves to a different tenant than
+     * the body claim's tenantId — the kid-confusion attack. Mapped to
+     * 403 with the D3 envelope. An audit_events row tagged
+     * {@code CROSS_TENANT_JWT_REJECTED} is published per warroom W1
+     * with enriched JSONB shape including the offending JWT's body
+     * claims for incident-response forensics.
+     */
+    @ExceptionHandler(org.fabt.shared.security.CrossTenantJwtException.class)
+    public ResponseEntity<ErrorResponse> handleCrossTenantJwt(
+            org.fabt.shared.security.CrossTenantJwtException ex) {
+        log.warn("Cross-tenant JWT rejected: kid={} expected={} actual={} sub={}",
+                ex.getKid(), ex.getExpectedTenantId(), ex.getActualTenantId(),
+                ex.getClaimsSub());
+
+        // C-A4-1: the unknown-kid path constructs the exception with
+        // expectedTenantId=null (the body claim wasn't even parsed). NPE-guard
+        // every dereference. Use literal "unknown" so dashboards + audit
+        // queries can still group by tag value without filtering null.
+        String expectedTag = ex.getExpectedTenantId() == null
+                ? "unknown" : ex.getExpectedTenantId().toString();
+        Counter.builder("fabt.security.cross_tenant_jwt_rejected.count")
+                .tag("expected_tenant", expectedTag)
+                .register(meterRegistry)
+                .increment();
+
+        java.util.UUID actorUserId = currentActorUserId();
+        String sourceIp = currentSourceIp();
+        java.util.Map<String, Object> details = new java.util.LinkedHashMap<>();
+        details.put("kid", ex.getKid().toString());
+        details.put("expectedTenantId", expectedTag);
+        details.put("actualTenantId", ex.getActualTenantId().toString());
+        details.put("actorUserId", actorUserId == null ? "null" : actorUserId.toString());
+        details.put("sourceIp", sourceIp == null ? "null" : sourceIp);
+        // W1 — enriched body-claim fields. claimsTenantId mirrors expected
+        // (the body's tenantId == what we expected the kid to resolve to).
+        details.put("claimsTenantId", expectedTag);
+        details.put("claimsSub", ex.getClaimsSub() == null ? "null" : ex.getClaimsSub().toString());
+        details.put("claimsIat", ex.getClaimsIat() == null ? "null" : ex.getClaimsIat());
+        details.put("claimsExp", ex.getClaimsExp() == null ? "null" : ex.getClaimsExp());
+        eventPublisher.publishEvent(new org.fabt.shared.audit.AuditEventRecord(
+                actorUserId, null, "CROSS_TENANT_JWT_REJECTED", details, sourceIp));
+
+        return ResponseEntity
+                .status(HttpStatus.FORBIDDEN)
+                .body(new ErrorResponse("cross_tenant",
+                        "JWT does not belong to the requested tenant.", 403));
+    }
+
+    /**
+     * Phase A4 D26 — revoked-kid JWT. The kid is on the
+     * {@code jwt_revocations} blocklist. Mapped to 401 (NOT 403) — this
+     * is an expired-credential scenario; clients should re-authenticate.
+     * No audit event (would flood the log post-rotation as every
+     * in-flight prior-generation token fails this way until natural
+     * expiry); just the per-replica counter for visibility.
+     */
+    @ExceptionHandler(org.fabt.shared.security.RevokedJwtException.class)
+    public ResponseEntity<ErrorResponse> handleRevokedJwt(
+            org.fabt.shared.security.RevokedJwtException ex) {
+        log.debug("Revoked JWT validated: kid={}", ex.getKid());
+        Counter.builder("fabt.security.revoked_jwt_validate.count")
+                .register(meterRegistry)
+                .increment();
+        return ResponseEntity
+                .status(HttpStatus.UNAUTHORIZED)
+                .body(new ErrorResponse("token_revoked",
+                        "Token has been revoked. Re-authenticate.", 401));
     }
 
     @ExceptionHandler(NoSuchElementException.class)

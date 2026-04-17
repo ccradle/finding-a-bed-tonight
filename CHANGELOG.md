@@ -5,31 +5,85 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [Unreleased] — multi-tenant-production-readiness Phase 0 (Issue #126)
+## [Unreleased] — multi-tenant-production-readiness Phases 0 + A (Issue #126)
 
-### Added
+### Phase A — Per-tenant JWT signing keys + DEK derivation (PR forthcoming)
+
+**Builds on Phase 0 below. Both ship together as v0.42.**
+
+#### Added — Phase A
+- **Per-tenant JWT signing keys via HKDF.** `KeyDerivationService` derives per-tenant keys from the same `FABT_ENCRYPTION_KEY` Phase 0 already validates, using HKDF-SHA256 with context `"fabt:v1:<tenant-uuid>:<purpose>"`. Five canonical purposes: `jwt-sign`, `totp`, `webhook-secret`, `oauth2-client-secret`, `hmis-api-key`. Verified against RFC 5869 Appendix A test vectors via `KeyDerivationServiceKatTest`. Determinism is the load-bearing property — DEKs are never persisted; recomputed per call.
+- **`MasterKekProvider`** — single source of truth for `FABT_ENCRYPTION_KEY` validation. Phase 0's `SecretEncryptionService` and Phase A's `KeyDerivationService` both consume it. `getMasterKekBytes()` is package-private + ArchUnit-guarded so the raw KEK can never escape `org.fabt.shared.security`.
+- **v1 ciphertext envelope.** `[FABT magic + version + kid + iv + ct+tag]` Base64-encoded. The kid is an opaque random UUID (no tenant identity leak via header inspection). Decrypt-on-read detects v0 (Phase 0 single-platform-key) vs v1 by magic-bytes-absence; v0 path stays alive forever as defense-in-depth.
+- **`KidRegistryService`** — opaque-kid registry mapping kid → (tenant, generation). Lazy registration on first encrypt; race-safe via UNIQUE `(tenant_id, generation)` + `ON CONFLICT DO NOTHING`. Caffeine-cached (`tenantToActiveKidCache` 5-min TTL, `kidToResolutionCache` 1-hour TTL) for sub-µs validate.
+- **`RevokedKidCache`** — fast-path JWT revocation lookup against `jwt_revocations`. 100k entries, 1-min TTL. `invalidateKid` + `invalidateAll` bypass methods for emergency revocation + bulk-evict on rotation.
+- **`SecretEncryptionService.encryptForTenant(tenantId, KeyPurpose, plaintext)` + `decryptForTenant(...)` typed API.** Per-tenant DEK derivation + AES-GCM. `KeyPurpose` enum eliminates the unbounded-String purpose footgun. Cross-tenant decrypt rejected with `CrossTenantCiphertextException` → 403 + audit event `CROSS_TENANT_CIPHERTEXT_REJECTED`.
+- **`JwtService` dual-validate refactor.** Sign emits `kid` header + signs with per-tenant HKDF-derived key. Validate splits into `validateLegacy` (no kid → `FABT_JWT_SECRET`) and `validateNew` (kid present → revocation check → kid resolve → per-tenant key derive → cross-tenant claim cross-check). Path selection is explicit if/else on header presence (NOT try/catch fallback) per warroom W2. Refresh + MFA tokens now carry `tenantId` for the cross-tenant guard.
+- **`TenantKeyRotationService.bumpJwtKeyGeneration(tenantId, actorUserId)`** — atomic 8-step rotation under one `@Transactional`: snapshot current gen + `pg_advisory_xact_lock` for serialization, mark inactive, insert next gen (`ON CONFLICT DO NOTHING` for retry idempotency), bulk-add prior kids to `jwt_revocations` (`ON CONFLICT DO UPDATE GREATEST(expires_at)`), bump `tenant.jwt_key_generation`, publish `JWT_KEY_GENERATION_BUMPED` audit event with `{tenantId, oldGen, newGen, actorUserId, revokedKidCount}` (joins same tx so rollback rolls audit too), register after-commit hook to invalidate caches.
+- **Admin endpoint `POST /api/v1/admin/tenants/{tenantId}/rotate-jwt-key`** — `PLATFORM_ADMIN` only, returns 202 + rotation summary. Per-tenant rate limit (1/min) deferred to Phase E task 6.1 (current FABT rate-limit infrastructure is per-IP).
+- **`CrossTenantJwtException` → 403** with W1-enriched audit JSONB `{kid, expectedTenantId, actualTenantId, actorUserId, sourceIp, claimsTenantId, claimsSub, claimsIat, claimsExp}`. Distinct from `RevokedJwtException` → 401 (no audit per anti-flood; counter-only signal).
+- **Dual-validate cutover window (D28).** Pre-A JWTs (no kid header, signed under `FABT_JWT_SECRET`) continue to validate via the legacy path for ~7 days post-deploy (refresh-token max lifetime). `fabt.security.legacy_jwt_validate.count` counter monitors usage; spike during the window indicates either forgotten clients OR forgery attempts presenting old-format tokens.
+- **`docs/architecture/design-a3-encryption-envelope.md`** + **`design-a4-jwt-refactor.md`** in OpenSpec — pre-implementation design records covering 14 architectural decisions (D17–D29) + warroom enhancements W1–W9.
+
+#### Migrations — Phase A
+- **V60** — adds `tenant.state` (TenantState enum), `jwt_key_generation`, `data_residency_region`, `oncall_email` columns. Single combined `ALTER TABLE` (one ACCESS EXCLUSIVE lock).
+- **V61** — creates `tenant_key_material(tenant_id, generation, created_at, rotated_at, active)`, `kid_to_tenant_key(kid, tenant_id, generation, created_at)`, `jwt_revocations(kid, expires_at, revoked_at)` tables + UNIQUE `(tenant_id, generation)` index on `kid_to_tenant_key` for lazy-registration race safety.
+
+#### Hardened — Phase A
+- **`SecretEncryptionService` prod-profile fail-fast on missing Phase A4 deps.** A Spring wiring error nullifying `KeyDerivationService` / `KidRegistryService` / `RevokedKidCache` would silently downgrade prod JWT signing to legacy v0 tokens forever. Constructor now throws at startup if any is null in the prod profile. Mirrors Phase 0 C2's `MasterKekProvider` pattern.
+- **`pg_advisory_xact_lock` per tenant** in `TenantKeyRotationService.bumpJwtKeyGeneration` prevents concurrent-rotation race that would produce duplicate `JWT_KEY_GENERATION_BUMPED` audit rows for one logical rotation.
+- **`clock_timestamp()` over `NOW()`** in step 3's `UPDATE tenant_key_material SET rotated_at` — avoids violating the V61 CHECK constraint `rotated_at >= created_at` when a concurrent transaction's `created_at = clock_timestamp()` lands BETWEEN the two transactions' start times.
+- **`JwtService` OWASP audit Javadoc** — class-level documentation maps each defended attack class (alg-none, algorithm confusion, signature tamper, expiry bypass, cross-tenant kid confusion) to where in code the defense lives. Re-evaluate triggers documented (Phase F asymmetric signing → switch to nimbus-jose-jwt; file > 1000 lines; regulated procurement disqualification).
+
+#### Test coverage — Phase A
+- **`MasterKekProviderTest`** (10) — prod fail-fast / non-prod DEV_KEY fallback / dev-key-prod-rejection / wrong-length / clone-defensive contract.
+- **`KeyDerivationServiceTest`** (10) — HKDF reproducibility (tasks 2.19) + separation by tenant/purpose/master KEK (task 2.20) + null/blank rejection.
+- **`KeyDerivationServiceKatTest`** (3) — RFC 5869 Appendix A.1, A.2, A.3 SHA-256 known-answer vectors.
+- **`EncryptionEnvelopeTest`** (13) — wire format round-trip, magic-byte detection (incl. FABT-prefixed-v0 boundary), shape validation.
+- **`MasterKekProviderArchitectureTest`** (1) — ArchUnit Family A: `getMasterKekBytes()` callable only from `org.fabt.shared.security`.
+- **`PerTenantEncryptionIntegrationTest`** (8) — round-trip, cross-tenant rejection, v0 fallback, concurrent first-encrypt race, FABT-prefixed-v0 boundary, purpose mismatch, perf SLO, unknown-kid sentinel.
+- **`KidRegistryServiceCacheInvalidationTest`** (2) — invalidate hooks for rotation + hard-delete (caught a latent bug in `ensureActiveGeneration` that would have shipped to A4 unfixed).
+- **`RevokedKidCacheIntegrationTest`** (4) — cache miss + invalidate bypass + bulk eviction + pre-existing DB row detection.
+- **`GlobalExceptionHandlerCrossTenantTest`** (5) + **`GlobalExceptionHandlerJwtTest`** (9) — handler contract for both ciphertext + JWT cross-tenant exceptions including W1 enriched JSONB shape + C-A4-1 unknown-kid NPE-guard verification.
+- **`JwtServiceSecurityAttackTest`** (16) — OWASP attack-class regression suite: alg-none, alg-RS256/HS512/ES256/lowercase, signature tamper, payload tamper, empty signature, expired token, missing exp, malformed shape + legacy_jwt_validate counter increment.
+- **`JwtServiceV1IntegrationTest`** (8) — v1 round-trip, opaque kid header, cross-tenant rejection (sign for A, swap body to B, validate as A's tenant), unknown-kid sentinel, revoked-kid rejection, legacy-no-kid routes to legacy path, refresh + MFA tokens carry tenantId.
+- **`TenantKeyRotationServiceIntegrationTest`** (10) — rotation flips active gen, old kids revoked, post-rotation old JWTs throw `RevokedJwtException`, cache invalidation, audit row contract, cross-tenant isolation, unbootstrapped-tenant rejection, double-rotation, concurrent-rotation serialization (advisory lock), atomicity contract.
+- **`TenantKeyRotationControllerIntegrationTest`** (4) — `PLATFORM_ADMIN` 202, `COC_ADMIN` 403, anonymous 401, `OUTREACH_WORKER` 403.
+- **`SecurityStartupTest`** extended to 10 cases — prod-profile fail-fast on missing Phase A4 deps + non-prod tolerance.
+- **`V59ReencryptPlaintextCredentialsTest`** (6) + **`TenantGuardUnitTest`** (7) + **`OAuth2EncryptionRoundTripIntegrationTest`** (4) + **`HmisEncryptionRoundTripIntegrationTest`** (5) — Phase 0 tests still green; no regressions.
+
+**Phase A total: 135 tests green** (was 86 pre-Phase-A safety-net + 49 net-new in A1–A4).
+
+#### Deferred to Phase A.5 / Phase B follow-up
+- Task 2.13 — Flyway V74 re-encrypt of TOTP + webhook callback secrets under per-tenant DEKs (separate PR; needs dual-key-accept grace window planning)
+- Task 2.15 — HashiCorp Vault Transit adapter for regulated tier (no current pilot needs it)
+- Task 2.16 — `docs/security/key-rotation-runbook.md` (operator triage tree for `JWT_KEY_GENERATION_BUMPED` events; lands as a docs PR alongside deploy notes)
+- Per-tenant rate limit on `POST /rotate-jwt-key` (Phase E task 6.1 builds the per-tenant rate-limit-config table)
+
+---
+
+### Phase 0 — Latent credential encryption fix (PR #127, merged 2026-04-17)
+
+#### Added — Phase 0
 - **OAuth2 client secret encryption at rest** — `TenantOAuth2ProviderService.create/update` now wrap the `client_secret` value with `SecretEncryptionService.encrypt()` before persisting to `tenant_oauth2_provider.client_secret_encrypted`. `DynamicClientRegistrationSource.findByRegistrationId` decrypts on read so OAuth2 login receives plaintext. Closes the latent A4 plaintext-at-rest exposure flagged in the predecessor audit (#117).
 - **HMIS API key encryption at rest** — `HmisConfigService.getVendors` now decrypts `tenant.config -> hmis_vendors[].api_key_encrypted` so adapters (`ClientTrackAdapter`, `ClarityAdapter`) receive plaintext. New `HmisConfigService.encryptApiKey(String)` helper exposed for the typed vendor-CRUD endpoints that platform-hardening will add.
 - **Plaintext-tolerant decrypt fallbacks** — both `DynamicClientRegistrationSource.decryptClientSecret` and `HmisConfigService.decryptApiKey` return the stored value on decryption failure (logged at debug). Keeps every existing pre-V59 deployment working through the brief window between Phase 0 ship and the V59 migration completing, and preserves dev-environment workflows.
 - **`docs/architecture/tenancy-model.md`** — pool-by-default + silo-on-trigger ADR. Documents the hybrid tenancy model FABT offers (discriminator + RLS pooled tier; per-CoC silo tier on HIPAA BAA / VAWA-DV / data-residency / procurement triggers). Per-component isolation spectrum matrix. Sign-offs from Marcus / Alex / Casey / Jordan / Sam / Maria / Devon / Riley.
 - **`docs/security/timing-attack-acceptance.md`** — UUID-not-secret ADR. Authoritative acceptance of the 404-timing residual risk on `findByIdAndTenantId` paths. Documents revisit conditions.
 
-### Migrations
+#### Migrations — Phase 0
 - **V59** (Java migration) — `db.migration.V59__reencrypt_plaintext_credentials` re-encrypts existing plaintext OAuth2 client secrets and HMIS API keys idempotently. `looksLikeCiphertext` try-decrypt guard skips already-encrypted rows; safe to re-run after partial failure. Writes one `audit_events` row (`SYSTEM_MIGRATION_V59_REENCRYPT`) inside the same transaction. Skips silently when `FABT_ENCRYPTION_KEY` is unset (dev/CI without encryption configured); the runtime services tolerate plaintext storage in that mode.
 
-### Hardened
+#### Hardened — Phase 0
 - **`SecretEncryptionService` constructor — prod profile fail-fast on missing key.** Production deployments that omit `FABT_ENCRYPTION_KEY` (or supply a blank value) now throw `IllegalStateException` at startup. Non-prod profiles transparently fall back to the committed `DEV_KEY` with a warn log so dev/CI workflows continue without env-var churn. Implements the pattern from `feedback_dev_keys_prod_guard.md`. **Operator action required before next prod deploy:** export `FABT_ENCRYPTION_KEY` (32-byte base64) on the Oracle VM. Generate with `openssl rand -base64 32`.
 - **`TenantOAuth2ProviderService.create` null-guards `clientSecret`** — matches the existing `update()` pattern. Prevents NPE in `encryptionService.encrypt(null)` when callers pass null.
 
-### Test coverage
-- **`SecretEncryptionServiceConstructorTest`** — 9 tests covering prod no-key / blank-key / dev-key throws, prod real-key happy path, non-prod DEV_KEY auto-fallback, wrong-length key rejection, no-profile default behaviour.
+#### Test coverage — Phase 0
+- **`MasterKekProviderTest`** (ex-`SecretEncryptionServiceConstructorTest`, post-A3 D17 rename) — 10 tests covering prod no-key / blank-key / dev-key throws, prod real-key happy path, non-prod DEV_KEY auto-fallback, wrong-length key rejection, no-profile default behaviour, defensive-clone contract.
 - **`V59ReencryptPlaintextCredentialsTest`** — 6 reflection-driven tests on the migration's duplicated AES-GCM helpers (round-trip, non-determinism, ciphertext-acceptance, plaintext-rejection, foreign-key-rejection, short-Base64-rejection).
 - **`OAuth2EncryptionRoundTripIntegrationTest`** — 4 Testcontainers tests: create-persists-ciphertext, findByRegistrationId-returns-plaintext, update-rewraps, legacy-plaintext-resolves-via-fallback.
 - **`HmisEncryptionRoundTripIntegrationTest`** — 5 Testcontainers tests: encryptApiKey round-trip, null/blank passthrough, getVendors decrypt-on-read, legacy plaintext fallback, getEnabledVendors filters disabled.
 - **`TenantGuardUnitTest`** — 2 new tests for OAuth2 provider create's null-guard contract (encrypts non-null secret, no encryption call when secret is null).
-
-### Companion change
-- This is the first PR of the 236-task `multi-tenant-production-readiness` change tracked at #126. Phase A (per-tenant HKDF DEKs) builds on the encryption infrastructure landed here.
 
 ---
 

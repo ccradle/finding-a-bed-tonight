@@ -8,11 +8,9 @@ import java.util.Base64;
 import javax.crypto.Cipher;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
-import javax.crypto.spec.SecretKeySpec;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 /**
@@ -34,43 +32,110 @@ public class SecretEncryptionService {
     private static final int GCM_IV_LENGTH = 12;
     private static final int GCM_TAG_LENGTH = 128;
 
+    /**
+     * Sentinel UUID written to {@link CrossTenantCiphertextException#getActualTenantId()}
+     * when the kid is not registered in {@code kid_to_tenant_key}. Per C-A3-1:
+     * unknown-kid and wrong-tenant-kid both surface as 403 to clients (no
+     * tenant-existence side-channel). The sentinel discriminates the two
+     * paths in audit logs without leaking to callers.
+     */
+    static final java.util.UUID UNKNOWN_KID_SENTINEL_TENANT =
+            java.util.UUID.fromString("00000000-0000-0000-0000-000000000000");
+
     private final SecretKey secretKey;
     private final SecureRandom secureRandom = new SecureRandom();
     private final boolean configured;
+    private final MasterKekProvider masterKekProvider;
+    private final KeyDerivationService keyDerivationService;
+    private final KidRegistryService kidRegistryService;
 
-    // The dev-start.sh key — committed to the public repo, MUST NOT be used in production
-    private static final String DEV_KEY = "s4FgjCrVQONb65lQmfYHyuvC7AL2VnkVufwB9ZihvlA=";
-
+    /**
+     * Phase A3 D17: validation + key bytes now owned by {@link MasterKekProvider}.
+     * Phase A3 D18+D21: per-tenant typed encrypt/decrypt added; legacy v0 path
+     * preserved via {@link CiphertextV0Decoder}. The provider, derivation
+     * service, and kid registry are injected together because the v1 encrypt
+     * path needs all three.
+     */
     public SecretEncryptionService(
-            @Value("${fabt.encryption-key:${fabt.totp.encryption-key:}}") String base64Key,
-            org.springframework.core.env.Environment environment) {
-        java.util.Set<String> profiles = java.util.Set.of(environment.getActiveProfiles());
-        boolean prodProfile = profiles.contains("prod");
-
-        if (base64Key == null || base64Key.isBlank()) {
-            if (prodProfile) {
-                throw new IllegalStateException(
-                        "FABT_ENCRYPTION_KEY is required in the prod profile. "
-                        + "Generate with: openssl rand -base64 32. "
-                        + "Phase 0 of multi-tenant-production-readiness made credential encryption mandatory.");
-            }
-            log.warn("FABT_ENCRYPTION_KEY not set in a non-prod profile — falling back to the committed dev key. "
-                    + "Do not deploy with this configuration.");
-            base64Key = DEV_KEY;
-        }
-
-        if (DEV_KEY.equals(base64Key) && prodProfile) {
-            throw new IllegalStateException(
-                    "FABT_ENCRYPTION_KEY must not use the dev-start.sh key in production. "
-                    + "Generate a unique key with: openssl rand -base64 32");
-        }
-        byte[] keyBytes = Base64.getDecoder().decode(base64Key);
-        if (keyBytes.length != 32) {
-            throw new IllegalArgumentException(
-                    "FABT_ENCRYPTION_KEY must be 32 bytes (256 bits). Got: " + keyBytes.length);
-        }
-        this.secretKey = new SecretKeySpec(keyBytes, "AES");
+            MasterKekProvider masterKekProvider,
+            KeyDerivationService keyDerivationService,
+            KidRegistryService kidRegistryService) {
+        this.masterKekProvider = masterKekProvider;
+        this.keyDerivationService = keyDerivationService;
+        this.kidRegistryService = kidRegistryService;
+        this.secretKey = masterKekProvider.getPlatformKey();
         this.configured = true;
+    }
+
+    // ------------------------------------------------------------------
+    // Phase A3 typed per-tenant API
+    // ------------------------------------------------------------------
+
+    /**
+     * Encrypts {@code plaintext} for storage under the per-tenant DEK
+     * derived for {@code (tenantId, purpose)}. Wraps the result in a v1
+     * {@link EncryptionEnvelope} carrying the kid registered for the
+     * tenant's active generation.
+     *
+     * <p>Lazy bootstrap: the first encrypt for a tenant creates its
+     * {@code tenant_key_material} active generation + kid via
+     * {@link KidRegistryService#findOrCreateActiveKid(java.util.UUID)}.
+     * Subsequent encrypts reuse the same kid until rotation.
+     */
+    public String encryptForTenant(java.util.UUID tenantId, KeyPurpose purpose, String plaintext) {
+        java.util.UUID kid = kidRegistryService.findOrCreateActiveKid(tenantId);
+        SecretKey dek = purpose.deriveKey(keyDerivationService, tenantId);
+        try {
+            byte[] iv = new byte[GCM_IV_LENGTH];
+            secureRandom.nextBytes(iv);
+            Cipher cipher = Cipher.getInstance(ALGORITHM);
+            cipher.init(Cipher.ENCRYPT_MODE, dek, new GCMParameterSpec(GCM_TAG_LENGTH, iv));
+            byte[] ciphertextWithTag = cipher.doFinal(plaintext.getBytes(StandardCharsets.UTF_8));
+            return new EncryptionEnvelope(kid, iv, ciphertextWithTag).encode();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to encrypt secret for tenant " + tenantId, e);
+        }
+    }
+
+    /**
+     * Decrypts a stored ciphertext for the given tenant + purpose. Routes
+     * to the v0 legacy path if the bytes don't carry the v1 magic.
+     *
+     * @throws CrossTenantCiphertextException if the kid resolves to a
+     *         different tenant than {@code tenantId}
+     */
+    public String decryptForTenant(java.util.UUID tenantId, KeyPurpose purpose, String stored) {
+        byte[] decoded = java.util.Base64.getDecoder().decode(stored);
+        if (!EncryptionEnvelope.isV1Envelope(decoded)) {
+            // v0 fallback — Phase 0 single-platform-key envelope
+            return CiphertextV0Decoder.decrypt(masterKekProvider.getPlatformKey(), stored);
+        }
+        EncryptionEnvelope envelope = EncryptionEnvelope.decode(stored);
+        KidRegistryService.KidResolution resolved;
+        try {
+            resolved = kidRegistryService.resolveKid(envelope.kid());
+        } catch (java.util.NoSuchElementException unknownKid) {
+            // C-A3-1: an unregistered kid is presented as cross-tenant rejection
+            // (same 403 response, same audit action) so an attacker cannot
+            // distinguish "kid doesn't exist anywhere" (would be 404) from
+            // "kid exists for a different tenant" (403). The sentinel
+            // actualTenantId in the audit JSONB discriminates the two cases
+            // for incident responders without leaking to the client.
+            throw new CrossTenantCiphertextException(
+                    envelope.kid(), tenantId, UNKNOWN_KID_SENTINEL_TENANT);
+        }
+        if (!resolved.tenantId().equals(tenantId)) {
+            throw new CrossTenantCiphertextException(envelope.kid(), tenantId, resolved.tenantId());
+        }
+        SecretKey dek = purpose.deriveKey(keyDerivationService, tenantId);
+        try {
+            Cipher cipher = Cipher.getInstance(ALGORITHM);
+            cipher.init(Cipher.DECRYPT_MODE, dek, new GCMParameterSpec(GCM_TAG_LENGTH, envelope.iv()));
+            byte[] plaintext = cipher.doFinal(envelope.ciphertextWithTag());
+            return new String(plaintext, StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to decrypt v1 ciphertext for tenant " + tenantId, e);
+        }
     }
 
     /**
