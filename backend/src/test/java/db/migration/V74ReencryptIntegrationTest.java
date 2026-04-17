@@ -293,6 +293,15 @@ class V74ReencryptIntegrationTest extends BaseIntegrationTest {
      * Flyway's own transaction boundary logic is not replayed here (each test
      * sees V74's effects immediately; the @AfterEach tenant cleanup handles
      * isolation).
+     *
+     * <p><b>Test-realism caveat:</b> we set {@code autoCommit = true} so
+     * individual UPDATEs are visible to subsequent assertions without an
+     * explicit commit. This means V74's {@code SET LOCAL lock_timeout} +
+     * {@code statement_timeout} (C-A5-N1) emit a Postgres NOTICE and become
+     * no-ops — they require a transaction block to take effect. Real Flyway
+     * wraps {@code migrate()} in a transaction, so prod behavior is correct.
+     * Not a regression, just a test-stub limitation worth flagging so a
+     * future reader doesn't chase a phantom bug.
      */
     private void invokeV74() throws Exception {
         try (Connection conn = dataSource.getConnection()) {

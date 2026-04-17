@@ -98,8 +98,11 @@ import tools.jackson.databind.node.ObjectNode;
  * Writes to {@code audit_events}, {@code kid_to_tenant_key}, {@code tenant_key_material},
  * {@code app_user}, {@code subscription}, {@code tenant_oauth2_provider}, {@code tenant}.
  * Must run as the table owner role (typically {@code fabt}) or a role with
- * BYPASSRLS. V74RestrictedRoleTest exercises the failure mode — a restricted
- * role receives a loud SQL error, not silent RLS-filtered writes.
+ * BYPASSRLS. The current session role + its BYPASSRLS / superuser flags are
+ * logged at {@code migrate()} start and captured in the audit row's
+ * {@code flyway_role} field so operators can verify pre-deploy via
+ * {@code \dp} that grants are correct. Restricted-role fail-loudly coverage
+ * is deferred — runbook 2.16 mandates the operator-side {@code \dp} check.
  *
  * <h2>Phase A preflight (C-A5-N7)</h2>
  * Throws if {@code flyway_schema_history} does not contain successful V60 and
