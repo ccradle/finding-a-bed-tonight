@@ -743,8 +743,14 @@ public class ReferralTokenService {
             List<ReferralTokenRepository.ReleasedClaim> released = repository.clearExpiredClaims();
             if (!released.isEmpty()) {
                 for (ReferralTokenRepository.ReleasedClaim r : released) {
-                    publishAudit(null, r.id(), AuditEventTypes.DV_REFERRAL_RELEASED,
-                            Map.of("reason", "timeout"));
+                    // Phase B task 3.27: bind the release's tenant context BEFORE
+                    // publishing the audit event, so AuditEventService attributes
+                    // the DV_REFERRAL_RELEASED row to the referral's owning tenant
+                    // (not SYSTEM_TENANT_ID — that would flood the sentinel + the
+                    // row wouldn't be visible to the tenant's admins under FORCE RLS).
+                    TenantContext.runWithContext(r.tenantId(), true, () ->
+                        publishAudit(null, r.id(), AuditEventTypes.DV_REFERRAL_RELEASED,
+                                Map.of("reason", "timeout")));
                     eventBus.publish(new DomainEvent("referral.released", r.tenantId(),
                             Map.of("referralId", r.id().toString(), "reason", "timeout")));
                 }
