@@ -515,6 +515,53 @@ If Step 2 returns 403 instead of 201, the SecurityConfig fix has regressed. **Ro
 
 ---
 
+## Required Environment Variables
+
+Variables marked **prod-required** cause `IllegalStateException` at startup if
+unset in a `prod`-profile deployment. Non-prod profiles (dev, test, lite) tolerate
+them via documented fallbacks. Set every prod-required var before starting any
+v0.41.0+ backend, and persist them in the systemd unit's environment file
+(`/etc/systemd/system/fabt-backend.service.d/*.conf`) so they survive reboots.
+
+| Variable | Required | Since | Purpose | Generate / source |
+|---|---|---|---|---|
+| `FABT_DB_URL` | always | v0.1.0 | JDBC URL for application DB | `jdbc:postgresql://host:5432/fabt` |
+| `FABT_DB_OWNER_USER` / `FABT_DB_OWNER_PASSWORD` | always | v0.1.0 | Postgres owner role for Flyway | provisioned at DB setup |
+| `FABT_DB_USER` / `FABT_DB_PASSWORD` | always | v0.1.0 | Postgres `fabt_app` role for runtime queries | provisioned at DB setup |
+| `FABT_JWT_SECRET` | **prod-required** | v0.1.0 | HMAC-SHA256 key for JWT signing | `openssl rand -base64 64` |
+| `FABT_ENCRYPTION_KEY` | **prod-required** | **v0.41.0** | AES-256-GCM key for OAuth2 / HMIS / TOTP / webhook secret encryption at rest | `openssl rand -base64 32` (must be exactly 32 bytes) |
+
+**`FABT_ENCRYPTION_KEY` operator notes (new in v0.41.0):**
+
+- Pre-v0.41.0, `SecretEncryptionService` only WARN-logged when this var was
+  missing and degraded silently. Phase 0 of multi-tenant-production-readiness
+  hardened the contract: prod profile now throws at startup, refusing to boot.
+- The dev-start.sh value `s4FgjCrVQONb65lQmfYHyuvC7AL2VnkVufwB9ZihvlA=` is
+  committed to the public repo and is **explicitly rejected** in the prod profile.
+- The key is **irrecoverable**. Lose the key, lose access to every encrypted
+  secret persisted by the application (OAuth2 client secrets, HMIS API keys,
+  TOTP secrets, webhook callback secrets). Back up the value to a separate
+  secrets store at the same time you set it on the VM.
+- Phase A (next PR after Phase 0) introduces per-tenant DEK derivation via
+  HKDF rooted in this key. Rotating the key after Phase A ships requires the
+  rotation runbook (link forthcoming as Phase A docs).
+
+### Verify env vars staged for next start
+
+```bash
+sudo systemctl show fabt-backend --property=Environment | tr ' ' '\n' | grep ^FABT_
+# Must list every prod-required var above; missing var = next start fails.
+```
+
+### Where to set new vars
+
+`/etc/systemd/system/fabt-backend.service.d/encryption-key.conf` is the
+canonical drop-in for v0.41.0+ secrets. Add new vars here as additional
+`Environment=` lines, then `sudo systemctl daemon-reload`. Do NOT edit the
+main `fabt-backend.service` file — drop-ins survive package upgrades.
+
+---
+
 ## Management Port Security (Production)
 
 The `/actuator/prometheus` endpoint on the main application port (`:8080`) requires JWT authentication — it is **not** `permitAll()`. This is intentional: FABT handles DV shelter data and must not expose business metrics publicly.
