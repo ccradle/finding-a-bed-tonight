@@ -54,7 +54,7 @@ class AuditEventPhaseBRegressionTest extends BaseIntegrationTest {
             + "— Bug A+D regression guard")
     void orphanAuditWithoutOuterTx_persistsUnderSystemSentinel() {
         // Unique action so we can assert on the fresh row only.
-        String action = "PB_ORPHAN_" + UUID.randomUUID().toString().substring(0, 8);
+        String action = "PB_ORPHAN_" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
         UUID target = UUID.randomUUID();
 
         // Publish outside any TenantContext + outside any @Transactional.
@@ -87,7 +87,7 @@ class AuditEventPhaseBRegressionTest extends BaseIntegrationTest {
     @DisplayName("Orphan audit increments fabt.audit.system_insert.count counter "
             + "— D62 observability regression guard")
     void orphanAudit_incrementsSystemInsertCounter() {
-        String action = "PB_COUNTER_" + UUID.randomUUID().toString().substring(0, 8);
+        String action = "PB_COUNTER_" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
         double before = counterValue(action);
 
         eventPublisher.publishEvent(new AuditEventRecord(

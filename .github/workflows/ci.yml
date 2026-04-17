@@ -86,10 +86,16 @@ jobs:
             # A naked call is a match NOT preceded within 3 lines by
             # WithTenantContext.(readAs|doAs|readAsSystem|doAsSystem)(. We
             # can't do 3-line proximity in grep; use awk instead.
+            # Sam warroom checkpoint: use FNR (per-file line number) not NR
+            # (file-concatenated line number). Otherwise wrap_until set while
+            # scanning file A could spuriously allow matches in the first
+            # <wrap_until> lines of file B, producing silent false-negatives.
+            # Reset wrap_until at each file boundary (FNR==1).
             NAKED=$(awk '
-              /WithTenantContext\.(readAs|doAs|readAsSystem|doAsSystem)/ { wrap_until = NR + 10 }
+              FNR == 1 { wrap_until = 0 }
+              /WithTenantContext\.(readAs|doAs|readAsSystem|doAsSystem)/ { wrap_until = FNR + 10 }
               /jdbcTemplate?\.(queryFor|update)\b.*"(.*)(audit_events|hmis_audit_log|password_reset_token|one_time_access_code|hmis_outbox|tenant_key_material|kid_to_tenant_key)/ {
-                if (NR > wrap_until) print FILENAME ":" NR ": " $0
+                if (FNR > wrap_until) print FILENAME ":" FNR ": " $0
               }
             ' $(find backend/src/test/java -name '*.java' -not -name 'WithTenantContext.java'))
             if [[ -n "$NAKED" ]]; then

@@ -111,6 +111,11 @@ class D59PreparedStatementPlanCachingTest extends BaseIntegrationTest {
 
                 // Grant to fabt_app so the test harness under RLS can read.
                 setup.execute("GRANT ALL ON d59_probe_table TO fabt_app");
+                // Jordan checkpoint D: explicitly GRANT EXECUTE on the function
+                // so a Testcontainers/PGDG variant with default_privileges
+                // REVOKE-PUBLIC-EXECUTE doesn't fail with permission-denied
+                // and mask the real plan-caching signal.
+                setup.execute("GRANT EXECUTE ON FUNCTION d59_fabt_current_tenant_id() TO fabt_app");
             }
             conn.commit();
 
@@ -135,8 +140,15 @@ class D59PreparedStatementPlanCachingTest extends BaseIntegrationTest {
             }
 
             // CRITICAL: bind app.tenant_id to TENANT_A + PREPARE the statement.
-            try (Statement bindA = conn.createStatement()) {
-                bindA.execute("SET LOCAL app.tenant_id = '" + TENANT_A + "'");
+            // Jordan checkpoint C: use parameterized set_config instead of
+            // string-concatenated SET LOCAL. UUID constants are safe in this
+            // test, but the pattern in test code sets a bad precedent for
+            // real code paths — if copy-pasted into production, this becomes
+            // a tenant-spoofing primitive. Match the prod pattern here.
+            try (PreparedStatement bindA = conn.prepareStatement(
+                    "SELECT set_config('app.tenant_id', ?, true)")) {
+                bindA.setString(1, TENANT_A.toString());
+                bindA.executeQuery().close();
             }
 
             // Use PgJDBC server-side prepared statement mode by executing the
@@ -167,8 +179,11 @@ class D59PreparedStatementPlanCachingTest extends BaseIntegrationTest {
             // inlined fabt_current_tenant_id() at PREPARE time, the cached
             // plan carries TENANT_A's UUID constant → we'd see tenant A rows,
             // which would be a catastrophic cross-tenant leak.
-            try (Statement bindB = conn.createStatement()) {
-                bindB.execute("SET LOCAL app.tenant_id = '" + TENANT_B + "'");
+            // Jordan checkpoint C: parameterized set_config (see above).
+            try (PreparedStatement bindB = conn.prepareStatement(
+                    "SELECT set_config('app.tenant_id', ?, true)")) {
+                bindB.setString(1, TENANT_B.toString());
+                bindB.executeQuery().close();
             }
             List<String> tenantBMarkers = new ArrayList<>();
             try (PreparedStatement probe = conn.prepareStatement(probeSql)) {

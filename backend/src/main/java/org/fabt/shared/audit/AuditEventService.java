@@ -3,6 +3,8 @@ package org.fabt.shared.audit;
 import java.util.List;
 import java.util.UUID;
 
+import java.util.regex.Pattern;
+
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.fabt.shared.audit.repository.AuditEventRepository;
@@ -35,6 +37,22 @@ import tools.jackson.databind.ObjectMapper;
 public class AuditEventService {
 
     private static final Logger log = LoggerFactory.getLogger(AuditEventService.class);
+
+    /**
+     * Sam checkpoint warroom: bound Prometheus counter-tag cardinality. Audit
+     * actions in this codebase are UPPER_SNAKE_CASE (see AuditEventTypes).
+     * Any publisher that puts a free-form string (UUID, user-supplied text)
+     * into the action would explode the TSDB if we tagged the raw value.
+     * The allowlist regex matches the canonical shape + length cap; anything
+     * that fails falls to "UNKNOWN", keeping tag cardinality bounded to
+     * (number of real action types) + 1.
+     */
+    private static final Pattern ACTION_TAG_PATTERN = Pattern.compile("^[A-Z0-9_]{1,64}$");
+
+    private static String sanitizedActionTag(String action) {
+        if (action == null) return "unknown";
+        return ACTION_TAG_PATTERN.matcher(action).matches() ? action : "UNKNOWN";
+    }
 
     private final AuditEventRepository repository;
     private final ObjectMapper objectMapper;
@@ -83,7 +101,7 @@ public class AuditEventService {
                 // non-zero 1-hour rate after v0.43 + 7d.
                 if (meterRegistry != null) {
                     Counter.builder("fabt.audit.system_insert.count")
-                            .tag("action", event.action() == null ? "unknown" : event.action())
+                            .tag("action", sanitizedActionTag(event.action()))
                             .register(meterRegistry)
                             .increment();
                 }
@@ -113,7 +131,7 @@ public class AuditEventService {
                         ? u.getSQLException().getSQLState()
                         : "unknown";
                 Counter.builder("fabt.audit.rls_rejected.count")
-                        .tag("action", event.action() == null ? "unknown" : event.action())
+                        .tag("action", sanitizedActionTag(event.action()))
                         .tag("sqlstate", sqlState == null ? "unknown" : sqlState)
                         .register(meterRegistry)
                         .increment();
