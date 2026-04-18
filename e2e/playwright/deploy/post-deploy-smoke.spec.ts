@@ -217,12 +217,37 @@ test.describe('Post-deploy smoke tests', () => {
     await expect(combobox).toBeVisible({ timeout: 5_000 });
   });
 
-  test('11. Forgot password page renders', async ({ page }) => {
-    await page.goto(`${BASE}/login/forgot-password`);
+  test('11. Forgot password link wires from /login + page renders', async ({ page }) => {
+    await page.goto(LOGIN);
 
-    // Form fields should be visible
-    await expect(page.getByTestId('forgot-password-tenant')).toBeVisible({ timeout: 10_000 });
+    // Click the link on the login page rather than navigating directly —
+    // proves the link is wired and reachable (#153 regression guard).
+    const forgotLink = page.getByTestId('login-forgot-password-link');
+    await expect(forgotLink).toBeVisible({ timeout: 10_000 });
+    await forgotLink.click();
+
+    await expect(page).toHaveURL(/\/login\/forgot-password$/, { timeout: 10_000 });
+    await expect(page.getByTestId('forgot-password-tenant')).toBeVisible();
     await expect(page.getByTestId('forgot-password-email')).toBeVisible();
     await expect(page.getByTestId('forgot-password-submit')).toBeVisible();
+  });
+
+  test('12. Forgot password submit shows demo-blocked message on demo site', async ({ page }) => {
+    // Demo is only running if BASE is findabed.org; on non-demo targets skip.
+    test.skip(
+      !/findabed\.org/i.test(BASE),
+      'demo_restricted message only applies on demo-profile backends',
+    );
+
+    await page.goto(`${BASE}/login/forgot-password`);
+    await page.getByTestId('forgot-password-tenant').fill('dev-coc');
+    await page.getByTestId('forgot-password-email').fill('former@dev.fabt.org');
+    await page.getByTestId('forgot-password-submit').click();
+
+    // Demo-blocked testid appears (rather than the normal check-your-email flow)
+    // because DemoGuardFilter blocks POST /api/v1/auth/forgot-password.
+    const demoBlocked = page.getByTestId('forgot-password-demo-blocked');
+    await expect(demoBlocked).toBeVisible({ timeout: 10_000 });
+    await expect(demoBlocked).toContainText(/demo/i);
   });
 });

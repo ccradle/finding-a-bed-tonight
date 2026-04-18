@@ -595,6 +595,8 @@
   "forgotPassword.sending": "Sending...",
   "forgotPassword.checkEmail": "Check your email",
   "forgotPassword.checkEmailDetail": "If an account exists with that email, a password reset link has been sent. The link is valid for 30 minutes.",
+  "forgotPassword.demoBlocked": "Password reset email is disabled in the demo environment",
+  "forgotPassword.demoBlockedDetail": "In a full deployment, you would receive an email with a reset link. On the demo site, please sign in with the seeded demo credentials instead.",
   "forgotPassword.backToLogin": "Back to Sign In",
   "resetPassword.title": "Set New Password",
   "resetPassword.newPassword": "New Password",

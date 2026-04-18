@@ -595,6 +595,8 @@
   "forgotPassword.sending": "Enviando...",
   "forgotPassword.checkEmail": "Revise su correo",
   "forgotPassword.checkEmailDetail": "Si existe una cuenta con ese correo, se ha enviado un enlace de restablecimiento. El enlace es válido por 30 minutos.",
+  "forgotPassword.demoBlocked": "El restablecimiento de contraseña por correo está deshabilitado en el entorno de demostración",
+  "forgotPassword.demoBlockedDetail": "En un despliegue completo, recibiría un correo con un enlace de restablecimiento. En el sitio de demostración, inicie sesión con las credenciales de demostración preconfiguradas.",
   "forgotPassword.backToLogin": "Volver a Iniciar Sesión",
   "resetPassword.title": "Nueva Contraseña",
   "resetPassword.newPassword": "Nueva Contraseña",
