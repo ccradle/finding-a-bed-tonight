@@ -4,6 +4,7 @@ import java.util.UUID;
 
 import org.fabt.BaseIntegrationTest;
 import org.fabt.TestAuthHelper;
+import org.fabt.testsupport.WithTenantContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -53,14 +54,19 @@ class KidRegistryServiceCacheInvalidationTest extends BaseIntegrationTest {
         assertEquals(firstKid, kidRegistry.findOrCreateActiveKid(tenantId),
                 "second call without invalidation must return the cached value");
 
-        // 2. Simulate rotation in the DB: deactivate gen 1, add gen 2, register a new kid
+        // 2. Simulate rotation in the DB: deactivate gen 1, add gen 2, register a new kid.
+        // Post-Phase-B: tenant_key_material + kid_to_tenant_key have RESTRICTIVE
+        // WRITE policies requiring tenant_id = fabt_current_tenant_id(); wrap these
+        // DDL-ish writes in the tenant's context so the policies accept them.
         UUID rotatedKid = UUID.randomUUID();
-        jdbc.update("UPDATE tenant_key_material SET active = FALSE, rotated_at = NOW() "
-                  + "WHERE tenant_id = ? AND generation = 1", tenantId);
-        jdbc.update("INSERT INTO tenant_key_material (tenant_id, generation, active) "
-                  + "VALUES (?, 2, TRUE)", tenantId);
-        jdbc.update("INSERT INTO kid_to_tenant_key (kid, tenant_id, generation) "
-                  + "VALUES (?, ?, 2)", rotatedKid, tenantId);
+        WithTenantContext.doAs(tenantId, () -> {
+            jdbc.update("UPDATE tenant_key_material SET active = FALSE, rotated_at = NOW() "
+                      + "WHERE tenant_id = ? AND generation = 1", tenantId);
+            jdbc.update("INSERT INTO tenant_key_material (tenant_id, generation, active) "
+                      + "VALUES (?, 2, TRUE)", tenantId);
+            jdbc.update("INSERT INTO kid_to_tenant_key (kid, tenant_id, generation) "
+                      + "VALUES (?, ?, 2)", rotatedKid, tenantId);
+        });
 
         // 3. Without invalidation, cache returns stale firstKid
         assertEquals(firstKid, kidRegistry.findOrCreateActiveKid(tenantId),
@@ -83,9 +89,12 @@ class KidRegistryServiceCacheInvalidationTest extends BaseIntegrationTest {
         KidRegistryService.KidResolution second = kidRegistry.resolveKid(kid);
         assertEquals(first, second, "second call without invalidation hits the cache (same value)");
 
-        // 2. Simulate hard-delete: drop the kid_to_tenant_key row + tenant_key_material row
-        jdbc.update("DELETE FROM kid_to_tenant_key WHERE kid = ?", kid);
-        jdbc.update("DELETE FROM tenant_key_material WHERE tenant_id = ?", tenantId);
+        // 2. Simulate hard-delete: drop the kid_to_tenant_key row + tenant_key_material row.
+        // Post-Phase-B: DELETE is RESTRICTIVE by tenant_id; wrap in tenant binding.
+        WithTenantContext.doAs(tenantId, () -> {
+            jdbc.update("DELETE FROM kid_to_tenant_key WHERE kid = ?", kid);
+            jdbc.update("DELETE FROM tenant_key_material WHERE tenant_id = ?", tenantId);
+        });
 
         // 3. Without invalidation, cache still returns the stale resolution
         KidRegistryService.KidResolution stillCached = kidRegistry.resolveKid(kid);

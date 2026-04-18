@@ -10,6 +10,7 @@ import org.fabt.auth.domain.User;
 import org.fabt.auth.service.PasswordResetService;
 import org.fabt.auth.service.PasswordService;
 import org.fabt.shared.web.TenantContext;
+import org.fabt.testsupport.WithTenantContext;
 import org.fabt.tenant.domain.Tenant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -58,8 +59,14 @@ class EmailPasswordResetIntegrationTest extends BaseIntegrationTest {
         testUser.setDvAccess(false);
         authHelper.getUserRepository().save(testUser);
 
-        // Clean up prior reset tokens
-        jdbcTemplate.update("DELETE FROM password_reset_token WHERE user_id = ?", testUser.getId());
+        // Clean up prior reset tokens. Phase B: prt_delete_restrictive filters
+        // by fabt_current_tenant_id(), so the DELETE must run inside a bound
+        // TenantContext or it silently deletes 0 rows (leaving state pollution
+        // across tests that would later fail with IncorrectResultSizeDataAccess).
+        WithTenantContext.doAs(authHelper.getTestTenantId(), () ->
+                jdbcTemplate.update(
+                        "DELETE FROM password_reset_token WHERE user_id = ?",
+                        testUser.getId()));
 
         // GreenMail mailboxes are purged in BaseIntegrationTest.@AfterEach — every
         // test starts with an empty inbox. Per GreenMail docs (canonical pattern,
@@ -148,10 +155,14 @@ class EmailPasswordResetIntegrationTest extends BaseIntegrationTest {
         passwordResetService.requestReset("resettest@test.fabt.org", authHelper.getTestTenantSlug());
         String token = extractTokenFromGreenMail();
 
-        // Backdate the token to 31 minutes ago
-        jdbcTemplate.update(
-                "UPDATE password_reset_token SET expires_at = NOW() - INTERVAL '31 minutes' WHERE user_id = ?",
-                testUser.getId());
+        // Backdate the token to 31 minutes ago. Phase B: prt_update_restrictive
+        // filters by fabt_current_tenant_id(), so the UPDATE must run inside a
+        // bound TenantContext or it silently updates 0 rows (token stays valid,
+        // resetPassword returns true, assertion fails).
+        WithTenantContext.doAs(authHelper.getTestTenantId(), () ->
+                jdbcTemplate.update(
+                        "UPDATE password_reset_token SET expires_at = NOW() - INTERVAL '31 minutes' WHERE user_id = ?",
+                        testUser.getId()));
 
         boolean success = passwordResetService.resetPassword(token, "NewSecurePass12!");
         assertThat(success).isFalse();
@@ -362,8 +373,12 @@ class EmailPasswordResetIntegrationTest extends BaseIntegrationTest {
         long[] invalidTimes = new long[3];
 
         for (int i = 0; i < 3; i++) {
-            // Clean up tokens from previous iteration
-            jdbcTemplate.update("DELETE FROM password_reset_token WHERE user_id = ?", testUser.getId());
+            // Clean up tokens from previous iteration — Phase B: bind tenant
+            // for prt_delete_restrictive policy (same rationale as setUp).
+            WithTenantContext.doAs(authHelper.getTestTenantId(), () ->
+                    jdbcTemplate.update(
+                            "DELETE FROM password_reset_token WHERE user_id = ?",
+                            testUser.getId()));
 
             long start = System.nanoTime();
             passwordResetService.requestReset("resettest@test.fabt.org", authHelper.getTestTenantSlug());

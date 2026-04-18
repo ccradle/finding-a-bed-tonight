@@ -3,6 +3,7 @@ package org.fabt.availability.batch;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import io.micrometer.core.instrument.Timer;
 import tools.jackson.databind.ObjectMapper;
@@ -164,7 +165,7 @@ public class BedHoldsReconciliationJobConfig {
                                 details.put("snapshot_value_before", row.snapshotValue());
                                 details.put("actual_count", row.actualCount());
                                 details.put("delta", row.delta());
-                                writeAuditRowDirect(details);
+                                writeAuditRowDirect(row.tenantId(), details);
                             });
 
                             corrected++;
@@ -194,18 +195,28 @@ public class BedHoldsReconciliationJobConfig {
         };
     }
 
-    private void writeAuditRowDirect(Map<String, Object> details) {
+    private void writeAuditRowDirect(UUID tenantId, Map<String, Object> details) {
         try {
             JsonString detailsJson = new JsonString(objectMapper.writeValueAsString(details));
-            // cross-tenant-isolation-audit Phase 2.12: batch reconciler emits
-            // platform-wide audit events (tenant_id=null is semantically
-            // correct here — the reconciliation is not tenant-scoped by design).
-            // This is a legitimate @TenantUnscoped path for audit data; Phase
-            // 3 ArchUnit rules accept it because the batch-job package is
-            // exempt from the service-layer tenant guard.
+            // Phase B D55 attribution: each reconciled row belongs to exactly
+            // one tenant (the drift query yields rows tagged with the owning
+            // tenantId), so the audit event is per-tenant, not platform-wide.
+            // The prior "tenant_id=null for platform-wide batch" framing
+            // (cross-tenant-isolation-audit Phase 2.12) is superseded —
+            // FORCE RLS on audit_events (V69) rejects a null-tenant INSERT
+            // when the connection's app.tenant_id is bound to row.tenantId()
+            // via TenantContext.runWithContext at the caller. See
+            // design-b-rls-hardening.md and Phase B warroom W-B-FIXB-1.
+            //
+            // Still written via repository rather than via
+            // ApplicationEventPublisher → AuditEventService: the latter is a
+            // synchronous @EventListener and any exception inside it (caught
+            // or not) marks this tasklet's transaction rollback-only at the
+            // AOP layer, surfacing as UnexpectedRollbackException at Spring
+            // Batch commit time (memory: feedback_transactional_eventlistener).
             AuditEventEntity entity = new AuditEventEntity(
-                    null,                                // tenant id (platform-wide batch)
-                    null,                                // actor user id
+                    tenantId,                            // per-row tenant attribution (D55)
+                    null,                                // actor user id (system-run batch)
                     null,                                // target user id
                     AuditEventTypes.BED_HOLDS_RECONCILED,
                     detailsJson,

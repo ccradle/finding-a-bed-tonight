@@ -545,6 +545,13 @@ public class V74__reencrypt_secrets_under_per_tenant_deks extends BaseJavaMigrat
     // Audit row (D35 + C-A5-N10)
     // ------------------------------------------------------------------
 
+    /**
+     * Writes the V74 audit row. Task 3.26: bind app.tenant_id to
+     * SYSTEM_TENANT_ID before the INSERT so the FORCE-RLS policy on
+     * audit_events accepts the row. V74 is a system-origin migration —
+     * not tenant-scoped — so SYSTEM_TENANT_ID (00000000-...-0001) is the
+     * correct attribution per D55.
+     */
     private void writeAuditRow(Connection conn, String sessionRole,
                                 Instant started, Instant completed, long durationMs,
                                 String kekFingerprint,
@@ -577,10 +584,15 @@ public class V74__reencrypt_secrets_under_per_tenant_deks extends BaseJavaMigrat
             throw new IllegalStateException("V74 audit JSONB serialization failed", serializeErr);
         }
 
+        // Task 3.26: bind to SYSTEM_TENANT_ID before the audit INSERT +
+        // write tenant_id on the row so the FORCE-RLS policy accepts it.
+        UUID systemTenantId = UUID.fromString("00000000-0000-0000-0000-000000000001");
+        bindTenantGuc(conn, systemTenantId);
         try (PreparedStatement insert = conn.prepareStatement(
-                "INSERT INTO audit_events (action, details) VALUES (?, ?::jsonb)")) {
+                "INSERT INTO audit_events (action, tenant_id, details) VALUES (?, ?, ?::jsonb)")) {
             insert.setString(1, "SYSTEM_MIGRATION_V74_REENCRYPT");
-            insert.setString(2, detailsJson);
+            insert.setObject(2, systemTenantId);
+            insert.setString(3, detailsJson);
             insert.executeUpdate();
         }
     }
@@ -594,9 +606,32 @@ public class V74__reencrypt_secrets_under_per_tenant_deks extends BaseJavaMigrat
     // ------------------------------------------------------------------
 
     private UUID findOrCreateActiveKid(Connection conn, UUID tenantId) throws SQLException {
+        // Task 3.26 (Phase B): bind app.tenant_id to this tenant BEFORE any
+        // INSERT into tenant_key_material / kid_to_tenant_key. V68/V69 apply
+        // RESTRICTIVE write policies to both tables — without this binding,
+        // the INSERTs fail under FORCE RLS. Parameterized set_config avoids
+        // SQL injection (per Marcus C-A5-N2 / Jordan); is_local=true scopes
+        // to the Flyway tx (autoCommit=false under Flyway default).
+        bindTenantGuc(conn, tenantId);
         ensureActiveGeneration(conn, tenantId);
         int activeGeneration = getActiveGeneration(conn, tenantId);
         return findOrCreateKid(conn, tenantId, activeGeneration);
+    }
+
+    /**
+     * Task 3.26 helper: binds {@code app.tenant_id} to {@code tenantId}
+     * for the current transaction via parameterized {@code set_config} with
+     * {@code is_local=true}. Per Phase B D46: never string-interpolate the
+     * tenant UUID into SQL — always bind parameter.
+     */
+    private void bindTenantGuc(Connection conn, UUID tenantId) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT set_config('app.tenant_id', ?, true)")) {
+            ps.setString(1, tenantId == null ? "" : tenantId.toString());
+            try (ResultSet rs = ps.executeQuery()) {
+                rs.next();
+            }
+        }
     }
 
     private void ensureActiveGeneration(Connection conn, UUID tenantId) throws SQLException {

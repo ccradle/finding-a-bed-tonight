@@ -14,6 +14,19 @@ import java.util.UUID;
 public final class TenantContext {
 
     /**
+     * Reserved sentinel UUID for platform/system-originated audit events
+     * and RLS-guarded writes from non-tenant-scoped contexts (batch jobs,
+     * migrations, scheduled tasks, platform-admin cross-tenant actions).
+     * Phase B D55: every system context MUST bind this UUID via
+     * {@code runWithContext(SYSTEM_TENANT_ID, ...)} before any DB write
+     * that could hit a regulated table; {@code AuditEventService} falls
+     * back to this sentinel with a WARN log when a publisher forgot to
+     * bind. No real tenant may use this UUID.
+     */
+    public static final UUID SYSTEM_TENANT_ID =
+            UUID.fromString("00000000-0000-0000-0000-000000000001");
+
+    /**
      * @param userId may be null for system operations (scheduled jobs, API key auth)
      */
     public record Context(UUID tenantId, UUID userId, boolean dvAccess) {}

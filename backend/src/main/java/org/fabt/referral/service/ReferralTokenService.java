@@ -270,6 +270,16 @@ public class ReferralTokenService {
 
     /**
      * Expire pending tokens past their expiry time. Called by @Scheduled every 60 seconds.
+     *
+     * <p><b>Phase B checkpoint-2 warroom note (Marcus M4):</b> this method
+     * wraps in {@code runWithContext(TenantContext.getTenantId(), true, ...)}
+     * where {@code getTenantId()} is null on the scheduler thread. This
+     * LOOKS like the same bug fixed in {@link #autoReleaseClaims()}, but
+     * it isn't — the targeted table {@code referral_token} has its RLS
+     * policy (V21) gated on {@code app.dv_access}, NOT {@code app.tenant_id},
+     * so the null tenant binding is irrelevant. The method also publishes
+     * only DomainEvents (not AuditEventRecord), so it does not write to any
+     * Phase B RLS'd table. Left as-is intentionally.</p>
      */
     @TenantUnscoped("60-second PENDING→EXPIRED transition runs platform-wide")
     @Scheduled(fixedRate = 60_000)
@@ -743,8 +753,14 @@ public class ReferralTokenService {
             List<ReferralTokenRepository.ReleasedClaim> released = repository.clearExpiredClaims();
             if (!released.isEmpty()) {
                 for (ReferralTokenRepository.ReleasedClaim r : released) {
-                    publishAudit(null, r.id(), AuditEventTypes.DV_REFERRAL_RELEASED,
-                            Map.of("reason", "timeout"));
+                    // Phase B task 3.27: bind the release's tenant context BEFORE
+                    // publishing the audit event, so AuditEventService attributes
+                    // the DV_REFERRAL_RELEASED row to the referral's owning tenant
+                    // (not SYSTEM_TENANT_ID — that would flood the sentinel + the
+                    // row wouldn't be visible to the tenant's admins under FORCE RLS).
+                    TenantContext.runWithContext(r.tenantId(), true, () ->
+                        publishAudit(null, r.id(), AuditEventTypes.DV_REFERRAL_RELEASED,
+                                Map.of("reason", "timeout")));
                     eventBus.publish(new DomainEvent("referral.released", r.tenantId(),
                             Map.of("referralId", r.id().toString(), "reason", "timeout")));
                 }

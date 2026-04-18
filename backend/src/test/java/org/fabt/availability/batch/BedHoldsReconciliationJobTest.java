@@ -10,6 +10,7 @@ import org.fabt.analytics.config.BatchJobScheduler;
 import org.fabt.availability.repository.BedAvailabilityRepository;
 import org.fabt.availability.repository.BedAvailabilityRepository.DriftRow;
 import org.fabt.shared.web.TenantContext;
+import org.fabt.testsupport.WithTenantContext;
 import org.fabt.shelter.api.ShelterResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -87,14 +88,18 @@ class BedHoldsReconciliationJobTest extends BaseIntegrationTest {
 
         // Wait briefly for the async audit listener (it's actually sync but Hibernate
         // commit semantics — give it a tick).
-        Integer auditCount = jdbcTemplate.queryForObject(
-                """
-                SELECT COUNT(*) FROM audit_events
-                WHERE action = 'BED_HOLDS_RECONCILED'
-                  AND details::text LIKE ?
-                """,
-                Integer.class,
-                "%" + shelterId + "%");
+        // Phase B: audit_events has a FOR ALL policy (tenant_isolation_audit_events)
+        // with USING (tenant_id = fabt_current_tenant_id()); the SELECT must run
+        // under the shelter's tenant binding or the row is filtered out.
+        Integer auditCount = WithTenantContext.readAs(tenantId, () ->
+                jdbcTemplate.queryForObject(
+                        """
+                        SELECT COUNT(*) FROM audit_events
+                        WHERE action = 'BED_HOLDS_RECONCILED'
+                          AND details::text LIKE ?
+                        """,
+                        Integer.class,
+                        "%" + shelterId + "%"));
         assertThat(auditCount)
                 .as("Reconciliation must write at least one audit row tagged BED_HOLDS_RECONCILED for our shelter")
                 .isGreaterThanOrEqualTo(1);

@@ -8,6 +8,7 @@ import org.fabt.BaseIntegrationTest;
 import org.fabt.TestAuthHelper;
 import org.fabt.auth.domain.User;
 import org.fabt.auth.service.JwtService;
+import org.fabt.testsupport.WithTenantContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -151,13 +152,18 @@ class TenantKeyRotationServiceIntegrationTest extends BaseIntegrationTest {
 
         rotationService.bumpJwtKeyGeneration(freshTenant, freshUser.getId());
 
-        // Query audit_events for this tenant's most recent rotation event
-        List<Map<String, Object>> rows = jdbc.queryForList(
+        // Query audit_events for this tenant's most recent rotation event.
+        // Post-Phase-B (V68/V69): the test-side jdbc query must run inside
+        // TenantContext.runWithContext(freshTenant, ...) or FORCE RLS filters
+        // out all rows via fabt_current_tenant_id()=NULL. The audit row IS
+        // written by the rotation's tx; wrapping the read lets this test see it.
+        List<Map<String, Object>> rows = WithTenantContext.readAs(freshTenant, () ->
+            jdbc.queryForList(
                 "SELECT actor_user_id, target_user_id, action, details::text AS details_json "
                 + "FROM audit_events WHERE action = 'JWT_KEY_GENERATION_BUMPED' "
                 + "  AND details->>'tenantId' = ? "
                 + "ORDER BY timestamp DESC LIMIT 1",
-                freshTenant.toString());
+                freshTenant.toString()));
         assertEquals(1, rows.size(),
                 "JWT_KEY_GENERATION_BUMPED audit row must be written by the rotation");
         Map<String, Object> row = rows.get(0);
@@ -286,11 +292,14 @@ class TenantKeyRotationServiceIntegrationTest extends BaseIntegrationTest {
 
         // Audit rows: exactly 2 JWT_KEY_GENERATION_BUMPED for this tenant
         // (one per rotation), not duplicates of the same logical event.
-        Integer auditCount = jdbc.queryForObject(
+        // Post-Phase-B: wrap in tenant binding so FORCE RLS doesn't filter out
+        // the rows we wrote.
+        Integer auditCount = WithTenantContext.readAs(freshTenant, () ->
+            jdbc.queryForObject(
                 "SELECT COUNT(*) FROM audit_events "
                 + "WHERE action = 'JWT_KEY_GENERATION_BUMPED' "
                 + "  AND details->>'tenantId' = ?",
-                Integer.class, freshTenant.toString());
+                Integer.class, freshTenant.toString()));
         assertEquals(2, auditCount,
                 "exactly 2 audit rows for 2 rotations; >2 would mean the "
                 + "audit publish ran for a no-op rotation (race bug)");

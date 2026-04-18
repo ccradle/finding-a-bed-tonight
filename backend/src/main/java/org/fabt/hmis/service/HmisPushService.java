@@ -29,6 +29,7 @@ import org.fabt.tenant.domain.Tenant;
 import org.fabt.tenant.service.TenantService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -49,6 +50,7 @@ public class HmisPushService {
     private final TenantService tenantService;
     private final ObjectMapper objectMapper;
     private final MeterRegistry meterRegistry;
+    private final JdbcTemplate jdbcTemplate;
     private final Map<String, HmisVendorAdapter> adaptersByType;
     private final NoOpAdapter noOpAdapter;
 
@@ -59,6 +61,7 @@ public class HmisPushService {
                            TenantService tenantService,
                            ObjectMapper objectMapper,
                            MeterRegistry meterRegistry,
+                           JdbcTemplate jdbcTemplate,
                            List<HmisVendorAdapter> adapters,
                            NoOpAdapter noOpAdapter) {
         this.transformer = transformer;
@@ -68,6 +71,7 @@ public class HmisPushService {
         this.tenantService = tenantService;
         this.objectMapper = objectMapper;
         this.meterRegistry = meterRegistry;
+        this.jdbcTemplate = jdbcTemplate;
         this.noOpAdapter = noOpAdapter;
 
         this.adaptersByType = adapters.stream()
@@ -117,6 +121,19 @@ public class HmisPushService {
             + "admin controller path uses createOutboxEntriesForCurrentTenant wrapper.")
     @Transactional
     public int createOutboxEntriesForTenant(UUID tenantId) throws Exception {
+        // Phase B: V68 tenant_isolation_hmis_outbox policy checks
+        // tenant_id = fabt_current_tenant_id() on every INSERT. The batch
+        // caller (HmisPushJobConfig.createOutboxTasklet) invokes this per-
+        // tenant without wrapping in runWithContext, so app.tenant_id may
+        // be unbound when this method is called from the batch thread.
+        // Bind the GUC here (is_local=true — reverts at tx commit/rollback,
+        // matches the surrounding @Transactional scope) so outboxRepository
+        // .insert below passes the RESTRICTIVE policy. Same design-b D46
+        // pattern as TenantKeyRotationService.
+        jdbcTemplate.queryForObject(
+                "SELECT set_config('app.tenant_id', ?, true)",
+                String.class, tenantId.toString());
+
         List<HmisVendorConfig> vendors = configService.getEnabledVendors(tenantId);
         if (vendors.isEmpty()) {
             return 0;

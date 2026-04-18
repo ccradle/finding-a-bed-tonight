@@ -59,6 +59,58 @@ jobs:
       - name: Scan for overclaimed compliance language
         run: bash infra/scripts/legal-language-scan.sh .
 
+  phase-b-rls-test-discipline:
+    name: Phase B RLS test-discipline (no naked audit queries)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject naked jdbcTemplate queries on RLS'd tables
+        # Post-Phase-B, FORCE RLS on audit_events + 6 others filters all
+        # rows when app.tenant_id is empty. Tests that query these tables
+        # outside a TenantContext.runWithContext wrap silently return 0
+        # rows and fail with misleading assertions. Sam warroom W-B-4:
+        # enforce the test-side pattern via CI rather than docs alone.
+        run: |
+          set -eo pipefail
+          # Search all test files for jdbcTemplate query methods referencing
+          # RLS'd tables. Allowlist: WithTenantContext.readAs/doAs helpers
+          # and the test helper's own definition.
+          RLS_TABLES='audit_events|hmis_audit_log|password_reset_token|one_time_access_code|hmis_outbox|tenant_key_material|kid_to_tenant_key'
+          # Grep tests for queryFor(Object|List|Map)/update on those tables,
+          # then subtract lines that are inside a readAs/doAs block.
+          VIOLATIONS=$(grep -rInE "jdbcTemplate?\.(queryFor(Object|List|Map)|update)\b[^)]*\"[^\"]*(${RLS_TABLES})" \
+                          backend/src/test/java/ \
+                          --include='*.java' \
+                          --exclude='WithTenantContext.java' || true)
+          if [[ -n "$VIOLATIONS" ]]; then
+            # A naked call is a match NOT preceded within 3 lines by
+            # WithTenantContext.(readAs|doAs|readAsSystem|doAsSystem)(. We
+            # can't do 3-line proximity in grep; use awk instead.
+            # Sam warroom checkpoint: use FNR (per-file line number) not NR
+            # (file-concatenated line number). Otherwise wrap_until set while
+            # scanning file A could spuriously allow matches in the first
+            # <wrap_until> lines of file B, producing silent false-negatives.
+            # Reset wrap_until at each file boundary (FNR==1).
+            NAKED=$(awk '
+              FNR == 1 { wrap_until = 0 }
+              /WithTenantContext\.(readAs|doAs|readAsSystem|doAsSystem)/ { wrap_until = FNR + 10 }
+              /jdbcTemplate?\.(queryFor|update)\b.*"(.*)(audit_events|hmis_audit_log|password_reset_token|one_time_access_code|hmis_outbox|tenant_key_material|kid_to_tenant_key)/ {
+                if (FNR > wrap_until) print FILENAME ":" FNR ": " $0
+              }
+            ' $(find backend/src/test/java -name '*.java' -not -name 'WithTenantContext.java'))
+            if [[ -n "$NAKED" ]]; then
+              echo "::error::Phase B CI guard — naked jdbcTemplate queries on RLS'd tables detected."
+              echo "Wrap the query in org.fabt.testsupport.WithTenantContext.readAs(tenantId, () -> ...)"
+              echo "OR org.fabt.testsupport.WithTenantContext.doAs(tenantId, () -> ...) so FORCE RLS"
+              echo "can see the rows. See docs/security/phase-b-silent-audit-write-failures-runbook.md."
+              echo
+              echo "Violations:"
+              echo "$NAKED"
+              exit 1
+            fi
+          fi
+          echo "No naked RLS-table queries detected — Phase B test discipline holds."
+
   docker:
     name: Docker Build
     runs-on: ubuntu-latest

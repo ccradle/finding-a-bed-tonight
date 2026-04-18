@@ -42,18 +42,21 @@ public class PasswordResetService {
     private final PasswordService passwordService;
     private final EmailService emailService; // null when SMTP not configured
     private final JdbcTemplate jdbcTemplate;
+    private final PasswordResetTokenPersister tokenPersister;
     private final SecureRandom secureRandom = new SecureRandom();
 
     public PasswordResetService(UserRepository userRepository,
                                 TenantService tenantService,
                                 PasswordService passwordService,
                                 @org.springframework.lang.Nullable EmailService emailService,
-                                JdbcTemplate jdbcTemplate) {
+                                JdbcTemplate jdbcTemplate,
+                                PasswordResetTokenPersister tokenPersister) {
         this.userRepository = userRepository;
         this.tenantService = tenantService;
         this.passwordService = passwordService;
         this.emailService = emailService;
         this.jdbcTemplate = jdbcTemplate;
+        this.tokenPersister = tokenPersister;
     }
 
     /**
@@ -61,10 +64,22 @@ public class PasswordResetService {
      * Returns silently if email/tenant doesn't exist or user has dvAccess=true.
      * Timing is padded to 250ms floor to prevent enumeration (D8).
      *
-     * <p>No @Transactional: the INSERT is a single atomic statement. Timing padding
-     * must NOT hold a DB connection open during sleep (Marcus: Charlotte scale concern).</p>
+     * <p>This method is deliberately NOT {@code @Transactional} so the
+     * timing-pad {@code Thread.sleep} in the {@code finally} block does
+     * not hold a pooled JDBC connection open during the 250ms pad (Marcus
+     * checkpoint: Charlotte-scale connection-holding concern).</p>
+     *
+     * <p>Regulated-table writes on {@code password_reset_token} are routed
+     * through {@link PasswordResetTokenPersister} — a separate Spring bean
+     * so the {@code @Transactional} proxy engages AND the tenant-GUC
+     * binding ({@code set_config('app.tenant_id', tenantId, true)})
+     * happens as the first statement inside the writer's transaction.
+     * V68's {@code prt_insert_restrictive} policy checks
+     * {@code tenant_id = fabt_current_tenant_id()} on every INSERT; the
+     * pre-auth {@link org.fabt.shared.web.TenantContext} is null at this
+     * method's entry so the binding must be explicit.</p>
      */
-    @TenantUnscopedQuery("password_reset_token rows are tenant-scoped via app_user FK; user looked up by (tenant_id, email) before any token operation. token_hash is SHA-256 — collision across tenants is cryptographically infeasible. Defense-in-depth tenant_id will be added in multi-tenant-production-readiness.")
+    @TenantUnscopedQuery("password_reset_token rows are tenant-scoped via app_user FK; user looked up by (tenant_id, email) before any token operation. Write path through PasswordResetTokenPersister binds app.tenant_id via set_config(is_local=true) under @Transactional (Phase B D46 pattern).")
     public void requestReset(String email, String tenantSlug) {
         long startNanos = System.nanoTime();
         try {
@@ -92,11 +107,6 @@ public class PasswordResetService {
                 return;
             }
 
-            // Invalidate any previous unused tokens for this user (Marcus: prevent token accumulation)
-            jdbcTemplate.update(
-                    "UPDATE password_reset_token SET used = true WHERE user_id = ? AND used = false",
-                    user.getId());
-
             // Generate 256-bit token
             byte[] tokenBytes = new byte[TOKEN_BYTES];
             secureRandom.nextBytes(tokenBytes);
@@ -105,17 +115,19 @@ public class PasswordResetService {
 
             Instant expiresAt = Instant.now().plusSeconds(EXPIRY_MINUTES * 60L);
 
-            jdbcTemplate.update(
-                    "INSERT INTO password_reset_token (user_id, tenant_id, token_hash, expires_at) VALUES (?, ?, ?, ?)",
-                    user.getId(), tenant.getId(), tokenHash, java.sql.Timestamp.from(expiresAt));
+            // UPDATE (invalidate prior unused tokens) + INSERT (new token) in one
+            // tenant-GUC-bound @Transactional unit inside the persister.
+            tokenPersister.writeToken(user.getId(), tenant.getId(), tokenHash, expiresAt);
 
-            // Send email — if it fails, delete the token (no orphaned tokens)
+            // Send email OUTSIDE the tx so SMTP round-trip does not hold the
+            // DB connection. On failure, delete the orphaned token via a
+            // second transactional call (re-binds tenant GUC for the DELETE).
             try {
                 emailService.sendPasswordResetEmail(email, plainToken);
                 log.info("Password reset token created for user {} (expires {})", user.getId(), expiresAt);
             } catch (Exception e) {
                 log.error("Failed to send reset email to {}, deleting token: {}", email, e.getMessage());
-                jdbcTemplate.update("DELETE FROM password_reset_token WHERE token_hash = ?", tokenHash);
+                tokenPersister.deleteToken(tenant.getId(), tokenHash);
             }
         } finally {
             // D8: Constant 250ms response floor — prevents timing-based enumeration.
@@ -130,12 +142,13 @@ public class PasswordResetService {
      *
      * @return true if reset succeeded, false if token is invalid/expired/used
      */
-    @TenantUnscopedQuery("token_hash is SHA-256 — globally unique by birthday-bound argument. Resolved row's user_id then dictates tenant. Defense-in-depth tenant_id will be added in multi-tenant-production-readiness.")
+    @TenantUnscopedQuery("token_hash is SHA-256 — globally unique by birthday-bound argument. Resolved row's user_id then dictates tenant. Phase B: mark-used UPDATE routes through PasswordResetTokenPersister.markTokenUsed which binds app.tenant_id from the user's tenantId before the prt_update_restrictive policy check.")
     @Transactional
     public boolean resetPassword(String token, String newPassword) {
         String tokenHash = sha256Hex(token);
 
-        // O(1) lookup by SHA-256 hash
+        // O(1) lookup by SHA-256 hash — permissive SELECT policy (prt_select_all)
+        // accepts the read without tenant binding.
         var rows = jdbcTemplate.queryForList(
                 "SELECT id, user_id FROM password_reset_token WHERE token_hash = ? AND used = false AND expires_at > NOW()",
                 tokenHash);
@@ -148,13 +161,19 @@ public class PasswordResetService {
         UUID tokenId = (UUID) rows.get(0).get("id");
         UUID userId = (UUID) rows.get(0).get("user_id");
 
-        // Mark token as used (single-use)
-        jdbcTemplate.update("UPDATE password_reset_token SET used = true WHERE id = ?", tokenId);
-
         User user = userRepository.findById(userId).orElse(null);
         if (user == null) return false;
 
-        // Update password, increment tokenVersion (D5), set passwordChangedAt
+        // Mark token as used (single-use) — routed through persister so the
+        // prt_update_restrictive policy sees app.tenant_id bound to the
+        // user's tenantId. Phase B: pre-auth callers have no TenantContext.
+        tokenPersister.markTokenUsed(user.getTenantId(), tokenId);
+
+        // Update password, increment tokenVersion (D5), set passwordChangedAt.
+        // Wrapped in @Transactional at the persister layer but the user update
+        // itself runs in the persister-scoped tx (see markTokenUsed). The
+        // userRepository.save is on a non-regulated table, so it runs in the
+        // ambient tx opened by the persister call (REQUIRED propagation).
         user.setPasswordHash(passwordService.hash(newPassword));
         user.setTokenVersion(user.getTokenVersion() + 1);
         user.setPasswordChangedAt(Instant.now());

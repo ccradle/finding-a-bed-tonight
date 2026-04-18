@@ -6,9 +6,12 @@ import java.sql.SQLException;
 import javax.sql.DataSource;
 
 import com.zaxxer.hikari.HikariDataSource;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.fabt.shared.web.TenantContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.jdbc.autoconfigure.DataSourceProperties;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -52,18 +55,34 @@ public class RlsDataSourceConfig {
 
     @Bean
     @Primary
-    public DataSource dataSource(HikariDataSource hikariDataSource) {
-        return new RlsAwareDataSource(hikariDataSource);
+    public DataSource dataSource(HikariDataSource hikariDataSource,
+                                 ObjectProvider<MeterRegistry> meterRegistryProvider) {
+        return new RlsAwareDataSource(hikariDataSource, meterRegistryProvider.getIfAvailable());
     }
 
     /**
      * DataSource decorator that injects the current user's dvAccess flag
      * into every JDBC connection before application code runs a query.
+     *
+     * <p>Emits {@code fabt.rls.tenant_context.empty.count} (Phase B
+     * observability) every time a connection is borrowed while
+     * {@link TenantContext#getTenantId()} is null. Non-zero steady-state
+     * after v0.43 + 7 days means a hot code path is taking connections
+     * without binding tenant first — the kind of pattern that produces
+     * silent SYSTEM_TENANT_ID audit rows + FORCE-RLS rejections.</p>
      */
     static final class RlsAwareDataSource extends DelegatingDataSource {
 
-        RlsAwareDataSource(DataSource delegate) {
+        private final Counter tenantContextEmptyCounter;
+
+        RlsAwareDataSource(DataSource delegate, MeterRegistry meterRegistry) {
             super(delegate);
+            this.tenantContextEmptyCounter = meterRegistry != null
+                    ? Counter.builder("fabt.rls.tenant_context.empty.count")
+                            .description("JDBC connections borrowed while TenantContext is unbound "
+                                    + "(Phase B D55 signal; non-zero = publisher / scheduler forgot runWithContext)")
+                            .register(meterRegistry)
+                    : null;
         }
 
         @Override
@@ -84,6 +103,9 @@ public class RlsDataSourceConfig {
             boolean dvAccess = TenantContext.getDvAccess();
             java.util.UUID userId = TenantContext.getUserId();
             java.util.UUID tenantId = TenantContext.getTenantId();
+            if (tenantId == null && tenantContextEmptyCounter != null) {
+                tenantContextEmptyCounter.increment();
+            }
             try {
                 // Single round-trip: SET ROLE + set_config in one statement.
                 // Eliminates extra round-trips that compound under virtual thread

@@ -192,11 +192,13 @@ class V74ReencryptIntegrationTest extends BaseIntegrationTest {
 
         invokeV74();
 
-        String detailsJson = jdbc.queryForObject(
+        // Task 3.26 + Phase B: SYSTEM_TENANT_ID binding for RLS-aware read.
+        String detailsJson = org.fabt.testsupport.WithTenantContext.readAsSystem(() ->
+            jdbc.queryForObject(
                 "SELECT details::text FROM audit_events "
                 + "WHERE action = 'SYSTEM_MIGRATION_V74_REENCRYPT' "
                 + "ORDER BY timestamp DESC LIMIT 1",
-                String.class);
+                String.class));
 
         // Postgres JSONB::text serializes with a space after each colon, so
         // match on the key name only.
@@ -279,9 +281,13 @@ class V74ReencryptIntegrationTest extends BaseIntegrationTest {
     }
 
     private long countV74AuditRows() {
-        Long count = jdbc.queryForObject(
+        // Task 3.26 + Phase B: V74's audit row is written under
+        // SYSTEM_TENANT_ID per D55. Read in that context so FORCE RLS
+        // doesn't filter it out.
+        Long count = org.fabt.testsupport.WithTenantContext.readAsSystem(() ->
+            jdbc.queryForObject(
                 "SELECT COUNT(*) FROM audit_events WHERE action = 'SYSTEM_MIGRATION_V74_REENCRYPT'",
-                Long.class);
+                Long.class));
         return count == null ? 0L : count;
     }
 
@@ -305,9 +311,17 @@ class V74ReencryptIntegrationTest extends BaseIntegrationTest {
      */
     private void invokeV74() throws Exception {
         try (Connection conn = dataSource.getConnection()) {
-            conn.setAutoCommit(true);
+            // Task 3.26 + Phase B: V74's set_config(is_local=true) requires
+            // a transaction block to take effect. Prod Flyway runs each
+            // migration in its own tx (autoCommit=false). Mirror that here
+            // so the app.tenant_id bindings inside findOrCreateActiveKid +
+            // writeAuditRow scope correctly and FORCE RLS accepts the
+            // INSERTs into tenant_key_material / kid_to_tenant_key /
+            // audit_events.
+            conn.setAutoCommit(false);
             var migration = new V74__reencrypt_secrets_under_per_tenant_deks();
             migration.migrate(new StubContext(conn));
+            conn.commit();
         }
     }
 

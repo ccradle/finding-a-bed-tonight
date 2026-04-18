@@ -25,6 +25,30 @@
         </encoder>
     </appender>
 
+    <!--
+        Phase B D55 / Sam warroom W-B-5 + checkpoint-review tuning: rate-limit
+        the "Audit event published without TenantContext bound" WARN across
+        the JVM. DuplicateMessageFilter drops same-message repeats after the
+        threshold; without it, a runaway scheduled job could flood Loki with
+        10k identical WARN lines/min and mask the real signal. The companion
+        Micrometer counter (fabt.audit.system_insert.count) is unrate-limited
+        so Prometheus still sees the true rate.
+
+        allowedRepetitions=3 (not 0): Sam checkpoint review — a burst of 50
+        distinct users hitting the SAME publisher-forgot-context path would
+        all produce the same message template, and allowedRepetitions=0 would
+        show the operator only 1 WARN. With 3, the on-call sees the first
+        4 within the cache window before suppression kicks in, which is
+        enough to recognize "this is repeating" without flooding logs.
+
+        cacheSize=500 bounds memory. JVM-wide scope is intentional — any
+        identical log line anywhere collapses, not just audit-service.
+    -->
+    <turboFilter class="ch.qos.logback.classic.turbo.DuplicateMessageFilter">
+        <allowedRepetitions>3</allowedRepetitions>
+        <cacheSize>500</cacheSize>
+    </turboFilter>
+
     <!-- Local profile: plain-text output -->
     <springProfile name="local">
         <root level="INFO">
