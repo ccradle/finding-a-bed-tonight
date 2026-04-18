@@ -233,6 +233,71 @@ class V74ReencryptIntegrationTest extends BaseIntegrationTest {
     }
 
     // ------------------------------------------------------------------
+    // T12 — plaintext-fallback path (v0.42.1 regression guard for the
+    //       v0.42.0 deploy failure on subscription.callback_secret_hash)
+    // ------------------------------------------------------------------
+
+    @Test
+    @DisplayName("T12: TOTP/webhook plaintext placeholder is treated as plaintext + wrapped v1 (regression guard for v0.42.0 deploy failure)")
+    void t12_plaintextFallback_uniformAcrossColumns() throws Exception {
+        // TOTP path — seed a plaintext placeholder matching what the
+        // multi-tenant-infrastructure seed data pattern looks like.
+        var user = authHelper.createUserInTenant(tenantA,
+                "v74-plaintext-totp-" + UUID.randomUUID() + "@test.fabt.org",
+                "V74 Plaintext TOTP User", new String[]{"OUTREACH_WORKER"}, false);
+        String plaintextTotp = "placeholder_totp_plac";   // 21 chars, matches v0.42.0 failure shape
+        jdbc.update("UPDATE app_user SET totp_secret_encrypted = ? WHERE id = ?",
+                plaintextTotp, user.getId());
+
+        // Webhook path — seed a plaintext placeholder matching the 3
+        // demo-VM subscription rows that tripped v0.42.0.
+        UUID subId = UUID.randomUUID();
+        String plaintextWebhook = "placeholder_webhook_s";  // 21 chars
+        jdbc.update("INSERT INTO subscription (id, tenant_id, event_type, callback_url, "
+                + "callback_secret_hash) "
+                + "VALUES (?::uuid, ?::uuid, 'demo.fired', "
+                + "'https://example.com/hook', ?)",
+                subId, tenantA, plaintextWebhook);
+
+        // Invoke V74 — must complete without throwing, must produce v1
+        // envelopes via the plaintext-fallback catch.
+        invokeV74();
+
+        // TOTP: stored value should now be v1 envelope wrapping the
+        // original plaintext placeholder.
+        String totpAfter = jdbc.queryForObject(
+                "SELECT totp_secret_encrypted FROM app_user WHERE id = ?",
+                String.class, user.getId());
+        assertTrue(isV1(totpAfter),
+                "TOTP plaintext placeholder must be wrapped in v1 envelope");
+        assertEquals(plaintextTotp,
+                encryptionService.decryptForTenant(tenantA, KeyPurpose.TOTP, totpAfter),
+                "v1 envelope must decrypt to the original plaintext placeholder");
+
+        // Webhook: same expectation.
+        String webhookAfter = jdbc.queryForObject(
+                "SELECT callback_secret_hash FROM subscription WHERE id = ?",
+                String.class, subId);
+        assertTrue(isV1(webhookAfter),
+                "webhook plaintext placeholder must be wrapped in v1 envelope");
+        assertEquals(plaintextWebhook,
+                encryptionService.decryptForTenant(tenantA, KeyPurpose.WEBHOOK_SECRET, webhookAfter),
+                "v1 envelope must decrypt to the original plaintext placeholder");
+
+        // Audit row should include the plaintext_fallback counters.
+        String detailsJson = jdbc.queryForObject(
+                "SELECT details::text FROM audit_events "
+                + "WHERE action = 'SYSTEM_MIGRATION_V74_REENCRYPT' "
+                + "ORDER BY timestamp DESC LIMIT 1",
+                String.class);
+        assertNotNull(detailsJson);
+        assertTrue(detailsJson.contains("totp_plaintext_fallback"),
+                "audit row must carry totp_plaintext_fallback counter");
+        assertTrue(detailsJson.contains("webhook_plaintext_fallback"),
+                "audit row must carry webhook_plaintext_fallback counter");
+    }
+
+    // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
 

@@ -271,15 +271,28 @@ public class V74__reencrypt_secrets_under_per_tenant_deks extends BaseJavaMigrat
                 + "FOR UPDATE")) {
             try (ResultSet rs = select.executeQuery()) {
                 while (rs.next()) {
+                    UUID userId = (UUID) rs.getObject("id");
                     String stored = rs.getString("totp_secret_encrypted");
                     if (stored == null || stored.isBlank()) continue;
                     if (isV1(stored)) {
                         counts.skippedAlreadyV1++;
                         continue;
                     }
-                    UUID userId = (UUID) rs.getObject("id");
                     UUID tenantId = (UUID) rs.getObject("tenant_id");
-                    String plaintext = decryptV0(platformKey, stored);
+                    String plaintext;
+                    try {
+                        plaintext = decryptV0(platformKey, stored);
+                    } catch (RuntimeException legacyPlaintext) {
+                        // v0.42.1 plaintext-tolerance (uniform with OAuth2/HMIS pattern).
+                        // TOTP has been encrypted since V31, so plaintext here implies
+                        // a test seed or corruption. Treat as plaintext + wrap in v1 so
+                        // the migration completes; operator follows up via the
+                        // totp_plaintext_fallback count in the audit row.
+                        log.warn("V74: app_user.id={} totp_secret_encrypted not valid v0 — "
+                                + "treating as plaintext and encrypting-v1", userId);
+                        plaintext = stored;
+                        counts.plaintextFallback++;
+                    }
                     UUID kid = findOrCreateActiveKid(conn, tenantId);
                     SecretKey dek = deriveKey(masterKekBytes, tenantId, PURPOSE_TOTP);
                     String reencrypted = encryptV1(dek, kid, plaintext);
@@ -337,15 +350,29 @@ public class V74__reencrypt_secrets_under_per_tenant_deks extends BaseJavaMigrat
                 + "FOR UPDATE")) {
             try (ResultSet rs = select.executeQuery()) {
                 while (rs.next()) {
+                    UUID subId = (UUID) rs.getObject("id");
                     String stored = rs.getString("callback_secret_hash");
                     if (stored == null || stored.isBlank()) continue;
                     if (isV1(stored)) {
                         counts.skippedAlreadyV1++;
                         continue;
                     }
-                    UUID subId = (UUID) rs.getObject("id");
                     UUID tenantId = (UUID) rs.getObject("tenant_id");
-                    String plaintext = decryptV0(platformKey, stored);
+                    String plaintext;
+                    try {
+                        plaintext = decryptV0(platformKey, stored);
+                    } catch (RuntimeException legacyPlaintext) {
+                        // v0.42.1 plaintext-tolerance (uniform with OAuth2/HMIS pattern).
+                        // Seed data may carry placeholder plaintexts (e.g., from original
+                        // multi-tenant-infrastructure change set). Preserves runtime
+                        // webhook HMAC-signing behavior — the plaintext is kept verbatim
+                        // inside the v1 envelope. Operator follows up via
+                        // webhook_plaintext_fallback count in the audit row.
+                        log.warn("V74: subscription.id={} callback_secret_hash not valid v0 — "
+                                + "treating as plaintext and encrypting-v1", subId);
+                        plaintext = stored;
+                        counts.plaintextFallback++;
+                    }
                     UUID kid = findOrCreateActiveKid(conn, tenantId);
                     SecretKey dek = deriveKey(masterKekBytes, tenantId, PURPOSE_WEBHOOK);
                     String reencrypted = encryptV1(dek, kid, plaintext);
@@ -419,6 +446,7 @@ public class V74__reencrypt_secrets_under_per_tenant_deks extends BaseJavaMigrat
                         log.warn("V74: tenant_oauth2_provider.id={} not valid v0 ciphertext — "
                                 + "treating as plaintext and encrypting-v1", providerId);
                         plaintext = stored;
+                        counts.plaintextFallback++;
                     }
                     UUID kid = findOrCreateActiveKid(conn, tenantId);
                     SecretKey dek = deriveKey(masterKekBytes, tenantId, PURPOSE_OAUTH2);
@@ -503,6 +531,7 @@ public class V74__reencrypt_secrets_under_per_tenant_deks extends BaseJavaMigrat
                             log.warn("V74: tenant {} api_key_encrypted not valid v0 — "
                                     + "treating as plaintext and encrypting-v1", tenantId);
                             plaintext = stored;
+                            counts.plaintextFallback++;
                         }
                         UUID kid = findOrCreateActiveKid(conn, tenantId);
                         SecretKey dek = deriveKey(masterKekBytes, tenantId, PURPOSE_HMIS);
@@ -560,14 +589,18 @@ public class V74__reencrypt_secrets_under_per_tenant_deks extends BaseJavaMigrat
         details.put("totp_reencrypted", totp.reencrypted);
         details.put("totp_skipped_already_v1", totp.skippedAlreadyV1);
         details.put("totp_skipped_null_tenant", totp.skippedNullTenant);
+        details.put("totp_plaintext_fallback", totp.plaintextFallback);
         details.put("webhook_reencrypted", webhook.reencrypted);
         details.put("webhook_skipped_already_v1", webhook.skippedAlreadyV1);
         details.put("webhook_skipped_null_tenant", webhook.skippedNullTenant);
+        details.put("webhook_plaintext_fallback", webhook.plaintextFallback);
         details.put("oauth2_reencrypted", oauth2.reencrypted);
         details.put("oauth2_skipped_already_v1", oauth2.skippedAlreadyV1);
         details.put("oauth2_skipped_null_tenant", oauth2.skippedNullTenant);
+        details.put("oauth2_plaintext_fallback", oauth2.plaintextFallback);
         details.put("hmis_reencrypted", hmis.reencrypted);
         details.put("hmis_skipped_already_v1", hmis.skippedAlreadyV1);
+        details.put("hmis_plaintext_fallback", hmis.plaintextFallback);
 
         String detailsJson;
         try {
@@ -852,5 +885,13 @@ public class V74__reencrypt_secrets_under_per_tenant_deks extends BaseJavaMigrat
         int reencrypted;
         int skippedAlreadyV1;
         int skippedNullTenant;
+        // v0.42.1: rows whose stored value failed v0 decryption and were
+        // treated as plaintext + wrapped in v1 (preserving runtime behavior).
+        // Matches the existing OAuth2 + HMIS plaintext-tolerance pattern
+        // extended uniformly to TOTP + webhook in v0.42.1 after the v0.42.0
+        // deploy surfaced 3 subscription seed rows with `placeholder_*`
+        // plaintext values. Deliberately exposed in the audit event so an
+        // operator can grep `*_plaintext_fallback > 0` and follow up.
+        int plaintextFallback;
     }
 }

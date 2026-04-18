@@ -5,6 +5,38 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.42.1] — 2026-04-18 — V74 plaintext-tolerance hotfix
+
+### Context
+
+The v0.42.0 demo deploy on 2026-04-18 failed when V74 hit `subscription.callback_secret_hash` rows containing plaintext placeholder seed data (3 rows of `"placeholder_..."` from the original multi-tenant-infrastructure seed, pre-Phase-0 encryption). V74's webhook path called `decryptV0` on non-envelope input, threw `RuntimeException("v0 decrypt failed")`, and the outer transaction rolled back. V59/V60/V61 had committed before V74 ran, so the demo DB was left in a partially-migrated state.
+
+### Fixed
+
+- **V74 plaintext-tolerance uniform across all 4 target columns.** OAuth2 + HMIS already had this pattern (`try { decryptV0 } catch (RuntimeException) { treat as plaintext + encrypt v1 }`). v0.42.1 extends the same pattern to TOTP + webhook paths. Runtime behavior is preserved: the original value survives verbatim inside the new v1 envelope.
+- **`Counts.plaintextFallback` counter** added; `audit_events.SYSTEM_MIGRATION_V74_REENCRYPT` row carries `{totp,webhook,oauth2,hmis}_plaintext_fallback` as separate JSONB fields so an operator can grep `webhook_plaintext_fallback > 0` and follow up on seed-data hygiene.
+- **`V74ReencryptIntegrationTest.t12_plaintextFallback_uniformAcrossColumns`** (new regression guard) — seeds plaintext placeholders matching the demo-failure shape in both TOTP + webhook columns, asserts V74 completes cleanly and produces v1 envelopes via the plaintext-fallback path.
+
+### Migration mechanics
+
+V74 Java migration file was modified in place. This is safe because V74 was never successfully applied in any environment (the v0.42.0 demo-deploy attempt resulted in Flyway's atomic rollback, which scrubbed the V74 record from `flyway_schema_history`). Per `feedback_flyway_immutable_after_apply.md`, modifying a successfully-applied migration is forbidden; modifying a migration that only ever failed-and-rolled-back is not.
+
+### Seed-data follow-up
+
+The 3 `"placeholder_..."` subscription rows remain functional (wrapped in v1 envelope after V74 runs). Long-term hygiene — separate task — is to replace seed-SQL placeholders with properly-encrypted values so fresh installs don't carry plaintext in regulated columns.
+
+### Verification
+
+- `V74ReencryptIntegrationTest` 7/7 green (includes new T12 plaintext-fallback)
+- `V59ReencryptPlaintextCredentialsTest` 6/6 green
+- `PerTenantEncryptionIntegrationTest` 8/8 green
+- `TotpAndAccessCodeIntegrationTest` 19/19 green
+- `HmisEncryptionRoundTripIntegrationTest` 5/5 green
+- `OAuth2EncryptionRoundTripIntegrationTest` 4/4 green
+- Total: 49/49 encryption-surface tests green on release/v0.42.1 branch
+
+Refs #126.
+
 ## [v0.42.0] — 2026-04-19 — multi-tenant-production-readiness Phases 0 + A + A5 (Issue #126)
 
 ### ⚠️ v0.41 → v0.42 is effectively ONE-WAY
