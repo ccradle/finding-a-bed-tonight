@@ -7,7 +7,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [v0.44.1] — 2026-04-21 — V73 pgaudit + Debian image swap + V74 plaintext-tolerance hotfix (Issue #126)
 
-Functionally equivalent to v0.44.0 (V73 pgaudit + image swap). The only delta is the V74 plaintext-tolerance fix cherry-picked from release/v0.42.1 (a3070e6) so Flyway checksum validation stays consistent when this deploys on top of a v0.42.1/v0.43.1-migrated DB. v0.44.0 tag retained as historical — use v0.44.1.
+Same scope as v0.44.0 (V73 pgaudit + image swap) plus the V74 plaintext-tolerance fix cherry-picked from release/v0.42.1 (a3070e6) so Flyway checksum validation stays consistent when this deploys on top of a v0.42.1/v0.43.1-migrated DB. v0.44.0 tag retained as historical — use v0.44.1.
 
 ## [v0.44.0] — 2026-04-21 — multi-tenant-production-readiness V73 pgaudit + Debian image swap (Issue #126)
 
