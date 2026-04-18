@@ -270,6 +270,16 @@ public class ReferralTokenService {
 
     /**
      * Expire pending tokens past their expiry time. Called by @Scheduled every 60 seconds.
+     *
+     * <p><b>Phase B checkpoint-2 warroom note (Marcus M4):</b> this method
+     * wraps in {@code runWithContext(TenantContext.getTenantId(), true, ...)}
+     * where {@code getTenantId()} is null on the scheduler thread. This
+     * LOOKS like the same bug fixed in {@link #autoReleaseClaims()}, but
+     * it isn't — the targeted table {@code referral_token} has its RLS
+     * policy (V21) gated on {@code app.dv_access}, NOT {@code app.tenant_id},
+     * so the null tenant binding is irrelevant. The method also publishes
+     * only DomainEvents (not AuditEventRecord), so it does not write to any
+     * Phase B RLS'd table. Left as-is intentionally.</p>
      */
     @TenantUnscoped("60-second PENDING→EXPIRED transition runs platform-wide")
     @Scheduled(fixedRate = 60_000)

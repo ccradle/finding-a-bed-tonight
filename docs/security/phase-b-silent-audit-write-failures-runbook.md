@@ -161,6 +161,59 @@ If the issue is a Spring proxy regression (step 2 failed):
   - `rate(fabt_audit_rls_rejected_count[5m]) > 0` → PagerDuty page
   - `rate(fabt_audit_system_insert_count[1h]) > baseline × 2` → ticket for publisher sweep
 
+## Deploy-time anomaly: Flyway hang on CREATE INDEX CONCURRENTLY
+
+**Symptom:** Flyway `migrate` hangs >60s on a migration that contains `CREATE INDEX CONCURRENTLY`. No progress in logs; `docker logs --follow fabt-backend` idle; backend container up but not serving traffic.
+
+**Root cause:** `CREATE INDEX CONCURRENTLY` runs a two-scan pattern and must wait at scan-2-start for every concurrent transaction to terminate. Flyway + Spring Data JDBC's connection pool can leave an `idle in transaction` connection on `flyway_schema_history` reads — the client returned the connection to the pool without committing, so Postgres still sees the transaction as alive. `CREATE INDEX CONCURRENTLY` waits on `virtualxid` for that zombie transaction to release, forever.
+
+**Diagnostic query (run as fabt owner or postgres, NOT fabt_app — per `feedback_rls_hides_dv_data.md`):**
+
+```sql
+SELECT pid, state, wait_event, age(query_start) AS age, query
+FROM pg_stat_activity
+WHERE (state != 'idle' AND backend_type = 'client backend')
+   OR (state = 'idle in transaction' AND age(query_start) > interval '1 minute')
+ORDER BY query_start;
+```
+
+Expected signature of the bug:
+- One row with `state='active'`, `wait_event='virtualxid'`, query starting with `CREATE INDEX CONCURRENTLY`
+- One row with `state='idle in transaction'`, `wait_event='ClientRead'`, query `SELECT ... FROM flyway_schema_history` or `pg_namespace`
+
+**Remediation (in order of preference):**
+
+1. **Set `idle_in_transaction_session_timeout` before V71-class migrations.** The safest option is to configure Postgres to auto-terminate idle-in-transaction connections before they hang the migration:
+   ```sql
+   ALTER DATABASE fabt SET idle_in_transaction_session_timeout = '60s';
+   ```
+   This must be done ONCE on the target cluster before any CONCURRENTLY migration runs. The setting applies to new connections; existing connections in the pool need to be recycled.
+
+2. **If already hanging: terminate the idle transaction.**
+   ```sql
+   -- As fabt owner (NOT fabt_app):
+   SELECT pg_terminate_backend(pid)
+   FROM pg_stat_activity
+   WHERE state = 'idle in transaction'
+     AND age(query_start) > interval '30 seconds'
+     AND datname = 'fabt';
+   ```
+   This releases the virtualxid; CONCURRENTLY completes within seconds after. Safe because idle-in-transaction connections aren't doing useful work — they're sitting parked in Hikari awaiting a reader.
+
+3. **Abort the deploy.** If >5 minutes have elapsed and neither (1) nor (2) cleared the hang, abort:
+   - `docker stop fabt-backend` (kills the Flyway process)
+   - Revert to the previous image tag
+   - Note: the partially-applied CONCURRENTLY creates an INVALID index that must be dropped before retry. Run as fabt owner:
+     ```sql
+     SELECT indexname FROM pg_indexes WHERE indexdef ILIKE 'CREATE INDEX%' AND schemaname = 'public';
+     SELECT relname, indisvalid FROM pg_class c JOIN pg_index i ON c.oid = i.indexrelid WHERE NOT indisvalid;
+     DROP INDEX IF EXISTS <invalid_index_name>;
+     ```
+
+**For migration authors:** at year-1 scale (>1M rows), CONCURRENTLY will become necessary on `audit_events` and `hmis_audit_log` indexes. Per Jordan's DBA guidance, **do NOT issue those via Flyway** — run them as ad-hoc operator SQL outside the deploy path, with `idle_in_transaction_session_timeout` set session-level, and track the index existence via a no-op guard migration that asserts `SELECT 1 FROM pg_indexes WHERE indexname = ?`. See Phase E task cards.
+
+**Why Phase B V71 is safe as-shipped:** V71 dropped CONCURRENTLY to plain `CREATE INDEX` after the test-harness hang. At pilot scale, `password_reset_token` and `one_time_access_code` hold dozens of rows max; the ACCESS EXCLUSIVE lock during CREATE INDEX resolves in single-digit milliseconds, imperceptible to users. Phase B deploy already declares a maintenance window (pgaudit image swap) so the write-block is subsumed.
+
 ## Related
 
 - `project_multi_tenant_phase_b_resume.md` (memory) — Phase B implementation history
