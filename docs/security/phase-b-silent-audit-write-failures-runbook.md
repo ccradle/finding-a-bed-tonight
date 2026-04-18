@@ -214,6 +214,21 @@ Expected signature of the bug:
 
 **Why Phase B V71 is safe as-shipped:** V71 dropped CONCURRENTLY to plain `CREATE INDEX` after the test-harness hang. At pilot scale, `password_reset_token` and `one_time_access_code` hold dozens of rows max; the ACCESS EXCLUSIVE lock during CREATE INDEX resolves in single-digit milliseconds, imperceptible to users. Phase B deploy already declares a maintenance window (pgaudit image swap) so the write-block is subsumed.
 
+## pgaudit prereqs — detection-of-last-resort for FORCE RLS cleared
+
+**Status:** V73 pgaudit image swap is deferred to a dedicated session (not in v0.43 scope). When that session lands, the following must be true before pgaudit is considered "enabled" for Phase B purposes:
+
+1. **`pgaudit.log = 'ddl,write'`** in `postgresql.conf` or container env. `ddl` captures every `ALTER TABLE … NO FORCE ROW LEVEL SECURITY`, `DROP POLICY`, `ALTER POLICY` — the exact events an attacker-with-owner-creds OR a buggy migration would use to re-open the Phase B attack surface. `write` captures regulated-table INSERT/UPDATE/DELETE as an independent audit trail against the `fabt_app`-role INSERT-into-`audit_events` audit (one is application-layer, the other DB-layer; together they witness each other).
+2. **`pgaudit.log_relation = 'on'`** — emits the relation name on every audited statement, so a DDL-change alert can name the table without having to re-parse the SQL.
+3. **Log destination = append-only sink.** The pgaudit lines MUST land somewhere `fabt_app` and `fabt_owner` cannot rewrite. In the Oracle VM deploy that's the host-mounted docker volume with `noexec,nosuid,ro`-for-application-role mount options; in a regulated-tier deploy it's forwarded to a SIEM (Splunk/ELK/OCI Logging) via syslog.
+4. **Alert rule on `NO FORCE ROW LEVEL SECURITY`**. Add a `grep` / Splunk / Loki alert: `pgaudit` line matching `AUDIT: SESSION,.*ALTER TABLE.*NO FORCE ROW LEVEL SECURITY` pages Sev-1 within 60 seconds of the log line. This is the true tripwire for the "attacker with owner creds flips FORCE off, does cross-tenant writes, flips it back" attack class the 60s Micrometer gauge (`fabt.rls.force_rls_enabled`) is too slow to catch.
+
+Until V73 ships, the gauge + pg_policies snapshot drift check are the only detection paths. Document this gap on every release that doesn't yet include pgaudit.
+
+## Panic-script audit ordering (Phase B warroom W-GAUGE-1)
+
+`scripts/phase-b-rls-panic.sh` MUST emit the `SYSTEM_PHASE_B_ROLLBACK` audit row **BEFORE** the `ALTER TABLE … NO FORCE ROW LEVEL SECURITY` statements, not after. Reasoning: once FORCE RLS is cleared, the panic operator could (in principle) be subverted — either by racing concurrent owner-session DML or by a trailing statement failure that rolls back the audit INSERT but leaves the NO FORCE in effect. Emitting the audit row first makes it a commit-witness of the rollback intent; the NO FORCE operations then proceed within the same transaction. The script as currently shipped places the audit INSERT at the end of the atomic block; a follow-up PR before v0.43 tags MUST reorder it. Tracked as warroom action W-GAUGE-1b.
+
 ## Related
 
 - `project_multi_tenant_phase_b_resume.md` (memory) — Phase B implementation history

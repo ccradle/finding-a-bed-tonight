@@ -83,8 +83,30 @@ Post-rollback:
 
 EOF
 
-# The atomic SQL block
+# The atomic SQL block.
+#
+# Phase B warroom W-GAUGE-1: the SYSTEM_PHASE_B_ROLLBACK audit row is
+# emitted FIRST (while FORCE RLS is still enforcing) so the rollback
+# intent is witnessed by a committed audit row even if a later statement
+# fails. Emitting it after the NO FORCE block would leave a window
+# where the operator could be subverted (racing owner-session DML OR a
+# trailing statement failure that rolls back the audit INSERT but leaves
+# NO FORCE in effect). Since Phase B policies still accept SYSTEM_TENANT_ID
+# INSERTs under the enforcing policies (D55), the audit write succeeds
+# without relaxing RLS first.
 SQL='BEGIN;
+SELECT set_config('"'"'app.tenant_id'"'"', '"'"'00000000-0000-0000-0000-000000000001'"'"', true);
+INSERT INTO audit_events (action, tenant_id, details)
+VALUES (
+    '"'"'SYSTEM_PHASE_B_ROLLBACK'"'"',
+    '"'"'00000000-0000-0000-0000-000000000001'"'"',
+    jsonb_build_object(
+        '"'"'operator'"'"', CURRENT_USER,
+        '"'"'reason'"'"',   :'"'"'reason'"'"',
+        '"'"'timestamp'"'"', now()
+    )
+);
+
 ALTER TABLE audit_events         NO FORCE ROW LEVEL SECURITY;
 ALTER TABLE hmis_audit_log       NO FORCE ROW LEVEL SECURITY;
 ALTER TABLE password_reset_token NO FORCE ROW LEVEL SECURITY;
@@ -129,17 +151,6 @@ DROP POLICY IF EXISTS kid_insert_restrictive             ON kid_to_tenant_key;
 DROP POLICY IF EXISTS kid_update_restrictive             ON kid_to_tenant_key;
 DROP POLICY IF EXISTS kid_delete_restrictive             ON kid_to_tenant_key;
 
-SELECT set_config('"'"'app.tenant_id'"'"', '"'"'00000000-0000-0000-0000-000000000001'"'"', true);
-INSERT INTO audit_events (action, tenant_id, details)
-VALUES (
-    '"'"'SYSTEM_PHASE_B_ROLLBACK'"'"',
-    '"'"'00000000-0000-0000-0000-000000000001'"'"',
-    jsonb_build_object(
-        '"'"'operator'"'"', CURRENT_USER,
-        '"'"'reason'"'"',   :'"'"'reason'"'"',
-        '"'"'timestamp'"'"', now()
-    )
-);
 COMMIT;'
 
 if [[ "$DRY_RUN" == "1" ]]; then
