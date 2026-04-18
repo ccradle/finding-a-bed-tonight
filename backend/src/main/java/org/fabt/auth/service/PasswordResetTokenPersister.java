@@ -58,10 +58,15 @@ class PasswordResetTokenPersister {
     public void writeToken(UUID userId, UUID tenantId, String tokenHash, Instant expiresAt) {
         bindTenantGuc(tenantId);
 
+        // All WHERE clauses include tenant_id as defense-in-depth per D15
+        // (TenantPredicateCoverageTest) — even though FORCE RLS also filters,
+        // the explicit predicate documents the per-tenant intent at the SQL
+        // layer and prevents a degraded-RLS deployment from silently matching
+        // cross-tenant rows.
         jdbcTemplate.update(
                 "UPDATE password_reset_token SET used = true "
-                        + "WHERE user_id = ? AND used = false",
-                userId);
+                        + "WHERE user_id = ? AND tenant_id = ? AND used = false",
+                userId, tenantId);
 
         jdbcTemplate.update(
                 "INSERT INTO password_reset_token (user_id, tenant_id, token_hash, expires_at) "
@@ -77,9 +82,10 @@ class PasswordResetTokenPersister {
     @Transactional
     public void deleteToken(UUID tenantId, String tokenHash) {
         bindTenantGuc(tenantId);
+        // tenant_id predicate in addition to RLS — defense-in-depth per D15.
         int deleted = jdbcTemplate.update(
-                "DELETE FROM password_reset_token WHERE token_hash = ?",
-                tokenHash);
+                "DELETE FROM password_reset_token WHERE token_hash = ? AND tenant_id = ?",
+                tokenHash, tenantId);
         if (deleted == 0) {
             log.warn("deleteToken: no rows deleted for tokenHash hint — race with another path?");
         }
@@ -94,9 +100,10 @@ class PasswordResetTokenPersister {
     @Transactional
     public void markTokenUsed(UUID tenantId, UUID tokenId) {
         bindTenantGuc(tenantId);
+        // tenant_id predicate in addition to RLS — defense-in-depth per D15.
         jdbcTemplate.update(
-                "UPDATE password_reset_token SET used = true WHERE id = ?",
-                tokenId);
+                "UPDATE password_reset_token SET used = true WHERE id = ? AND tenant_id = ?",
+                tokenId, tenantId);
     }
 
     private void bindTenantGuc(UUID tenantId) {

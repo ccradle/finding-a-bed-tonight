@@ -119,9 +119,10 @@ public class AccessCodeService {
                 jdbcTemplate.queryForObject(
                         "SELECT set_config('app.tenant_id', ?, true)",
                         String.class, tenant.getId().toString());
+                // tenant_id predicate in addition to RLS — defense-in-depth per D15.
                 jdbcTemplate.update(
-                        "UPDATE one_time_access_code SET used = true WHERE id = ?",
-                        codeId);
+                        "UPDATE one_time_access_code SET used = true WHERE id = ? AND tenant_id = ?",
+                        codeId, tenant.getId());
 
                 log.info("Access code validated for user {} (code {})", user.getId(), codeId);
                 return user;
