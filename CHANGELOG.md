@@ -5,6 +5,75 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.44.2] — 2026-04-18 — Forgot-password link wire-up + demo UX polish (#153)
+
+Frontend-only patch. No backend code changes beyond the pom version bump;
+no database migrations; no operational changes. Deploy = rebuild + recreate
+the `fabt-frontend` container (and `fabt-backend` for version-stamp
+consistency). Backend + frontend containers restart; postgres is untouched.
+
+### Added
+
+- **`/login` now surfaces a "Forgot password?" link** alongside the existing
+  "Have an access code?" link. The `ForgotPasswordPage` at `/login/forgot-password`
+  + `login.forgotPassword` i18n strings shipped with #36 email-password-reset
+  in v0.29, but `LoginPage.tsx` never got the navigation link. Users had to
+  type the URL directly for ~4 months. Task #153.
+- **Demo-aware submit UX** on the forgot-password form. When `DemoGuardFilter`
+  blocks `POST /api/v1/auth/forgot-password` with `demo_restricted`,
+  `ForgotPasswordPage` now surfaces a friendly "Password reset email is
+  disabled in the demo environment" message instead of the
+  enumeration-safe "check your email" confirmation (which was misleading on
+  demo where the email never arrives). Non-demo errors still silently
+  succeed per the original anti-enumeration design.
+
+### Fixed
+
+- **Three pre-existing i18n gaps on `/login/forgot-password`** (shipping
+  since v0.29, discovered during this PR's audit):
+  - `<FormattedMessage id="login.organization" />` — key did not exist in
+    `en.json` or `es.json`. Rendered as literal text "login.organization".
+    Changed code to use existing `login.tenant` key ("Organization" /
+    "Organización").
+  - `login.organizationPlaceholder` — missing key, rendered literal
+    placeholder. Added "my-organization" (en) / "mi-organización" (es).
+  - `login.emailPlaceholder` — missing key, rendered literal placeholder.
+    Added "you@example.com" (en) / "usted@ejemplo.com" (es).
+
+### Testing
+
+- **Playwright `data-testid` coverage** added for ForgotPasswordPage's
+  three secondary navigation elements:
+  - `forgot-password-back-button` — "Back to Sign In" button in the
+    confirmation / demo-blocked state
+  - `forgot-password-back-link` — "Back to Sign In" link in the form state
+  - `forgot-password-access-code-link` — "Have an access code?" link
+  - `forgot-password-demo-blocked` — new testid on the demo-branch
+    wrapper (conditional sibling of `forgot-password-confirmation`)
+- **`login-forgot-password-link` testid** added on the new login-page link.
+- **Post-deploy smoke Test 11** rewritten to click the link from `/login`
+  instead of navigating directly to `/login/forgot-password`. Regression
+  guard against future link removal.
+- **Post-deploy smoke Test 12** added to assert the demo-blocked message
+  renders when `BASE_URL` matches `findabed.org`; skipped on non-demo
+  targets.
+
+### Infrastructure
+
+- **Release discipline**: this release returns to the original pre-v0.42
+  process — merge PR to main, bump pom on main, tag from main, create
+  GitHub release, then deploy. The v0.42.0 → v0.44.1 campaign used
+  release branches as catch-up scaffolding; that pattern is retired.
+- pom bumped from `0.40.0` (stale since v0.40) to `0.44.2`. Main now
+  tracks the released version again.
+
+### Related
+
+- PR #132 (merge commit `818ba92`)
+- Task #153 (Phase C forgot-password link)
+
+---
+
 ## [Unreleased] — multi-tenant-production-readiness Phases 0 + A + A5 + B (Issue #126)
 
 ### ⚠️ v0.41 → v0.42 is effectively ONE-WAY
