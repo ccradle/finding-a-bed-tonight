@@ -391,6 +391,11 @@ export function LoginPage() {
 
         {!mfaToken && (
           <div style={{ display: 'flex', justifyContent: 'center', gap: 16, marginTop: 12 }}>
+            <a href="/login/forgot-password" data-testid="login-forgot-password-link" style={{
+              fontSize: text.xs, color: color.primaryText, textDecoration: 'none',
+            }}>
+              <FormattedMessage id="login.forgotPassword" />
+            </a>
             <a href="/login/access-code" data-testid="login-access-code-link" style={{
               fontSize: text.xs, color: color.primaryText, textDecoration: 'none',
             }}>

@@ -1,20 +1,28 @@
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { FormattedMessage, useIntl } from 'react-intl';
-import { api } from '../services/api';
+import { api, ApiError } from '../services/api';
 import { text, weight } from '../theme/typography';
 import { color } from '../theme/colors';
 
 /**
  * Forgot Password page — email + tenant slug form.
  * Submits to POST /api/v1/auth/forgot-password.
- * Always shows "Check your email" confirmation regardless of result (no enumeration).
+ *
+ * Non-demo: always shows "Check your email" confirmation regardless of
+ * whether the email exists (anti-enumeration).
+ *
+ * Demo: DemoGuardFilter returns `demo_restricted`; we surface that
+ * explicitly so users don't wait for an email that will never arrive.
+ * Demo mode is public knowledge (findabed.org URL is obviously demo),
+ * so no enumeration value is lost by outing the demo-restricted branch.
  */
 export function ForgotPasswordPage() {
   const intl = useIntl();
   const [email, setEmail] = useState('');
   const [tenantSlug, setTenantSlug] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const [demoBlocked, setDemoBlocked] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: FormEvent) => {
@@ -24,8 +32,11 @@ export function ForgotPasswordPage() {
     setLoading(true);
     try {
       await api.post('/api/v1/auth/forgot-password', { email: email.trim(), tenantSlug: tenantSlug.trim() });
-    } catch {
-      // Silently succeed — no error shown to prevent enumeration
+    } catch (err) {
+      if (err instanceof ApiError && err.error === 'demo_restricted') {
+        setDemoBlocked(true);
+      }
+      // Other errors: silently succeed (anti-enumeration).
     }
     setLoading(false);
     setSubmitted(true);
@@ -45,15 +56,15 @@ export function ForgotPasswordPage() {
         </h2>
 
         {submitted ? (
-          <div data-testid="forgot-password-confirmation">
+          <div data-testid={demoBlocked ? 'forgot-password-demo-blocked' : 'forgot-password-confirmation'}>
             <p style={{ fontSize: text.base, color: color.textSecondary, textAlign: 'center', marginBottom: 24 }}>
-              <FormattedMessage id="forgotPassword.checkEmail" />
+              <FormattedMessage id={demoBlocked ? 'forgotPassword.demoBlocked' : 'forgotPassword.checkEmail'} />
             </p>
             <p style={{ fontSize: text.sm, color: color.textMuted, textAlign: 'center', marginBottom: 24 }}>
-              <FormattedMessage id="forgotPassword.checkEmailDetail" />
+              <FormattedMessage id={demoBlocked ? 'forgotPassword.demoBlockedDetail' : 'forgotPassword.checkEmailDetail'} />
             </p>
             <div style={{ textAlign: 'center' }}>
-              <Link to="/login" style={{
+              <Link to="/login" data-testid="forgot-password-back-button" style={{
                 display: 'inline-block', padding: '12px 24px', borderRadius: 10,
                 backgroundColor: color.primary, color: color.textInverse,
                 fontSize: text.base, fontWeight: weight.bold, textDecoration: 'none',
@@ -70,7 +81,7 @@ export function ForgotPasswordPage() {
             </p>
 
             <label style={{ display: 'block', fontSize: text.sm, fontWeight: weight.semibold, color: color.text, marginBottom: 4 }}>
-              <FormattedMessage id="login.organization" />
+              <FormattedMessage id="login.tenant" />
             </label>
             <input
               type="text"
@@ -124,10 +135,10 @@ export function ForgotPasswordPage() {
             </button>
 
             <div style={{ textAlign: 'center' }}>
-              <Link to="/login/access-code" style={{ fontSize: text.sm, color: color.primaryText, textDecoration: 'none', marginRight: 16 }}>
+              <Link to="/login/access-code" data-testid="forgot-password-access-code-link" style={{ fontSize: text.sm, color: color.primaryText, textDecoration: 'none', marginRight: 16 }}>
                 <FormattedMessage id="login.useAccessCode" />
               </Link>
-              <Link to="/login" style={{ fontSize: text.sm, color: color.primaryText, textDecoration: 'none' }}>
+              <Link to="/login" data-testid="forgot-password-back-link" style={{ fontSize: text.sm, color: color.primaryText, textDecoration: 'none' }}>
                 <FormattedMessage id="forgotPassword.backToLogin" />
               </Link>
             </div>
