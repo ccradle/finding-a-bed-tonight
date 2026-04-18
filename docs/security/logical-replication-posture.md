@@ -88,7 +88,7 @@ Before the first logical publication is created on any regulated table:
    on the replication connection.
 2. Document the publication + subscription in a new Phase-X design doc
    + `docs/security/compliance-posture-matrix.md` entry (what the
-   publication guarantees, what it does NOT).
+   publication emits, what it does NOT).
 3. Add a Prometheus metric for publication row-emission volume per
    tenant — a spike that doesn't match known backfills is evidence of
    a subscriber leak.
