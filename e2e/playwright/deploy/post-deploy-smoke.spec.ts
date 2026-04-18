@@ -16,10 +16,13 @@ const LOGIN = `${BASE}/login`;
 
 test.describe('Post-deploy smoke tests', () => {
 
-  test('1. Version shows v0.39', async ({ page }) => {
+  test('1. Version shows a valid v0.x tag', async ({ page }) => {
+    // Match any v0.N or v0.N.M tag — prevents the test from going stale
+    // every release. If the site regresses to an un-tagged or garbage
+    // string, this still catches it.
     await page.goto(LOGIN);
     const version = page.getByTestId('app-version');
-    await expect(version).toContainText('v0.39', { timeout: 10_000 });
+    await expect(version).toHaveText(/v0\.\d+(\.\d+)?/, { timeout: 10_000 });
   });
 
   test('2. Outreach worker login + search returns results', async ({ page }) => {
