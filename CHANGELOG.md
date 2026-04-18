@@ -5,13 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [Unreleased] — multi-tenant-production-readiness Phases 0 + A + A5 + B (Issue #126)
-
-### ⚠️ v0.41 → v0.42 is effectively ONE-WAY
-
-V74 re-encrypts every existing TOTP / webhook / OAuth2 / HMIS ciphertext from the single-platform-key v0 envelope to per-tenant-DEK v1 envelopes. **v0.41 container images do NOT understand v1 envelopes** — deploying v0.41 against a post-V74 database breaks TOTP login, webhook signing, OAuth2 SSO, and HMIS outbound calls silently at request time. Rollback requires restoring the pre-deploy pg_dump backup (runbook 2.16).
-
-**Release gate:** v0.42 MUST ship Phase 0 + Phase A + Phase A5 (V74) together. No valid Phase-0-only v0.41.x release line exists. Per C-A5-N8, the V74 migration itself refuses to run without V60 + V61 applied — release-process belt-and-suspenders.
+## [v0.43.0] — 2026-04-20 — multi-tenant-production-readiness Phase B (Issue #126)
 
 ### ⚠️ v0.43 release gate — Phase B RLS hardening preconditions
 
@@ -76,6 +70,14 @@ Phase B is **not panic-proof** — the rollback surface is the panic script, not
 
 #### Design — Phase B
 - **`openspec/changes/multi-tenant-production-readiness/design-b-rls-hardening.md`** v2 — APPROVED post-warroom, 16 decisions (D42–D62) + Q2 (pgaudit image source) + Q4 (D59 failure path) resolved.
+
+## [v0.42.0] — 2026-04-19 — multi-tenant-production-readiness Phases 0 + A + A5 (Issue #126)
+
+### ⚠️ v0.41 → v0.42 is effectively ONE-WAY
+
+V74 re-encrypts every existing TOTP / webhook / OAuth2 / HMIS ciphertext from the single-platform-key v0 envelope to per-tenant-DEK v1 envelopes. **v0.41 container images do NOT understand v1 envelopes** — deploying v0.41 against a post-V74 database breaks TOTP login, webhook signing, OAuth2 SSO, and HMIS outbound calls silently at request time. Rollback requires restoring the pre-deploy pg_dump backup (runbook 2.16).
+
+**Release gate:** v0.42 MUST ship Phase 0 + Phase A + Phase A5 (V74) together. No valid Phase-0-only v0.41.x release line exists. Per C-A5-N8, the V74 migration itself refuses to run without V60 + V61 applied — release-process belt-and-suspenders.
 
 ### Phase A5 — V74 re-encrypt migration + callsite refactor (task 2.13)
 
