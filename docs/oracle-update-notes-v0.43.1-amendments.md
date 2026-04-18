@@ -36,6 +36,37 @@ a deviation from the warroom guardrail and requires an explicit operator waiver
 **Operator action:** document waiver in the Slack #fabt-demo thread or skip
 until 19:00 local to respect the guardrail.
 
+## Script-availability ordering — READ THIS FIRST
+
+Phase 0/A/A5 scripts and Phase B scripts live on **different tags**:
+
+| Script | `v0.42.1` tree | `v0.43.1` tree |
+|---|---|---|
+| `scripts/phase-0-a-a5-smoke.sh` | ✅ present | ❌ missing |
+| `scripts/phase-b-rls-panic.sh` | ❌ missing | ✅ present |
+| `scripts/phase-b-rehearsal.sh` | ❌ missing | ✅ present |
+| `scripts/phase-b-audit-path-smoke.sh` | ❌ missing | ✅ present |
+| `scripts/phase-b-rls-snapshot.sh` | ❌ missing | ✅ present |
+
+Consequence: the pre-deploy checklist spans both trees. Run in this order:
+
+1. **On the v0.42.1 working tree (no checkout yet):**
+   - Base notes pre-deploy #1 — `scripts/phase-0-a-a5-smoke.sh`
+   - Amendment — NULL-tenant verify query
+   - Amendment — prometheus.yml grep
+2. **`git checkout v0.43.1`**
+3. **On the v0.43.1 working tree:**
+   - Base notes pre-deploy #3 — `scripts/phase-b-rehearsal.sh`
+   - Base notes pre-deploy #4 — `scripts/phase-b-rls-snapshot.sh`
+   - Base notes pre-deploy #5 — `scripts/phase-b-rls-panic.sh --dry-run`
+   - Amendment — Alertmanager rules-loaded check
+
+**Rollback ordering implication:** the panic script lives on the v0.43.1
+tree. If you need to roll back after deploy, run `phase-b-rls-panic.sh`
+**BEFORE** `git checkout v0.42.1` — the checkout will remove the script.
+Base notes' rollback procedure already has the right ordering; just don't
+shortcut it.
+
 ## Pre-Deploy Checklist — updates
 
 ### Step 2 (NULL-tenant audit backfill)
