@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [Unreleased] — multi-tenant-production-readiness Phases 0 + A + A5 (Issue #126)
+## [v0.42.0] — 2026-04-19 — multi-tenant-production-readiness Phases 0 + A + A5 (Issue #126)
 
 ### ⚠️ v0.41 → v0.42 is effectively ONE-WAY
 
