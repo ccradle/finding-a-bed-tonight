@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.43.1] — 2026-04-20 — Phase B + V74 plaintext-tolerance hotfix (Issue #126)
+
+Functionally equivalent to v0.43.0 (Phase B RLS hardening, V67–V72, audit-path overhaul). The only delta is the V74 plaintext-tolerance fix cherry-picked from release/v0.42.1 (a3070e6) so Flyway checksum validation stays consistent when this deploys on top of a v0.42.1-migrated DB. Without this cherry-pick, Flyway would error with "checksum mismatch for V74" at v0.43's startup.
+
+v0.43.0 tag is retained as a historical marker but should not be deployed — use v0.43.1 instead.
+
 ## [v0.43.0] — 2026-04-20 — multi-tenant-production-readiness Phase B (Issue #126)
 
 ### ⚠️ v0.43 release gate — Phase B RLS hardening preconditions
