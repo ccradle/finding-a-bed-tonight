@@ -1,0 +1,70 @@
+# deploy/systemd/fabt-pgaudit-alert.service
+#
+# Systemd service unit that runs `pgaudit-alert-tail.sh` under
+# Restart=always so the NO FORCE RLS DDL alert tailer stays alive
+# across script crashes, container recycles, and VM reboots.
+#
+# Per Phase B warroom V4 (pragmatic-path resolution): cron-grep→webhook
+# replaces the Loki+promtail path the original warroom assumed. This
+# file installs on the Oracle VM as /etc/systemd/system/fabt-pgaudit-
+# alert.service. See docs/runbook.md "pgaudit alert tailer install"
+# section for the operator-side procedure.
+#
+# Install:
+#   sudo cp deploy/systemd/fabt-pgaudit-alert.service /etc/systemd/system/
+#   sudo cp infra/scripts/pgaudit-alert-tail.sh /opt/fabt/
+#   sudo chmod +x /opt/fabt/pgaudit-alert-tail.sh
+#   sudo install -m 640 deploy/systemd/fabt-pgaudit-alert.env.example \
+#        /etc/fabt/pgaudit-alert.env
+#   sudo vim /etc/fabt/pgaudit-alert.env   # fill in the webhook URL
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now fabt-pgaudit-alert
+#
+# Verify:
+#   sudo systemctl status fabt-pgaudit-alert
+#   sudo journalctl -u fabt-pgaudit-alert -f
+#
+# The heartbeat file at /var/lib/fabt/pgaudit-alert-tail.heartbeat is
+# updated every 30s while the service is alive. A separate operator
+# cron (`weekly-heartbeat-check.sh`, see runbook) verifies the file's
+# mtime is recent; if not, the operator gets paged even though the
+# DDL-match webhook isn't firing.
+
+[Unit]
+Description=FABT pgaudit NO FORCE RLS DDL alert tailer
+Documentation=file:/opt/fabt/docs/runbook.md
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=fabt
+Group=fabt
+EnvironmentFile=/etc/fabt/pgaudit-alert.env
+ExecStart=/opt/fabt/pgaudit-alert-tail.sh
+
+# Resilience: restart on any exit. The script's own `exit 1` on
+# tail-pipeline-end is the primary trigger.
+Restart=always
+RestartSec=10s
+
+# Security hardening — the script only needs:
+#   * read-only access to docker logs (via docker CLI → docker.sock)
+#   * write access to /var/lib/fabt/pgaudit-alert-tail.heartbeat
+#   * outbound network to the webhook URL
+# Everything else is locked down via systemd sandboxing.
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/fabt
+PrivateTmp=yes
+NoNewPrivileges=yes
+# The fabt user must be in the docker group to use `docker logs`.
+# That's set outside this file via `usermod -aG docker fabt`.
+
+# Logging — systemd journal captures stdout/stderr. Use `journalctl
+# -u fabt-pgaudit-alert` to inspect.
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

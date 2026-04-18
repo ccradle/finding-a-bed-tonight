@@ -1102,4 +1102,154 @@ SELECT current_setting('app.tenant_id', true);
 
 `TenantIdPoolBleedTest` runs 100 sequential alternating-tenant iterations to confirm no bleed across pool checkouts.
 
+---
+
+## pgaudit Management (v0.44+)
+
+Phase B's detection-of-last-resort for cleared FORCE ROW LEVEL SECURITY relies on the pgaudit PostgreSQL extension emitting a log line for every DDL statement (including `ALTER TABLE … NO FORCE ROW LEVEL SECURITY`). Phase B has a 60s gauge (`ForceRlsHealthGauge`) but that's a slow tripwire; pgaudit catches the DDL within milliseconds.
+
+### Architecture
+
+- **Image:** `deploy/pgaudit.Dockerfile` — Debian `postgres:16.6-bookworm` + PGDG `postgresql-16-pgaudit` + `shared_preload_libraries = 'pgaudit'` via `/etc/postgresql/conf.d/pgaudit.conf`. Replaced the Alpine image at v0.44.
+- **Extension install:** one-time superuser step via `infra/scripts/pgaudit-enable.sh`. NOT a Flyway migration (Flyway runs as `fabt_owner`, which is not superuser by design).
+- **Session parameters:** Flyway V73 writes four `pgaudit.*` ALTER DATABASE settings (`pgaudit.log='write,ddl'`, `pgaudit.log_level='log'`, `pgaudit.log_parameter='off'`, `pgaudit.log_relation='on'`). Safe under rollback to the Alpine image — PostgreSQL accepts custom namespaced GUCs without validating the extension is loaded.
+- **Alert tailer:** `infra/scripts/pgaudit-alert-tail.sh` runs as a systemd service (`deploy/systemd/fabt-pgaudit-alert.service`), tailing `docker logs` on the Postgres container and POSTing to `FABT_PANIC_ALERT_WEBHOOK` when a `NO FORCE ROW LEVEL SECURITY` DDL appears. 5-minute cooldown per-table dedupes rapid on/off flips.
+
+### Install on a fresh VM (v0.44 deploy-time)
+
+```bash
+# 1. Image — built and loaded via docker-compose as part of v0.44 deploy.
+#    Verify the pgaudit image is running:
+docker compose ps postgres
+docker compose exec postgres psql -U postgres -tAc \
+    "SHOW shared_preload_libraries"
+# Expected output: pgaudit
+
+# 2. CREATE EXTENSION — superuser step (fabt_owner lacks privilege).
+FABT_PG_SUPERUSER_URL="postgresql://postgres:$(pass fabt/pg-superuser)@localhost/fabt" \
+    /opt/fabt/infra/scripts/pgaudit-enable.sh
+
+# 3. Flyway V73 runs on next backend startup; no operator action needed.
+
+# 4. Install the alert tailer service.
+sudo install -m 755 /opt/fabt/infra/scripts/pgaudit-alert-tail.sh /opt/fabt/
+sudo install -m 644 /opt/fabt/deploy/systemd/fabt-pgaudit-alert.service \
+    /etc/systemd/system/
+sudo mkdir -p /etc/fabt /var/lib/fabt
+sudo install -m 640 -o root -g fabt \
+    /opt/fabt/deploy/systemd/fabt-pgaudit-alert.env.example \
+    /etc/fabt/pgaudit-alert.env
+sudo $EDITOR /etc/fabt/pgaudit-alert.env       # fill in FABT_PANIC_ALERT_WEBHOOK
+sudo systemctl daemon-reload
+sudo systemctl enable --now fabt-pgaudit-alert
+
+# 5. Verify the service is alive.
+sudo systemctl status fabt-pgaudit-alert
+sudo journalctl -u fabt-pgaudit-alert -n 20 --no-pager
+```
+
+### Verify the alert pipeline end-to-end
+
+Run this from the VM AFTER install to confirm the tailer catches DDL and posts to the webhook:
+
+```bash
+# Trigger a synthetic NO FORCE RLS DDL on a throwaway table.
+docker compose exec postgres psql -U fabt -d fabt -c \
+    "CREATE TABLE ztest_pgaudit(); \
+     ALTER TABLE ztest_pgaudit ENABLE ROW LEVEL SECURITY; \
+     ALTER TABLE ztest_pgaudit NO FORCE ROW LEVEL SECURITY; \
+     DROP TABLE ztest_pgaudit;"
+
+# Within 5 seconds the Slack channel should show a red alert line:
+#   "Phase B detection-of-last-resort: NO FORCE ROW LEVEL SECURITY on ztest_pgaudit at …"
+
+# Confirm service-side:
+sudo journalctl -u fabt-pgaudit-alert --since "1 minute ago" --no-pager
+# Expect: "[<timestamp>] ALERT: …"
+```
+
+### Operator weekly health check
+
+The tailer's `/var/lib/fabt/pgaudit-alert-tail.heartbeat` file is touched every 30s while the service is alive. Operator cron should verify the mtime is recent:
+
+```bash
+# In /etc/cron.weekly/fabt-pgaudit-heartbeat-check (run as root):
+#!/usr/bin/env bash
+heartbeat=/var/lib/fabt/pgaudit-alert-tail.heartbeat
+if [[ ! -f "$heartbeat" ]]; then
+    logger -p daemon.crit "FABT pgaudit tailer heartbeat file MISSING"
+    exit 1
+fi
+age_seconds=$(( $(date +%s) - $(stat -c %Y "$heartbeat") ))
+if (( age_seconds > 300 )); then
+    logger -p daemon.crit "FABT pgaudit tailer heartbeat STALE (${age_seconds}s old)"
+    # Page via webhook (same webhook as DDL alerts)
+    source /etc/fabt/pgaudit-alert.env
+    curl -sS -X POST -H 'Content-Type: application/json' \
+        -d "{\"text\":\"FABT pgaudit tailer is DEAD on $(hostname). Heartbeat ${age_seconds}s stale.\"}" \
+        "$FABT_PANIC_ALERT_WEBHOOK" || true
+    exit 1
+fi
+echo "heartbeat fresh (${age_seconds}s old)"
+```
+
+### Emergency: disable pgaudit under load
+
+If pgaudit is the cause of a Sev-1 latency or disk-fill incident (per warroom Risk R3 — 30-day projection reveals untenable cost), there are two degrading steps before a full rollback:
+
+```bash
+# Step 1 (warmest mitigation): drop write-class logging, keep DDL.
+# Reduces pgaudit volume ~95% on write-heavy workloads. The NO FORCE
+# RLS DDL alert still fires because DDL remains audited.
+docker compose exec postgres psql -U postgres -d fabt -c \
+    "ALTER DATABASE fabt SET pgaudit.log = 'ddl'; \
+     SELECT pg_reload_conf();"
+
+# Step 2 (coldest mitigation): silence pgaudit entirely. Detection of
+# cleared FORCE RLS is now DEGRADED — only the 60s ForceRlsHealthGauge
+# remains. Incident commander MUST approve.
+docker compose exec postgres psql -U postgres -d fabt -c \
+    "ALTER DATABASE fabt SET pgaudit.log = ''; \
+     SELECT pg_reload_conf();"
+```
+
+Restore via `ALTER DATABASE … SET pgaudit.log = 'write,ddl'` followed by `pg_reload_conf()`.
+
+### v0.44 image-swap rollback — recovery procedure
+
+The Alpine→Debian image swap in v0.44 carries infrastructure risk beyond the application code (per Phase B warroom V6). If the new image fails to start OR shows unexpected pgdata behavior, rollback requires:
+
+1. **Stop the failing container** immediately.
+2. **Restore the pre-swap pg_dump** (taken as a precondition in the v0.44 pre-deploy checklist) to a new Alpine-based container. This is the safe option — in-place volume compatibility between UID 70 (Alpine) and UID 999 (Debian) is NOT guaranteed post-swap.
+3. **Revert docker-compose.yml** to reference `postgres:16-alpine` on the next deploy cycle.
+
+In-place volume re-use WITHOUT restoring from pg_dump (the optimistic path) requires:
+
+```bash
+# Stop current container
+docker compose stop postgres
+
+# Fix ownership — Alpine container ran as UID 70, Debian image uses UID 999.
+# The pgdata files on disk are owned by 70; Debian's postgres process
+# will refuse to start against them.
+sudo chown -R 999:999 /path/to/pgdata-volume
+
+# Restart with Debian image
+docker compose up -d postgres
+
+# Verify
+docker compose exec postgres pg_isready
+docker compose exec postgres psql -U postgres -tAc "SELECT version()"
+```
+
+If any step fails, fall back to the pg_dump restore path — do NOT attempt to repair in-place.
+
+### Troubleshooting: alert not firing
+
+- `docker inspect fabt-postgres | grep Names` — confirm the container name matches `FABT_POSTGRES_CONTAINER` in `/etc/fabt/pgaudit-alert.env`.
+- `docker logs --tail 100 fabt-postgres | grep AUDIT` — confirm pgaudit is emitting at all. No lines → check `SHOW shared_preload_libraries` (must include `pgaudit`) and `SHOW pgaudit.log` (must be non-empty).
+- `sudo journalctl -u fabt-pgaudit-alert -n 50` — confirm the tailer detected lines but failed to post. `curl`-failure messages appear here.
+- Test the webhook directly: `source /etc/fabt/pgaudit-alert.env && curl -X POST -d '{"text":"manual test"}' -H 'Content-Type: application/json' $FABT_PANIC_ALERT_WEBHOOK`.
+
+
 **Tracking.** `openspec/changes/cross-tenant-isolation-audit/` has the full phase breakdown.
