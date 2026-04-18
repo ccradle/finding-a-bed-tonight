@@ -105,9 +105,23 @@ public class AccessCodeService {
         for (var row : codes) {
             String storedHash = (String) row.get("code_hash");
             if (passwordService.matches(code, storedHash)) {
-                // Mark as used — atomic within this transaction
+                // Mark as used — atomic within this transaction. Phase B:
+                // V68 otac_update_restrictive filters by fabt_current_tenant_id().
+                // This is a pre-auth path (AuthController.accessCodeLogin) so
+                // TenantContext is unbound; bind app.tenant_id via set_config
+                // (is_local=true, reverts at tx end) before the UPDATE so the
+                // policy accepts it. Without this bind, UPDATE silently matches
+                // zero rows — the code hash matched so the caller gets the user
+                // and issues JWTs, but used=true never persists and the same
+                // code stays valid until expires_at (code-replay attack).
+                // Pattern mirrors PasswordResetTokenPersister / design-b D46.
                 UUID codeId = (UUID) row.get("id");
-                jdbcTemplate.update("UPDATE one_time_access_code SET used = true WHERE id = ?", codeId);
+                jdbcTemplate.queryForObject(
+                        "SELECT set_config('app.tenant_id', ?, true)",
+                        String.class, tenant.getId().toString());
+                jdbcTemplate.update(
+                        "UPDATE one_time_access_code SET used = true WHERE id = ?",
+                        codeId);
 
                 log.info("Access code validated for user {} (code {})", user.getId(), codeId);
                 return user;

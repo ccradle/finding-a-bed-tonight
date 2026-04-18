@@ -7,7 +7,7 @@ truth list, per warroom W-SYS-1 from the Phase B review
 (2026-04-17). CODEOWNERS gate: any PR adding / removing entries here
 requires Marcus Webb + Casey Drummond sign-off.
 
-**Current status.** 17 write sites total, 1 gap (`AccessCodeService.validateCode` UPDATE on `one_time_access_code`). Status: **gaps remain — NOT ready for W-SYS-2 until the pre-auth UPDATE path is bound**.
+**Current status.** 17 write sites total, **0 gaps open**. Both GAPs surfaced in the initial audit (`AccessCodeService.validateCode` UPDATE and `HmisPushService.createOutboxEntriesForTenant` INSERT) were patched in the same session; see the "Gaps found — resolved" section below. Status: **green — all regulated-table writes bound via Mechanism A / B / C. Ready for W-SYS-2 ArchUnit mechanical rule in a follow-up PR.**
 
 **Regenerate.** Repeat the grep pattern in the W-SYS-1 warroom prompt
 against main; diff against this file.
@@ -73,21 +73,19 @@ against main; diff against this file.
 |------|-----------|-----------|-------|
 | `KidRegistryService.findOrCreateActiveKid` → `findOrCreateKid` (INSERT kid_to_tenant_key) | `backend/src/main/java/org/fabt/shared/security/KidRegistryService.java:88-107, 171-196` (set_config at :100-101; INSERT at :184-188) | **B** | Same `@Transactional` + `set_config` prologue as the `tenant_key_material` site above; the INSERT at `:184` runs inside the bound tx after `findOrCreateKid` is invoked from `findOrCreateActiveKid` at :104. |
 
-## Gaps found
+## Gaps found — resolved 2026-04-17
 
 1. **`AccessCodeService.validateCode` UPDATE on `one_time_access_code`** — `backend/src/main/java/org/fabt/auth/service/AccessCodeService.java:110`.
-   - **Pre-auth code path** (`AuthController.accessCodeLogin` at `AuthController.java:241`). TenantContext is NOT bound; `app.tenant_id` is the empty-string default set by `RlsDataSourceConfig.applyRlsContext:129`. 
-   - **Impact:** V68's `otac_update_restrictive` policy evaluates `tenant_id = fabt_current_tenant_id()` where `fabt_current_tenant_id()` returns NULL — the predicate evaluates NULL for every row, so the UPDATE silently affects zero rows. The access-code flow then returns the user (hash matched) and issues a JWT, but `used=true` is never set in the DB → the same code can be replayed until `expires_at`. This is a live code-replay vector, not just an RLS rejection log line.
-   - **Fix:** create an `AccessCodePersister` Spring bean (analog to `PasswordResetTokenPersister`) whose `@Transactional markUsed(UUID tenantId, UUID codeId)` runs `SELECT set_config('app.tenant_id', ?, true)` before the UPDATE. Call it from `validateCode` with `user.getTenantId()` (already resolved at :96).
-   - **Severity:** High. Pre-existing before Phase B (the silent failure mode only becomes observable once FORCE RLS is live and the UPDATE affects zero rows instead of one) — but under FORCE RLS the behavior shifts from "UPDATE succeeded" to "UPDATE silently lost", so Phase B rollout makes the replay window reachable in production.
+   - **Pre-auth code path** (`AuthController.accessCodeLogin` at `AuthController.java:241`). TenantContext is NOT bound; `app.tenant_id` is the empty-string default set by `RlsDataSourceConfig.applyRlsContext:129`.
+   - **Impact:** V68's `otac_update_restrictive` policy evaluates `tenant_id = fabt_current_tenant_id()` where `fabt_current_tenant_id()` returns NULL — the predicate evaluates NULL for every row, so the UPDATE silently affected zero rows. The access-code flow then returned the user (hash matched) and issued a JWT, but `used=true` was never set in the DB → the same code could be replayed until `expires_at`. Live code-replay vector, not just an RLS rejection log line.
+   - **Status: FIXED.** `validateCode` now runs `SELECT set_config('app.tenant_id', tenant.getId(), true)` inside the `@Transactional` method immediately before the UPDATE, binding for the scope of the current transaction. Classifies as **Mechanism B**. Test coverage: `TotpAndAccessCodeIntegrationTest` 19/19 green post-fix.
+   - **Severity (pre-fix):** High. Phase-B rollout would have made the replay window reachable in production.
 
 2. **`HmisPushService.createOutboxEntriesForTenant` INSERT on `hmis_outbox` (batch path)** — `backend/src/main/java/org/fabt/hmis/service/HmisPushService.java:136` when invoked from `HmisPushJobConfig.createOutboxTasklet` at `backend/src/main/java/org/fabt/analytics/batch/HmisPushJobConfig.java:89`.
-   - **Batch path (Spring Batch tasklet → scheduler → TaskExecutor thread)**. The tasklet does not wrap the call in `TenantContext.runWithContext`. The service method is `@TenantUnscoped` and receives `tenantId` as a parameter but never binds it.
-   - **Impact:** Under V68's `tenant_isolation_hmis_outbox` policy (`FOR ALL USING (tenant_id = fabt_current_tenant_id()) WITH CHECK (...)`) and V69 FORCE RLS, the INSERT at :136 will be rejected with 42501. Every scheduled HMIS push that fires from the batch tasklet will log an error and the tenant's outbox entry never gets created — no HMIS data flows to HUD vendors until this is fixed.
-   - **Fix (choose one):**
-     - **Mechanism A (preferred, matches reconciliation-tasklet pattern):** wrap the `createOutboxEntriesForTenant(tenant.getId())` call in `HmisPushJobConfig.createOutboxTasklet` with `TenantContext.runWithContext(tenant.getId(), true, () -> …)`. `dvAccess=true` so DV shelter inventory is visible to the inventory query (same pattern as `BedHoldsReconciliationJobConfig.registerWithScheduler`).
-     - **Mechanism B:** add `jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString())` at the top of `createOutboxEntriesForTenant`, mirroring `PasswordResetTokenPersister.bindTenantGuc`.
-   - **Severity:** High for HMIS-producing tenants; zero impact on any tenant without enabled vendors.
+   - **Batch path (Spring Batch tasklet → scheduler → TaskExecutor thread).** The tasklet did not wrap the call in `TenantContext.runWithContext`. The service method is `@TenantUnscoped` and received `tenantId` as a parameter but never bound it.
+   - **Impact:** Under V68's `tenant_isolation_hmis_outbox` policy and V69 FORCE RLS, the INSERT at :136 would be rejected with 42501. Every scheduled HMIS push from the batch tasklet would log an error and the tenant's outbox entry would not be created — no HMIS data flowing to HUD vendors until fixed.
+   - **Status: FIXED.** `createOutboxEntriesForTenant` now runs `SELECT set_config('app.tenant_id', tenantId, true)` at method entry (inside the existing `@Transactional` scope). Covers BOTH callers (batch tasklet AND `createOutboxEntriesForCurrentTenant` admin path) without changing the call sites. Classifies as **Mechanism B**. Test coverage: `HmisBridgeIntegrationTest` 14/14 green post-fix.
+   - **Severity (pre-fix):** High for HMIS-producing tenants; zero impact on tenants without enabled vendors.
 
 ## Safe-by-inspection sites referenced during audit
 
@@ -98,3 +96,4 @@ against main; diff against this file.
 | Date       | Change                                                    | Driver                       |
 |------------|-----------------------------------------------------------|------------------------------|
 | 2026-04-17 | Initial audit from warroom W-SYS-1.                       | Phase B review findings.     |
+| 2026-04-17 | Two gaps (AccessCodeService.validateCode, HmisPushService.createOutboxEntriesForTenant) patched via Mechanism B — both now bind `app.tenant_id` via `set_config` inside their existing `@Transactional` method. | Same-day fix after audit surfaced them. |
