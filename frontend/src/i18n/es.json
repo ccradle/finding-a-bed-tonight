@@ -589,6 +589,8 @@
   "totp.accessCodePlaceholder": "Ingrese código de acceso",
   "totp.accessCodeSubmit": "Iniciar Sesión",
   "login.forgotPassword": "¿Olvidó su contraseña?",
+  "login.organizationPlaceholder": "mi-organización",
+  "login.emailPlaceholder": "usted@ejemplo.com",
   "forgotPassword.title": "Restablecer Contraseña",
   "forgotPassword.instructions": "Ingrese su organización y correo electrónico. Si existe una cuenta, enviaremos un enlace de restablecimiento.",
   "forgotPassword.submit": "Enviar Enlace",

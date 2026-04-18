@@ -64,7 +64,7 @@ export function ForgotPasswordPage() {
               <FormattedMessage id={demoBlocked ? 'forgotPassword.demoBlockedDetail' : 'forgotPassword.checkEmailDetail'} />
             </p>
             <div style={{ textAlign: 'center' }}>
-              <Link to="/login" style={{
+              <Link to="/login" data-testid="forgot-password-back-button" style={{
                 display: 'inline-block', padding: '12px 24px', borderRadius: 10,
                 backgroundColor: color.primary, color: color.textInverse,
                 fontSize: text.base, fontWeight: weight.bold, textDecoration: 'none',
@@ -81,7 +81,7 @@ export function ForgotPasswordPage() {
             </p>
 
             <label style={{ display: 'block', fontSize: text.sm, fontWeight: weight.semibold, color: color.text, marginBottom: 4 }}>
-              <FormattedMessage id="login.organization" />
+              <FormattedMessage id="login.tenant" />
             </label>
             <input
               type="text"
@@ -135,10 +135,10 @@ export function ForgotPasswordPage() {
             </button>
 
             <div style={{ textAlign: 'center' }}>
-              <Link to="/login/access-code" style={{ fontSize: text.sm, color: color.primaryText, textDecoration: 'none', marginRight: 16 }}>
+              <Link to="/login/access-code" data-testid="forgot-password-access-code-link" style={{ fontSize: text.sm, color: color.primaryText, textDecoration: 'none', marginRight: 16 }}>
                 <FormattedMessage id="login.useAccessCode" />
               </Link>
-              <Link to="/login" style={{ fontSize: text.sm, color: color.primaryText, textDecoration: 'none' }}>
+              <Link to="/login" data-testid="forgot-password-back-link" style={{ fontSize: text.sm, color: color.primaryText, textDecoration: 'none' }}>
                 <FormattedMessage id="forgotPassword.backToLogin" />
               </Link>
             </div>
