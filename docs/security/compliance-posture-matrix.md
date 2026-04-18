@@ -109,9 +109,66 @@ details fields become undecryptable, effectively redacted. The row
 itself is preserved for aggregate-query purposes (e.g., platform-wide
 deletion rate). This is documented in design `docs/legal/right-to-be-forgotten.md`.
 
+## `fabt.rls.tenant_context.empty.count` — noise-floor characterization
+
+**Contract.** This counter is a **tripwire**, not a control. Increments when a
+JDBC connection is borrowed while `TenantContext.getTenantId()` is null. The
+control signal (whether a query then actually *used* the connection against
+a regulated table without a tenant binding) is
+`fabt.audit.rls_rejected.count{sqlstate="42501"}` — that counter staying at
+zero is what proves FORCE RLS is enforcing correctly. `tenant_context.empty`
+can fire and be harmless if the subsequent query either (a) doesn't touch a
+regulated table, or (b) binds `set_config('app.tenant_id', …)` just-in-time
+inside the connection's first statement.
+
+**Observed noise floor (v0.43.1 live characterization, 2026-04-18).**
+
+| Phase | Rate | Source attribution (hypothesized) |
+|---|---|---|
+| Idle (backend up, no user traffic) | ~0.1/s (88 in 15 min) | `ForceRlsHealthGauge` 60 s poll + actuator health/Prometheus scrape |
+| Active user flow (1 user: DV referral round-trip + admin nav + forgot-password + SSE) | ~0.83/s (993 in 20 min) | + SSE reconnect churn (~10 `AsyncRequestNotUsableException: Broken pipe` in window) + notification heartbeat polling + request-path borrows that don't touch regulated tables |
+
+The ~10× amplification under single-user load is characterized, not fixed.
+Attribution is hypothetical pending Phase C label enrichment (task #154 —
+expands W-GAUGE-2 to add `{source}` tag and a synthetic load regression test).
+
+**Alert threshold sizing (v0.43) AND wiring gap.** The alert
+`FabtPhaseBTenantContextEmpty` is DEFINED in `deploy/prometheus/phase-b-rls.rules.yml`
+at `rate > 1/s for 15 m`. Single-user rehearsal traffic produced 0.83/s
+sustained — just under that threshold. **However**, on verification
+2026-04-18 20:55 UTC the rules file is NOT loaded into the running
+Prometheus instance on the v0.43.1 demo VM (0 rule groups active via
+`/api/v1/rules`). So the alert is defined in source, not watching in prod.
+This is the same operational gap flagged in
+`docs/oracle-update-notes-v0.43.1-amendments.md` as "Alertmanager Slack
+wiring deferred to backlog," broadened here: rule loading itself is
+incomplete. Control signals remain visible via direct actuator scrape
+(the compliance position does not depend on the alerting path), but
+operator-pager early-warning is not active. Phase C MUST complete rule
+loading + Alertmanager routing alongside label enrichment, and revisit
+threshold sizing with multi-user load data.
+
+**What auditors can rely on:**
+1. The control for cross-tenant data isolation is FORCE ROW LEVEL SECURITY
+   (V69). `relforcerowsecurity = t` on all 7 regulated tables, observable
+   via `fabt_rls_force_rls_enabled{table} = 1.0`.
+2. The control-failure signal is `fabt.audit.rls_rejected.count{sqlstate="42501"}`.
+   Zero rate = no enforcement failure.
+3. `tenant_context.empty` is a *secondary* indicator — it surfaces hot paths
+   that should but don't bind `TenantContext`, upstream of any actual data
+   exposure. Non-zero during normal operation is characterized noise floor,
+   not a control breach.
+
+**What auditors CANNOT rely on:**
+- `tenant_context.empty` does NOT attribute increments to a source. Until
+  Phase C label enrichment lands, we cannot say "SSE caused X%, scheduled
+  jobs caused Y%." The characterization above is forensic reasoning from
+  log correlation, not code instrumentation.
+
 ## Change log
 
 | Date       | Change                                                                  | Driver                                       |
 |------------|--------------------------------------------------------------------------|----------------------------------------------|
 | 2026-04-17 | Initial matrix — audit-row = committed-event contract documented.       | Phase B warroom W-AUDIT-DOC-1 (Casey).       |
 | 2026-04-17 | BED_HOLDS_RECONCILED audit attribution — per-tenant, not platform-wide. | Phase B warroom W-B-FIXB-1.                  |
+| 2026-04-18 | `tenant_context.empty` noise-floor characterized; alert threshold flap risk documented; Phase C task filed. | v0.43.1 live rehearsal warroom (Riley + Marcus + Casey). |
