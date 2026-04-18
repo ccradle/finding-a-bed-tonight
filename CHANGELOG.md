@@ -5,13 +5,76 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [Unreleased] — multi-tenant-production-readiness Phases 0 + A + A5 (Issue #126)
+## [Unreleased] — multi-tenant-production-readiness Phases 0 + A + A5 + B (Issue #126)
 
 ### ⚠️ v0.41 → v0.42 is effectively ONE-WAY
 
 V74 re-encrypts every existing TOTP / webhook / OAuth2 / HMIS ciphertext from the single-platform-key v0 envelope to per-tenant-DEK v1 envelopes. **v0.41 container images do NOT understand v1 envelopes** — deploying v0.41 against a post-V74 database breaks TOTP login, webhook signing, OAuth2 SSO, and HMIS outbound calls silently at request time. Rollback requires restoring the pre-deploy pg_dump backup (runbook 2.16).
 
 **Release gate:** v0.42 MUST ship Phase 0 + Phase A + Phase A5 (V74) together. No valid Phase-0-only v0.41.x release line exists. Per C-A5-N8, the V74 migration itself refuses to run without V60 + V61 applied — release-process belt-and-suspenders.
+
+### ⚠️ v0.43 release gate — Phase B RLS hardening preconditions
+
+v0.43 ships Phase B (V67–V72 + FORCE RLS + the audit-path fix bundle). Tag and deploy only after **all** of the following are green within the same 7-day window:
+
+1. Backend suite green (encryption/auth/JWT/audit/hmis/webhook/rotation/kid-registry/D59/subscription/V59/V74 surface + 29 ArchUnit rules including new **B11 `@Transactional`-must-not-call-`runWithContext`** rule — 163+ tests, all passing locally on feature branch).
+2. `scripts/phase-b-audit-path-smoke.sh` passes against staging (5-step D55 verification: publisher-forgot-TenantContext binding → SYSTEM_TENANT_ID row, rollback semantics, WARN rate-limit, Bug A+D regression guards).
+3. `scripts/phase-b-rehearsal.sh` passes against a restored production pg_dump (D58 rehearsal — V67–V72 apply cleanly, the panic script rollback is reversible, smoke re-runs green post-rollback).
+4. `docs/security/pg-policies-snapshot.md` regenerated from the staging DB + CODEOWNERS sign-off on the diff — the 4-section snapshot (pg_policies, role grants, FORCE RLS flags, SECURITY DEFINER functions, LEAKPROOF functions) must match the expected shape documented in the file header.
+5. `scripts/phase-b-rls-panic.sh --dry-run` produces the atomic SQL transaction as documented in `docs/security/phase-b-silent-audit-write-failures-runbook.md`; operator has the panic environment variables provisioned (1Password `fabt-oracle-vm-postgres-owner` + optional `FABT_PANIC_ALERT_WEBHOOK`).
+6. Prometheus + Grafana wired to the `deploy/prometheus/phase-b-rls.rules.yml` alert rules. **All five alerts must route + page successfully in staging before prod promotion** — `FabtPhaseBSystemTenantFallback`, `FabtPhaseBRlsRejection`, `FabtPhaseBAuditPersistFailure`, `FabtPhaseBForceRlsCleared`, `FabtPhaseBTenantContextEmpty`.
+
+Phase B is **not panic-proof** — the rollback surface is the panic script, not a reverse Flyway. If any precondition above slips, hold the release and re-warroom. The D61 rollback script re-opens the pre-V68/V69 attack surface and is only acceptable under active Sev-1 incident command.
+
+### Phase B — Database-layer RLS hardening (Phase B section)
+
+**D14 tenant-RLS + B3 FORCE + G2 audit-table write restriction + Phase B operational surface.** Closes the "owner session has unrestricted DML across every tenant's audit row" latent risk that Phase 0–A could not address from the application layer.
+
+#### Added — Phase B
+
+**Migrations.**
+- **V67 `fabt_current_tenant_id()`** — `LANGUAGE sql`, `STABLE`, `LEAKPROOF`, `PARALLEL SAFE` helper used by every Phase B RLS predicate. The SQL is a CASE-guarded `current_setting('app.tenant_id', true)::uuid` with an explicit regex gate so a malformed GUC value returns `NULL` rather than raising. D59 prepared-statement-plan-caching gate (`D59PreparedStatementPlanCachingTest`) proves PostgreSQL does NOT inline the LEAKPROOF STABLE function into the plan at PREPARE time — each execution re-reads the session GUC.
+- **V68 tenant-RLS policies** on the seven regulated tables: `audit_events`, `hmis_audit_log`, `hmis_outbox`, `password_reset_token`, `one_time_access_code`, `tenant_key_material`, `kid_to_tenant_key`. Three tables get a single canonical `FOR ALL` policy (`USING + WITH CHECK = tenant_id = fabt_current_tenant_id()`); the four pre-auth tables (`password_reset_token`, `one_time_access_code`, `tenant_key_material`, `kid_to_tenant_key`) get the D45 PERMISSIVE-SELECT + RESTRICTIVE-WRITE split because they are queried BEFORE TenantContext binding (JWT validate, password reset, kid lookup).
+- **V69 `ALTER TABLE ... FORCE ROW LEVEL SECURITY`** on all seven — owner sessions now enforce the same policies as `fabt_app`. Closes G2's "pg_dump with owner creds ignores RLS" surface.
+- **V70 `CREATE INDEX CONCURRENTLY`** per-table indexes on `(tenant_id, …)` for the seven regulated tables. Each V70* migration carries the `flyway:executeInTransaction=false` header required by CONCURRENTLY semantics. Runbook section "Flyway + CONCURRENTLY" documents the abort-recovery procedure.
+- **V71** supporting `(tenant_id, …)` indexes on `password_reset_token` and `one_time_access_code` — the pre-auth RESTRICTIVE-WRITE split benefits from the composite index for the FK-lookup-then-policy-check sequence. (Partition rewrite deferred to a future phase per warroom scope decision.)
+- **V72 `REVOKE UPDATE, DELETE, TRUNCATE, REFERENCES`** on `audit_events` + `hmis_audit_log` from `fabt_app`. `fabt_app` retains only SELECT + INSERT on the audit tables. The TRUNCATE + REFERENCES revokes were added in the checkpoint-2 warroom amendment; REFERENCES closes the "declare a FK to the audit table from an attacker-owned schema" side-channel.
+- **V74 amendment** — the A5 reencrypt migration now uses a `bindTenantGuc()` helper + `SYSTEM_TENANT_ID` for its own audit row, so V74's audit INSERT passes the new FORCE RLS policy on `audit_events`.
+
+**Service layer.**
+- **`TenantContext.SYSTEM_TENANT_ID` sentinel** (D55) — the reserved UUID `00000000-0000-0000-0000-000000000001` every scheduler / background / migration path binds before writing a regulated-table audit row. No real tenant may ever claim this UUID.
+- **`AuditEventService` three-level tenant lookup** — (1) `TenantContext.getTenantId()`, (2) `current_setting('app.tenant_id', true)` fallback for services that `set_config` directly (TenantKeyRotationService, KidRegistryService), (3) SYSTEM_TENANT_ID + WARN log + `fabt.audit.system_insert.count` counter. Unbinds are visible in telemetry instead of silent 404s on the audit surface.
+- **`AuditEventPersister`** extracted as a separate Spring bean so the `@Transactional(REQUIRED)` proxy actually engages — the Phase B "Bug A+D" fix. Self-invocation inside `AuditEventService` previously bypassed the proxy and left `set_config(is_local=true)` running in an implicit single-statement tx, which reverted before the INSERT and produced FORCE RLS rejections on orphan paths. The persister is package-private.
+- **Task 3.27 SYSTEM_TENANT_UUID scheduled-job sweep** — every `@Scheduled`, `@EventListener`, `ApplicationRunner`, `CommandLineRunner`, and `@Async` method that writes to a regulated table is now audited for a `TenantContext.runWithContext(...)` wrap. One pre-auth endpoint (`AuthController.accessCodeLogin`) was retrofitted with the pattern.
+- **`TenantKeyRotationService.bumpJwtKeyGeneration` + `KidRegistryService.findOrCreateActiveKid`** now call `set_config('app.tenant_id', ...)` at method entry so their audit INSERTs pass FORCE RLS even when the caller did not pre-bind TenantContext.
+- **`ForceRlsHealthGauge`** — 60-second `pg_class.relforcerowsecurity` poller exposing `fabt.rls.force_rls_enabled{table}` (1 = enabled, 0 = cleared, -1 = pre-first-poll). If a rogue migration or the panic script clears FORCE RLS the alert (`FabtPhaseBForceRlsCleared`) pages within 2 minutes.
+- **`RlsDataSourceConfig` tenant-empty counter** — every Hikari connection borrowed with `TenantContext.getTenantId() == null` increments `fabt.rls.tenant_context.empty.count`. Upstream signal for the SYSTEM_TENANT_ID fallback — if this counter climbs so does the audit fallback counter, naming the hot path.
+- **Logback `DuplicateMessageFilter`** rate-limits the SYSTEM_TENANT_ID WARN log so a misbehaving publisher does not flood storage.
+
+**Observability.**
+- **`deploy/prometheus/phase-b-rls.rules.yml`** — five alert rules validated with `promtool check rules`: `FabtPhaseBSystemTenantFallback`, `FabtPhaseBRlsRejection` (SQLState 42501), `FabtPhaseBAuditPersistFailure` (non-42501 persist error), `FabtPhaseBForceRlsCleared` (gauge goes to 0), `FabtPhaseBTenantContextEmpty` (rate > 1/s).
+- **Micrometer counters** — `fabt.audit.system_insert.count{action}` (D55 fallback fires), `fabt.audit.rls_rejected.count{action,sqlstate}` (every audit-persist error, SQLState-tagged so 42501 RLS-rejects are distinguishable from schema failures).
+
+**Architecture rules.**
+- **B11 ArchUnit rule** (`TenantContextTransactionalRuleTest`) — methods annotated `@Transactional` at method or class level must NOT call `TenantContext.runWithContext` / `callWithContext`. Fires on lexical call (including nested lambdas). Two self-invocation patterns (`HmisPushService.processOutbox`, `ReservationService.expireReservation`) are ALLOWLISTED with documented justifications covering the virtual-thread-executor-submit and @TenantUnscoped system-expirer carve-outs. Adding entries requires warroom review.
+
+**Operational surface.**
+- **`scripts/phase-b-audit-path-smoke.sh`** — 5-step pre-tag smoke test covering publisher-forgot-TenantContext → SYSTEM_TENANT_ID row shape, rollback semantics, WARN throttling, and counter contract.
+- **`scripts/phase-b-rls-panic.sh`** — D61 atomic rollback script. Single BEGIN/COMMIT block: `NO FORCE ROW LEVEL SECURITY` on all seven tables + `DROP POLICY IF EXISTS` on all Phase B policies + `SYSTEM_PHASE_B_ROLLBACK` audit row (attributed to SYSTEM_TENANT_ID). Warranty: running this re-opens the pre-V68/V69 attack surface; operator/reason/timestamp are required.
+- **`scripts/phase-b-rehearsal.sh`** — D58 restored-dump rehearsal script. 6-step recipe to verify V67–V72 apply + smoke-test + panic-script-reversibility on a prod-dump replica.
+- **`scripts/phase-b-rls-snapshot.sh`** + **`docs/security/pg-policies-snapshot.md`** — deterministic Markdown snapshot covering `pg_policies`, `information_schema.role_table_grants`, FORCE RLS flags, SECURITY DEFINER functions (MUST be empty per D52), and LEAKPROOF functions (expect exactly one — `fabt_current_tenant_id`). CI drift guard regenerates against a fresh Testcontainers Postgres on every PR touching migrations.
+- **`docs/security/phase-b-silent-audit-write-failures-runbook.md`** — 3 AM operator triage for the five alert rules + Flyway+CONCURRENTLY recovery + panic-script preconditions.
+- **`.github/workflows/ci.yml`: `phase-b-rls-test-discipline` job** — grep-guard rejecting naked `jdbcTemplate` queries against regulated-table audit artifacts in new tests.
+
+#### Test coverage — Phase B
+- **`D59PreparedStatementPlanCachingTest`** (1) — Postgres does not inline LEAKPROOF STABLE at PREPARE time.
+- **`AuditEventPhaseBRegressionTest`** (2) — Bug A+D regression guard + counter contract.
+- **`AuditTableAppendOnlyTest`** (checkpoint-2) — asserts `fabt_app` cannot UPDATE / DELETE / TRUNCATE / REFERENCES `audit_events` + `hmis_audit_log` post-V72.
+- **`WithTenantContext` test helper** (`org.fabt.testsupport`) — `readAs`/`doAs`/`readAsSystem`/`doAsSystem` covering both TenantContext and JDBC session-GUC binding for integration tests.
+- **163/163 tests green** across encryption / auth / JWT / audit / hmis / webhook / rotation / kid-registry / D59 / subscription / V59 / V74 surface + 29 ArchUnit rules (Family A/B/C + Master KEK visibility + B11 Phase B) on feature branch.
+
+#### Design — Phase B
+- **`openspec/changes/multi-tenant-production-readiness/design-b-rls-hardening.md`** v2 — APPROVED post-warroom, 16 decisions (D42–D62) + Q2 (pgaudit image source) + Q4 (D59 failure path) resolved.
 
 ### Phase A5 — V74 re-encrypt migration + callsite refactor (task 2.13)
 

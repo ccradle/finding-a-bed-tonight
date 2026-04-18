@@ -1,0 +1,164 @@
+# Prometheus alert rules — multi-tenant-production-readiness Phase B (V67–V72).
+#
+# Mount into a Prometheus instance that already scrapes the backend
+# actuator (`fabt-backend` job in prometheus.yml):
+#
+#     rule_files:
+#       - /etc/prometheus/rules/phase-b-rls.rules.yml
+#
+# Every alert here is Phase B specific — the signals depend on counters
+# introduced by `AuditEventService` (Bug A/D fix + D55 SYSTEM-insert
+# fallback). Do NOT delete without updating
+# `docs/security/phase-b-silent-audit-write-failures-runbook.md`.
+#
+# The counters are Micrometer names; Prometheus exposes them with dots
+# converted to underscores and a `_total` suffix for Counter type:
+#   fabt.audit.system_insert.count -> fabt_audit_system_insert_count_total
+#   fabt.audit.rls_rejected.count  -> fabt_audit_rls_rejected_count_total
+
+groups:
+  - name: fabt_phase_b_rls
+    interval: 30s
+    rules:
+
+      # ---- SYSTEM_TENANT_ID audit-row fallback (D55) --------------------
+      # Fires when AuditEventService cannot resolve a tenant from either
+      # TenantContext (ScopedValue) or the session's app.tenant_id GUC,
+      # and falls back to the SYSTEM sentinel. After v0.43 + 7 days the
+      # tolerable steady-state rate is zero — non-zero means a publisher
+      # is writing audit rows without a TenantContext wrap. Investigate
+      # the `action` tag to locate the publisher.
+      - alert: FabtPhaseBSystemTenantFallback
+        expr: |
+          sum by (action) (
+            rate(fabt_audit_system_insert_count_total[15m])
+          ) > 0
+        for: 15m
+        labels:
+          severity: warning
+          surface: phase-b-rls
+          runbook: docs/security/phase-b-silent-audit-write-failures-runbook.md
+        annotations:
+          summary: "Phase B: audit row persisted under SYSTEM_TENANT_ID (publisher missed TenantContext)"
+          description: |
+            Action {{ $labels.action }} is producing audit rows under the
+            SYSTEM_TENANT_ID sentinel at {{ $value | humanize }}/s over the
+            last 15 minutes. This means the publisher did not bind
+            TenantContext.runWithContext before ApplicationEventPublisher.
+            Audit rows are being attributed to the SYSTEM tenant; real
+            tenant history is incomplete.
+
+            Triage: grep the codebase for publishAuditEvent calls with
+            action={{ $labels.action }} and wrap the call site in
+            runWithContext(tenantId, dvAccess, () -> ...). See runbook
+            section "Publisher forgot to bind TenantContext".
+
+      # ---- RLS rejection by FORCE ROW LEVEL SECURITY ---------------------
+      # SQLState 42501 is PostgreSQL's "insufficient privilege" code —
+      # the surface FORCE RLS returns when a WITH CHECK predicate fails.
+      # Non-zero means a write path is trying to persist to a regulated
+      # table with a tenant binding that doesn't match the row's
+      # tenant_id. Could be: (1) a latent cross-tenant write attempt
+      # blocked by Phase B, (2) a publisher that bound the wrong
+      # TenantContext, (3) a SET LOCAL that died at statement end
+      # (the classic Bug D autoCommit=true trap).
+      - alert: FabtPhaseBRlsRejection
+        expr: |
+          sum by (action, sqlstate) (
+            rate(fabt_audit_rls_rejected_count_total{sqlstate="42501"}[10m])
+          ) > 0
+        for: 10m
+        labels:
+          severity: critical
+          surface: phase-b-rls
+          runbook: docs/security/phase-b-silent-audit-write-failures-runbook.md
+        annotations:
+          summary: "Phase B: audit INSERT rejected by FORCE ROW LEVEL SECURITY"
+          description: |
+            Action {{ $labels.action }} is producing RLS-rejected audit
+            INSERTs at {{ $value | humanize }}/s (SQLState 42501). The
+            write path is binding a tenant_id that the RLS policy does
+            not accept on the target table, OR the connection's
+            app.tenant_id GUC was cleared before the INSERT executed.
+
+            Triage: check TenantContext binding at the call site AND
+            verify @Transactional wraps the runWithContext (B11 ordering
+            invariant). See runbook section "42501 rejection pattern".
+
+      # ---- FORCE ROW LEVEL SECURITY flag drop ----------------------------
+      # The seven Phase B regulated tables MUST have relforcerowsecurity=1
+      # once V69 has applied. If the gauge falls to zero, either a rogue
+      # migration cleared the flag or the panic rollback script
+      # (scripts/phase-b-rls-panic.sh) ran — both are Sev-1 incidents.
+      # The gauge starts at -1 until the first successful poll; the !=-1
+      # guard avoids paging during startup.
+      - alert: FabtPhaseBForceRlsCleared
+        expr: |
+          fabt_rls_force_rls_enabled != -1
+          and
+          fabt_rls_force_rls_enabled == 0
+        for: 2m
+        labels:
+          severity: critical
+          surface: phase-b-rls
+          runbook: docs/security/phase-b-silent-audit-write-failures-runbook.md
+        annotations:
+          summary: "Phase B: FORCE ROW LEVEL SECURITY cleared on {{ $labels.table }}"
+          description: |
+            Table {{ $labels.table }} is reporting relforcerowsecurity=0.
+            Phase B requires this flag set for all seven regulated tables
+            (audit_events, hmis_audit_log, hmis_outbox, kid_to_tenant_key,
+            one_time_access_code, password_reset_token, tenant_key_material).
+
+            Either the panic rollback script ran (check audit_events for
+            SYSTEM_PHASE_B_ROLLBACK row) OR a rogue migration flipped the
+            flag. Re-applying V69 restores the invariant; confirm with
+            scripts/phase-b-rls-snapshot.sh Section 3.
+
+      # ---- Connection borrows without tenant binding ---------------------
+      # applyRlsContext fires every JDBC getConnection; when TenantContext
+      # is unbound, app.tenant_id is set to empty string. That is the
+      # "why SYSTEM_TENANT_ID audit rows appear" signal one level upstream.
+      # Non-zero after v0.43 + 7d = hot code path missing a runWithContext.
+      - alert: FabtPhaseBTenantContextEmpty
+        expr: |
+          rate(fabt_rls_tenant_context_empty_count_total[15m]) > 1
+        for: 15m
+        labels:
+          severity: warning
+          surface: phase-b-rls
+          runbook: docs/security/phase-b-silent-audit-write-failures-runbook.md
+        annotations:
+          summary: "Phase B: JDBC connections borrowed without TenantContext bound"
+          description: |
+            Rate of connections borrowed while TenantContext is unbound is
+            {{ $value | humanize }}/s over the last 15 minutes. This is the
+            upstream signal for SYSTEM_TENANT_ID audit fallback — the
+            application bind path is missing runWithContext somewhere on
+            the hot path. Some steady-state noise is expected from
+            scheduled jobs and application startup; threshold is 1/s.
+
+      # ---- Non-RLS audit-INSERT failures ---------------------------------
+      # Any non-42501 error persisting an audit row is a schema /
+      # constraint / connectivity problem. The main service catches +
+      # logs these but also counts them so we can alert. Separated from
+      # the 42501 alert because severity + runbook differ.
+      - alert: FabtPhaseBAuditPersistFailure
+        expr: |
+          sum by (action, sqlstate) (
+            rate(fabt_audit_rls_rejected_count_total{sqlstate!="42501"}[10m])
+          ) > 0
+        for: 10m
+        labels:
+          severity: warning
+          surface: phase-b-rls
+          runbook: docs/security/phase-b-silent-audit-write-failures-runbook.md
+        annotations:
+          summary: "Phase B: audit INSERT failing with non-RLS error"
+          description: |
+            Action {{ $labels.action }} is failing to persist with
+            SQLState {{ $labels.sqlstate }} at {{ $value | humanize }}/s.
+            Not an RLS violation — investigate schema / connection /
+            application-side bug. Audit rows are being dropped after
+            the outer request has already returned 2xx, so users do not
+            see the failure.

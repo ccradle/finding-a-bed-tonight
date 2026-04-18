@@ -56,6 +56,33 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  * {@link RevokedKidCache#invalidateAll}; the test added in
  * {@code KidRegistryServiceCacheInvalidationTest} validates the
  * mechanism — this class wires it to the real lifecycle.
+ *
+ * <h2>Phase B rollback-coupling + GUC binding</h2>
+ * {@link #bumpJwtKeyGeneration} takes {@code tenantId} as an explicit
+ * parameter rather than reading it from {@link org.fabt.shared.web.TenantContext}
+ * (the admin endpoint runs under a platform-admin JWT whose tenant claim
+ * does NOT match the target tenant). Before the first audit INSERT, the
+ * method calls {@code set_config('app.tenant_id', tenantId, false)} so
+ * Phase B FORCE ROW LEVEL SECURITY on {@code audit_events} accepts the
+ * row (the RLS predicate reads the session GUC, not TenantContext).
+ *
+ * <p>The {@code set_config(is_local=false)} choice — not {@code is_local=true} — is
+ * deliberate. Under the surrounding {@code @Transactional}, an
+ * {@code is_local=true} call only persists for the duration of the
+ * current transaction; a SET LOCAL issued inside a JDBC statement with
+ * autoCommit=true (the exact Bug D failure mode) reverts at statement
+ * end before the audit INSERT executes, producing a 42501 FORCE RLS
+ * rejection. {@code is_local=false} binds the GUC for the rest of the
+ * session and matches what {@link RlsDataSourceConfig} sets at
+ * connection-borrow time for normal request paths.
+ *
+ * <p><b>Rollback contract</b>: the audit row is INSIDE the same
+ * transaction as the key-rotation DB work, so a failure anywhere in
+ * steps 1–5 rolls the audit row back. Cache invalidation is registered
+ * as an {@code afterCommit} hook so a rolled-back rotation never leaves
+ * a cache populated with a generation that was never committed. An
+ * operator reading {@code audit_events} sees only rotations that
+ * actually took effect — never attempted rotations.
  */
 @Service
 public class TenantKeyRotationService {

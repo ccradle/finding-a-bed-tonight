@@ -32,6 +32,35 @@ import tools.jackson.databind.ObjectMapper;
  * the ScopedValue-bound {@code TenantContext} of the publisher thread is still in scope
  * when this listener fires. Queries via {@link #findByTargetUserId} filter on the caller's
  * tenant, preventing cross-tenant audit-history reads (the Casey VAWA audit-integrity concern).</p>
+ *
+ * <h2>Phase B rollback-coupling semantics</h2>
+ * The actual INSERT is delegated to {@link AuditEventPersister#persist} (a separate Spring
+ * bean, so the {@code @Transactional} proxy engages — self-invocation inside this class
+ * would bypass it, which is the exact Bug A+D failure mode). The persister runs under
+ * {@code @Transactional(propagation=REQUIRED)}:
+ *
+ * <ul>
+ *   <li><b>Inside a caller transaction</b> (the common path from controllers / services
+ *       that wrap their own request work in {@code @Transactional}) — the audit INSERT
+ *       JOINS the caller's transaction. If the caller rolls back, the audit row rolls
+ *       back with it. This is deliberate: an audit row claiming an action happened is
+ *       misleading if the action's side effects did not commit. Consumers that need an
+ *       always-commits audit trail (e.g. login-failure counters) must use a different
+ *       mechanism (a dedicated REQUIRES_NEW service or a structured-logging tail).</li>
+ *   <li><b>Outside any caller transaction</b> (e.g. an event fired from a listener
+ *       thread with no active tx) — REQUIRED starts a fresh transaction and commits it
+ *       independently. The three-level tenant-lookup ladder below (D55) keeps the row
+ *       visible even when the publisher forgot to bind {@link TenantContext}.</li>
+ * </ul>
+ *
+ * <p>Phase B FORCE ROW LEVEL SECURITY on {@code audit_events} checks
+ * {@code tenant_id = fabt_current_tenant_id()} on every INSERT. The persister runs
+ * under a session that has either (a) the caller's TenantContext bound via
+ * {@code TenantContext.runWithContext}, producing {@code app.tenant_id = caller-tenant},
+ * or (b) the D55 SYSTEM sentinel path, producing {@code app.tenant_id = SYSTEM_TENANT_ID}.
+ * Any path that bypasses both is a B11 violation (caught by
+ * {@code TenantContextTransactionalRuleTest}) and would produce a SQLState 42501
+ * rejection surfaced via {@code fabt.audit.rls_rejected.count}.</p>
  */
 @Service
 public class AuditEventService {
