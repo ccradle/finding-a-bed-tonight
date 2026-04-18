@@ -5,13 +5,48 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [Unreleased] — multi-tenant-production-readiness Phases 0 + A + A5 + B (Issue #126)
+## [v0.44.0] — 2026-04-21 — multi-tenant-production-readiness V73 pgaudit + Debian image swap (Issue #126)
 
-### ⚠️ v0.41 → v0.42 is effectively ONE-WAY
+### ⚠️ v0.44 image swap — Alpine → Debian + PGDG + pgaudit
 
-V74 re-encrypts every existing TOTP / webhook / OAuth2 / HMIS ciphertext from the single-platform-key v0 envelope to per-tenant-DEK v1 envelopes. **v0.41 container images do NOT understand v1 envelopes** — deploying v0.41 against a post-V74 database breaks TOTP login, webhook signing, OAuth2 SSO, and HMIS outbound calls silently at request time. Rollback requires restoring the pre-deploy pg_dump backup (runbook 2.16).
+v0.44 swaps the Postgres image from `postgres:16-alpine` to a Debian bookworm base with PGDG `postgresql-16-pgaudit`. The base-OS + postgres UID both change (Alpine UID 70 → Debian UID 999). Image-swap rollback procedure is documented in `docs/runbook.md` "v0.44 image-swap rollback" section. **Recommended rollback** is `pg_dump` restore onto the prior Alpine image, not in-place volume re-use.
 
-**Release gate:** v0.42 MUST ship Phase 0 + Phase A + Phase A5 (V74) together. No valid Phase-0-only v0.41.x release line exists. Per C-A5-N8, the V74 migration itself refuses to run without V60 + V61 applied — release-process belt-and-suspenders.
+**Detection-of-last-resort for cleared FORCE RLS** ships in this release. A systemd service (`fabt-pgaudit-alert`) tails the Postgres container log, matches `AUDIT: SESSION,*NO FORCE ROW LEVEL SECURITY` pgaudit lines, posts to `FABT_PANIC_ALERT_WEBHOOK` within 5 seconds. Complements the 60s `ForceRlsHealthGauge` poll with DDL-level granularity.
+
+### Added — V73 + pgaudit
+
+**Migration:**
+- **V73 (SQL)** — `ALTER DATABASE` writes four `pgaudit.*` session parameters (`pgaudit.log = 'write,ddl'`, `pgaudit.log_level = 'log'`, `pgaudit.log_parameter = 'off'`, `pgaudit.log_relation = 'on'`). Config-only — no `CREATE EXTENSION`. Safe under rollback to Alpine (custom namespaced GUCs accepted whether pgaudit is loaded or not). Uses `DO $$ … format('ALTER DATABASE %I …', current_database()) …` so portable across `fabt`, `fabt_test`, B-baseline prod installs.
+
+**Image + infrastructure:**
+- **`deploy/pgaudit.Dockerfile`** + **`deploy/pgaudit.conf`** — Debian `postgres:16.6-bookworm` + PGDG `postgresql-16-pgaudit` + `shared_preload_libraries = 'pgaudit'` via conf.d drop-in. Healthcheck verifies pgaudit is actually preloaded (not just `pg_isready` green).
+- **`infra/scripts/pgaudit-enable.sh`** — operator one-time `CREATE EXTENSION pgaudit` script. Idempotent. Flags: `--dry-run`, `--drop` (emergency, gated by `FABT_CONFIRM_DROP=yes`). Explicit preload verification before CREATE to surface configuration errors early.
+- **`infra/scripts/pgaudit-alert-tail.sh`** — `docker logs -f` tailer. Matches `NO FORCE RLS` DDL via BSD-grep-compatible POSIX character class. 5-minute per-table cooldown dedupes. Heartbeat file at `/var/lib/fabt/pgaudit-alert-tail.heartbeat` updated every 30s for weekly operator health check.
+- **`deploy/systemd/fabt-pgaudit-alert.service`** + **`.env.example`** — systemd unit with `Restart=always`, sandboxed (`ProtectHome`, `ProtectSystem=strict`, `ReadWritePaths=/var/lib/fabt`, `PrivateTmp`, `NoNewPrivileges`).
+
+**Test:**
+- **`PgauditLogEntryTest`** (`@Tag("pgaudit")`, task 3.24) — Testcontainers IT against pre-built `fabt-pgaudit:ci` image. Exercises `CREATE EXTENSION pgaudit`, session config, DDL + WRITE + NO FORCE RLS logging, asserts on pgaudit log regex. Excluded from default build via Surefire `<excludedGroups>pgaudit</excludedGroups>`; opt-in via `-P pgaudit-tests` profile.
+
+**Runbook:**
+- `docs/runbook.md` +170 lines: pgaudit install procedure, end-to-end alert-pipeline verification, weekly heartbeat operator cron, emergency mitigation (step-1 `pgaudit.log='ddl'`, step-2 `pgaudit.log=''`), v0.44 image-swap rollback procedure.
+
+### Deviations from original warroom (documented in memory)
+
+- **V4 (alert wiring)** — Loki+promtail not available in the stack; pragmatic-path substitution to systemd-service + cron-grep→webhook with heartbeat liveness. Same detection semantics, no new infra component.
+
+### Hardened — CI
+
+- **Surefire `<excludedGroups>pgaudit</excludedGroups>`** at top-level build config excludes pgaudit-tagged tests from default `mvn test` — prevents CI failures on runners without the pre-built Debian image.
+- **`pgaudit-tests` Maven profile** overrides via `combine.self="override"` (required — Maven's default plugin config merge for list-ish values doesn't reliably clear a parent value via empty child).
+- **CI job `pgaudit-image-tests`** — isolated job that builds `fabt-pgaudit:ci` then runs `mvn test -P pgaudit-tests`. Keeps the 700-test default suite fast while still exercising task 3.24.
+- **CI trigger extended** from `main` only to `main` + `release/**`.
+
+### Test coverage — V73
+
+- 1/1 `PgauditLogEntryTest` green in dedicated pgaudit profile.
+- Regression: all prior Phase B + security tests green locally post-V73.
+
+## [v0.43.0] — 2026-04-20 — multi-tenant-production-readiness Phase B (Issue #126)
 
 ### ⚠️ v0.43 release gate — Phase B RLS hardening preconditions
 
@@ -76,6 +111,14 @@ Phase B is **not panic-proof** — the rollback surface is the panic script, not
 
 #### Design — Phase B
 - **`openspec/changes/multi-tenant-production-readiness/design-b-rls-hardening.md`** v2 — APPROVED post-warroom, 16 decisions (D42–D62) + Q2 (pgaudit image source) + Q4 (D59 failure path) resolved.
+
+## [v0.42.0] — 2026-04-19 — multi-tenant-production-readiness Phases 0 + A + A5 (Issue #126)
+
+### ⚠️ v0.41 → v0.42 is effectively ONE-WAY
+
+V74 re-encrypts every existing TOTP / webhook / OAuth2 / HMIS ciphertext from the single-platform-key v0 envelope to per-tenant-DEK v1 envelopes. **v0.41 container images do NOT understand v1 envelopes** — deploying v0.41 against a post-V74 database breaks TOTP login, webhook signing, OAuth2 SSO, and HMIS outbound calls silently at request time. Rollback requires restoring the pre-deploy pg_dump backup (runbook 2.16).
+
+**Release gate:** v0.42 MUST ship Phase 0 + Phase A + Phase A5 (V74) together. No valid Phase-0-only v0.41.x release line exists. Per C-A5-N8, the V74 migration itself refuses to run without V60 + V61 applied — release-process belt-and-suspenders.
 
 ### Phase A5 — V74 re-encrypt migration + callsite refactor (task 2.13)
 
