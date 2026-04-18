@@ -2,9 +2,13 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - 'release/**'
   pull_request:
-    branches: [main]
+    branches:
+      - main
+      - 'release/**'
 
 permissions:
   contents: read
@@ -29,6 +33,29 @@ jobs:
       # - name: OWASP Dependency Check
       #   working-directory: backend
       #   run: mvn dependency-check:check -DfailBuildOnCVSS=7 --batch-mode --no-transfer-progress
+
+  pgaudit-image-tests:
+    name: pgaudit image tests (Debian + PGDG)
+    runs-on: ubuntu-latest
+    # Phase B warroom V5: the single @Tag("pgaudit") test class
+    # (PgauditLogEntryTest / task 3.24) requires the pre-built Debian
+    # image from deploy/pgaudit.Dockerfile. The default backend job
+    # uses postgres:16-alpine (no pgaudit available) and excludes the
+    # tag via the default Surefire configuration. This dedicated job
+    # builds the image and runs the subset via `-P pgaudit-tests`.
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: maven
+      - name: Build fabt-pgaudit:ci image
+        run: docker build -t fabt-pgaudit:ci -f deploy/pgaudit.Dockerfile deploy/
+      - name: Run pgaudit-tagged tests
+        working-directory: backend
+        run: mvn test -P pgaudit-tests --batch-mode --no-transfer-progress
 
   frontend:
     name: Frontend (Node 20 + Vite)

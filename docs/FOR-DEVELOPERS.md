@@ -488,9 +488,19 @@ mvn test -Dtest=ReservationIntegrationTest
 
 # Run a specific test method
 mvn test -Dtest="AvailabilityIntegrationTest#test_createSnapshot_appendOnly_preservesPreviousSnapshot"
+
+# Run the pgaudit-tagged tests (task 3.24; v0.44+). Requires pre-built
+# Debian image. The default `mvn test` excludes these via the top-level
+# Surefire excludedGroups; the `pgaudit-tests` profile inverts that.
+docker build -t fabt-pgaudit:ci -f deploy/pgaudit.Dockerfile deploy/
+cd backend && mvn test -P pgaudit-tests
 ```
 
 **Docker is required.** Tests use Testcontainers to start a PostgreSQL 16 container automatically.
+
+### JUnit 5 @Tag filtering
+
+The backend uses one JUnit 5 tag today: `pgaudit`. It marks tests that require the Debian + PGDG Postgres image (`deploy/pgaudit.Dockerfile`) and is EXCLUDED by default because the Testcontainers singleton in `BaseIntegrationTest` uses `postgres:16-alpine`. The opt-in profile `pgaudit-tests` inverts the filter. See `backend/pom.xml` (top-level `<excludedGroups>pgaudit</excludedGroups>` + `<profile id="pgaudit-tests">`). Adding new tags should follow the same pattern — default exclusion via `excludedGroups`, opt-in via a dedicated profile that overrides with `combine.self="override"`.
 
 ### Testing with nginx proxy
 

@@ -285,6 +285,43 @@
                 </dependency>
             </dependencies>
         </profile>
+
+        <!--
+          pgaudit-tests profile — opt-in to run ONLY the @Tag("pgaudit")
+          tests (task 3.24 PgauditLogEntryTest). The default build excludes
+          this tag via the top-level Surefire configuration below because
+          it requires the pre-built Debian `fabt-pgaudit:ci` image which
+          the default CI profile doesn't have.
+
+          Activate from CI or locally:
+            mvn test -P pgaudit-tests
+
+          Prerequisite: the Debian image must be built and tagged:
+            docker build -t fabt-pgaudit:ci -f deploy/pgaudit.Dockerfile deploy/
+
+          The `combine.self="override"` attribute is load-bearing: Maven's
+          default plugin configuration merge semantics for list-ish string
+          values do not reliably clear a parent value via an empty child.
+          The explicit override is the Surefire-docs-canonical pattern
+          for a subset-opt-in run (verified against Phase B warroom
+          research 2026-04-18; see memory
+          feedback_phase_b_lessons_learned.md).
+        -->
+        <profile>
+            <id>pgaudit-tests</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <groups>pgaudit</groups>
+                            <excludedGroups combine.self="override"></excludedGroups>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
     </profiles>
 
     <build>
@@ -307,6 +344,22 @@
                 <configuration>
                     <failBuildOnCVSS>7</failBuildOnCVSS>
                     <suppressionFile>owasp-suppressions.xml</suppressionFile>
+                </configuration>
+            </plugin>
+            <!--
+              Surefire: exclude JUnit 5 @Tag("pgaudit") by default. That tag
+              marks tests that require the pre-built `fabt-pgaudit:ci` Debian
+              image (deploy/pgaudit.Dockerfile). The default CI profile runs
+              against `postgres:16-alpine`, where pgaudit isn't available.
+              A dedicated CI workflow step builds the image and reruns with
+              `-DexcludedGroups=''` (or `-Dgroups=pgaudit`) to exercise
+              task 3.24 (PgauditLogEntryTest). See Phase B warroom V5.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <excludedGroups>pgaudit</excludedGroups>
                 </configuration>
             </plugin>
         </plugins>
