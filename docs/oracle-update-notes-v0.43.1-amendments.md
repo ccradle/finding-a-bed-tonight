@@ -20,8 +20,8 @@ Throughout `oracle-update-notes-v0.43.0.md`, substitute:
 | `CHANGELOG [v0.43.0]` | `CHANGELOG [v0.43.1]` (legal-scan reword only; scope identical to 0.43.0) |
 
 The content difference between `v0.43.1` and `v0.43.0` is a single CHANGELOG
-wording fix ("Functionally equivalent to" → "Same scope as"). No migration,
-code, or operational changes.
+wording fix to address a legal-language-scan flag. No migration, code, or
+operational changes.
 
 ## 24-hour bake-window — operator decision required
 
