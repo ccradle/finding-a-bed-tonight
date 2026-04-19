@@ -91,6 +91,28 @@ compress the window; Phase C work is not blocked waiting.
 
 ---
 
+## VM-specific paths (verified 2026-04-19 for v0.45)
+
+| Resource | Path |
+|---|---|
+| SSH into VM | `ssh -i ~/.ssh/fabt-oracle ubuntu@<VM-IP>` (IP in 1Password; never commit to git) |
+| Repo on VM | `~/finding-a-bed-tonight/` (clone lives at `$HOME`, not `$HOME/src`) |
+| Prod secrets dir | `~/fabt-secrets/` (outside the git checkout) |
+| Prod compose override | `~/fabt-secrets/docker-compose.prod.yml` (base prod — secrets, networking, image tags for backend) |
+| Flyway OOO bridge override | `~/fabt-secrets/docker-compose.prod-v0.43-flyway-ooo.yml` (adds `SPRING_FLYWAY_OUT_OF_ORDER=true`) |
+| pgaudit image override | `~/fabt-secrets/docker-compose.prod-v0.44-pgaudit.yml` (the file that gets its image tag bumped this release) |
+| pgdata Docker volume | `/var/lib/docker/volumes/finding-a-bed-tonight_postgres_data/_data` |
+| Backups dir | `~/fabt-backups/` (pg_dump files land here) |
+| Backend container | `fabt-backend` (from `fabt-backend:latest`, rebuilt on every deploy) |
+| Postgres container | `finding-a-bed-tonight-postgres-1` (from `fabt-pgaudit:<tag>`, currently v0.44.1) |
+| Frontend container | `fabt-frontend` (from `fabt-frontend:latest`, served on port 8081 — NOT touched by v0.45) |
+| `.env.prod` | `~/fabt-secrets/.env.prod` (source before invoking docker compose) |
+
+Any runbook step below that shows `cd ~/finding-a-bed-tonight` runs on
+the VM; steps that reference `$LOCAL_REPO` run from the operator laptop.
+
+---
+
 ## Pre-deploy sanity
 
 > **Jordan's note (SRE):** compose-file drift is the #1 deploy-hour
@@ -165,7 +187,7 @@ CI already ran this, but re-run locally so the operator sees the file
 they're about to deploy with their own eyes:
 
 ```bash
-cd ~/src/finding-a-bed-tonight
+cd ~/finding-a-bed-tonight
 git fetch --tags
 git checkout v0.45.0   # once tagged; pre-tag use the branch SHA
 tr -d '\r' < docs/security/pg-policies-snapshot.md | sha256sum
@@ -182,7 +204,7 @@ but still non-optional: a broken Dockerfile here pegs the VM deploy
 window.
 
 ```bash
-cd ~/src/finding-a-bed-tonight
+cd ~/finding-a-bed-tonight
 docker build -t fabt-pgaudit:v0.45.0-rehearsal -f deploy/pgaudit.Dockerfile deploy/
 # Sanity — start in isolation, verify the conf is baked in
 docker run -d --rm --name fabt-pgaudit-rehearsal \
@@ -257,7 +279,7 @@ format.
 # On the VM, AFTER editing docker-compose.prod-v0.44-pgaudit.yml to
 # bump the image tag to v0.45.0 (see Deploy step 2a), render the merged
 # compose + grep the postgres service for the two load-bearing fields.
-cd ~/src/finding-a-bed-tonight
+cd ~/finding-a-bed-tonight
 docker compose \
     -f docker-compose.yml \
     -f ~/fabt-secrets/docker-compose.prod.yml \
@@ -707,7 +729,10 @@ by sampling `pg_stat_activity` for `application_name = 'fabt:tenant:'`
 regressions the DB-level checks miss.
 
 ```bash
-cd ~/src/finding-a-bed-tonight/e2e/playwright
+# Playwright smoke runs from LOCAL laptop (Node + Playwright deps are
+# not installed on the Oracle VM). BASE_URL points at the prod host.
+# Substitute your local checkout path for LOCAL_REPO below.
+cd "$LOCAL_REPO/e2e/playwright"
 BASE_URL=https://findabed.org npx playwright test \
     --config=deploy/playwright.config.ts \
     deploy/post-deploy-smoke.spec.ts \
