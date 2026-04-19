@@ -426,6 +426,86 @@ class EscalationPolicyServiceTest {
         }
 
         @Test
+        @DisplayName("policyNotFound — repository empty returns empty without invoking DetachedAuditPersister (not-found is not a cross-tenant event)")
+        void policyNotFound() {
+            UUID missingId = UUID.randomUUID();
+            when(repository.findById(missingId)).thenReturn(Optional.empty());
+
+            assertThat(service.findByTenantAndId(TENANT_A, missingId)).isEmpty();
+
+            // Confirm the empty came from the DB path (not a null-guard short-circuit
+            // or a cached empty). Warroom polish-nit.
+            verify(repository).findById(missingId);
+
+            // Not-found is NOT a cross-tenant reach — DetachedAuditPersister MUST NOT fire.
+            verify(detachedAuditPersister, never()).persistDetached(any(), any());
+
+            // cross_tenant_reject counter MUST NOT increment.
+            double rejectCount = meterRegistry.counter("fabt.cache.get",
+                    "cache", "fabt.escalation.policy.by-tenant-and-id",
+                    "tenant", TENANT_A.toString(),
+                    "result", "cross_tenant_reject").count();
+            assertThat(rejectCount).isEqualTo(0.0);
+        }
+
+        @Test
+        @DisplayName("concurrentCrossTenantIsolation — A and B race on same policyId (A owns); A succeeds, B rejected per-reader with audit+counter, no poisoning")
+        void concurrentCrossTenantIsolation() throws Exception {
+            EscalationPolicy pA = tenantOwnedPolicy(TENANT_A);
+            when(repository.findById(pA.id())).thenReturn(Optional.of(pA));
+
+            int perTenant = 8;
+            java.util.concurrent.CountDownLatch startGate = new java.util.concurrent.CountDownLatch(1);
+            java.util.concurrent.CountDownLatch doneGate = new java.util.concurrent.CountDownLatch(perTenant * 2);
+            java.util.concurrent.atomic.AtomicReference<Throwable> caught =
+                    new java.util.concurrent.atomic.AtomicReference<>();
+
+            Runnable aReader = () -> {
+                try {
+                    startGate.await();
+                    assertThat(service.findByTenantAndId(TENANT_A, pA.id())).contains(pA);
+                } catch (Throwable t) {
+                    caught.compareAndSet(null, t);
+                } finally {
+                    doneGate.countDown();
+                }
+            };
+            Runnable bReader = () -> {
+                try {
+                    startGate.await();
+                    assertThat(service.findByTenantAndId(TENANT_B, pA.id())).isEmpty();
+                } catch (Throwable t) {
+                    caught.compareAndSet(null, t);
+                } finally {
+                    doneGate.countDown();
+                }
+            };
+
+            for (int i = 0; i < perTenant; i++) {
+                Thread.ofVirtual().start(aReader);
+                Thread.ofVirtual().start(bReader);
+            }
+            startGate.countDown();
+            doneGate.await();
+
+            assertThat(caught.get()).isNull();
+
+            // Every B-reader must produce an audit row — no cache-put on the reject
+            // path means each B-call individually calls DetachedAuditPersister.
+            // Pins the contract that cross-tenant rejects are NOT deduplicated by
+            // a racing cache entry.
+            verify(detachedAuditPersister, times(perTenant))
+                    .persistDetached(eq(TENANT_B), any(AuditEventRecord.class));
+
+            // Reject counter total equals perTenant (one per B-call).
+            double bRejectCount = meterRegistry.counter("fabt.cache.get",
+                    "cache", "fabt.escalation.policy.by-tenant-and-id",
+                    "tenant", TENANT_B.toString(),
+                    "result", "cross_tenant_reject").count();
+            assertThat(bRejectCount).isEqualTo((double) perTenant);
+        }
+
+        @Test
         @DisplayName("cacheEntrySurvivesPolicyUpdate — policies are immutable-by-id; update() does NOT invalidate by-tenant-and-id cache")
         void cacheEntrySurvivesPolicyUpdate() {
             UUID actor = UUID.randomUUID();
