@@ -126,4 +126,13 @@ class AuditEventTypesTest {
                 .isNotBlank()
                 .isEqualTo("MALFORMED_CACHE_ENTRY");
     }
+
+    @Test
+    @DisplayName("CROSS_TENANT_POLICY_READ has stable value (security-evidence audit — Phase C task 4.4)")
+    void crossTenantPolicyRead() {
+        assertThat(AuditEventTypes.CROSS_TENANT_POLICY_READ)
+                .isNotNull()
+                .isNotBlank()
+                .isEqualTo("CROSS_TENANT_POLICY_READ");
+    }
 }
