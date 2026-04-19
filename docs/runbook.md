@@ -1104,6 +1104,21 @@ SELECT current_setting('app.tenant_id', true);
 
 ---
 
+## PostgreSQL Minor-Version Bump Checklist (v0.45+)
+
+Phase B installed `PgVersionGate` (a `@PostConstruct` check in `org.fabt.shared.security`) that halts JVM boot when the live server reports `server_version_num < 160005` (PostgreSQL 16.5). The floor is both a correctness gate (older versions lack `pg_policies.permissive`) and a security gate (PG 16.6 was the first release free of CVE-2024-10977).
+
+When bumping the PostgreSQL image on the VM or in CI, work the following checklist so the floor keeps pace:
+
+1. **Review the release notes + CVE advisories** for every minor release crossed. PostgreSQL CVEs at https://www.postgresql.org/support/security/. If any CVE advisory names the version you were running as affected, the floor MUST move above it.
+2. **Update `PgVersionGate.MIN_SERVER_VERSION_NUM`** to the new floor if CVE-driven. The test class `PgVersionGateTest` reads the same constant, so a single edit covers both layers.
+3. **Rebuild `deploy/pgaudit.Dockerfile`** against the new base (`postgres:<new-minor>-bookworm`) and tag it `fabt-pgaudit:v<release>`.
+4. **Run a full CI pass** (`mvn verify`) to exercise the new image against every integration test.
+5. **Deploy to the VM** following the pgaudit install steps below; verify `SHOW server_version_num` returns the expected value before accepting the deploy.
+6. **Note the new floor + CVE status** in the release's `docs/oracle-update-notes-v<release>.md`.
+
+---
+
 ## pgaudit Management (v0.44+)
 
 Phase B's detection-of-last-resort for cleared FORCE ROW LEVEL SECURITY relies on the pgaudit PostgreSQL extension emitting a log line for every DDL statement (including `ALTER TABLE … NO FORCE ROW LEVEL SECURITY`). Phase B has a 60s gauge (`ForceRlsHealthGauge`) but that's a slow tripwire; pgaudit catches the DDL within milliseconds.
