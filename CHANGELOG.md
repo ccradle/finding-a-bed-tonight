@@ -5,6 +5,65 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.44.3] — 2026-04-19 — i18n hygiene: missing keys + coverage test (#173)
+
+User-reported 2026-04-18 post-v0.44.2 deploy: the "Security" menu item in
+`Layout.tsx` remained in English when switching to Spanish. Root cause —
+`<FormattedMessage id="totp.settingsButton" defaultMessage="Security" />`
+references a key that doesn't exist in either en.json or es.json, so
+react-intl falls back to the `defaultMessage` for ALL locales. Fourth
+i18n-missing-key bug caught in two releases.
+
+### Fixed
+
+- **`totp.settingsButton`** — added to en.json ("Security") and es.json
+  ("Seguridad"). Used at `Layout.tsx:375` + `:497`. Spanish users now see
+  "Seguridad" on the Security menu item.
+- **`referral.requestTitle`** — changed the DV-referral-modal `aria-label`
+  in `OutreachSearch.tsx` to reuse the existing `referral.title` key
+  ("Request DV Shelter Referral" / "Solicitar Derivación de Refugio VD").
+  Matches the visible `<h3>` in the modal; avoids creating a redundant
+  new key.
+
+### Added
+
+- **`frontend/src/i18n/i18n-coverage.test.ts`** — Vitest suite with three
+  assertions enforced on every frontend CI gate:
+  1. Every `<FormattedMessage id="…">` + `formatMessage({ id: '…' })`
+     reference in `frontend/src` must exist in `en.json`.
+  2. Same for `es.json`.
+  3. `en.json` + `es.json` must have matching key sets (no locale drift).
+  Fails fast with the missing key names in the assertion output. No new
+  CI job; runs in the existing Vitest suite.
+
+### Audit snapshot (2026-04-18)
+
+- 513 unique i18n IDs referenced across `frontend/src`.
+- 41 of them use `defaultMessage=` as a fallback.
+- en.json + es.json: 662 keys each pre-fix → 663 each post-fix.
+- 0 missing keys in either locale post-fix.
+
+### Related
+
+- PR #133 (merge commit `f359dcd`)
+- Task #173 (Phase C i18n hygiene audit)
+
+### Performance sanity (separate investigation)
+
+During this release prep, user noticed CI's Performance (Gatling) job failing
+at 6.15% failure rate on `AvailabilityUpdateSimulation` (threshold: 1%).
+Investigation on a dev laptop with `--observability + --nginx`: same
+simulation ran at **0.0% failure rate** with zero lock contention, Hikari
+pool never saturated (0 active connections at snapshot across 29,567
+borrows), zero 422 responses in backend log, and top SQL queries all
+under 5 ms mean exec time per `pg_stat_statements`. Conclusion: the CI
+failure is GitHub runner under-provisioning (Testcontainers Postgres +
+mvn + Gatling Scala/JVM + dependency download contending for 2-vCPU),
+not a real backend regression. No action needed; documented in the
+session memory for future CI-flake triage.
+
+---
+
 ## [v0.44.2] — 2026-04-18 — Forgot-password link wire-up + demo UX polish (#153)
 
 Frontend-only patch. No backend code changes beyond the pom version bump;
