@@ -59,4 +59,17 @@ public class CaffeineCacheService implements CacheService {
             cache.invalidateAll();
         }
     }
+
+    @Override
+    public long evictAllByPrefix(String cacheName, String prefix) {
+        Cache<String, Object> cache = caches.get(cacheName);
+        if (cache == null) {
+            return 0L;
+        }
+        java.util.List<String> toEvict = cache.asMap().keySet().stream()
+                .filter(k -> k.startsWith(prefix))
+                .toList();
+        toEvict.forEach(cache::invalidate);
+        return toEvict.size();
+    }
 }

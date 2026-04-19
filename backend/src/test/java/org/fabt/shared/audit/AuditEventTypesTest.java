@@ -97,4 +97,33 @@ class AuditEventTypesTest {
     void escalationPolicyUpdated() {
         assertThat(AuditEventTypes.ESCALATION_POLICY_UPDATED).isEqualTo("ESCALATION_POLICY_UPDATED");
     }
+
+    // ---- multi-tenant-production-readiness Phase C (cache isolation) ----
+
+    @Test
+    @DisplayName("TENANT_CACHE_INVALIDATED has stable value")
+    void tenantCacheInvalidated() {
+        assertThat(AuditEventTypes.TENANT_CACHE_INVALIDATED)
+                .isNotNull()
+                .isNotBlank()
+                .isEqualTo("TENANT_CACHE_INVALIDATED");
+    }
+
+    @Test
+    @DisplayName("CROSS_TENANT_CACHE_READ has stable value (security-evidence audit)")
+    void crossTenantCacheRead() {
+        assertThat(AuditEventTypes.CROSS_TENANT_CACHE_READ)
+                .isNotNull()
+                .isNotBlank()
+                .isEqualTo("CROSS_TENANT_CACHE_READ");
+    }
+
+    @Test
+    @DisplayName("MALFORMED_CACHE_ENTRY has stable value")
+    void malformedCacheEntry() {
+        assertThat(AuditEventTypes.MALFORMED_CACHE_ENTRY)
+                .isNotNull()
+                .isNotBlank()
+                .isEqualTo("MALFORMED_CACHE_ENTRY");
+    }
 }
