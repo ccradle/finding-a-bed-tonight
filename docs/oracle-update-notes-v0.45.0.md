@@ -496,6 +496,54 @@ docker compose exec -T postgres psql -U fabt -d fabt -tAc \
 do NOT proceed to backend swap. Backend is still on v0.44.3 and will
 reconnect to the rolled-back Postgres.**
 
+### 5-ONCE. Known issue #163 — include_dir on existing volumes (apply ONCE PER VM)
+
+**Discovered during v0.45.0 deploy (2026-04-19):** 5b failed the first
+time with `log_line_prefix = '%m [%p] '` (postgres default) even though
+the `fabt-pgaudit:v0.45.0` image has `/etc/postgresql/conf.d/pgaudit.conf`
+baked in with the new prefix.
+
+**Root cause (task #163).** `deploy/pgaudit.Dockerfile` appends
+`include_dir = '/etc/postgresql/conf.d'` to `postgresql.conf.sample`,
+which is consumed only by `initdb` on a FRESH pgdata volume. Our
+production pgdata was initialized on the Alpine image back at v0.41, so
+`postgresql.conf` in the live volume has `include_dir` commented out —
+the conf.d directory is never consulted.
+
+**One-time fix per VM.** After the v0.45 Postgres container is healthy
+(5a/5c green) but before declaring 5b failed, apply the include_dir
+directive to the live `postgresql.conf` and reload:
+
+```bash
+# Append with SINGLE QUOTES (unquoted values are silently ignored).
+docker compose -f ~/finding-a-bed-tonight/docker-compose.yml exec -T postgres \
+    bash -c "echo \"include_dir = '/etc/postgresql/conf.d'\" \
+             >> /var/lib/postgresql/data/postgresql.conf"
+
+# Reload without a restart (SIGHUP).
+docker compose -f ~/finding-a-bed-tonight/docker-compose.yml exec -T postgres \
+    psql -U fabt -d fabt -tAc "SELECT pg_reload_conf()"
+# Expected: t
+
+# Re-verify 5b.
+docker compose -f ~/finding-a-bed-tonight/docker-compose.yml exec -T postgres \
+    psql -U fabt -d fabt -tAc "SHOW log_line_prefix"
+# Expected: %m [%p] %q%u@%d app=%a  (with trailing space)
+```
+
+The fix lives in the persistent pgdata volume, so subsequent image
+swaps on the same VM do NOT need to repeat it. Task #163 tracks the
+proper Dockerfile fix (switch from `conf.d`-include to a `-c` flag
+passed via compose `command`, bypassing the init-time sample merge
+altogether). Until #163 lands, any new VM provisioned by restoring the
+prod pg_dump will need this one-time apply.
+
+**Do NOT forget to quote the path.** The first attempt during v0.45
+deploy used `include_dir = /etc/postgresql/conf.d` (no quotes);
+`pg_reload_conf()` returned success but the value was silently
+ignored — postgres config syntax requires single quotes around all
+string values.
+
 ### 6. Backend swap
 
 Now that Postgres is confirmed healthy on `v0.45.0`, bring up the new
