@@ -30,7 +30,7 @@ Three deployment tiers allow the same codebase to serve communities of vastly di
 | Layer | Technology |
 |---|---|
 | Backend | Java 25, Spring Boot 4.0, Spring MVC, Spring Data JDBC, Virtual Threads |
-| Database | PostgreSQL 16.6+, Flyway (65 migrations, latest V74), Row Level Security (D14 tenant-RLS + FORCE RLS on 7 regulated tables: `audit_events`, `hmis_audit_log`, `hmis_outbox`, `password_reset_token`, `one_time_access_code`, `tenant_key_material`, `kid_to_tenant_key`; plus DV shelters + notifications), pgaudit extension (Debian + PGDG image) for detection-of-last-resort |
+| Database | PostgreSQL 16.5+ (enforced by `PgVersionGate` at boot; floor doubles as CVE gate), Flyway (65 migrations, latest V74; renumber-forward posture from v0.45 — see `deploy/prod-state.json`), Row Level Security (D14 tenant-RLS + FORCE RLS on 7 regulated tables: `audit_events`, `hmis_audit_log`, `hmis_outbox`, `password_reset_token`, `one_time_access_code`, `tenant_key_material`, `kid_to_tenant_key`; plus DV shelters + notifications), pgaudit extension (Debian + PGDG image) for detection-of-last-resort, `application_name = 'fabt:tenant:<uuid>'` co-located with `app.tenant_id` so pgaudit log lines carry tenant UUID |
 | Cache | Caffeine L1 / + Redis L2 (Standard/Full) |
 | Events | Spring Events (Lite) / Kafka (Full) |
 | Auth | JWT (per-tenant HKDF-SHA256 signing keys + opaque `kid` header + revocation registry) + OAuth2/OIDC + API Keys (hybrid). Per-tenant DEK-envelope (v1 `FABT` magic + kid + AES-GCM) for secrets at rest — see `design-a3-encryption-envelope.md` + `design-a4-jwt-refactor.md`. |

@@ -20,6 +20,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Drift-safety guard for the co-located {@code application_name} +
@@ -44,6 +46,7 @@ class PgauditApplicationNameDriftTest extends BaseIntegrationTest {
 
     @Autowired private TestAuthHelper authHelper;
     @Autowired private JdbcTemplate jdbcTemplate;
+    @Autowired private PlatformTransactionManager transactionManager;
 
     private UUID tenantAId;
     private UUID tenantBId;
@@ -97,6 +100,52 @@ class PgauditApplicationNameDriftTest extends BaseIntegrationTest {
                 .as("After TenantContext scope exits, application_name must reset to "
                         + "'fabt:tenant:none' — never carry the previous tenant's UUID")
                 .isEqualTo("fabt:tenant:none");
+    }
+
+    @Test
+    @DisplayName("Transaction-scoped app.tenant_id override: application_name keeps session tenant (known skew)")
+    void transactionScopedOverride_applicationNameKeepsSessionTenant() {
+        // Seven service-layer call sites (AccessCodeService, AuditEventPersister,
+        // HmisPushService, KidRegistryService, PasswordResetTokenPersister,
+        // TenantKeyRotationService, V74__reencrypt) override app.tenant_id
+        // transaction-scoped with is_local=true to do system-scoped work under
+        // a specific tenant's RLS. application_name is session-scoped, so it
+        // keeps the borrow-time value. Pgaudit logs the session tenant; RLS
+        // enforces the transaction tenant. For current callers all run from
+        // SYSTEM_TENANT_ID context where session tenant is 'none', so the
+        // divergence is documented-and-safe rather than a correctness bug.
+        // This test pins that contract — if a caller starts overriding
+        // app.tenant_id under a real TenantContext, this test still passes
+        // (correctly documenting the skew) and the caller's own tests should
+        // catch any resulting audit-log lie.
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        TenantContext.runWithContext(tenantAId, false, () ->
+                tx.executeWithoutResult(status -> {
+                    // Inside a real transaction so is_local=true persists to later
+                    // queries on this same connection. Mirrors the @Transactional
+                    // boundary that AccessCodeService et al. operate under.
+                    Map<String, Object> before = jdbcTemplate.queryForMap(
+                            "SELECT current_setting('app.tenant_id', true) AS tid, "
+                                    + "current_setting('application_name', true) AS app");
+                    assertThat(before.get("tid")).isEqualTo(tenantAId.toString());
+                    assertThat(before.get("app")).isEqualTo("fabt:tenant:" + tenantAId);
+
+                    jdbcTemplate.queryForObject(
+                            "SELECT set_config('app.tenant_id', ?, true)",
+                            String.class, tenantBId.toString());
+
+                    Map<String, Object> after = jdbcTemplate.queryForMap(
+                            "SELECT current_setting('app.tenant_id', true) AS tid, "
+                                    + "current_setting('application_name', true) AS app");
+
+                    assertThat(after.get("tid"))
+                            .as("transaction-scoped override: app.tenant_id now reads the is_local=true value")
+                            .isEqualTo(tenantBId.toString());
+                    assertThat(after.get("app"))
+                            .as("application_name is session-scoped — still tagged with the borrow-time (A) tenant. "
+                                    + "This is the documented is_local=true drift; see RlsDataSourceConfig javadoc.")
+                            .isEqualTo("fabt:tenant:" + tenantAId);
+                }));
     }
 
     @Test

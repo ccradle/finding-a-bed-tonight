@@ -132,6 +132,20 @@ public class RlsDataSourceConfig {
                 //   drift — a divergence between them would mean pgaudit logs the wrong
                 //   tenant while RLS enforces the right one, which is worse than no tag.
                 //   Drift-safety is covered by PgauditApplicationNameDriftTest.
+                //   KNOWN LIMITATION: seven service-layer call sites (AccessCodeService,
+                //   AuditEventPersister, HmisPushService, KidRegistryService,
+                //   PasswordResetTokenPersister, TenantKeyRotationService, V74 migration)
+                //   override app.tenant_id transaction-scoped with is_local=true to do
+                //   system-scoped work under a specific tenant's RLS. Because
+                //   application_name is session-scoped here, it retains the borrow-time
+                //   value and pgaudit tags those statements with the SESSION tenant
+                //   (typically 'fabt:tenant:none' since system callers run outside any
+                //   TenantContext). RLS still enforces correctly. See
+                //   PgauditApplicationNameDriftTest.transactionScopedOverride_applicationNameKeepsSessionTenant
+                //   for the pinned contract. If you add a new is_local=true call site
+                //   inside an active TenantContext, the audit log will credibly name the
+                //   wrong tenant — update application_name in the same statement or
+                //   accept the documented skew with a test expressing it.
                 // Callers bind context via TenantContext.runWithContext() BEFORE queries.
                 String userIdStr = userId != null ? userId.toString() : "00000000-0000-0000-0000-000000000000";
                 String tenantIdStr = tenantId != null ? tenantId.toString() : "";

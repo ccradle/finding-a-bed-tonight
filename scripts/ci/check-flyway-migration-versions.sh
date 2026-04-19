@@ -24,7 +24,7 @@
 # Exit codes:
 #   0 = all new migrations are above HWM (or no new migrations)
 #   1 = at least one new migration violates the HWM rule
-#   2 = environmental failure (jq missing, deploy/prod-state.json missing)
+#   2 = environmental failure (deploy/prod-state.json missing, unknown schemaVersion)
 
 set -euo pipefail
 
@@ -37,8 +37,13 @@ if [[ ! -f "$SNAPSHOT" ]]; then
     exit 2
 fi
 
-# Parse HWM without adding a jq dependency on Windows / GitHub runners.
-# The field is written as: "appliedMigrationsHighWaterMark": 74
+# Parse without adding a jq dependency on Windows / GitHub runners.
+# Fields are written as: "fieldName": <int>
+SCHEMA=$(sed -nE 's/.*"schemaVersion"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p' "$SNAPSHOT" | head -n1)
+if [[ "$SCHEMA" != "1" ]]; then
+    echo "FAIL: $SNAPSHOT has schemaVersion='$SCHEMA' — this script understands version 1 only. Bump the script after adding new fields." >&2
+    exit 2
+fi
 HWM=$(sed -nE 's/.*"appliedMigrationsHighWaterMark"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p' "$SNAPSHOT" | head -n1)
 if ! [[ "$HWM" =~ ^[0-9]+$ ]]; then
     echo "FAIL: appliedMigrationsHighWaterMark in $SNAPSHOT is not an integer: '$HWM'" >&2

@@ -1157,7 +1157,7 @@ If CI somehow misses a below-HWM migration (e.g., `flyway-hwm-guard` job disable
 
 ## PostgreSQL Minor-Version Bump Checklist (v0.45+)
 
-Phase B installed `PgVersionGate` (a `@PostConstruct` check in `org.fabt.shared.security`) that halts JVM boot when the live server reports `server_version_num < 160005` (PostgreSQL 16.5). The floor is both a correctness gate (older versions lack `pg_policies.permissive`) and a security gate (PG 16.6 was the first release free of CVE-2024-10977).
+Phase B installed `PgVersionGate` (a `@PostConstruct` check in `org.fabt.shared.security`) that halts JVM boot when the live server reports `server_version_num < 160005` (PostgreSQL 16.5). The floor is both a correctness gate (older versions lack `pg_policies.permissive`) and a security gate (PG 16.5 is the first release containing the fix for CVE-2024-10977 — see [postgresql.org/support/security/CVE-2024-10977](https://www.postgresql.org/support/security/CVE-2024-10977/) for fixed-version list).
 
 When bumping the PostgreSQL image on the VM or in CI, work the following checklist so the floor keeps pace:
 
