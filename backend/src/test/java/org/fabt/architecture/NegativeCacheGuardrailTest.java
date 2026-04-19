@@ -96,8 +96,27 @@ class NegativeCacheGuardrailTest {
     @Test
     @DisplayName("No production code writes null or Optional.empty as a cache value")
     void noNullOrEmptyOptionalAsCacheValue() throws IOException {
-        List<String> violations = scanForViolations(MAIN_SRC_ROOT);
-        assertThat(violations)
+        // Silent-empty-guard per feedback_never_skip_silently.md: confirm the
+        // scan root actually exists before asserting violation-set. A misconfigured
+        // cwd (e.g., test launched from repo root instead of backend/) would
+        // otherwise return empty violations and pass vacuously — false confidence.
+        assertThat(Files.isDirectory(MAIN_SRC_ROOT))
+                .as("Guardrail must scan the real production tree, not vacuously pass. "
+                        + "Expected " + MAIN_SRC_ROOT.toAbsolutePath()
+                        + " to exist; run `mvn test` from backend/ directory.")
+                .isTrue();
+
+        ScanResult result = scanForViolations(MAIN_SRC_ROOT);
+
+        // Sanity: the scan must traverse real files. org.fabt has 250+ .java
+        // sources in production today; a floor of 50 is generous + catches any
+        // future path-resolution regression without tracking exact file counts.
+        assertThat(result.filesScanned())
+                .as("Scan must actually traverse production .java files (found zero). "
+                        + "Path resolution broke — check MAIN_SRC_ROOT against actual cwd.")
+                .isGreaterThan(50);
+
+        assertThat(result.violations())
                 .as("Negative-cache guardrail (Phase C task 4.7, design-c D-C-5): "
                         + "production code must NOT write null or Optional.empty() as a "
                         + "cache value. Use TenantScopedCacheService.putNegative(cacheName, "
@@ -106,24 +125,36 @@ class NegativeCacheGuardrailTest {
     }
 
     /**
-     * Scan the provided source tree and return a list of violation
-     * descriptions formatted {@code <path>:<line>  <matched-text>}. Visible
-     * to negative-test methods so they can assert the scan fires on a
-     * fixture sub-tree.
+     * Result of a source-tree scan: how many files were visited + what
+     * violations were found. The {@code filesScanned} count exists so the
+     * positive test can assert the scan actually traversed the tree (not
+     * vacuously passed against a non-existent root).
      */
-    static List<String> scanForViolations(Path root) throws IOException {
+    record ScanResult(int filesScanned, List<String> violations) {}
+
+    /**
+     * Scan the provided source tree and return a {@link ScanResult} with
+     * the file count + violation descriptions formatted
+     * {@code <path>:<line>  <matched-text>}. Visible to negative-test
+     * methods so they can assert the scan fires on a fixture sub-tree.
+     */
+    static ScanResult scanForViolations(Path root) throws IOException {
         List<String> violations = new ArrayList<>();
+        int[] filesScanned = {0};
         if (!Files.isDirectory(root)) {
-            return violations;
+            return new ScanResult(0, violations);
         }
         try (Stream<Path> paths = Files.walk(root)) {
             paths
                     .filter(Files::isRegularFile)
                     .filter(p -> p.getFileName().toString().endsWith(".java"))
                     .filter(p -> !EXCLUDED_FILENAMES.contains(p.getFileName().toString()))
-                    .forEach(p -> scanFile(p, violations));
+                    .forEach(p -> {
+                        filesScanned[0]++;
+                        scanFile(p, violations);
+                    });
         }
-        return violations;
+        return new ScanResult(filesScanned[0], violations);
     }
 
     private static void scanFile(Path file, List<String> violations) {
@@ -156,8 +187,11 @@ class NegativeCacheGuardrailTest {
     @Test
     @DisplayName("Negative: NullPutFixture (literal null value) triggers scan violation")
     void negative_nullPutFixtureTriggersViolation() throws IOException {
-        List<String> violations = scanForViolations(FIXTURES_ROOT);
-        assertThat(violations)
+        ScanResult result = scanForViolations(FIXTURES_ROOT);
+        assertThat(result.filesScanned())
+                .as("Fixture tree must exist for negative tests to be meaningful")
+                .isGreaterThan(0);
+        assertThat(result.violations())
                 .as("Scan must find NullPutFixture's intentional literal-null .put(...)")
                 .anyMatch(v -> v.contains("NullPutFixture.java") && v.contains("null value"));
     }
@@ -165,8 +199,11 @@ class NegativeCacheGuardrailTest {
     @Test
     @DisplayName("Negative: OptionalEmptyPutFixture (Optional.empty() value) triggers scan violation")
     void negative_optionalEmptyPutFixtureTriggersViolation() throws IOException {
-        List<String> violations = scanForViolations(FIXTURES_ROOT);
-        assertThat(violations)
+        ScanResult result = scanForViolations(FIXTURES_ROOT);
+        assertThat(result.filesScanned())
+                .as("Fixture tree must exist for negative tests to be meaningful")
+                .isGreaterThan(0);
+        assertThat(result.violations())
                 .as("Scan must find OptionalEmptyPutFixture's intentional Optional.empty() .put(...)")
                 .anyMatch(v -> v.contains("OptionalEmptyPutFixture.java") && v.contains("Optional.empty()"));
     }

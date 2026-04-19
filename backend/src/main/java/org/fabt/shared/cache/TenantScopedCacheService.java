@@ -289,6 +289,9 @@ public class TenantScopedCacheService {
      *         if no TenantContext is bound
      */
     public void putNegative(String cacheName, String key, Duration ttl) {
+        Objects.requireNonNull(cacheName, "cacheName");
+        Objects.requireNonNull(key, "key");
+        Objects.requireNonNull(ttl, "ttl");
         UUID tenantId = requireTenantContext();
         String scopedKey = tenantId + PREFIX_SEPARATOR + ":404:" + key;
         delegate.put(cacheName, scopedKey,
