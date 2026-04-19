@@ -12,7 +12,7 @@ import org.fabt.availability.repository.BedAvailabilityRepository;
 import org.fabt.observability.DataFreshness;
 import org.fabt.observability.ObservabilityMetrics;
 import org.fabt.shared.cache.CacheNames;
-import org.fabt.shared.cache.CacheService;
+import org.fabt.shared.cache.TenantScopedCacheService;
 import org.fabt.shared.event.DomainEvent;
 import org.fabt.shared.event.EventBus;
 import org.fabt.shared.web.TenantContext;
@@ -61,14 +61,14 @@ public class AvailabilityService {
     private final BedAvailabilityRepository repository;
     private final ShelterService shelterService;
     private final ShelterConstraintsRepository constraintsRepository;
-    private final CacheService cacheService;
+    private final TenantScopedCacheService cacheService;
     private final EventBus eventBus;
     private final ObservabilityMetrics metrics;
 
     public AvailabilityService(BedAvailabilityRepository repository,
                                ShelterService shelterService,
                                ShelterConstraintsRepository constraintsRepository,
-                               CacheService cacheService,
+                               TenantScopedCacheService cacheService,
                                EventBus eventBus,
                                ObservabilityMetrics metrics) {
         this.repository = repository;
@@ -154,11 +154,19 @@ public class AvailabilityService {
         ba.setOverflowBeds(overflowBeds);
         BedAvailability saved = repository.insert(ba);
 
-        // Synchronous cache invalidation BEFORE returning 200 (Design rule D6)
-        // SHELTER_AVAILABILITY is cached by tenantId in BedSearchService — evict by tenantId
-        cacheService.evict(CacheNames.SHELTER_AVAILABILITY, tenantId.toString());
+        // Synchronous cache invalidation BEFORE returning 200 (Design rule D6).
+        // Per D-4.b-2: caller-side tenant prefix stripped; wrapper re-prefixes.
+        // SHELTER_AVAILABILITY is the singleton-per-tenant snapshot key written
+        // by BedSearchService.doSearch — match its new "latest" logical key.
+        cacheService.evict(CacheNames.SHELTER_AVAILABILITY, "latest");
+        // Evict-only today — see D-4.b-3 orphan-cache posture (design-c-cache-isolation.md).
+        // SHELTER_PROFILE has no production put-site; keep the evict as defensive
+        // posture for future put paths + to document the intended invalidation
+        // boundary. Caller-side key stays as the shelter UUID (logical id); the
+        // wrapper adds the tenant prefix.
         cacheService.evict(CacheNames.SHELTER_PROFILE, shelterId.toString());
-        cacheService.evict(CacheNames.SHELTER_LIST, tenantId.toString());
+        // Evict-only today — see D-4.b-3 orphan-cache posture (design-c-cache-isolation.md).
+        cacheService.evict(CacheNames.SHELTER_LIST, "latest");
 
         // Publish availability.updated event
         int bedsAvailable = bedsTotal - bedsOccupied - bedsOnHold;

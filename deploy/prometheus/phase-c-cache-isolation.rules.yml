@@ -1,0 +1,175 @@
+# Prometheus alert rules — multi-tenant-production-readiness Phase C
+# (cache isolation, tasks 4.1 + 4.b).
+#
+# Mount into a Prometheus instance that already scrapes the backend
+# actuator (`fabt-backend` job in prometheus.yml):
+#
+#     rule_files:
+#       - /etc/prometheus/rules/phase-c-cache-isolation.rules.yml
+#
+# Every alert here is Phase C specific — the signals depend on
+# Micrometer counters emitted by `TenantScopedCacheService`
+# (org.fabt.shared.cache). Do NOT delete without updating
+# `docs/security/phase-c-cache-isolation-runbook.md` (forthcoming).
+#
+# Prometheus exposes the Micrometer counters with dots converted to
+# underscores and a `_total` suffix:
+#   fabt.cache.get{result=cross_tenant_reject}
+#       -> fabt_cache_get_total{result="cross_tenant_reject"}
+#   fabt.cache.get{result=malformed_entry}
+#       -> fabt_cache_get_total{result="malformed_entry"}
+#   fabt.cache.get{result=hit|miss}
+#       -> fabt_cache_get_total{result="hit"|"miss"}
+#
+# Warroom authority: design-c-cache-isolation.md D-4.b-6 (Jordan Reyes,
+# SRE) — three-level alert set distinguishes correctness signal
+# (CRITICAL page on cross-tenant reject), data-discipline signal (WARN
+# on malformed entries bypassing the wrapper on write), and performance
+# signal (WARN on hit-rate collapse indicating migration key drift).
+
+groups:
+  - name: fabt_phase_c_cache_isolation
+    interval: 30s
+    rules:
+
+      # ---- CRITICAL — cross-tenant cache-read rejection ----------------
+      # Fires on ANY wrapper-detected envelope-tenant-mismatch. The
+      # counter is emitted only from TenantScopedCacheService.get's
+      # value-stamp-and-verify path, which should be physically
+      # impossible under correct TenantContext discipline. Non-zero
+      # means one of:
+      #   (a) async-continuation context drift — code crossed a thread
+      #       boundary without re-binding TenantContext
+      #   (b) scheduled-job-forgot-to-bind — @Scheduled method skipped
+      #       TenantContext.runWithContext and read a prior tenant's
+      #       cached envelope
+      #   (c) attacker — live attempt to trigger cross-tenant read
+      # Any of the three warrants an immediate page. The `tenant` label
+      # on the alert lets Alertmanager route to that tenant's on-call
+      # contact per G5 alert routing.
+      - alert: FabtPhaseCCrossTenantCacheRead
+        # env="prod" filter per Jordan Reyes post-commit warroom — test harness
+        # Tenant4bMigrationCrossTenantAttackTest triggers cross_tenant_reject × 8
+        # on every CI run. Without this label, a Prometheus instance that scrapes
+        # both CI and prod would false-page on the test harness. Prod scrapes set
+        # external_labels.env=prod; CI scrapes omit the label or set env=ci.
+        expr: |
+          sum by (tenant, cache) (
+            rate(fabt_cache_get_total{result="cross_tenant_reject",env="prod"}[5m])
+          ) > 0
+        for: 0m
+        labels:
+          severity: critical
+          surface: phase-c-cache
+          runbook: docs/security/phase-c-cache-isolation-runbook.md
+        annotations:
+          summary: "Phase C: cross-tenant cache-read rejection on {{ $labels.cache }} for tenant {{ $labels.tenant }}"
+          description: |
+            TenantScopedCacheService value-stamp-and-verify rejected a
+            cross-tenant read on cache {{ $labels.cache }} against
+            reader tenant {{ $labels.tenant }} at
+            {{ $value | humanize }}/s. This counter should be zero
+            under correct TenantContext discipline.
+
+            Triage: check the audit_events table for action
+            CROSS_TENANT_CACHE_READ rows in the same window — the
+            DetachedAuditPersister REQUIRES_NEW path records the
+            expected vs. observed tenant pair. Correlate with any
+            async / scheduled code paths that may have missed
+            runWithContext. See runbook section "Cross-tenant cache
+            read triage".
+
+      # ---- WARN — malformed cache entry on read ------------------------
+      # Fires when the wrapper fetches an entry that is NOT a
+      # TenantScopedValue envelope or whose inner value's type doesn't
+      # match the caller's requested type. After the 4.b migration
+      # completes (PENDING_MIGRATION_SITES drained to empty), this
+      # counter should be zero — every put goes through the wrapper so
+      # every entry is wrapped. Non-zero means a caller bypassed the
+      # wrapper on put (raw CacheService.put with a non-envelope value),
+      # poisoning the cache for future wrapper reads.
+      - alert: FabtPhaseCMalformedCacheEntry
+        expr: |
+          sum by (cache) (
+            rate(fabt_cache_get_total{result="malformed_entry",env="prod"}[15m])
+          ) > 0
+        for: 15m
+        labels:
+          severity: warning
+          surface: phase-c-cache
+          runbook: docs/security/phase-c-cache-isolation-runbook.md
+        annotations:
+          summary: "Phase C: malformed cache entry read on {{ $labels.cache }}"
+          description: |
+            Cache {{ $labels.cache }} is returning entries that are
+            NOT TenantScopedValue envelopes at
+            {{ $value | humanize }}/s over 15 minutes. A caller is
+            writing raw values via CacheService.put, bypassing the
+            wrapper's stamp step. Subsequent wrapper reads throw
+            MALFORMED_CACHE_ENTRY.
+
+            Triage: grep the codebase for
+            `cacheService.put(` where `cacheService` is a raw
+            CacheService bean (not TenantScopedCacheService) scoped to
+            cache name {{ $labels.cache }}. Migrate the call site
+            through the wrapper OR carry @TenantUnscopedCache with a
+            justification (Family C ArchUnit rule enforces this at
+            build time — a non-zero malformed_entry rate past 4.b
+            landing indicates a test-path that escaped the rule).
+
+      # ---- WARN — per-cache hit-rate drop > 50% vs 7-day avg ----------
+      # Fires when a cache's hit rate in the last hour is less than
+      # half its 7-day moving average. Catches the migration-went-bad
+      # case: wrapper is running, cache is present, but the
+      # migration's put-key and get-key diverged (composite-key
+      # toString() drift, accidentally-stripped caller-side prefix on
+      # one side only) — every call becomes a miss. Invisible in unit
+      # tests; visible as flat-line hit-rate in prod. Post-migration
+      # hit-rate sanity test (PostMigrationCacheHitRateTest) is the
+      # first line of defence; this alert is the prod-observation
+      # fallback.
+      #
+      # NOTE: `avg_over_time(... [7d])` on `fabt_cache_hit_ratio`
+      # requires either a Prometheus recording rule pre-computing the
+      # ratio OR a raw PromQL division. Using division here so the
+      # rule ships without a companion recording-rule file; ops can
+      # substitute a recording rule later for query efficiency.
+      - alert: FabtPhaseCCacheHitRateCollapse
+        expr: |
+          (
+            sum by (cache) (rate(fabt_cache_get_total{result="hit",env="prod"}[1h]))
+            /
+            (
+              sum by (cache) (rate(fabt_cache_get_total{result="hit",env="prod"}[1h]))
+              + sum by (cache) (rate(fabt_cache_get_total{result="miss",env="prod"}[1h]))
+            )
+          )
+          <
+          (
+            sum by (cache) (avg_over_time(rate(fabt_cache_get_total{result="hit",env="prod"}[1h])[7d:1h]))
+            /
+            (
+              sum by (cache) (avg_over_time(rate(fabt_cache_get_total{result="hit",env="prod"}[1h])[7d:1h]))
+              + sum by (cache) (avg_over_time(rate(fabt_cache_get_total{result="miss",env="prod"}[1h])[7d:1h]))
+            )
+          ) * 0.5
+        for: 30m
+        labels:
+          severity: warning
+          surface: phase-c-cache
+          runbook: docs/security/phase-c-cache-isolation-runbook.md
+        annotations:
+          summary: "Phase C: cache hit rate collapsed > 50% below baseline on {{ $labels.cache }}"
+          description: |
+            Cache {{ $labels.cache }} is showing a hit rate under half
+            its 7-day average for 30+ minutes. Likely cause: a recent
+            migration (task 4.b) landed with divergent put-key vs.
+            get-key producing mostly misses, OR a TTL was shortened
+            to a value smaller than the typical re-fetch interval.
+
+            Triage: diff recent commits touching
+            `backend/src/main/java/.../service/*.java` call sites
+            against cache name {{ $labels.cache }}. Also check the
+            wrapper emits `fabt.cache.put` at the same cache-name
+            rate — a put-counter that stayed flat while get-misses
+            rose means the put path itself broke.

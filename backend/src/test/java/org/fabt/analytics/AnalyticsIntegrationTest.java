@@ -6,7 +6,8 @@ import java.util.UUID;
 
 import org.fabt.BaseIntegrationTest;
 import org.fabt.TestAuthHelper;
-import org.fabt.shared.cache.CacheService;
+import org.fabt.shared.cache.CacheNames;
+import org.fabt.shared.cache.TenantScopedCacheService;
 import org.fabt.shared.web.TenantContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -30,7 +31,7 @@ class AnalyticsIntegrationTest extends BaseIntegrationTest {
     private JdbcTemplate jdbcTemplate;
 
     @Autowired
-    private CacheService cacheService;
+    private TenantScopedCacheService cacheService;
 
     private HttpHeaders adminHeaders;
     private HttpHeaders outreachHeaders;
@@ -316,8 +317,12 @@ class AnalyticsIntegrationTest extends BaseIntegrationTest {
             createTestShelter("Single DV Shelter", true);
         });
 
-        // Evict cached DV summary
-        cacheService.evictAll("analytics-dv-summary");
+        // Evict cached DV summary — targeted to this tenant's "latest" slot
+        // so we don't touch any other tenant's envelope (D-4.b-2 "latest"
+        // constant post-migration). Requires bound TenantContext per wrapper
+        // contract.
+        TenantContext.runWithContext(tenantId, true, () ->
+                cacheService.evict(CacheNames.ANALYTICS_DV_SUMMARY, "latest"));
 
         var dvAdmin = authHelper.setupUserWithDvAccess(
                 "dv-suppress-admin@test.fabt.org", "DV Suppress Admin", new String[]{"COC_ADMIN"});
@@ -349,8 +354,12 @@ class AnalyticsIntegrationTest extends BaseIntegrationTest {
             createTestShelter("DV Shelter Delta", true);
         });
 
-        // Evict cached DV summary from prior test runs
-        cacheService.evictAll("analytics-dv-summary");
+        // Evict cached DV summary from prior test runs — targeted to this
+        // tenant's "latest" slot so we don't touch any other tenant's
+        // envelope (D-4.b-2 "latest" constant post-migration). Requires
+        // bound TenantContext per wrapper contract.
+        TenantContext.runWithContext(tenantId, true, () ->
+                cacheService.evict(CacheNames.ANALYTICS_DV_SUMMARY, "latest"));
 
         var dvAdmin = authHelper.setupUserWithDvAccess(
                 "dv-multi-admin@test.fabt.org", "DV Multi Admin", new String[]{"COC_ADMIN"});

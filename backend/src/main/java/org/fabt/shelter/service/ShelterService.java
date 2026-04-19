@@ -34,7 +34,7 @@ import org.fabt.shelter.repository.ShelterRepository;
 import org.fabt.shared.audit.AuditEventRecord;
 import org.fabt.shared.audit.AuditEventTypes;
 import org.fabt.shared.cache.CacheNames;
-import org.fabt.shared.cache.CacheService;
+import org.fabt.shared.cache.TenantScopedCacheService;
 import org.fabt.shelter.api.CreateShelterRequest;
 import org.fabt.shelter.api.ShelterConstraintsDto;
 import org.fabt.shelter.api.ShelterDetailResponse.AvailabilityDto;
@@ -80,7 +80,7 @@ public class ShelterService {
     private final ObjectMapper objectMapper;
     private final JdbcTemplate jdbcTemplate;
     private final ApplicationEventPublisher eventPublisher;
-    private final CacheService cacheService;
+    private final TenantScopedCacheService cacheService;
     private final ReservationService reservationService;
     private final ReferralTokenService referralTokenService;
     private final NotificationPersistenceService notificationPersistenceService;
@@ -93,7 +93,7 @@ public class ShelterService {
                           ObjectMapper objectMapper,
                           JdbcTemplate jdbcTemplate,
                           ApplicationEventPublisher eventPublisher,
-                          CacheService cacheService,
+                          TenantScopedCacheService cacheService,
                           @Lazy ReservationService reservationService,
                           @Lazy ReferralTokenService referralTokenService,
                           NotificationPersistenceService notificationPersistenceService,
@@ -196,9 +196,18 @@ public class ShelterService {
      * shelters appear (e.g. {@code active}) — evict so the next search is consistent (Elena Vasquez).
      */
     private void evictTenantShelterCaches(UUID tenantId) {
-        String key = tenantId.toString();
-        cacheService.evict(CacheNames.SHELTER_AVAILABILITY, key);
-        cacheService.evict(CacheNames.SHELTER_LIST, key);
+        // Per D-4.b-2 + D-4.b-3: caller-side tenantId stripped; the wrapper
+        // sources the tenant from TenantContext. "latest" matches the
+        // singleton-per-tenant logical key used by BedSearchService.doSearch +
+        // AvailabilityService.createSnapshot. The tenantId parameter is retained
+        // in the signature for call-site documentation; the wrapper validates
+        // it matches TenantContext.getTenantId() implicitly via requireTenantContext.
+        // D-4.b-3 rejects refactoring to invalidateTenant(tenantId): would amplify
+        // evicts 5.5× + pollute TENANT_CACHE_INVALIDATED audit surface.
+        cacheService.evict(CacheNames.SHELTER_AVAILABILITY, "latest");
+        // Evict-only today — see D-4.b-3 orphan-cache posture (design-c-cache-isolation.md).
+        // SHELTER_LIST has no production put-site; keep the evict as defensive posture.
+        cacheService.evict(CacheNames.SHELTER_LIST, "latest");
     }
 
     /**

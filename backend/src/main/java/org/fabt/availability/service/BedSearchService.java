@@ -21,7 +21,7 @@ import io.micrometer.core.instrument.Timer;
 import org.fabt.observability.DataFreshness;
 import org.fabt.observability.ObservabilityMetrics;
 import org.fabt.shared.cache.CacheNames;
-import org.fabt.shared.cache.CacheService;
+import org.fabt.shared.cache.TenantScopedCacheService;
 import org.fabt.shared.web.TenantContext;
 import org.fabt.shelter.domain.Shelter;
 import org.fabt.shelter.domain.ShelterConstraints;
@@ -38,14 +38,14 @@ public class BedSearchService {
     private final BedAvailabilityRepository availabilityRepository;
     private final ShelterService shelterService;
     private final ShelterConstraintsRepository constraintsRepository;
-    private final CacheService cacheService;
+    private final TenantScopedCacheService cacheService;
     private final ObservabilityMetrics metrics;
     private final BedSearchLogger bedSearchLogger;
 
     public BedSearchService(BedAvailabilityRepository availabilityRepository,
                             ShelterService shelterService,
                             ShelterConstraintsRepository constraintsRepository,
-                            CacheService cacheService,
+                            TenantScopedCacheService cacheService,
                             ObservabilityMetrics metrics,
                             BedSearchLogger bedSearchLogger) {
         this.availabilityRepository = availabilityRepository;
@@ -82,8 +82,11 @@ public class BedSearchService {
     private BedSearchResponse doSearch(BedSearchRequest request, boolean surgeActive) {
         UUID tenantId = TenantContext.getTenantId();
 
-        // Cache-aside: check cache first, populate on miss from PostgreSQL
-        String cacheKey = tenantId.toString();
+        // Cache-aside: check cache first, populate on miss from PostgreSQL.
+        // Per D-4.b-2: caller-side tenantId prefix stripped — wrapper re-prefixes
+        // via its PREFIX_SEPARATOR. The singleton-per-tenant payload uses the
+        // "latest" constant per the empty-post-strip convention.
+        String cacheKey = "latest";
         @SuppressWarnings("unchecked")
         Optional<List<BedAvailability>> cached = cacheService.get(
                 CacheNames.SHELTER_AVAILABILITY, cacheKey, (Class<List<BedAvailability>>) (Class<?>) List.class);
