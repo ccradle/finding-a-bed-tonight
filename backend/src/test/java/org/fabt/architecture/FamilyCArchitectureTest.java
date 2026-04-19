@@ -92,11 +92,13 @@ class FamilyCArchitectureTest {
             "org.fabt.shared.cache.TieredCacheService");
 
     /**
-     * <b>Pending-migration allowlist for Rule C1.</b> Each entry is
-     * {@code SimpleClassName.methodName} of a pre-Phase-C call site that
-     * manually embeds {@code tenantId} in its cache key (per design-c D-C-1:
-     * "existing 7 call sites already manually embed tenantId in the cache key").
-     * These sites are tenant-safe TODAY — they just aren't routed through
+     * <b>Pending-migration allowlist for Rule C1.</b> Each entry is the
+     * fully-qualified {@code <package>.<ClassName>.<methodName>} of a
+     * pre-Phase-C call site that manually embeds {@code tenantId} in its
+     * cache key (per design-c D-C-1: "existing 7 call sites already manually
+     * embed tenantId in the cache key" — actual inventory is 10 methods,
+     * spec-drift noted in warroom 2026-04-19 PM). These sites are
+     * tenant-safe TODAY — they just aren't routed through
      * {@code TenantScopedCacheService} yet.
      *
      * <p><b>Task 4.b migration contract:</b> each migration MUST remove the
@@ -105,37 +107,40 @@ class FamilyCArchitectureTest {
      * when the site migrates. Zero-entry state at task 4.b completion is
      * the visible signal that 4.b is done.
      *
-     * <p>Format: {@code SimpleClassName.methodName}. Per-method granularity —
-     * a method may contain multiple {@code get/put/evict} calls; the entry
-     * exempts the whole method.
+     * <p><b>FQN format</b> (not SimpleClassName) per warroom PR #137
+     * post-commit review (Marcus hardening): prevents cross-package
+     * class-name collisions from silently leaking an exemption between
+     * two classes that happen to share a simple name. Per-method
+     * granularity — a method may contain multiple {@code get/put/evict}
+     * calls; the entry exempts the whole method.
      */
     private static final Set<String> PENDING_MIGRATION_SITES = Set.of(
             // AnalyticsService — 6 methods, each with get/put per event-type
             // composite-keyed lookup. Task 4.b migrates these to
             // tenantScopedCacheService.get/put with the caller stripping the
             // leading tenantId from the key.
-            "AnalyticsService.getUtilization",
-            "AnalyticsService.getDemand",
-            "AnalyticsService.getCapacity",
-            "AnalyticsService.getDvSummary",
-            "AnalyticsService.getGeographic",
-            "AnalyticsService.getHmisHealth",
+            "org.fabt.analytics.service.AnalyticsService.getUtilization",
+            "org.fabt.analytics.service.AnalyticsService.getDemand",
+            "org.fabt.analytics.service.AnalyticsService.getCapacity",
+            "org.fabt.analytics.service.AnalyticsService.getDvSummary",
+            "org.fabt.analytics.service.AnalyticsService.getGeographic",
+            "org.fabt.analytics.service.AnalyticsService.getHmisHealth",
             // BedSearchService — 1 method with get/put. Key is
             // tenantId.toString() (pure tenant cache); task 4.b migrates
             // with caller stripping the leading tenantId so the wrapper's
             // prefix isn't double-applied.
-            "BedSearchService.doSearch",
+            "org.fabt.availability.service.BedSearchService.doSearch",
             // AvailabilityService — 3 evict calls. Two by tenantId
             // (SHELTER_AVAILABILITY + SHELTER_LIST), one by shelterId
             // (SHELTER_PROFILE). Migration note (design-c D-C-1, D-4.1-5):
             // the shelterId-keyed evict is safe under wrapper because the
             // caller's TenantContext is the shelter's own tenant.
-            "AvailabilityService.createSnapshot",
+            "org.fabt.availability.service.AvailabilityService.createSnapshot",
             // ShelterService — 2 evict calls in evictTenantShelterCaches,
             // called from the tenant-lifecycle cleanup path. Task 4.b
             // candidate: consider replacing with
             // tenantScopedCacheService.invalidateTenant(UUID).
-            "ShelterService.evictTenantShelterCaches"
+            "org.fabt.shelter.service.ShelterService.evictTenantShelterCaches"
     );
 
     private static final String SCOPE_PKG_SERVICE = "..service..";
@@ -174,7 +179,10 @@ class FamilyCArchitectureTest {
                 if (EXEMPT_CLASSES.contains(ownerFqn)) {
                     return;
                 }
-                String siteKey = method.getOwner().getSimpleName() + "." + method.getName();
+                // FQN format per warroom PR #137 hardening (Marcus):
+                // <fully.qualified.ClassName>.<methodName>. Prevents cross-
+                // package simple-name collisions.
+                String siteKey = method.getOwner().getName() + "." + method.getName();
                 if (PENDING_MIGRATION_SITES.contains(siteKey)) {
                     return;
                 }

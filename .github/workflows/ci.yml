@@ -138,16 +138,39 @@ jobs:
           set -eo pipefail
           BASE_SHA="${{ github.event.pull_request.base.sha }}"
           HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+
+          # Hardening (warroom PR #137 post-commit review — Jordan): verify
+          # both SHAs resolve BEFORE the diff. Previous version used
+          # `git diff ... | grep ... || true`, which masked a broken diff as
+          # "zero new usages" — the review gate could be silently bypassed if
+          # a fork re-push pruned the base SHA. Fail loud on unresolvable
+          # SHAs instead.
+          if ! git rev-parse --verify --quiet "$BASE_SHA^{commit}" >/dev/null; then
+            echo "::error::base SHA $BASE_SHA does not resolve in this checkout — cannot compute diff. Refusing to skip the review gate."
+            exit 1
+          fi
+          if ! git rev-parse --verify --quiet "$HEAD_SHA^{commit}" >/dev/null; then
+            echo "::error::head SHA $HEAD_SHA does not resolve in this checkout — cannot compute diff. Refusing to skip the review gate."
+            exit 1
+          fi
+
           # Count NEW occurrences (added lines) containing the annotations
           # in the PR diff. Exclude the annotation definitions themselves
           # (TenantUnscopedCache.java, TenantScopedByConstruction.java) so
-          # edits to the annotations don't self-trigger.
-          NEW_USAGES=$(git diff "$BASE_SHA" "$HEAD_SHA" -- \
+          # edits to the annotations don't self-trigger. Use a tmpfile to
+          # separate pipeline-failure detection from grep's no-match exit
+          # code (grep returns 1 on zero matches, which set -o pipefail
+          # would otherwise treat as fatal).
+          DIFF_FILE=$(mktemp)
+          git diff "$BASE_SHA" "$HEAD_SHA" -- \
               ':(exclude)backend/src/main/java/org/fabt/shared/security/TenantUnscopedCache.java' \
               ':(exclude)backend/src/main/java/org/fabt/shared/security/TenantScopedByConstruction.java' \
-              | grep -E '^\+[^+]' \
-              | grep -cE '@TenantUnscopedCache\(|@TenantScopedByConstruction\(' \
-              || true)
+              > "$DIFF_FILE"
+          # Added-line count of the two annotation constructors; `grep -c`
+          # returns 0 on no match (without exit 1 because it reads from file).
+          NEW_USAGES=$(grep -cE '^\+[^+].*@TenantUnscopedCache\(|^\+[^+].*@TenantScopedByConstruction\(' "$DIFF_FILE" || true)
+          rm -f "$DIFF_FILE"
+
           echo "new_usages=$NEW_USAGES" >> "$GITHUB_OUTPUT"
           if [ "$NEW_USAGES" -gt 0 ]; then
             echo "::notice::PR introduces $NEW_USAGES new @TenantUnscopedCache / @TenantScopedByConstruction usage(s) — @ccradle review required."
