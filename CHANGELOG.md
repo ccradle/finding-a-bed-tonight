@@ -64,6 +64,43 @@ unchanged.
 - `docs/FOR-DEVELOPERS.md` Tech Stack row updates PostgreSQL floor from
   "16.6+" (stale) to "16.5+ (enforced by `PgVersionGate` at boot)".
 
+### Release Gate
+
+Phase B release-gate artifacts pinned for this tag so operator-side
+rollback can verify the deploy bit-for-bit (W-CHANGELOG-1 and
+W-CHANGELOG-3):
+
+- **`pg_policies` snapshot hash** — `docs/security/pg-policies-snapshot.md`
+  SHA-256: `abca0e94b7626bf855b200a677a1cdd54d3522610417ad3f76c383240e004207`
+  (PostgreSQL 16-line file, 7 regulated tables × USING + WITH CHECK clauses).
+  Recompute during deploy verification with
+  `sha256sum docs/security/pg-policies-snapshot.md`; a mismatch means the
+  snapshot was edited without a corresponding policy-diff review.
+- **Named signer** — `@ccradle`, per `.github/CODEOWNERS` lines 18-26
+  (new in this release). The named-signer + SHA-256 pair satisfies the
+  release-gate #4 acceptance criterion from the Phase B warroom.
+- **Supporting artifacts** — `deploy/prod-state.json` captures the prod
+  Flyway HWM (74) + schemaVersion:1. `PgVersionGate` + its test assert
+  the runtime PG floor (16.5) is above the CVE-2024-10977 gate.
+
+### Added (test infrastructure)
+
+These are test-only additions that ship with v0.45.0 but don't change
+production behavior. All referenced above; listed here for
+release-gate counting.
+
+- `PgVersionGateTest` (2 ITs) + `PgVersionGateUnitTest` (4 unit tests).
+- `PgauditApplicationNameDriftTest` (4 ITs — sequential + null +
+  concurrent + transaction-scoped drift documentation).
+- `PhaseBRlsEnforcementTest` (4 ITs covering task 3.19 + 3.21 + 3.22).
+- `RlsAwareDataSourceFailureTest` (3 unit tests for task 3.18 B12).
+- `ForceRlsHealthGaugeTest` (1 IT validating the W-GAUGE-3
+  `java.sql.Array` fix + gauge publication).
+- `TenantKeyRotationSetConfigReuseTest` (2 ITs — W-B-FIXA-1 pinning no
+  pool-reuse leak from is_local=true override).
+- `MigrationLintTest` (1 lint test — task 3.14 SECURITY DEFINER ban
+  with empty allowlist).
+
 ---
 
 ## [v0.44.3] — 2026-04-19 — i18n hygiene: missing keys + coverage test (#173)
