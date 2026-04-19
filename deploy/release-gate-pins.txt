@@ -17,10 +17,10 @@
 #
 # Lines starting with '#' are comments; blank lines ignored.
 #
-# Known limitation: sha256sum on Windows/Git-Bash emits LF-normalized
-# output, while on a Linux CI runner it reads the file verbatim. If a
-# file contains mixed line endings the hashes will differ across
-# platforms. All files pinned here use LF line endings (.gitattributes
-# enforces text=auto for docs/**/*.md).
+# Hashes are computed against the LF-normalized content of each file —
+# verify-release-gate-pins.sh pipes through `tr -d '\r'` before sha256sum
+# so the pin is platform-agnostic (a Windows Git checkout with CRLF and
+# a Linux CI checkout with LF produce the same hash). Recompute locally
+# with: tr -d '\r' < path/to/file | sha256sum
 
-docs/security/pg-policies-snapshot.md	abca0e94b7626bf855b200a677a1cdd54d3522610417ad3f76c383240e004207	v0.45.0
+docs/security/pg-policies-snapshot.md	70618354df1234c69c2bb64d226b7b850177a8f450c4f080e5396c8deb30c6a0	v0.45.0

@@ -43,7 +43,11 @@ while IFS=$'\t' read -r path pinned release || [[ -n "$path" ]]; do
         FAIL=1
         continue
     fi
-    actual=$(sha256sum "$path" | awk '{print $1}')
+    # Normalize line endings (strip CR) before hashing so the pin is
+    # platform-agnostic. Without this, a Windows Git checkout with CRLF
+    # produces a different SHA-256 than a Linux CI runner with LF —
+    # CI fails even though both checkouts represent the same file.
+    actual=$(tr -d '\r' < "$path" | sha256sum | awk '{print $1}')
     if [[ "$actual" != "$pinned" ]]; then
         echo "FAIL: SHA-256 drift on $path (pinned at $release)"
         echo "    pinned:  $pinned"
