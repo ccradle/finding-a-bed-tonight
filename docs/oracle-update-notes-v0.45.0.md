@@ -14,9 +14,11 @@
 > that forces a Postgres container rebuild + restart**. The pgaudit.conf
 > change is baked into the image, not bind-mounted, so the Postgres
 > container drops its buffer cache on restart. Budget ~5 min of slow
-> queries after restart while the cache re-warms; prod data set is small
-> (~71 MB pgdata) so the dip is cosmetic, not an outage. Deploy during a
-> normal 24h bake window — this is not security-critical.
+> queries after restart while the cache re-warms; prod data fits
+> comfortably within Postgres' default `shared_buffers = 128 MB` (verify
+> at post-deploy step 9 via `docker compose exec -T postgres du -sh
+> /var/lib/postgresql/data`) so the dip is cosmetic, not an outage.
+> Deploy during a normal 24h bake window — this is not security-critical.
 
 **Bake window math:** v0.44.3 shipped 2026-04-19. v0.45.0 can tag after
 **2026-04-20 ~00:00 UTC** without breaking the 24h guardrail. No need to
@@ -224,29 +226,63 @@ not rely on the pre-v0.44 dump (that's 2 schema-diffs stale now).
 ```bash
 TS=$(date -u +%Y%m%dT%H%M%SZ)
 docker compose exec -T postgres pg_dump -U fabt -Fc fabt \
-    > ~/fabt-backups/pre-v0.45-${TS}.sql.gz
-ls -lh ~/fabt-backups/pre-v0.45-${TS}.sql.gz
-sha256sum ~/fabt-backups/pre-v0.45-${TS}.sql.gz \
-    | tee ~/fabt-backups/pre-v0.45-${TS}.sql.gz.sha256
+    > ~/fabt-backups/pre-v0.45-${TS}.dump
+ls -lh ~/fabt-backups/pre-v0.45-${TS}.dump
+sha256sum ~/fabt-backups/pre-v0.45-${TS}.dump \
+    | tee ~/fabt-backups/pre-v0.45-${TS}.dump.sha256
 # Pull to local, SHA-pin locally, confirm both match before cutover.
-scp fabt@findabed.org:~/fabt-backups/pre-v0.45-${TS}.sql.gz* ~/fabt-backups/
-sha256sum -c ~/fabt-backups/pre-v0.45-${TS}.sql.gz.sha256
+scp fabt@findabed.org:~/fabt-backups/pre-v0.45-${TS}.dump* ~/fabt-backups/
+sha256sum -c ~/fabt-backups/pre-v0.45-${TS}.dump.sha256
 ```
 
-**Naming convention:** `pre-v0.45-<UTC-timestamp>.sql.gz` +
-`.sha256` sidecar. Matches the pattern set in v0.43.1 / v0.44.1 amendments.
+**Naming convention:** `pre-v0.45-<UTC-timestamp>.dump` +
+`.sha256` sidecar. Matches the v0.44.1 convention. `pg_dump -Fc` is the
+PostgreSQL custom archive format (already compressed internally — do
+NOT wrap in gzip; `pg_restore` reads the file directly without
+decompression). Mixing formats (e.g., `.sql.gz` extension on a `-Fc`
+output) breaks the §D rollback pipe; the extension must match the
+format.
+
+### 7b. Dry-render the final compose config
+
+> **Jordan's note (SRE):** compose-override drift is the #1 deploy-hour
+> incident. The 4-override chain on the VM (`docker-compose.yml` → prod
+> → flyway-ooo → pgaudit) must merge to a postgres service with
+> `image: fabt-pgaudit:v0.45.0` AND a `command:` that preserves
+> `shared_preload_libraries=pgaudit,pg_stat_statements`. Render the full
+> config once before live restart — if either field is wrong, fix the
+> override file BEFORE the outage window opens, not during it.
+
+```bash
+# On the VM, AFTER editing docker-compose.prod-v0.44-pgaudit.yml to
+# bump the image tag to v0.45.0 (see Deploy step 2a), render the merged
+# compose + grep the postgres service for the two load-bearing fields.
+cd ~/src/finding-a-bed-tonight
+docker compose \
+    -f docker-compose.yml \
+    -f ~/fabt-secrets/docker-compose.prod.yml \
+    -f ~/fabt-secrets/docker-compose.prod-v0.43-flyway-ooo.yml \
+    -f ~/fabt-secrets/docker-compose.prod-v0.44-pgaudit.yml \
+    config 2>&1 | awk '/^  postgres:/,/^  [a-z]/' | head -50
+# Expected: image reads fabt-pgaudit:v0.45.0 (NOT postgres:16-alpine,
+# NOT fabt-pgaudit:v0.44.1). Command reads something like
+# ["postgres","-c","shared_preload_libraries=pgaudit,pg_stat_statements",
+# "-c","pg_stat_statements.track=all"].
+# If EITHER is wrong, the override file needs another edit.
+```
 
 ### 8. Pre-tag checklist (run before opening the deploy window)
 
 - [ ] PR #134 CI all-green, including `flyway-hwm-guard` and
       `release-gate-pin-verify`.
 - [ ] 24h bake satisfied (v0.44.3 shipped 2026-04-19 → cutover ≥ 2026-04-20 00:00 UTC).
-- [ ] Fresh `pre-v0.45-<ts>.sql.gz` taken, pulled to local, SHA-pinned (match).
+- [ ] Fresh `pre-v0.45-<ts>.dump` taken, pulled to local, SHA-pinned (match).
 - [ ] `tr -d '\r' < docs/security/pg-policies-snapshot.md | sha256sum` matches the pin.
 - [ ] `deploy/pgaudit.Dockerfile` built locally, confirmed `log_line_prefix` present.
 - [ ] Current PG `server_version_num` ≥ 160006 (confirmed 16.6 in step 6).
 - [ ] Tenant-context-empty baseline recorded (step 3) for later comparison.
 - [ ] `~/fabt-secrets/docker-compose.prod-v0.44-pgaudit.yml` backed up before edit (step in Deploy below).
+- [ ] Step 7b `docker compose config` dry-render shows `image: fabt-pgaudit:v0.45.0` + correct `command:` preload list.
 - [ ] v0.44 runbook pgaudit panic script (`scripts/phase-b-rls-panic.sh`) still present on VM.
 
 ---
@@ -394,9 +430,19 @@ docker compose ps postgres
 > of the three checks below fail, roll back Postgres BEFORE starting the
 > backend swap. Backend is still running v0.44.3 at this point and is
 > holding connections to the old Postgres — those connections died with
-> the old container, so the backend is already in a reconnect loop. You
-> have ~2 minutes before HikariCP starts emitting connection-timeout
-> errors that could degrade user-facing requests. Do not exceed.
+> the old container, so the backend is already in a reconnect loop.
+>
+> **You have ~5 SECONDS, not minutes, before user-facing traffic starts
+> returning 500s.** Prod sets `spring.datasource.hikari.connection-timeout:
+> 5000` (see `backend/src/main/resources/application.yml:33`), which is
+> the maximum wait for a new pool borrow. Once the old Postgres container
+> dies, in-flight queries fail immediately; new `getConnection()` calls
+> reject after 5s. Expected degradation timeline:
+>   - Postgres stop → `getConnection()` 5s timeouts start → user HTTP 500s
+>   - 5a/5b/5c must complete in under ~30s OR you must be prepared to
+>     invoke Rollback §A (Postgres-only) immediately.
+>   - If Postgres healthcheck has not gone green within ~60s, do NOT keep
+>     waiting — cut to §A and investigate after service is restored.
 
 ```bash
 # 5a. pgaudit shared_preload_libraries still loaded
@@ -564,6 +610,54 @@ apply (image swap didn't take) OR `application_name` wasn't bound
 (connection was borrowed without RlsDataSourceConfig in path).
 Escalate before the bake completes.
 
+### 4b. End-to-end: real backend write emits tagged pgaudit line — NEW GATE
+
+Step 4 above proves `log_line_prefix` picks up `%a` when a psql session
+sets `application_name` manually. It does NOT prove the backend's
+`RlsDataSourceConfig` actually sets the value on every borrow — a
+regression that bypassed `applyRlsContext` (e.g., a scheduler path or
+raw JDBC borrow that doesn't go through the decorator) would still
+pass step 4 while silently breaking the tenant-attribution invariant.
+
+Close the gap by exercising the real backend code path:
+
+```bash
+# 1. Tail pgaudit output filtered to lines where fabt_app is the role
+#    (the backend's connection-borrow path, NOT a psql session).
+docker compose logs --tail=0 -f postgres 2>&1 \
+    | grep -iE 'AUDIT:.*fabt_app@fabt' &
+TAIL_PID=$!
+
+# 2. Hit an authenticated endpoint that performs a tenant-bound write.
+#    Any admin mutation works; a shelter update or coordinator
+#    assignment is typical. Acquire a JWT via a regular login flow.
+TOKEN="$(curl -sk -X POST https://findabed.org/api/v1/auth/login \
+    -H 'Content-Type: application/json' \
+    -d '{"email":"admin@dev.fabt.org","password":"<prod admin password>"}' \
+    | jq -r .accessToken)"
+SHELTER_ID="<known shelter UUID>"
+curl -sk -X PUT "https://findabed.org/api/v1/shelters/${SHELTER_ID}" \
+    -H "Authorization: Bearer $TOKEN" \
+    -H 'Content-Type: application/json' \
+    -d '{"name":"post-v0.45-smoke (revert after bake)"}' -o /dev/null
+
+# 3. Wait for pgaudit to flush; inspect the tail output.
+sleep 3
+kill $TAIL_PID 2>/dev/null
+
+# Expected: at least one line where
+#   - the prefix shows `fabt_app@fabt` (backend role + DB), NOT `fabt@fabt`
+#   - `app=fabt:tenant:<real-uuid>` is present (NOT `app=PostgreSQL JDBC Driver`)
+# That combination proves the backend went through RlsDataSourceConfig,
+# set both `app.tenant_id` AND `application_name`, and the pgaudit
+# prefix captured both on the same line.
+```
+
+**If the `fabt_app@fabt` + `app=fabt:tenant:` pair is missing:** the
+log_line_prefix is fine (step 4 proved that) but the backend isn't
+routing through `applyRlsContext`. That's a real regression in the
+decorator wiring; rollback BACKEND ONLY (§B) and file an investigation.
+
 ### 5. FORCE RLS gauges all at 1.0 (7 regulated tables)
 
 Phase B invariant — unchanged in v0.45 but must be verified.
@@ -610,8 +704,7 @@ by sampling `pg_stat_activity` for `application_name = 'fabt:tenant:'`
 ### 7. Playwright post-deploy smoke
 
 **SAME AS v0.43.1 / v0.44.1** — this suite catches user-facing
-regressions the DB-level checks miss. Bucket4j rate-limit flake on Test
-6 is documented; retry once if you see it.
+regressions the DB-level checks miss.
 
 ```bash
 cd ~/src/finding-a-bed-tonight/e2e/playwright
@@ -619,9 +712,28 @@ BASE_URL=https://findabed.org npx playwright test \
     --config=deploy/playwright.config.ts \
     deploy/post-deploy-smoke.spec.ts \
     2>&1 | tee ~/logs/post-deploy-smoke-v0.45.0.log
-# Expected: 11/11 passed.
-# Known Test 6 flake: retry once if 1/11 fails on rate-limit.
+# Expected: 12/12 passed.
 ```
+
+**Test 6 flake-vs-regression heuristic** (`post-deploy-smoke.spec.ts`
+line 116-132 asserts the dv-coordinator's notification bell renders
+with its `Notifications` aria-label after login). When Test 6 fails,
+open the trace and distinguish:
+
+- **Cold-JVM flake (retry once):** failure is the `dv-coordinator@dev.fabt.org`
+  login redirect to `/coordinator` timing out at 15s. The Postgres
+  container was just restarted and the backend may still be warming.
+  Retry after ~60s; if it passes, safe to proceed.
+- **Real regression (DO NOT retry — stop + escalate):** failure is the
+  bell component missing from the DOM, or the `Notifications`
+  aria-label absent from a rendered bell. That's a regression in the
+  notifications persistence layer or Layout component — not a timing
+  issue. Rollback §B (backend-only) until the regression is understood.
+
+Earlier v0.43.1 / v0.44.1 runbook text referenced "bucket4j rate-limit
+flake on Test 6" — that's vestigial from a prior test number mapping
+and does NOT describe the current Test 6. Ignore any carry-over of that
+framing.
 
 ### 8. `deploy/prod-state.json` — no update needed for v0.45
 
@@ -661,10 +773,18 @@ docker compose exec -T postgres psql -U fabt -d fabt -c \
 
 ### Decision tree
 
-- **PgVersionGate throws at boot** → rollback BACKEND ONLY (§B). Postgres
-  is fine; you just need the v0.44.3 backend that doesn't enforce the
-  floor. Fix-forward by correcting the underlying PG version issue, then
-  redeploy.
+- **PgVersionGate throws at boot** → check post-deploy verification step
+  2's `server_version_num` reading first:
+  - If `server_version_num ≥ 160005` but backend still threw (theoretical;
+    indicates a bug in `PgVersionGate` or a JDBC datasource misconfig) →
+    rollback BACKEND ONLY (§B) and escalate.
+  - If `server_version_num < 160005` (most likely cause in practice is
+    an inadvertent PG image tag drift during the v0.45 rebuild — e.g.,
+    `fabt-pgaudit:v0.45.0` accidentally built on a PG 16.4 base) →
+    rollback BOTH layers (§C). Postgres-only rollback leaves the wrong
+    PG version running; backend-only rollback doesn't fix the PG
+    version. The §C sequence (§A first, then §B) restores both to the
+    last-good v0.44.x pair.
 - **Backend health UP but pgaudit log lines have no `app=`** → rollback
   POSTGRES ONLY (§A). Backend is fine; you need v0.44.1 pgaudit image
   (which still logs, just without the `app=` tag).
@@ -679,7 +799,7 @@ docker compose exec -T postgres psql -U fabt -d fabt -c \
   still failing on v0.44.3, escalate — this is not a v0.45 regression.
 - **Postgres container fails healthcheck or won't restart** → rollback
   POSTGRES ONLY (§A). If that also fails → recover from
-  `pre-v0.45-<ts>.sql.gz` per §D.
+  `pre-v0.45-<ts>.dump` per §D.
 
 ### §A. Rollback Postgres ONLY
 
@@ -753,8 +873,9 @@ enforces on `app.tenant_id`, which v0.44.3 does set).
 
 Sequential: §A first, then §B. Taking Postgres down while backend is
 still trying to send traffic is fine — Hikari reconnects. Taking
-backend down first and then Postgres leaves no user-facing service for
-~2 min longer than necessary.
+backend down first unnecessarily extends user-facing outage; the §A
+step alone brings service back within seconds once Postgres healthcheck
+goes green (Hikari re-borrows, `connection-timeout=5000ms` resolves).
 
 ### §D. Last-resort pgdata restore (should not be needed)
 
@@ -763,7 +884,7 @@ we don't run migrations and don't touch the data volume):
 
 ```bash
 docker compose stop postgres backend
-TS=$(ls -t ~/fabt-backups/pre-v0.45-*.sql.gz | head -1 | grep -oE 'pre-v0\.45-[0-9TZ]+')
+DUMP=$(ls -t ~/fabt-backups/pre-v0.45-*.dump | head -1)
 
 # Fresh volume
 docker volume rm finding-a-bed-tonight_postgres_data
@@ -774,9 +895,12 @@ docker compose \
     up -d postgres
 sleep 30
 
-# Restore
-gunzip -c ~/fabt-backups/${TS}.sql.gz | \
-    docker compose exec -T postgres pg_restore -U fabt -d fabt --no-owner --no-privileges
+# Restore. pg_dump -Fc output is a binary custom archive — pipe the
+# file directly to pg_restore; do NOT gunzip (that will corrupt input).
+docker cp "$DUMP" $(docker compose ps -q postgres):/tmp/restore.dump
+docker compose exec -T postgres pg_restore -U fabt -d fabt \
+    --no-owner --no-privileges --clean --if-exists /tmp/restore.dump
+docker compose exec -T postgres rm -f /tmp/restore.dump
 
 # Restart backend on v0.44.3 image
 docker tag fabt-backend:v0.44.3-lastgood fabt-backend:latest
@@ -799,7 +923,7 @@ docker compose up -d backend
 4. `tr -d '\r' < docs/security/pg-policies-snapshot.md | sha256sum` matches pin in `deploy/release-gate-pins.txt`. (Side effect: none; integrity check.)
 5. `docker build -t fabt-pgaudit:v0.45.0-rehearsal -f deploy/pgaudit.Dockerfile deploy/` locally, verify `log_line_prefix` via `docker run`. (Side effect: local image + 1 ephemeral container, cleaned up in step.)
 6. SSH to VM: `psql -tAc "SELECT current_setting('server_version_num')"` — must be ≥ 160006. (Side effect: none; `PgVersionGate` pre-check.)
-7. `docker compose exec -T postgres pg_dump ... > pre-v0.45-<ts>.sql.gz` + scp to local + sha256 verify. (Side effect: ~500 KB file on VM + laptop; rollback path.)
+7. `docker compose exec -T postgres pg_dump ... -Fc > pre-v0.45-<ts>.dump` + scp to local + sha256 verify. (Side effect: ~500 KB `-Fc` custom-archive on VM + laptop; rollback path — restored directly via `pg_restore`, do NOT gunzip.)
 
 ### Deploy
 
@@ -831,7 +955,7 @@ complete and walking away:
 - Step 17's pgaudit line contains `app=fabt:tenant:`.
 - Step 18 shows all 7 gauges at 1.0.
 - Step 19's rate is within ±0.5 /s of the pre-deploy baseline.
-- Step 20 passes 11/11 (or 10/11 with documented bucket4j flake).
+- Step 20 Playwright post-deploy smoke passes 12/12 (or 11/12 with a cold-JVM Test 6 flake resolved on one retry — see verification step 7 for flake-vs-regression heuristic).
 - Step 21 returns exactly 74.
 
 **If any of the above fail after 15 min of remediation, roll back to
