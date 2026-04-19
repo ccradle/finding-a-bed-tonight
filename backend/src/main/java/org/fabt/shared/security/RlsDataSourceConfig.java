@@ -163,7 +163,13 @@ public class RlsDataSourceConfig {
                 }
             } catch (SQLException e) {
                 log.error("Failed to apply RLS context on connection; closing to prevent data leak", e);
-                conn.close();
+                try {
+                    conn.close();
+                } catch (SQLException closeFailure) {
+                    // Preserve the original cause; a secondary failure during
+                    // close() must not mask the real diagnostic.
+                    e.addSuppressed(closeFailure);
+                }
                 throw e;
             }
         }

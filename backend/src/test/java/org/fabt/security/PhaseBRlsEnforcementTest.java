@@ -1,8 +1,9 @@
 package org.fabt.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.fail;
 
+import java.sql.SQLException;
 import java.util.UUID;
 
 import org.fabt.BaseIntegrationTest;
@@ -13,7 +14,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
@@ -124,25 +124,21 @@ class PhaseBRlsEnforcementTest extends BaseIntegrationTest {
                                 + "VALUES (?, ?, ?, ?)",
                         rowId, actorUserId, "phase-b-3-22-probe", tenantAId));
 
-        // Attempted UPDATE under the same tenant — fails at GRANT level,
-        // not RLS. That's the append-only invariant.
-        assertThatThrownBy(() ->
-                TenantContext.runWithContext(tenantAId, false, () ->
-                        jdbcTemplate.update(
-                                "UPDATE audit_events SET action = 'modified' WHERE id = ?",
-                                rowId)))
-                .as("fabt_app must lack UPDATE grant on audit_events — audit trail is append-only per V70")
-                .isInstanceOf(DataAccessException.class)
-                .hasStackTraceContaining("permission denied for table audit_events");
+        // Attempted UPDATE under the same tenant — fails with SQLSTATE 42501
+        // (insufficient_privilege) because V70 REVOKEs UPDATE from fabt_app.
+        // Assert on SQLSTATE rather than message text so a future PG release
+        // that rewords the English message doesn't break this test.
+        Throwable updateFailure = catchExceptionInRlsContext(tenantAId, () ->
+                jdbcTemplate.update(
+                        "UPDATE audit_events SET action = 'modified' WHERE id = ?", rowId));
+        assertRootCauseSqlState(updateFailure, "42501",
+                "UPDATE on audit_events must fail with 42501 (GRANT revoked by V70)");
 
-        // Attempted DELETE also blocked by GRANT.
-        assertThatThrownBy(() ->
-                TenantContext.runWithContext(tenantAId, false, () ->
-                        jdbcTemplate.update(
-                                "DELETE FROM audit_events WHERE id = ?", rowId)))
-                .as("fabt_app must lack DELETE grant on audit_events — audit trail is append-only per V70")
-                .isInstanceOf(DataAccessException.class)
-                .hasStackTraceContaining("permission denied for table audit_events");
+        // Attempted DELETE also blocked by GRANT — same SQLSTATE.
+        Throwable deleteFailure = catchExceptionInRlsContext(tenantAId, () ->
+                jdbcTemplate.update("DELETE FROM audit_events WHERE id = ?", rowId));
+        assertRootCauseSqlState(deleteFailure, "42501",
+                "DELETE on audit_events must fail with 42501 (GRANT revoked by V70)");
     }
 
     @Test
@@ -152,16 +148,47 @@ class PhaseBRlsEnforcementTest extends BaseIntegrationTest {
 
         // Under tenant A, try to insert a row with tenant_id = B.
         // The RLS policy's WITH CHECK clause (tenant_id = fabt_current_tenant_id())
-        // should reject this as a policy violation — this is the load-bearing
-        // guard against owner-bypass INSERTs claiming foreign tenant identity.
-        assertThatThrownBy(() ->
-                TenantContext.runWithContext(tenantAId, false, () ->
-                        jdbcTemplate.update(
-                                "INSERT INTO audit_events (id, actor_user_id, action, tenant_id) "
-                                        + "VALUES (?, ?, ?, ?)",
-                                rowId, actorUserId, "phase-b-3-22-forged", tenantBId)))
-                .as("RLS WITH CHECK must reject an INSERT claiming a different tenant_id than the session's binding")
-                .isInstanceOf(DataAccessException.class)
-                .hasStackTraceContaining("new row violates row-level security policy");
+        // rejects this as a policy violation (SQLSTATE 42501). Asserting on
+        // SQLSTATE is more durable than matching the English error message.
+        Throwable failure = catchExceptionInRlsContext(tenantAId, () ->
+                jdbcTemplate.update(
+                        "INSERT INTO audit_events (id, actor_user_id, action, tenant_id) "
+                                + "VALUES (?, ?, ?, ?)",
+                        rowId, actorUserId, "phase-b-3-22-forged", tenantBId));
+        assertRootCauseSqlState(failure, "42501",
+                "INSERT with foreign tenant_id must fail with 42501 (RLS WITH CHECK)");
+    }
+
+    /**
+     * Runs {@code action} under {@code TenantContext.runWithContext(tenantId)}
+     * and returns the thrown exception for inspection. Using this helper
+     * instead of AssertJ's {@code assertThatThrownBy} because the lambda
+     * needs to run inside a ScopedValue binding and AssertJ's fluent API
+     * cannot thread an arbitrary context through the call chain cleanly.
+     */
+    private Throwable catchExceptionInRlsContext(UUID tenantId, Runnable action) {
+        try {
+            TenantContext.runWithContext(tenantId, false, action);
+            fail("Expected the action to throw, but it succeeded");
+            return null; // unreachable
+        } catch (RuntimeException e) {
+            return e;
+        }
+    }
+
+    /**
+     * Asserts that {@code throwable}'s cause chain contains a
+     * {@link SQLException} whose {@code SQLState} equals {@code expected}.
+     */
+    private void assertRootCauseSqlState(Throwable throwable, String expected, String message) {
+        Throwable cur = throwable;
+        while (cur != null) {
+            if (cur instanceof SQLException se && expected.equals(se.getSQLState())) {
+                return;
+            }
+            cur = cur.getCause();
+        }
+        fail(message + " — no SQLException with SQLState=" + expected
+                + " found in cause chain of " + throwable);
     }
 }

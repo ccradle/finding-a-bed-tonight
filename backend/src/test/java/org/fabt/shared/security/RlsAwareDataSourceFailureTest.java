@@ -20,17 +20,26 @@ import org.junit.jupiter.api.Test;
 /**
  * Unit test for the v0.43 B12 invariant (task 3.18 hardening): when
  * {@code RlsAwareDataSource.applyRlsContext} fails mid-setup, the borrowed
- * connection MUST be closed before the {@link SQLException} escapes — a
- * half-configured connection returned to Hikari would carry stale
- * {@code app.tenant_id} / {@code app.dv_access} from a prior tenant and
- * leak RLS-scoped data on the next borrow.
+ * connection MUST be closed before the {@link SQLException} escapes.
  *
- * <p>Testing this via a real Testcontainers Postgres is awkward because
- * manufacturing a {@code SET ROLE} failure requires DB-level GRANT
- * manipulation. Since the decorator's error path is a small 5-line
+ * <p><b>Safety chain in prod.</b> Calling {@code close()} on a HikariCP
+ * proxy does NOT destroy the physical connection — it returns the proxy
+ * to the pool with whatever session state was set before the failure.
+ * The actual safety property is: (a) the decorator closes the proxy,
+ * releasing it back to the pool, and (b) the NEXT borrow triggers
+ * another {@code applyRlsContext} which overwrites the session GUCs
+ * with the new caller's context (or empty for null TenantContext). A
+ * half-configured connection therefore does not carry stale tenant
+ * bindings into a subsequent request — the re-apply on borrow is the
+ * load-bearing invariant, not connection-destruction.
+ *
+ * <p>Testing the chain via a real Testcontainers Postgres is awkward
+ * because manufacturing a {@code SET ROLE} failure requires DB-level
+ * GRANT manipulation. Since the decorator's error path is a small
  * try/catch (see {@link RlsDataSourceConfig.RlsAwareDataSource#applyRlsContext}),
- * a targeted unit test of the wrapper with mocked JDBC types is both
- * sufficient and faster.
+ * a targeted unit test of the wrapper with mocked JDBC types covers the
+ * close-on-failure contract; the re-apply-on-borrow half is covered by
+ * {@code TenantIdPoolBleedTest} + {@code PgauditApplicationNameDriftTest}.
  */
 @DisplayName("RlsAwareDataSource B12 — connection-setup failure closes the connection (task #165)")
 class RlsAwareDataSourceFailureTest {
@@ -78,6 +87,34 @@ class RlsAwareDataSourceFailureTest {
                 .as("Success path hands the prepared connection back to the caller unchanged")
                 .isSameAs(conn);
         verify(conn, never()).close();
+    }
+
+    @Test
+    @DisplayName("getConnection(): if close() itself throws, the original failure is preserved as the primary cause")
+    void closeFailureIsSuppressedNotMasked() throws Exception {
+        DataSource delegate = mock(DataSource.class);
+        Connection conn = mock(Connection.class);
+        PreparedStatement pstmt = mock(PreparedStatement.class);
+        SQLException primary = new SQLException("primary: SET ROLE failed", "28P01");
+        SQLException secondary = new SQLException("secondary: close failed", "08006");
+
+        when(delegate.getConnection()).thenReturn(conn);
+        when(conn.prepareStatement(anyString())).thenReturn(pstmt);
+        when(pstmt.execute()).thenThrow(primary);
+        org.mockito.Mockito.doThrow(secondary).when(conn).close();
+
+        RlsDataSourceConfig.RlsAwareDataSource wrapper =
+                new RlsDataSourceConfig.RlsAwareDataSource(delegate, null);
+
+        assertThatThrownBy(wrapper::getConnection)
+                .as("Primary failure must not be masked by the close() failure — "
+                        + "diagnostic chain would be lost otherwise")
+                .isSameAs(primary);
+
+        assertThat(primary.getSuppressed())
+                .as("Secondary close() failure captured as suppressed on the primary")
+                .hasSize(1);
+        assertThat(primary.getSuppressed()[0]).isSameAs(secondary);
     }
 
     @Test

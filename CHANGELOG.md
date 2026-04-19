@@ -70,12 +70,12 @@ Phase B release-gate artifacts pinned for this tag so operator-side
 rollback can verify the deploy bit-for-bit (W-CHANGELOG-1 and
 W-CHANGELOG-3):
 
-- **`pg_policies` snapshot hash** — `docs/security/pg-policies-snapshot.md`
-  SHA-256: `abca0e94b7626bf855b200a677a1cdd54d3522610417ad3f76c383240e004207`
-  (PostgreSQL 16-line file, 7 regulated tables × USING + WITH CHECK clauses).
-  Recompute during deploy verification with
-  `sha256sum docs/security/pg-policies-snapshot.md`; a mismatch means the
-  snapshot was edited without a corresponding policy-diff review.
+- **`pg_policies` snapshot SHA-256 pinned** in `deploy/release-gate-pins.txt`
+  (7 regulated tables × USING + WITH CHECK clauses). CI job
+  `release-gate-pin-verify` reruns `scripts/ci/verify-release-gate-pins.sh`
+  on every PR, which recomputes `sha256sum docs/security/pg-policies-snapshot.md`
+  and fails the build on any drift. Pin format + update rules are
+  documented in the header of the pins file.
 - **Named signer** — `@ccradle`, per `.github/CODEOWNERS` lines 18-26
   (new in this release). The named-signer + SHA-256 pair satisfies the
   release-gate #4 acceptance criterion from the Phase B warroom.

@@ -14,6 +14,19 @@ permissions:
   contents: read
 
 jobs:
+  release-gate-pin-verify:
+    name: Release-gate SHA-256 pin verify (v0.45 W-CHANGELOG-1)
+    runs-on: ubuntu-latest
+    # Enforces that every SHA-256 in deploy/release-gate-pins.txt matches
+    # the current file content. Makes the pin load-bearing instead of
+    # decorative — an operator editing pg-policies-snapshot.md without
+    # updating the pin (and without CODEOWNERS re-review) will fail CI
+    # before the drift ever reaches prod.
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify release-gate pins
+        run: bash scripts/ci/verify-release-gate-pins.sh
+
   flyway-hwm-guard:
     name: Flyway HWM guard (v0.45 renumber-forward)
     runs-on: ubuntu-latest

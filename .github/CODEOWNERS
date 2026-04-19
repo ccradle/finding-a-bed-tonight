@@ -29,13 +29,14 @@
 # Phase B source-side invariants — FORCE RLS policy migrations + the
 # runtime RLS wiring. A change here without a matching spec/test update
 # is the exact regression class Phase B was built to prevent.
-/backend/src/main/resources/db/migration/V67__*  @ccradle
-/backend/src/main/resources/db/migration/V68__*  @ccradle
-/backend/src/main/resources/db/migration/V69__*  @ccradle
-/backend/src/main/resources/db/migration/V70__*  @ccradle
-/backend/src/main/resources/db/migration/V71__*  @ccradle
-/backend/src/main/resources/db/migration/V72__*  @ccradle
-/backend/src/main/resources/db/migration/V73__*  @ccradle
+#
+# The catch-all below covers both the existing V67-V73 Phase B files AND
+# any future migration that might touch RLS policies (e.g., a rogue
+# `V99__drop_force_rls.sql` would otherwise slip past file-specific
+# patterns). Warroom recommendation — coverage gap Marcus identified in
+# the v0.45.0 pre-PR review.
+/backend/src/main/resources/db/migration/  @ccradle
+/backend/src/main/java/db/migration/  @ccradle
 /backend/src/main/java/org/fabt/shared/security/RlsDataSourceConfig.java  @ccradle
 /backend/src/main/java/org/fabt/shared/security/ForceRlsHealthGauge.java  @ccradle
 /backend/src/main/java/org/fabt/shared/security/PgVersionGate.java  @ccradle
@@ -50,6 +51,13 @@
 # Flyway posture — prod-state.json is the CI HWM guard's source of truth.
 /deploy/prod-state.json  @ccradle
 /scripts/ci/check-flyway-migration-versions.sh  @ccradle
+
+# Release-gate SHA-256 pins — changes here move the compliance-grade
+# attestation for what shipped. Must be reviewed even if the diff looks
+# trivial (a character-transposition on a hash would silently pass
+# deploy verification on the wrong file).
+/deploy/release-gate-pins.txt  @ccradle
+/scripts/ci/verify-release-gate-pins.sh  @ccradle
 
 # The release-gate file itself — ownership must not be self-editable
 # without a second-pair review in a larger team. Solo for now.

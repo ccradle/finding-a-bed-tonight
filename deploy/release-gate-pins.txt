@@ -1,0 +1,26 @@
+# release-gate-pins.txt — committed SHA-256 attestations for v0.45.0+.
+#
+# Format: <relative-path>\t<sha256-hex>\t<release-tag>
+#
+# scripts/ci/verify-release-gate-pins.sh enforces that the SHA-256 of
+# the committed file matches the pin on every CI run. A mismatch means
+# the file was edited without an accompanying pin update — either the
+# edit was inadvertent (revert the file) or it's intentional and the
+# pin needs to move.
+#
+# Updating a pin REQUIRES:
+#   1. The file content change was reviewed by the CODEOWNERS entry for
+#      that path (@ccradle for /docs/security/**).
+#   2. The old tag's CHANGELOG entry is frozen; only the NEXT release
+#      may bump the pin.
+#   3. The reviewer signs off in writing (commit author trailer is fine).
+#
+# Lines starting with '#' are comments; blank lines ignored.
+#
+# Known limitation: sha256sum on Windows/Git-Bash emits LF-normalized
+# output, while on a Linux CI runner it reads the file verbatim. If a
+# file contains mixed line endings the hashes will differ across
+# platforms. All files pinned here use LF line endings (.gitattributes
+# enforces text=auto for docs/**/*.md).
+
+docs/security/pg-policies-snapshot.md	abca0e94b7626bf855b200a677a1cdd54d3522610417ad3f76c383240e004207	v0.45.0
