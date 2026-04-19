@@ -126,6 +126,60 @@ public final class AuditEventTypes {
      */
     public static final String SHELTER_REACTIVATED = "SHELTER_REACTIVATED";
 
+    // ---- multi-tenant-production-readiness Phase C (cache isolation) ----
+
+    /**
+     * Emitted by {@code TenantScopedCacheService.invalidateTenant(UUID)} when
+     * a tenant's cache entries are evicted across every registered cache name.
+     * Fires at tenant suspend / hard-delete (Phase F F4) and on demand by the
+     * platform-admin API.
+     *
+     * <p>Detail blob: {@code {tenantId, perCacheEvictionCounts: {cacheName: N, ...}}}.
+     * Actor: {@code null} for FSM-driven calls; platform-admin UUID for manual
+     * invalidations. Target: {@code null} (operation scope is the tenant itself).
+     *
+     * <p>Persisted via the event-bus path ({@code ApplicationEventPublisher} →
+     * {@code AuditEventService.onAuditEvent} → {@code AuditEventPersister} with
+     * {@code PROPAGATION_REQUIRED}). Normal rollback semantics apply: operator-
+     * initiated invalidations are not attacker-triggered, so the usual "audit
+     * joins caller tx" contract is correct.
+     */
+    public static final String TENANT_CACHE_INVALIDATED = "TENANT_CACHE_INVALIDATED";
+
+    /**
+     * Emitted by {@code TenantScopedCacheService.get} when the on-read tenant
+     * verification (cached-value stamp mismatch) detects that the envelope's
+     * stamped tenant does not match the reader's {@code TenantContext}.
+     *
+     * <p>Detail blob: {@code {cacheName, expectedTenant, observedTenant}}.
+     * Actor: current user from {@code TenantContext.getUserId()}. Target: {@code null}.
+     *
+     * <p><b>Persisted via {@link DetachedAuditPersister}</b> with
+     * {@code PROPAGATION_REQUIRES_NEW} — NOT the normal event-bus path. Rationale:
+     * this is a security-evidence signal. An attacker who triggers a cross-tenant
+     * read in a transactional endpoint and relies on the subsequent
+     * {@code IllegalStateException} to roll the caller's transaction back must
+     * NOT be able to erase the audit trail. REQUIRES_NEW commits the audit row
+     * independently so it survives the caller's rollback. Marcus Webb warroom
+     * lens, Phase C task 4.1 skeleton review (design-c D-C-9).
+     */
+    public static final String CROSS_TENANT_CACHE_READ = "CROSS_TENANT_CACHE_READ";
+
+    /**
+     * Emitted by {@code TenantScopedCacheService.get} when it encounters a
+     * cache entry whose underlying value is not a {@code TenantScopedValue}
+     * envelope. Indicates a caller wrote via raw {@code CacheService} (bypassing
+     * the wrapper) — either a pre-migration call site not yet converted
+     * (task 4.b) or a new call site slipping past the ArchUnit Family C rule.
+     *
+     * <p>Detail blob: {@code {cacheName, observedType}}. Value fragments are
+     * NOT included (avoid leaking cached payload into audit rows).
+     *
+     * <p>Persisted via the event-bus path (not security-evidence; shouldn't happen
+     * at all once task 4.b completes call-site migration).
+     */
+    public static final String MALFORMED_CACHE_ENTRY = "MALFORMED_CACHE_ENTRY";
+
     private AuditEventTypes() {
         // utility class — do not instantiate
     }

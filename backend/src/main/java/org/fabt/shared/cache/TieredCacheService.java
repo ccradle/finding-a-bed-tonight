@@ -34,6 +34,10 @@ public class TieredCacheService implements CacheService {
     @Override
     @SuppressWarnings("unchecked")
     public <T> Optional<T> get(String cacheName, String key, Class<T> type) {
+        // Under TenantScopedCacheService ownership (Phase C), the wrapper fetches
+        // as Object.class + pattern-matches `instanceof TenantScopedValue<?>` so
+        // the unchecked cast below is effectively always Object→Object. The
+        // `type` parameter is retained for direct (pre-wrapper) callers.
         // Check L1 first
         Cache<String, Object> l1 = l1Caches.get(cacheName);
         if (l1 != null) {
@@ -79,5 +83,24 @@ public class TieredCacheService implements CacheService {
             l1.invalidateAll();
         }
         // TODO: Evict from L2 (Redis)
+    }
+
+    @Override
+    public long evictAllByPrefix(String cacheName, String prefix) {
+        Cache<String, Object> l1 = l1Caches.get(cacheName);
+        long l1Evicted = 0L;
+        if (l1 != null) {
+            java.util.List<String> toEvict = l1.asMap().keySet().stream()
+                    .filter(k -> k.startsWith(prefix))
+                    .toList();
+            toEvict.forEach(l1::invalidate);
+            l1Evicted = toEvict.size();
+        }
+        // TODO: Evict from L2 (Redis) when L2 is wired (per redis-pooling-adr.md
+        // shape 2 or 3). Implementation contract:
+        //   SCAN 0 MATCH "<prefix>*" COUNT 1000 + UNLINK per batch.
+        //   Never KEYS or DEL (both main-thread-blocking on large key counts).
+        //   Return sum of L1 + L2 evictions once L2 is live.
+        return l1Evicted;
     }
 }
