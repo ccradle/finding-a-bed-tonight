@@ -5,6 +5,95 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.46.0] — Phase C groundwork: TenantScopedCacheService bean (not yet wired)
+
+**Preparatory release.** This release adds `TenantScopedCacheService` and
+supporting machinery to the Spring context but does NOT yet route any
+production call site through it. Tenant-scoped cache isolation as a live
+defence activates in a later release (v0.47 series) when task 4.b
+migrates the seven existing cache call sites in `BedSearchService`,
+`AvailabilityService`, and `AnalyticsService`. This v0.46.0 release
+exists so the wrapper contract can be reviewed and deployed in isolation
+before the behavioural-change migration lands.
+
+No user-visible behaviour change. No Flyway migrations. No frontend
+changes. No API changes. Prod's FORCE RLS `1.0` posture for the seven
+regulated tables is unchanged.
+
+### Added
+
+- **`TenantScopedCacheService`** (`@Service` bean in `org.fabt.shared.cache`)
+  — wrapper around the existing `CacheService` that, once callers migrate,
+  will enforce four isolation contracts: (1) key prefix `<tenantUuid>|`
+  sourced from `TenantContext.getTenantId()` (unbound → `TENANT_CONTEXT_UNBOUND`
+  `IllegalStateException`); (2) value stamp-and-verify via
+  `TenantScopedValue<T>(UUID tenantId, T value)` envelope stamped at write
+  and checked at read (mismatch → `CROSS_TENANT_CACHE_READ`, defending
+  the write-side leak pattern flagged as #1 cache-leak cause in the
+  2025-2026 industry survey per the Redis pooling ADR);
+  (3) `invalidateTenant(UUID)` iterating an eager-seeded registry of
+  cache names with idempotent retry semantics, emitting
+  `TENANT_CACHE_INVALIDATED` audit rows with per-cache eviction counts;
+  (4) Micrometer observability via `fabt.cache.get{cache,tenant,result}`
+  + `fabt.cache.put{cache,tenant}` counters. Published as a distinct
+  bean name (`tenantScopedCacheService`), explicitly NOT `@Primary` over
+  the underlying `CacheService` so the migration of the seven call
+  sites can be done one at a time in PR review. Counter references are
+  cached per tag-combination so hot-path callers don't re-walk the
+  `MeterRegistry` tag map on every invocation. 34 tests green
+  (33 unit + 1 integration against Testcontainers Postgres). (Phase C
+  tasks 4.1, 4.1b, 4.8, 4.9, 4.9b-h)
+
+- **`TenantScopedValue<T>(UUID tenantId, T value)`** — Java `record`
+  envelope used by the wrapper for value stamp-and-verify. Self-describing
+  for future Redis L2 wire format per `docs/architecture/redis-pooling-adr.md`.
+
+- **`DetachedAuditPersister`** (`@Service` bean in `org.fabt.shared.audit`)
+  — sibling to `AuditEventPersister` using `@Transactional(propagation =
+  REQUIRES_NEW)` so `CROSS_TENANT_CACHE_READ` security-evidence audit
+  rows survive attacker-triggered caller rollback. Scope is deliberately
+  narrow (see JavaDoc at file top); the event-bus + REQUIRED path
+  remains correct for normal audits. Failures emit
+  `fabt.audit.detached_failed.count{action}` Micrometer counter so the
+  swallow is observable, matching the existing
+  `fabt.audit.rls_rejected.count` alerting pattern. Not called by any
+  existing code path until task 4.b. (Phase C design-c D-C-9)
+
+- **`CacheService.evictAllByPrefix(String cacheName, String prefix)`** —
+  new interface method returning count of entries evicted. Caffeine
+  implementation filters `cache.asMap().keySet()` by prefix; Tiered
+  implementation carries a documented TODO for the future Redis L2
+  `SCAN MATCH <prefix>* COUNT 1000` + `UNLINK` shape per Redis Inc.
+  Feb 2026 guidance (explicitly NOT `KEYS` / `DEL`). Not called by any
+  production path in this release. (Phase C task 4.1a)
+
+- **Three new `AuditEventTypes` constants** — `TENANT_CACHE_INVALIDATED`,
+  `CROSS_TENANT_CACHE_READ`, `MALFORMED_CACHE_ENTRY`. `AuditEventTypesTest`
+  adds contract-pinning tests (11 constants pinned total; 3 new).
+
+- **`fabt.cache.registered_cache_names` Micrometer gauge** — single
+  time-series reporting the count of cache names seeded into
+  `TenantScopedCacheService` at `@PostConstruct` from `CacheNames`
+  reflection. INFO log `TenantScopedCacheService eager-seeded with N
+  cache names: [...]` fires once per JVM startup. Bean fails-fast with
+  `IllegalStateException` if reflection returns an empty set (prevents
+  silent `invalidateTenant` no-ops after pod restart).
+
+### Changed
+
+- `docs/architecture/redis-pooling-adr.md` (v0.45.0 deliverable) is now
+  referenced from the new wrapper's JavaDoc for the three-shape Redis
+  deployment posture that gates any future L2 wiring.
+
+### Preparatory (does nothing in this release)
+
+Bean is present in the Spring context but no caller invokes it. Expect
+to see the eager-seed INFO log and the `fabt.cache.registered_cache_names`
+gauge reporting `11` at boot; zero `fabt.cache.get`/`fabt.cache.put`
+counter activity until v0.47 migration.
+
+---
+
 ## [v0.45.0] — Phase B close-out: PG floor + pgaudit tenant tag + Flyway HWM guard
 
 Three multi-tenant-production-readiness close-out items agreed in the
