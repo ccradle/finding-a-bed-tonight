@@ -245,6 +245,57 @@ public class TenantScopedCacheService {
         recordPut(cacheName, tenantId);
     }
 
+    /**
+     * Sentinel object used as the value for negative-cache entries. A
+     * singleton so that equality/identity checks are cheap; semantically
+     * distinct from {@code null} (which {@link #put} rejects) and from
+     * {@code Optional.empty()} (which the Family C negative-cache guardrail
+     * rejects as a bypass pattern). Callers should treat the PRESENCE of
+     * this value as "the underlying resource was known absent at the time
+     * the entry was written."
+     *
+     * <p>Future work (task 4.b or later): when a real 404-cache caller
+     * appears, {@link #get} should recognise this sentinel and return
+     * {@link Optional#empty()} without throwing {@code MALFORMED_CACHE_ENTRY}.
+     * That wire-up is deferred — no caller today.
+     */
+    public static final Object NEGATIVE_SENTINEL = new Object() {
+        @Override
+        public String toString() {
+            return "TenantScopedCacheService.NEGATIVE_SENTINEL";
+        }
+    };
+
+    /**
+     * Tenant-scoped negative-cache helper — stores a sentinel value under a
+     * tenant-prefixed {@code ":404:"}-namespaced key so that a cached
+     * "resource absent" signal for tenant A can never mask tenant B's later
+     * create (cross-tenant negative-cache leak).
+     *
+     * <p>Per design-c D-C-5 + spec {@code negative-cache-tenant-scoping},
+     * this method is a <b>forward-guard</b>: FABT has zero 404-cache call
+     * sites today. The method exists so that any future caller has a
+     * tenant-scoped-by-construction path available without needing to
+     * special-case the {@link #put} null-rejection or invent a
+     * {@code Optional.empty()} convention (which Family C explicitly
+     * forbids via the negative-cache guardrail).
+     *
+     * <p>Effective underlying key: {@code <tenantId>|:404:<caller-key>}.
+     * The {@code :404:} marker makes the namespace inspection-friendly in
+     * logs / Grafana panels and prevents accidental collision with a
+     * positive cache entry at the same logical key.
+     *
+     * @throws IllegalStateException tagged {@code TENANT_CONTEXT_UNBOUND}
+     *         if no TenantContext is bound
+     */
+    public void putNegative(String cacheName, String key, Duration ttl) {
+        UUID tenantId = requireTenantContext();
+        String scopedKey = tenantId + PREFIX_SEPARATOR + ":404:" + key;
+        delegate.put(cacheName, scopedKey,
+                new TenantScopedValue<>(tenantId, NEGATIVE_SENTINEL), ttl);
+        recordPut(cacheName, tenantId);
+    }
+
     /** Tenant-scoped evict. */
     public void evict(String cacheName, String key) {
         UUID tenantId = requireTenantContext();
