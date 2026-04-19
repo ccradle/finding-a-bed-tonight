@@ -180,6 +180,23 @@ public final class AuditEventTypes {
      */
     public static final String MALFORMED_CACHE_ENTRY = "MALFORMED_CACHE_ENTRY";
 
+    /**
+     * Emitted by {@code EscalationPolicyService.findByTenantAndId} when the
+     * on-read tenant verification detects that the stored policy's
+     * {@code tenantId} does not match the caller's {@code TenantContext} AND
+     * the policy is not a platform-default (null-tenant) row.
+     *
+     * <p>Detail blob: {@code {policyId, expectedTenant, observedTenant}}.
+     * Actor: current user from {@code TenantContext.getUserId()}. Target: {@code null}.
+     *
+     * <p>Persisted via {@link DetachedAuditPersister} with
+     * {@code PROPAGATION_REQUIRES_NEW} — mirrors {@link #CROSS_TENANT_CACHE_READ}
+     * (task 4.1, design-c D-C-9). A cross-tenant read is security-evidence
+     * and must survive attacker-triggered caller rollback. Phase C task 4.4
+     * (EscalationPolicyService split) wires the first caller.
+     */
+    public static final String CROSS_TENANT_POLICY_READ = "CROSS_TENANT_POLICY_READ";
+
     private AuditEventTypes() {
         // utility class — do not instantiate
     }

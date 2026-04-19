@@ -11,6 +11,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 import org.fabt.notification.domain.EscalationPolicy;
 import org.fabt.notification.repository.EscalationPolicyRepository;
+import org.fabt.shared.audit.DetachedAuditPersister;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -60,7 +61,7 @@ class EscalationPolicyServiceCacheMetricsTest {
     void policyById_recordsHitCounter() {
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
         EscalationPolicyRepository repository = mock(EscalationPolicyRepository.class);
-        EscalationPolicyService service = new EscalationPolicyService(repository, registry);
+        EscalationPolicyService service = new EscalationPolicyService(repository, mock(DetachedAuditPersister.class), registry);
 
         UUID policyId = UUID.randomUUID();
         EscalationPolicy policy = samplePolicy(policyId);
@@ -101,7 +102,7 @@ class EscalationPolicyServiceCacheMetricsTest {
     void currentPolicyByTenant_recordsHitCounter() {
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
         EscalationPolicyRepository repository = mock(EscalationPolicyRepository.class);
-        EscalationPolicyService service = new EscalationPolicyService(repository, registry);
+        EscalationPolicyService service = new EscalationPolicyService(repository, mock(DetachedAuditPersister.class), registry);
 
         UUID tenantId = UUID.randomUUID();
         EscalationPolicy policy = samplePolicy(UUID.randomUUID());
@@ -140,7 +141,7 @@ class EscalationPolicyServiceCacheMetricsTest {
     void coldCache_recordsMissCounter() {
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
         EscalationPolicyRepository repository = mock(EscalationPolicyRepository.class);
-        EscalationPolicyService service = new EscalationPolicyService(repository, registry);
+        EscalationPolicyService service = new EscalationPolicyService(repository, mock(DetachedAuditPersister.class), registry);
 
         UUID policyId = UUID.randomUUID();
         when(repository.findById(any(UUID.class)))

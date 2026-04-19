@@ -2,7 +2,10 @@ package org.fabt.notification.service;
 
 import java.time.Duration;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -11,7 +14,11 @@ import java.util.regex.Pattern;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import org.fabt.shared.audit.AuditEventRecord;
+import org.fabt.shared.audit.AuditEventTypes;
+import org.fabt.shared.audit.DetachedAuditPersister;
 import org.fabt.shared.security.TenantUnscoped;
 import io.micrometer.core.instrument.binder.cache.CaffeineCacheMetrics;
 
@@ -91,6 +98,8 @@ public class EscalationPolicyService {
     private static final Pattern THRESHOLD_ID_PATTERN = Pattern.compile("^[a-z0-9_]{1,32}$");
 
     private final EscalationPolicyRepository repository;
+    private final DetachedAuditPersister detachedAuditPersister;
+    private final MeterRegistry meterRegistry;
 
     /**
      * Cache for findById lookups (batch job hot path).
@@ -122,17 +131,69 @@ public class EscalationPolicyService {
             .build();
 
     /**
-     * Constructor. Binds the two Caffeine caches to Micrometer via
+     * Cache for request-path lookups by {@code (tenantId, policyId)} — introduced
+     * in Phase C task 4.4 per design-c D-C-2. The caller passes their current
+     * {@code TenantContext.getTenantId()} explicitly; the service verifies on
+     * miss that the stored policy's {@code tenantId} matches (or is the
+     * platform-default NULL) and rejects otherwise. Prevents the
+     * cross-tenant-policy-leak class that would exist if a request path
+     * called {@link #findByIdForBatch} (which is intentionally {@code @TenantUnscoped}).
+     *
+     * <p><b>TTL shape matches {@link #policyById}</b> ({@code expireAfterAccess(10 min)})
+     * because {@code (tenantId, policyId)} identifies an immutable version —
+     * {@code expireAfterWrite} would be semantically wrong (the entry never
+     * goes stale, only cold). This is the same reasoning that applies to
+     * {@link #policyById}. Note that {@link #currentPolicyByTenant} uses
+     * {@code expireAfterWrite} because its key {@code (tenantId, eventType)}
+     * points to <em>whatever is current</em> — which IS mutated by
+     * {@link #update(String, List, UUID)}. (D-4.4-5 warroom resolution.)</p>
+     *
+     * <p><b>Platform-default N× duplication is intentional.</b> If N tenants
+     * each look up platform-default policy {@code p}, we cache {@code (A, p)},
+     * {@code (B, p)}, {@code (C, p)}, ... separately. N × ~500-byte records is
+     * trivial memory at our tenant scale; the complexity of a shared
+     * {@code (null, p)} fallback cache lookup is not worth the savings
+     * (D-4.4-1 warroom resolution).</p>
+     *
+     * <p><b>TODO(task 4.b)</b>: first request-path caller migration. No
+     * production code path currently invokes {@link #findByTenantAndId} — it
+     * exists today to (a) direct offenders of the Family C ArchUnit rule
+     * (task 4.2) away from {@link #findByIdForBatch}, and (b) land the
+     * on-read tenant-verification + observability contract with testing
+     * discipline before the first real caller. When task 4.b migrates a
+     * caller, remove this TODO note.</p>
+     */
+    private final Cache<PolicyKey, EscalationPolicy> policyByTenantAndId = Caffeine.newBuilder()
+            .maximumSize(500)
+            .expireAfterAccess(Duration.ofMinutes(10))
+            .recordStats()
+            .build();
+
+    /**
+     * Constructor. Binds the three Caffeine caches to Micrometer via
      * {@link CaffeineCacheMetrics#monitor} using fabt-prefixed cache names.
      * The emitted metric family is {@code cache.gets{cache="fabt.escalation.policy.by-id",result="hit|miss"}}
-     * and analogous for {@code current-by-tenant} — hit rate is a downstream
-     * Grafana/PromQL formula, not a directly emitted metric (T-53,
-     * Alex Chen review 2026-04-12).
+     * and analogous for {@code current-by-tenant} + {@code by-tenant-and-id} —
+     * hit rate is a downstream Grafana/PromQL formula, not a directly emitted
+     * metric (T-53, Alex Chen review 2026-04-12).
+     *
+     * <p>The Phase C task 4.4 addition of {@code policyByTenantAndId} (and its
+     * {@link DetachedAuditPersister} dependency for cross-tenant-reject audit
+     * rows) leaves {@link #findByIdForBatch} untouched — the batch path's
+     * unscoped access is reserved for {@code @Scheduled} callers via the
+     * {@code EscalationPolicyBatchOnlyArchitectureTest} ArchUnit rule.</p>
      */
-    public EscalationPolicyService(EscalationPolicyRepository repository, MeterRegistry meterRegistry) {
+    public EscalationPolicyService(EscalationPolicyRepository repository,
+                                    DetachedAuditPersister detachedAuditPersister,
+                                    MeterRegistry meterRegistry) {
         this.repository = repository;
+        this.detachedAuditPersister = detachedAuditPersister;
+        this.meterRegistry = meterRegistry;
         CaffeineCacheMetrics.monitor(meterRegistry, policyById, "fabt.escalation.policy.by-id");
         CaffeineCacheMetrics.monitor(meterRegistry, currentPolicyByTenant, "fabt.escalation.policy.current-by-tenant");
+        CaffeineCacheMetrics.monitor(meterRegistry, policyByTenantAndId, "fabt.escalation.policy.by-tenant-and-id");
+        log.info("EscalationPolicyService caches initialised: policyById (size=500, access=10m), "
+                + "currentPolicyByTenant (size=200, write=5m), policyByTenantAndId (size=500, access=10m)");
     }
 
     /**
@@ -157,6 +218,65 @@ public class EscalationPolicyService {
         Optional<EscalationPolicy> loaded = repository.findById(id);
         loaded.ifPresent(p -> policyById.put(id, p));
         return loaded;
+    }
+
+    /**
+     * Tenant-scoped policy lookup by policy id — the request-path counterpart
+     * to {@link #findByIdForBatch}. Introduced in Phase C task 4.4 per design-c
+     * D-C-2 and spec {@code escalation-policy-service-cache-split}.
+     *
+     * <p>Both arguments MUST be non-null — a null {@code tenantId} or
+     * {@code policyId} from a request path is always a bug (TenantContext
+     * unbound, missing route parameter, etc.) and should surface as
+     * {@link NullPointerException} rather than a silent empty per
+     * {@code feedback_never_skip_silently.md}. The batch-only
+     * {@link #findByIdForBatch} tolerates null-id because "missing policy row"
+     * is legitimately expected when a snapshotted policy was deleted — that
+     * exemption does NOT apply here. (D-4.4-4 warroom resolution.)</p>
+     *
+     * <p>On cache miss, the method loads via
+     * {@link EscalationPolicyRepository#findById} and verifies the returned
+     * policy's {@code tenantId} either matches the caller's {@code tenantId}
+     * OR is {@code null} (platform-default row, accessible from any tenant
+     * by design). A mismatch (cross-tenant reach) returns
+     * {@link Optional#empty()} — matching the D3 no-existence-leak posture
+     * applied elsewhere in FABT (cross-tenant resource lookups return 404,
+     * not 403, so an attacker cannot confirm existence) — AND emits a
+     * {@link AuditEventTypes#CROSS_TENANT_POLICY_READ} audit row via
+     * {@link DetachedAuditPersister} (REQUIRES_NEW) so the security signal
+     * survives attacker-triggered caller rollback, mirroring
+     * {@code TenantScopedCacheService.get}'s treatment of
+     * {@code CROSS_TENANT_CACHE_READ} (Marcus warroom lens, design-c D-C-9).
+     * The {@code fabt.cache.get{cache="escalation.policy.by-tenant-and-id",result="cross_tenant_reject"}}
+     * Micrometer counter is also incremented.</p>
+     *
+     * <p>No {@code @TenantUnscoped} annotation — this method IS tenant-scoped
+     * by on-read verification; it is the safe alternative to
+     * {@link #findByIdForBatch} for non-batch callers.</p>
+     *
+     * @throws NullPointerException if either argument is null
+     */
+    public Optional<EscalationPolicy> findByTenantAndId(UUID tenantId, UUID policyId) {
+        Objects.requireNonNull(tenantId, "tenantId");
+        Objects.requireNonNull(policyId, "policyId");
+        PolicyKey key = new PolicyKey(tenantId, policyId);
+        EscalationPolicy cached = policyByTenantAndId.getIfPresent(key);
+        if (cached != null) {
+            return Optional.of(cached);
+        }
+        Optional<EscalationPolicy> loaded = repository.findById(policyId);
+        if (loaded.isEmpty()) {
+            return Optional.empty();
+        }
+        EscalationPolicy p = loaded.get();
+        if (p.tenantId() == null || p.tenantId().equals(tenantId)) {
+            policyByTenantAndId.put(key, p);
+            return Optional.of(p);
+        }
+        // Cross-tenant reach: emit security-evidence audit + reject counter +
+        // return empty (no existence leak).
+        emitCrossTenantPolicyReject(tenantId, policyId, p.tenantId());
+        return Optional.empty();
     }
 
     /**
@@ -190,6 +310,9 @@ public class EscalationPolicyService {
         platformDefault.ifPresent(p -> {
             currentPolicyByTenant.put(key, p);
             currentPolicyByTenant.put(new CurrentKey(null, eventType), p);
+            // Batch pre-warm — request paths use findByTenantAndId (task 4.4) which
+            // has its own cache; this warm exists only to help findByIdForBatch
+            // resolve the same id later in the scheduled job cycle.
             policyById.put(p.id(), p);
         });
         return platformDefault;
@@ -326,8 +449,50 @@ public class EscalationPolicyService {
     public void clearCaches_testOnly() {
         currentPolicyByTenant.invalidateAll();
         policyById.invalidateAll();
+        policyByTenantAndId.invalidateAll();
+    }
+
+    /**
+     * Emit the CROSS_TENANT_POLICY_READ security-evidence audit row + counter.
+     * Called from {@link #findByTenantAndId} when the stored policy's tenantId
+     * does not match the caller's AND the policy is not a platform-default.
+     *
+     * <p>Uses {@link DetachedAuditPersister} so the audit row commits under
+     * {@code PROPAGATION_REQUIRES_NEW} — survives attacker-triggered caller
+     * rollback. Same mechanism as
+     * {@code TenantScopedCacheService.get → CROSS_TENANT_CACHE_READ}.</p>
+     */
+    private void emitCrossTenantPolicyReject(UUID readerTenant, UUID policyId, UUID observedTenant) {
+        log.error("CROSS_TENANT_POLICY_READ readerTenant={} policyId={} observedTenant={}",
+                readerTenant, policyId, observedTenant);
+        if (meterRegistry != null) {
+            Counter.builder("fabt.cache.get")
+                    .tag("cache", "fabt.escalation.policy.by-tenant-and-id")
+                    .tag("tenant", readerTenant.toString())
+                    .tag("result", "cross_tenant_reject")
+                    .register(meterRegistry)
+                    .increment();
+        }
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("policyId", policyId.toString());
+        details.put("expectedTenant", readerTenant.toString());
+        details.put("observedTenant", observedTenant.toString());
+        detachedAuditPersister.persistDetached(readerTenant, new AuditEventRecord(
+                TenantContext.getUserId(),
+                null,
+                AuditEventTypes.CROSS_TENANT_POLICY_READ,
+                details,
+                null));
     }
 
     /** Cache key for the {@code currentPolicyByTenant} cache. */
     private record CurrentKey(UUID tenantId, String eventType) {}
+
+    /**
+     * Cache key for the {@link #policyByTenantAndId} cache. Tenant + policy
+     * UUID together identify a specific immutable policy version that the
+     * caller's tenant has access to (either as owner or via platform-default
+     * fallback).
+     */
+    private record PolicyKey(UUID tenantId, UUID policyId) {}
 }

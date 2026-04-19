@@ -131,7 +131,20 @@ class TenantGuardArchitectureTest {
             // Subscription: findById then manual tenantId equality check
             // (pre-D11 pattern, migrating to findByIdAndTenantId in
             // multi-tenant-production-readiness companion change).
-            "SubscriptionService.findRecentDeliveries"
+            "SubscriptionService.findRecentDeliveries",
+            // Phase C task 4.4: findByTenantAndId IS the tenant guard for
+            // EscalationPolicy request-path lookups by policy UUID. It calls
+            // repository.findById(policyId) then verifies policy.tenantId
+            // matches the caller's tenantId OR is null (platform-default row,
+            // accessible from any tenant by design). Mismatch returns empty +
+            // emits CROSS_TENANT_POLICY_READ audit row via DetachedAuditPersister
+            // (REQUIRES_NEW) + cross_tenant_reject Micrometer counter. The
+            // EscalationPolicyRepository has no findByIdAndTenantId method
+            // because platform-default rows (tenant_id IS NULL) must remain
+            // accessible from any tenant context — a strict equality join
+            // would incorrectly filter them out. Design-c D-C-2 + spec
+            // escalation-policy-service-cache-split.
+            "EscalationPolicyService.findByTenantAndId"
     );
 
     private static final Set<String> WRITE_METHODS = Set.of(
