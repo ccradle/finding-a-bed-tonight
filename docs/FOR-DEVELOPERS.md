@@ -796,6 +796,19 @@ The `/actuator/prometheus` endpoint on the main port (`:8080`) requires authenti
 
 **Production:** Bind the management port to `127.0.0.1` and firewall it to the monitoring network only. Do not expose publicly. See [docs/runbook.md](runbook.md) for full production security guidance.
 
+### Prometheus Scrape Target (dev vs prod)
+
+Prod and local dev use different scrape targets because the backend runs in different places:
+
+| Environment | Backend location | Scrape target | Config file |
+|---|---|---|---|
+| **Prod (Oracle VM)** | Docker container (service name `backend`) | `backend:9091` | `prometheus.yml` |
+| **Local dev** | Host process (`mvn spring-boot:run`) | `host.docker.internal:9091` | `prometheus.dev.yml` |
+
+`dev-start.sh --observability` automatically applies `docker-compose.dev-observability.yml`, which mounts `prometheus.dev.yml` in place of the prod config and adds the `host.docker.internal:host-gateway` extra_host entry (required on Linux Docker Engine; harmless on Docker Desktop). No manual override needed — just run `./dev-start.sh --observability` and Prometheus will scrape the host-side backend.
+
+If you see Prometheus reporting the `fabt-backend` target as `DOWN` locally, verify (a) the backend is listening on `:9091` (check `dev-start.sh` output for "Management port: 9091") and (b) the override file is being applied (`docker compose config` should show `prometheus.dev.yml` under the prometheus service's volumes).
+
 ---
 
 ## Grafana Dashboards
@@ -1075,7 +1088,10 @@ finding-a-bed-tonight/
 ├── LICENSE                                            # Apache 2.0
 ├── dev-start.sh                                       # One-command dev stack (--observability for monitoring stack)
 ├── docker-compose.yml                                 # PostgreSQL, Redis, Kafka + observability profile
-├── prometheus.yml                                     # Prometheus scrape config (targets management port :9091)
+├── docker-compose.dev-nginx.yml                       # Dev-only: frontend via nginx proxy on :8081
+├── docker-compose.dev-observability.yml               # Dev-only: swaps prometheus.yml → prometheus.dev.yml (host-side backend)
+├── prometheus.yml                                     # Prod Prometheus config (target: backend:9091, container service name)
+├── prometheus.dev.yml                                 # Dev Prometheus config (target: host.docker.internal:9091, host process)
 ├── otel-collector-config.yaml                         # OTel Collector pipeline: OTLP → Jaeger
 │
 ├── backend/                                           # Spring Boot 4.0 modular monolith

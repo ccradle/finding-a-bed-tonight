@@ -1,0 +1,19 @@
+# Local-dev override for the observability stack.
+#
+# Swaps the prod-oriented prometheus.yml (targets `backend:9091` — a docker
+# service name) for prometheus.dev.yml (targets `host.docker.internal:9091`)
+# so Prometheus can scrape the Spring Boot backend when it runs as a host
+# process (`mvn spring-boot:run`) outside the compose network. Also adds the
+# host-gateway entry required by Linux Docker Engine — Docker Desktop on
+# Windows/macOS resolves host.docker.internal natively but the extra_hosts
+# line is harmless there.
+#
+# Only apply this override when running locally via dev-start.sh; prod keeps
+# the base compose config unchanged (backend is containerized in prod).
+
+services:
+  prometheus:
+    volumes:
+      - ./prometheus.dev.yml:/etc/prometheus/prometheus.yml:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

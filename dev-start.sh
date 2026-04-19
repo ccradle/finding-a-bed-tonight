@@ -116,8 +116,11 @@ if [[ "${1:-}" == "stop" ]]; then
         kill "$(cat .pid-frontend)" 2>/dev/null && log "Frontend stopped." || true
         rm -f .pid-frontend
     fi
-    # Tear down all containers including optional profiles (including nginx dev proxy)
+    # Tear down all containers including optional profiles (including nginx dev proxy).
+    # Include docker-compose.dev-observability.yml so `down` uses the same override
+    # chain `up` did — otherwise compose warns about orphaned mounts.
     docker compose -f docker-compose.yml -f docker-compose.dev-nginx.yml \
+        -f docker-compose.dev-observability.yml \
         --profile observability --profile oauth2 --profile nginx down 2>/dev/null && log "All containers stopped." || true
     log "All services stopped."
     exit 0
@@ -173,7 +176,12 @@ docker compose up -d postgres
 
 if [[ "$OBSERVABILITY" == true ]]; then
     log "Starting observability stack (Prometheus, Grafana, Jaeger, OTel Collector)..."
-    docker compose --profile observability up -d
+    # Dev override swaps prometheus.yml (targets `backend:9091`, works in
+    # prod where backend is containerized) for prometheus.dev.yml (targets
+    # `host.docker.internal:9091`, works locally where backend runs via
+    # `mvn spring-boot:run` on the host).
+    docker compose -f docker-compose.yml -f docker-compose.dev-observability.yml \
+        --profile observability up -d
 fi
 
 if [[ "$OAUTH2" == true ]]; then

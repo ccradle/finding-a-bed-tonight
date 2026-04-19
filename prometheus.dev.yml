@@ -1,0 +1,23 @@
+# Prometheus scrape config for LOCAL DEV only.
+#
+# Unlike prod (prometheus.yml → target `backend:9091`), local dev runs the
+# backend as a host process via `mvn spring-boot:run`, so the `backend`
+# service name doesn't resolve from inside the prometheus container.
+# Target the host gateway instead; `docker-compose.dev-observability.yml`
+# adds `extra_hosts: ["host.docker.internal:host-gateway"]` so this
+# resolves on both Docker Desktop (Windows/macOS) and Linux Docker Engine.
+#
+# Prod continues to use prometheus.yml unchanged — no compose override
+# there, so the `backend:9091` service-name target remains correct.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'fabt-backend'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['host.docker.internal:9091']
+        labels:
+          application: 'finding-a-bed-tonight'
