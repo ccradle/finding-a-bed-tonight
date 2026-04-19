@@ -174,6 +174,63 @@ Phase 2 will add an MCP server as a thin wrapper around the REST API, enabling n
 
 ## Recent Changes
 
+### Multi-Tenant Production Readiness — Phase C Groundwork (v0.46.0, preparatory)
+
+`TenantScopedCacheService` (`@Service` in `org.fabt.shared.cache`) wraps the existing `CacheService` with four load-bearing contracts: key prefix with `|` separator sourced from `TenantContext`; value stamp-and-verify via `TenantScopedValue<T>(UUID tenantId, T value)` envelope; `invalidateTenant(UUID)` backed by new `CacheService.evictAllByPrefix`; Micrometer observability (`fabt.cache.{get,put}{cache,tenant,result}`). `DetachedAuditPersister` sibling uses `PROPAGATION_REQUIRES_NEW` so `CROSS_TENANT_CACHE_READ` audit rows survive attacker-triggered caller rollback (Marcus lens, design-c D-C-9).
+
+**Preparatory only.** The wrapper bean is in the Spring context but NOT yet routed from any production call site — the 7 existing manually-prefixed callers in `BedSearchService`, `AvailabilityService`, and `AnalyticsService` migrate in the v0.47 series (task 4.b). Today the bean exists so the wrapper contract can be reviewed and the `fabt.cache.registered_cache_names` gauge (value 11.0 on prod) surfaces the eager `CacheNames`-reflection seed. Exception messages carry short action tags only (`CROSS_TENANT_CACHE_READ`, `MALFORMED_CACHE_ENTRY`, `TENANT_CONTEXT_UNBOUND`) — never UUIDs or payload fragments (OWASP ASVS 5.0 §7.4.1).
+
+Cross-references: `docs/architecture/redis-pooling-adr.md` (three-shape deployment taxonomy, HIPAA AES-256/TLS-1.3 scope for silo tier), `openspec/changes/multi-tenant-production-readiness/design-c-cache-isolation.md` (D-C-8 through D-C-13 warroom decisions).
+
+### Multi-Tenant Production Readiness — Phase B Database-Layer Hardening (v0.43 – v0.45)
+
+Row-level security + FORCE RLS + pgaudit + PostgreSQL version floor + Flyway HWM guard across three deploys (v0.43 initial, v0.44 pgaudit, v0.45 close-out).
+
+**V67–V72 shipped in v0.43** — D14 tenant-RLS policies on the 7 regulated tables (`audit_events`, `hmis_audit_log`, `hmis_outbox`, `password_reset_token`, `one_time_access_code`, `tenant_key_material`, `kid_to_tenant_key`) via `USING (tenant_id::text = fabt_current_tenant_id())` where `fabt_current_tenant_id()` is a LEAKPROOF SQL function wrapping `current_setting('app.tenant_id', true)` (avoids index disablement + error-message side-channel leak). `FORCE ROW LEVEL SECURITY` prevents owner bypass. `REVOKE UPDATE, DELETE, TRUNCATE, REFERENCES` on audit tables from `fabt_app`. Supporting `(tenant_id, ...)` indexes for policy-covered queries.
+
+**V73 + image swap shipped in v0.44** — pgaudit session parameters via `ALTER DATABASE ... SET pgaudit.*`. Postgres container migrated from `postgres:16-alpine` to a Debian+PGDG-based `fabt-pgaudit` image because Alpine doesn't carry pgaudit. UID 70 → 999 pgdata volume chown in-place.
+
+**Close-out shipped in v0.45** — `PgVersionGate` (`@PostConstruct` in `org.fabt.shared.security`) halts JVM boot on `server_version_num < 160005` (PostgreSQL 16.5 floor; doubles as CVE-2024-10977 gate). `application_name = 'fabt:tenant:<uuid>'` now co-located with `app.tenant_id` in the same prepared statement in `RlsDataSourceConfig.applyRlsContext` — the two values cannot drift. `deploy/pgaudit.conf` `log_line_prefix = '%m [%p] %q%u@%d app=%a '` so pgaudit log lines carry the tenant UUID. `deploy/prod-state.json` pins Flyway applied-HWM (V74); CI `flyway-hwm-guard` rejects below-HWM PRs (renumber-forward posture). `deploy/release-gate-pins.txt` + CODEOWNERS enforce a SHA-256 pin on `docs/security/pg-policies-snapshot.md`.
+
+Developer implications:
+
+- `@Transactional` methods must NOT call `TenantContext.runWithContext()` — the connection is acquired at `@Transactional` entry, before the ScopedValue binding can fire. Enforced by ArchUnit B11 (`TenantContextTransactionalRuleTest`). See also the Troubleshooting entry "@Scheduled + @Transactional + TenantContext.runWithContext = silent RLS failure".
+- New migrations cannot introduce `SECURITY DEFINER` functions (would reintroduce owner-bypass that V69 is built to block). Blocked by `MigrationLintTest`.
+- New regulated tables (if any) need the full Phase B treatment: FORCE RLS + D14 policy + LEAKPROOF predicate + supporting indexes + INSERT-only `fabt_app` grant. Use `docs/security/pg-policies-snapshot.md` as the canonical shape.
+- Queries run outside a bound `TenantContext` on FORCE-RLS tables will return empty — wrap diagnostic reads in `TenantContext.callWithContext(tenantId, ...)` or they'll look like missing data. This is the v0.46 4.9g IT fix pattern.
+
+### Multi-Tenant Production Readiness — Phase A5 Per-Tenant DEKs (v0.42)
+
+HKDF-derived per-tenant Data Encryption Keys replace the single-platform AES key for secrets at rest. Four secret classes protected: TOTP secrets, webhook callback secrets, OAuth2 client secrets, HMIS vendor API keys.
+
+- **Derivation:** Platform KEK held in `FABT_ENCRYPTION_KEY` env var. Per-tenant DEK = `HKDF-SHA256(platformKEK, context="fabt:v1:<tenant-uuid>:<purpose>", length=32)`. Purpose is one of `totp`, `webhook-secret`, `oauth2-client-secret`, `hmis-api-key`.
+- **Envelope format (v1 `FABT` magic):** bytes 0-3 = `FABT` ASCII; byte 4 = version byte (`1`); bytes 5-20 = kid (16-byte UUID); bytes 21-32 = AES-GCM IV (12 bytes); bytes 33+ = ciphertext + 16-byte GCM tag. Self-describing for future key rotations.
+- **V74 re-encrypts** existing TOTP + webhook secrets from the single-platform key to per-tenant DEKs. Dual-key-accept decrypt grace during the rollout window (both keys tried before failing).
+- **Crypto-shred alignment:** destroying a tenant's DEK makes ciphertext computationally unrecoverable even from backups — the mechanism underlying the future Phase F hard-delete and GDPR Article 17 + EDPB Feb 2026 erasure-in-backups compliance.
+
+See `SecretEncryptionService`, `PerTenantKeyDerivationService`, `design-a3-encryption-envelope.md`.
+
+### Multi-Tenant Production Readiness — Phase A Per-Tenant JWT Keys (v0.42)
+
+Per-tenant HKDF-derived JWT signing keys replace the single platform HMAC key. Opaque `kid` header resolves server-side to `(tenant_id, key_generation)`. **NOT `kid=tenant:<uuid>`** — that would leak tenant UUIDs in every captured token (Marcus lens, rejected at design).
+
+- **Derivation:** `HKDF-SHA256(platformKEK, context="fabt:v1:<tenant-uuid>:jwt-sign", length=32)`.
+- **Validate path:** parse JWT → extract random-UUID `kid` → look up in `kid_to_tenant_key` table → `(tenantId, keyGeneration)` → derive signing key → verify signature → cross-check `claim.tenantId == kid-resolved tenantId` (rejects kid-confusion attack with audit event on mismatch).
+- **Revocation via `tenant.jwt_key_generation` bump:** incrementing the column invalidates ALL existing JWTs for that tenant atomically. No per-token revocation table needed; fast-path `jwt_revocations(kid, expires_at)` exists for short-lived denylist with daily prune.
+- **Kid-lookup cache:** bounded Caffeine cache of `kid → (tenantId, keyGeneration)` for sub-microsecond validate. Annotated `@TenantUnscopedCache("kid is platform-unique lookup")` per Phase C Family C rule.
+
+See `JwtService.sign` / `JwtService.validate` + `KidRegistryService` + `design-a4-jwt-refactor.md`.
+
+### Multi-Tenant Production Readiness — Phase 0 Credential Encryption (v0.41 / v0.42)
+
+Latent-vulnerability fix — `TenantOAuth2Provider.clientSecretEncrypted` and `HmisVendorConfig.apiKeyEncrypted` were stored as plaintext (with TODO comments in code). First PR of the multi-tenant-production-readiness change. Encrypted at rest on day one.
+
+- **V59 Java migration** (`db.migration.V59__reencrypt_plaintext_credentials`) re-encrypts existing rows idempotently via `looksLikeCiphertext` try-decrypt guard. Safe to re-run after partial failure. Writes one `SYSTEM_MIGRATION_V59_REENCRYPT` row to `audit_events` inside the migration transaction.
+- **`SecretEncryptionService` constructor fail-fast on prod profile** — missing, blank, or committed-dev-key `FABT_ENCRYPTION_KEY` throws `IllegalStateException` at startup. Pre-v0.41 only WARN-logged and silently degraded.
+- **Plaintext-tolerant decrypt fallbacks** preserve OAuth2 login + HMIS push through the brief window between deploy and V59 completing.
+
+Operator requirement: `FABT_ENCRYPTION_KEY` must be set as a 32-byte base64-encoded value in the prod environment (`~/fabt-secrets/.env.prod` on the FABT demo VM). Generate via `openssl rand -base64 32`. **Key loss = loss of access to every encrypted secret (irrecoverable);** the value is never rotated casually — rotation requires a coordinated dual-key-accept migration window.
+
 ### Notification Deep-Linking (Issue #106 — Phases 1-4)
 
 User-clicks-notification → land on the specific item requiring action, with focus on the right element. Implemented as a four-phase rollout. Foundational mechanism is the `useDeepLink` hook (`frontend/src/hooks/useDeepLink.ts`) — an explicit finite state machine `idle → resolving → awaiting-confirm → expanding → awaiting-target → done | stale` with a 5-second `awaiting-target` deadline so stuck states are impossible by construction.
