@@ -44,8 +44,9 @@ gates below. Unchecked boxes without deliberate justification may block review.
 
 ## Legal
 
-- [ ] No overclaiming language ("compliant", "guarantees", "equivalent to") in
-      code comments, docs, or UI strings — use "designed to support" per
-      `feedback_legal_claims_review.md`.
+- [ ] No overclaiming-compliance language in code comments, docs, or UI
+      strings — prefer the "designed to support" pattern per
+      `feedback_legal_claims_review.md`. The `legal-language-scan.sh` CI
+      job lists the specific forbidden words; run it locally if unsure.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
