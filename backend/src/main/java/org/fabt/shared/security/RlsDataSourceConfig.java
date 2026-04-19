@@ -124,16 +124,27 @@ public class RlsDataSourceConfig {
                 //   on regulated tables). No current RLS policy reads it — Elena's
                 //   defense-in-depth insistence (D13). Empty string when null (scheduled-
                 //   task / batch-job case where TenantContext is unset).
+                // set_config('application_name', 'fabt:tenant:<uuid>', ...): tags every
+                //   pgaudit log line + pg_stat_activity row with the bound tenant so an
+                //   operator reading the audit log can correlate a statement to its tenant
+                //   without joining by timestamp+pid (task 3.11 follow-up). Co-located with
+                //   app.tenant_id in the SAME prepared statement so the two values cannot
+                //   drift — a divergence between them would mean pgaudit logs the wrong
+                //   tenant while RLS enforces the right one, which is worse than no tag.
+                //   Drift-safety is covered by PgauditApplicationNameDriftTest.
                 // Callers bind context via TenantContext.runWithContext() BEFORE queries.
                 String userIdStr = userId != null ? userId.toString() : "00000000-0000-0000-0000-000000000000";
                 String tenantIdStr = tenantId != null ? tenantId.toString() : "";
+                String applicationNameStr = "fabt:tenant:" + (tenantId != null ? tenantIdStr : "none");
                 try (java.sql.PreparedStatement pstmt = conn.prepareStatement(
                         "SET ROLE fabt_app; SELECT set_config('app.dv_access', ?, false), "
                                 + "set_config('app.current_user_id', ?, false), "
-                                + "set_config('app.tenant_id', ?, false)")) {
+                                + "set_config('app.tenant_id', ?, false), "
+                                + "set_config('application_name', ?, false)")) {
                     pstmt.setString(1, String.valueOf(dvAccess));
                     pstmt.setString(2, userIdStr);
                     pstmt.setString(3, tenantIdStr);
+                    pstmt.setString(4, applicationNameStr);
                     pstmt.execute();
                 }
             } catch (SQLException e) {
