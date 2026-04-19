@@ -128,7 +128,7 @@ class Task4bCacheHitRateTest extends BaseIntegrationTest {
     @MethodSource("migratedPutGetSites")
     void secondInvocationHitsCache(String methodName, String cacheName, Task4bInvoker invoker)
             throws Exception {
-        // Clear any prior entries so the first call is guaranteed a miss.
+        // Clear any prior entries so the first call must be a miss.
         TenantContext.runWithContext(tenantId, true, () ->
                 tenantScopedCache.invalidateTenant(tenantId));
 
@@ -158,7 +158,7 @@ class Task4bCacheHitRateTest extends BaseIntegrationTest {
         // (c) early short-circuits that skip the wrapper entirely (both deltas=0).
         // Per Riley post-commit warroom: `.isGreaterThanOrEqualTo` allowed loose
         // passes when unrelated JVM-global counter state bled in; equality is the
-        // contract the migration guarantees.
+        // contract the migration enforces.
         assertThat(hitsDelta)
                 .as("%s: exactly ONE hit between the two invocations. "
                         + "Delta != 1 = migration's put-key diverges from its "
