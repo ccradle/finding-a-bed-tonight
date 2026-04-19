@@ -1071,7 +1071,7 @@ export function OutreachSearch() {
             ref={referralModalRef}
             role="dialog"
             aria-modal="true"
-            aria-label={intl.formatMessage({ id: 'referral.requestTitle' })}
+            aria-label={intl.formatMessage({ id: 'referral.title' })}
             tabIndex={-1}
             onKeyDown={(e) => { if (e.key === 'Escape') setReferralModal(null); }}
             data-testid="referral-modal"
