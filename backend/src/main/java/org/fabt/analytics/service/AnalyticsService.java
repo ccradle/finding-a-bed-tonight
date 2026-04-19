@@ -19,7 +19,7 @@ import org.fabt.analytics.repository.BedSearchLogRepository;
 import org.fabt.analytics.repository.DailyUtilizationSummaryRepository;
 import org.fabt.analytics.repository.DailyUtilizationSummaryRepository.UtilizationSummaryRow;
 import org.fabt.shared.cache.CacheNames;
-import org.fabt.shared.cache.CacheService;
+import org.fabt.shared.cache.TenantScopedCacheService;
 import org.fabt.shared.web.TenantContext;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -44,14 +44,14 @@ public class AnalyticsService {
     private final BedSearchLogRepository searchLogRepository;
     private final JdbcTemplate analyticsJdbc;
     private final JdbcTemplate primaryJdbc;
-    private final CacheService cacheService;
+    private final TenantScopedCacheService cacheService;
 
     public AnalyticsService(
             DailyUtilizationSummaryRepository summaryRepository,
             BedSearchLogRepository searchLogRepository,
             @Qualifier("analyticsDataSource") DataSource analyticsDataSource,
             JdbcTemplate primaryJdbc,
-            CacheService cacheService) {
+            TenantScopedCacheService cacheService) {
         this.summaryRepository = summaryRepository;
         this.searchLogRepository = searchLogRepository;
         this.analyticsJdbc = new JdbcTemplate(analyticsDataSource);
@@ -63,7 +63,7 @@ public class AnalyticsService {
      * Utilization rates over time from daily_utilization_summary (not raw snapshots).
      */
     public Map<String, Object> getUtilization(UUID tenantId, LocalDate from, LocalDate to, String granularity) {
-        String cacheKey = tenantId + ":" + from + ":" + to + ":" + granularity;
+        String cacheKey = from + ":" + to + ":" + granularity;
         @SuppressWarnings("unchecked")
         Optional<Map<String, Object>> cached = cacheService.get(
                 CacheNames.ANALYTICS_UTILIZATION, cacheKey, (Class<Map<String, Object>>) (Class<?>) Map.class);
@@ -91,7 +91,7 @@ public class AnalyticsService {
      * Demand signals: reservation conversion/expiry rates and zero-result search counts.
      */
     public Map<String, Object> getDemand(UUID tenantId, LocalDate from, LocalDate to) {
-        String cacheKey = tenantId + ":" + from + ":" + to;
+        String cacheKey = from + ":" + to;
         @SuppressWarnings("unchecked")
         Optional<Map<String, Object>> cached = cacheService.get(
                 CacheNames.ANALYTICS_DEMAND, cacheKey, (Class<Map<String, Object>>) (Class<?>) Map.class);
@@ -122,7 +122,7 @@ public class AnalyticsService {
      * Total system capacity over time, beds added/removed.
      */
     public Map<String, Object> getCapacity(UUID tenantId, LocalDate from, LocalDate to) {
-        String cacheKey = tenantId + ":" + from + ":" + to;
+        String cacheKey = from + ":" + to;
         @SuppressWarnings("unchecked")
         Optional<Map<String, Object>> cached = cacheService.get(
                 CacheNames.ANALYTICS_CAPACITY, cacheKey, (Class<Map<String, Object>>) (Class<?>) Map.class);
@@ -161,7 +161,7 @@ public class AnalyticsService {
      * Aggregated DV shelter stats with minimum cell size 5 suppression (Design D4).
      */
     public Map<String, Object> getDvSummary(UUID tenantId) throws Exception {
-        String cacheKey = tenantId.toString();
+        String cacheKey = "latest";
         @SuppressWarnings("unchecked")
         Optional<Map<String, Object>> cached = cacheService.get(
                 CacheNames.ANALYTICS_DV_SUMMARY, cacheKey, (Class<Map<String, Object>>) (Class<?>) Map.class);
@@ -219,7 +219,7 @@ public class AnalyticsService {
      * Shelter locations with utilization data. DV shelters excluded (Design D4).
      */
     public List<Map<String, Object>> getGeographic(UUID tenantId) {
-        String cacheKey = tenantId.toString();
+        String cacheKey = "latest";
         @SuppressWarnings("unchecked")
         Optional<List<Map<String, Object>>> cached = cacheService.get(
                 CacheNames.ANALYTICS_GEOGRAPHIC, cacheKey, (Class<List<Map<String, Object>>>) (Class<?>) List.class);
@@ -256,7 +256,7 @@ public class AnalyticsService {
      * HMIS push success/failure rates from hmis_audit_log.
      */
     public Map<String, Object> getHmisHealth(UUID tenantId) {
-        String cacheKey = tenantId.toString();
+        String cacheKey = "latest";
         @SuppressWarnings("unchecked")
         Optional<Map<String, Object>> cached = cacheService.get(
                 CacheNames.ANALYTICS_HMIS_HEALTH, cacheKey, (Class<Map<String, Object>>) (Class<?>) Map.class);

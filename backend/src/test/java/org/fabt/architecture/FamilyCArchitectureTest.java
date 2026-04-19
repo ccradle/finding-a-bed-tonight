@@ -115,32 +115,11 @@ class FamilyCArchitectureTest {
      * calls; the entry exempts the whole method.
      */
     private static final Set<String> PENDING_MIGRATION_SITES = Set.of(
-            // AnalyticsService — 6 methods, each with get/put per event-type
-            // composite-keyed lookup. Task 4.b migrates these to
-            // tenantScopedCacheService.get/put with the caller stripping the
-            // leading tenantId from the key.
-            "org.fabt.analytics.service.AnalyticsService.getUtilization",
-            "org.fabt.analytics.service.AnalyticsService.getDemand",
-            "org.fabt.analytics.service.AnalyticsService.getCapacity",
-            "org.fabt.analytics.service.AnalyticsService.getDvSummary",
-            "org.fabt.analytics.service.AnalyticsService.getGeographic",
-            "org.fabt.analytics.service.AnalyticsService.getHmisHealth",
-            // BedSearchService — 1 method with get/put. Key is
-            // tenantId.toString() (pure tenant cache); task 4.b migrates
-            // with caller stripping the leading tenantId so the wrapper's
-            // prefix isn't double-applied.
-            "org.fabt.availability.service.BedSearchService.doSearch",
-            // AvailabilityService — 3 evict calls. Two by tenantId
-            // (SHELTER_AVAILABILITY + SHELTER_LIST), one by shelterId
-            // (SHELTER_PROFILE). Migration note (design-c D-C-1, D-4.1-5):
-            // the shelterId-keyed evict is safe under wrapper because the
-            // caller's TenantContext is the shelter's own tenant.
-            "org.fabt.availability.service.AvailabilityService.createSnapshot",
-            // ShelterService — 2 evict calls in evictTenantShelterCaches,
-            // called from the tenant-lifecycle cleanup path. Task 4.b
-            // candidate: consider replacing with
-            // tenantScopedCacheService.invalidateTenant(UUID).
-            "org.fabt.shelter.service.ShelterService.evictTenantShelterCaches"
+            // Task 4.b complete (v0.47.0 release gate): all 9 original entries
+            // migrated through TenantScopedCacheService. Empty set means
+            // production code is fully routed through the wrapper; any new
+            // entry requires design-c warroom sign-off per spec requirement
+            // pending-migration-sites-drained.
     );
 
     private static final String SCOPE_PKG_SERVICE = "..service..";
