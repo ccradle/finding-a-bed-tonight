@@ -4,6 +4,8 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicReference;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -56,6 +58,9 @@ class TenantScopedCacheServiceUnitTest {
     void setUp() {
         delegate = new CaffeineCacheService(60L);
         eventPublisher = mock(ApplicationEventPublisher.class);
+        // DetachedAuditPersister is mocked at the TenantScopedCacheService boundary
+        // so the wrapper tests don't need real DB or tx manager wiring. The 4.9g IT
+        // exercises the real persister + REQUIRES_NEW rollback behaviour.
         detachedAuditPersister = mock(DetachedAuditPersister.class);
         meterRegistry = new SimpleMeterRegistry();
 
@@ -191,6 +196,68 @@ class TenantScopedCacheServiceUnitTest {
         assertThat(hits).isEqualTo(1.0);
         assertThat(misses).isEqualTo(1.0);
         assertThat(puts).isEqualTo(1.0);
+    }
+
+    // ---- Task 4.9 extension — concurrent puts from two tenants ----
+
+    @Test
+    @DisplayName("4.9 — concurrent puts from two tenants persist independently (no race)")
+    void concurrentPutsSurvive() throws InterruptedException {
+        int iterations = 50;
+        CountDownLatch startGate = new CountDownLatch(1);
+        CountDownLatch doneGate = new CountDownLatch(2);
+        AtomicReference<Throwable> caught = new AtomicReference<>();
+
+        Runnable writerA = () -> {
+            try {
+                startGate.await();
+                TenantContext.runWithContext(TENANT_A, false, () -> {
+                    for (int i = 0; i < iterations; i++) {
+                        wrapper.put(CacheNames.SHELTER_PROFILE, "k" + i, "A-" + i,
+                                Duration.ofSeconds(30));
+                    }
+                });
+            } catch (Throwable t) {
+                caught.compareAndSet(null, t);
+            } finally {
+                doneGate.countDown();
+            }
+        };
+        Runnable writerB = () -> {
+            try {
+                startGate.await();
+                TenantContext.runWithContext(TENANT_B, false, () -> {
+                    for (int i = 0; i < iterations; i++) {
+                        wrapper.put(CacheNames.SHELTER_PROFILE, "k" + i, "B-" + i,
+                                Duration.ofSeconds(30));
+                    }
+                });
+            } catch (Throwable t) {
+                caught.compareAndSet(null, t);
+            } finally {
+                doneGate.countDown();
+            }
+        };
+
+        Thread t1 = Thread.ofVirtual().start(writerA);
+        Thread t2 = Thread.ofVirtual().start(writerB);
+        startGate.countDown();
+        doneGate.await();
+
+        assertThat(caught.get()).isNull();
+
+        // Both tenants' envelopes survive under their correct prefix — zero cross-contamination
+        for (int i = 0; i < iterations; i++) {
+            final int idx = i;
+            String aVal = TenantContext.callWithContext(TENANT_A, false, () ->
+                    wrapper.get(CacheNames.SHELTER_PROFILE, "k" + idx, String.class).orElse(null)
+            );
+            String bVal = TenantContext.callWithContext(TENANT_B, false, () ->
+                    wrapper.get(CacheNames.SHELTER_PROFILE, "k" + idx, String.class).orElse(null)
+            );
+            assertThat(aVal).as("tenant A read for k%d", idx).isEqualTo("A-" + idx);
+            assertThat(bVal).as("tenant B read for k%d", idx).isEqualTo("B-" + idx);
+        }
     }
 
     // ---- Task 4.9b — invalidateTenant scope ----

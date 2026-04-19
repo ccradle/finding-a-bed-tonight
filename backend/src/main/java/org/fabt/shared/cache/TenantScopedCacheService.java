@@ -124,6 +124,19 @@ public class TenantScopedCacheService {
      */
     private final Set<String> registeredCacheNames = ConcurrentHashMap.newKeySet();
 
+    /**
+     * Per-tag-combination Counter cache. Counters are created lazily on first
+     * use then reused — avoids the per-op {@code MeterRegistry} tag-map lookup
+     * in {@code Counter.builder(...).register(...)} that BedSearch's hot path
+     * (~1k QPS) would otherwise incur. Sam Okafor's warroom review, code review
+     * round 2026-04-19 PM.
+     */
+    private final Map<GetCounterKey, Counter> getCounters = new ConcurrentHashMap<>();
+    private final Map<PutCounterKey, Counter> putCounters = new ConcurrentHashMap<>();
+
+    private record GetCounterKey(String cacheName, UUID tenantId, String result) {}
+    private record PutCounterKey(String cacheName, UUID tenantId) {}
+
     public TenantScopedCacheService(CacheService delegate,
                                      ApplicationEventPublisher eventPublisher,
                                      DetachedAuditPersister detachedAuditPersister,
@@ -288,21 +301,25 @@ public class TenantScopedCacheService {
 
     private void recordGet(String cacheName, UUID tenantId, String result) {
         if (meterRegistry == null) return;
-        Counter.builder("fabt.cache.get")
-                .tag("cache", cacheName)
-                .tag("tenant", tenantId.toString())
-                .tag("result", result)
-                .register(meterRegistry)
-                .increment();
+        getCounters.computeIfAbsent(
+                new GetCounterKey(cacheName, tenantId, result),
+                k -> Counter.builder("fabt.cache.get")
+                        .tag("cache", k.cacheName())
+                        .tag("tenant", k.tenantId().toString())
+                        .tag("result", k.result())
+                        .register(meterRegistry)
+        ).increment();
     }
 
     private void recordPut(String cacheName, UUID tenantId) {
         if (meterRegistry == null) return;
-        Counter.builder("fabt.cache.put")
-                .tag("cache", cacheName)
-                .tag("tenant", tenantId.toString())
-                .register(meterRegistry)
-                .increment();
+        putCounters.computeIfAbsent(
+                new PutCounterKey(cacheName, tenantId),
+                k -> Counter.builder("fabt.cache.put")
+                        .tag("cache", k.cacheName())
+                        .tag("tenant", k.tenantId().toString())
+                        .register(meterRegistry)
+        ).increment();
     }
 
     private void handleCrossTenantRead(String cacheName, UUID readerTenant, UUID stampedTenant) {

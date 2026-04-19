@@ -25,6 +25,11 @@ public class CaffeineCacheService implements CacheService {
     @Override
     @SuppressWarnings("unchecked")
     public <T> Optional<T> get(String cacheName, String key, Class<T> type) {
+        // Under TenantScopedCacheService ownership (Phase C), the wrapper fetches
+        // as Object.class + pattern-matches `instanceof TenantScopedValue<?>` so
+        // the unchecked cast below is effectively always Object→Object. The
+        // `type` parameter is retained for direct (pre-wrapper) callers that
+        // still exist until task 4.b migrates the 7 known call sites.
         Cache<String, Object> cache = caches.get(cacheName);
         if (cache == null) {
             return Optional.empty();

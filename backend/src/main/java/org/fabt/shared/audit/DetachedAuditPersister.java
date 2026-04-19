@@ -2,10 +2,13 @@ package org.fabt.shared.audit;
 
 import java.util.UUID;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.fabt.shared.audit.repository.AuditEventRepository;
 import org.fabt.shared.config.JsonString;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -57,13 +60,16 @@ public class DetachedAuditPersister {
     private final AuditEventRepository repository;
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
+    private final MeterRegistry meterRegistry;
 
     public DetachedAuditPersister(AuditEventRepository repository,
                                    JdbcTemplate jdbc,
-                                   ObjectMapper objectMapper) {
+                                   ObjectMapper objectMapper,
+                                   ObjectProvider<MeterRegistry> meterRegistryProvider) {
         this.repository = repository;
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
+        this.meterRegistry = meterRegistryProvider.getIfAvailable();
     }
 
     /**
@@ -96,6 +102,19 @@ public class DetachedAuditPersister {
             // caller's IllegalStateException (the reason we're here) has already
             // fired and will propagate. We log loudly so an operator can follow
             // up, but do NOT re-throw (that would mask the original ISE).
+            //
+            // Also emit `fabt.audit.detached_failed.count{action}` so the swallow
+            // has a metric signal, not only a log line (Jordan + Marcus warroom,
+            // code review round 2026-04-19 PM). Operator alerts on this counter
+            // going non-zero with the same urgency as
+            // `fabt.audit.rls_rejected.count` — both represent lost audit rows.
+            if (meterRegistry != null) {
+                Counter.builder("fabt.audit.detached_failed.count")
+                        .tag("action", event.action() == null ? "unknown" : event.action())
+                        .description("DetachedAuditPersister persist failures (security-evidence audit rows lost due to DB contention / schema / RLS rejection)")
+                        .register(meterRegistry)
+                        .increment();
+            }
             log.error("DetachedAuditPersister failed for action={} tenant={}: {}",
                     event.action(), tenantId, e.getMessage(), e);
         }

@@ -34,6 +34,10 @@ public class TieredCacheService implements CacheService {
     @Override
     @SuppressWarnings("unchecked")
     public <T> Optional<T> get(String cacheName, String key, Class<T> type) {
+        // Under TenantScopedCacheService ownership (Phase C), the wrapper fetches
+        // as Object.class + pattern-matches `instanceof TenantScopedValue<?>` so
+        // the unchecked cast below is effectively always Object→Object. The
+        // `type` parameter is retained for direct (pre-wrapper) callers.
         // Check L1 first
         Cache<String, Object> l1 = l1Caches.get(cacheName);
         if (l1 != null) {

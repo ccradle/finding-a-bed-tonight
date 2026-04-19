@@ -74,7 +74,7 @@ class TenantScopedCacheAuditRollbackIntegrationTest extends BaseIntegrationTest 
                 new TenantScopedValue<>(TENANT_A, "poisoned-value"),
                 Duration.ofSeconds(60));
 
-        long beforeCount = countCrossTenantAudits();
+        long beforeCount = countCrossTenantAuditsAsTenant(TENANT_B);
 
         // Execute the cross-tenant read inside a caller transaction that rolls back.
         // TransactionTemplate is used explicitly so the rollback happens inside a
@@ -94,31 +94,41 @@ class TenantScopedCacheAuditRollbackIntegrationTest extends BaseIntegrationTest 
                 .withMessage("CROSS_TENANT_CACHE_READ");
 
         // The outer tx has rolled back. The DetachedAuditPersister row should still
-        // be present because it ran under PROPAGATION_REQUIRES_NEW.
-        long afterCount = countCrossTenantAudits();
+        // be present because it ran under PROPAGATION_REQUIRES_NEW. Phase B V69 applies
+        // FORCE RLS on audit_events, so the verification read MUST bind app.tenant_id
+        // to TENANT_B (via TenantContext) or the RLS policy filters the row out.
+        long afterCount = countCrossTenantAuditsAsTenant(TENANT_B);
         assertThat(afterCount)
                 .as("CROSS_TENANT_CACHE_READ audit row must survive the caller's rollback")
                 .isEqualTo(beforeCount + 1);
 
         // Verify the row's tenant + action are correct
-        List<AuditEventEntity> rows = findCrossTenantAuditsForTenant(TENANT_B);
+        List<AuditEventEntity> rows = TenantContext.callWithContext(TENANT_B, false,
+                () -> findCrossTenantAuditsForTenant(TENANT_B));
         assertThat(rows).isNotEmpty();
         AuditEventEntity latest = rows.get(rows.size() - 1);
         assertThat(latest.getAction()).isEqualTo(AuditEventTypes.CROSS_TENANT_CACHE_READ);
         assertThat(latest.getTenantId()).isEqualTo(TENANT_B);
     }
 
-    private long countCrossTenantAudits() {
-        Long count = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM audit_events WHERE action = ?",
-                Long.class,
-                AuditEventTypes.CROSS_TENANT_CACHE_READ);
-        return count != null ? count : 0L;
+    /**
+     * Counts CROSS_TENANT_CACHE_READ rows under a bound TenantContext. Phase B V69
+     * FORCE RLS on audit_events filters reads by tenant_id = fabt_current_tenant_id()
+     * — a query run with no TenantContext returns empty because
+     * current_setting('app.tenant_id', true) returns NULL.
+     */
+    private long countCrossTenantAuditsAsTenant(UUID tenantId) {
+        return TenantContext.callWithContext(tenantId, false, () -> {
+            Long count = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM audit_events WHERE action = ? AND tenant_id = ?",
+                    Long.class,
+                    AuditEventTypes.CROSS_TENANT_CACHE_READ,
+                    tenantId);
+            return count != null ? count : 0L;
+        });
     }
 
     private List<AuditEventEntity> findCrossTenantAuditsForTenant(UUID tenantId) {
-        // Use the owner role so RLS doesn't filter for us; test contexts run under
-        // fabt_test owner which has BYPASSRLS per Phase B setup.
         return jdbc.query(
                 "SELECT id, timestamp, tenant_id, actor_user_id, target_user_id, action, "
                 + "details, ip_address FROM audit_events "
