@@ -51,6 +51,7 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
     private final Duration rateWindow = Duration.ofMinutes(1);
 
     // Caffeine cache: bounded size + TTL eviction to prevent memory DoS from IP rotation
+    @TenantUnscopedCache("pre-authentication rate-limit buckets keyed by client IP; the filter runs BEFORE any API key is validated so the caller's tenant is unknown at cache-site; platform-admin API keys may legitimately cross tenants and share IP space — bucket isolation is per-IP not per-tenant by design")
     private final Cache<String, Bucket> rateLimitBuckets = Caffeine.newBuilder()
             .maximumSize(10_000)
             .expireAfterAccess(Duration.ofMinutes(10))

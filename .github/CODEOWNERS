@@ -62,3 +62,22 @@
 # The release-gate file itself — ownership must not be self-editable
 # without a second-pair review in a larger team. Solo for now.
 /.github/CODEOWNERS  @ccradle
+
+# Phase C Family C cache-isolation annotations — ownership of the
+# annotation DEFINITIONS. Catches edits to the annotation contract itself
+# (signature changes, retention changes, deprecation). Does NOT catch new
+# USAGES of the annotation on other files — that's handled by the CI
+# grep job in .github/workflows/ci.yml which posts a PR-comment
+# auto-requesting @ccradle review whenever a PR introduces a new
+# @TenantUnscopedCache or @TenantScopedByConstruction occurrence. See
+# design-c D-4.23-2 warroom resolution: CODEOWNERS is path-based, not
+# diff-content-based, so the annotation-usage gate requires a different
+# mechanism.
+/backend/src/main/java/org/fabt/shared/security/TenantUnscopedCache.java  @ccradle
+/backend/src/main/java/org/fabt/shared/security/TenantScopedByConstruction.java  @ccradle
+
+# Family C ArchUnit rule — the test class + SAFE_SITES-style allowlist.
+# Adding a new allowlist entry is semantically "I am deliberately opting
+# out of the rule for this site"; warrants the same review rigor as the
+# annotation additions above.
+/backend/src/test/java/org/fabt/architecture/FamilyCArchitectureTest.java  @ccradle

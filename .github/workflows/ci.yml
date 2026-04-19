@@ -117,6 +117,105 @@ jobs:
       - name: Scan for overclaimed compliance language
         run: bash infra/scripts/legal-language-scan.sh .
 
+  family-c-annotation-review-gate:
+    # Phase C task 4.5: auto-request @ccradle review on any PR that
+    # introduces a new @TenantUnscopedCache or @TenantScopedByConstruction
+    # usage. CODEOWNERS is path-based and does NOT trigger when a new
+    # annotation is added to an existing file — this job closes that gap
+    # per design-c D-4.23-2 warroom resolution.
+    name: Family C annotation review gate (4.5)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Detect new @TenantUnscopedCache / @TenantScopedByConstruction usages
+        id: detect
+        run: |
+          set -eo pipefail
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+
+          # Hardening (warroom PR #137 post-commit review — Jordan): verify
+          # both SHAs resolve BEFORE the diff. Previous version used
+          # `git diff ... | grep ... || true`, which masked a broken diff as
+          # "zero new usages" — the review gate could be silently bypassed if
+          # a fork re-push pruned the base SHA. Fail loud on unresolvable
+          # SHAs instead.
+          if ! git rev-parse --verify --quiet "$BASE_SHA^{commit}" >/dev/null; then
+            echo "::error::base SHA $BASE_SHA does not resolve in this checkout — cannot compute diff. Refusing to skip the review gate."
+            exit 1
+          fi
+          if ! git rev-parse --verify --quiet "$HEAD_SHA^{commit}" >/dev/null; then
+            echo "::error::head SHA $HEAD_SHA does not resolve in this checkout — cannot compute diff. Refusing to skip the review gate."
+            exit 1
+          fi
+
+          # Count NEW occurrences (added lines) containing the annotations
+          # in the PR diff. Exclude the annotation definitions themselves
+          # (TenantUnscopedCache.java, TenantScopedByConstruction.java) so
+          # edits to the annotations don't self-trigger. Use a tmpfile to
+          # separate pipeline-failure detection from grep's no-match exit
+          # code (grep returns 1 on zero matches, which set -o pipefail
+          # would otherwise treat as fatal).
+          DIFF_FILE=$(mktemp)
+          git diff "$BASE_SHA" "$HEAD_SHA" -- \
+              ':(exclude)backend/src/main/java/org/fabt/shared/security/TenantUnscopedCache.java' \
+              ':(exclude)backend/src/main/java/org/fabt/shared/security/TenantScopedByConstruction.java' \
+              > "$DIFF_FILE"
+          # Added-line count of the two annotation constructors; `grep -c`
+          # returns 0 on no match (without exit 1 because it reads from file).
+          NEW_USAGES=$(grep -cE '^\+[^+].*@TenantUnscopedCache\(|^\+[^+].*@TenantScopedByConstruction\(' "$DIFF_FILE" || true)
+          rm -f "$DIFF_FILE"
+
+          echo "new_usages=$NEW_USAGES" >> "$GITHUB_OUTPUT"
+          if [ "$NEW_USAGES" -gt 0 ]; then
+            echo "::notice::PR introduces $NEW_USAGES new @TenantUnscopedCache / @TenantScopedByConstruction usage(s) — @ccradle review required."
+          else
+            echo "No new annotation usages detected in this PR."
+          fi
+      - name: Post review-required comment
+        if: steps.detect.outputs.new_usages != '0'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const newUsages = '${{ steps.detect.outputs.new_usages }}';
+            const body = [
+              '## Family C annotation review gate',
+              '',
+              `This PR introduces **${newUsages} new** \`@TenantUnscopedCache\` / \`@TenantScopedByConstruction\` usage(s).`,
+              '',
+              'Per Phase C task 4.5 (warroom D-4.23-2): every new introduction requires `@ccradle` review to verify the justification.',
+              '',
+              'Reviewer checklist (per annotation):',
+              '- For `@TenantUnscopedCache`: confirm the justification describes a structurally platform-wide key space (globally unique UUID, token hash, JTI, pre-auth slug, etc.).',
+              '- For `@TenantScopedByConstruction`: confirm (a) the key includes `tenantId` structurally AND (b) the read path has an explicit `tenantId`-match check that emits `CROSS_TENANT_*` audit + counter on mismatch.',
+              '',
+              'Auto-requesting `@ccradle` as reviewer.',
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+            // Auto-request @ccradle as reviewer (no-op if already requested)
+            try {
+              await github.rest.pulls.requestReviewers({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.issue.number,
+                reviewers: ['ccradle'],
+              });
+            } catch (e) {
+              // Author cannot request themselves as reviewer — expected on
+              // solo-maintainer repos. Swallow the error so the job stays green.
+              core.info('requestReviewers no-op: ' + e.message);
+            }
+
   phase-b-rls-test-discipline:
     name: Phase B RLS test-discipline (no naked audit queries)
     runs-on: ubuntu-latest

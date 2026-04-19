@@ -38,6 +38,7 @@ public class RevokedKidCache {
 
     private final JdbcTemplate jdbc;
 
+    @TenantUnscopedCache("kid is a globally-unique opaque UUID; revocation list is platform-wide (any tenant's revoked kid must be rejected by any validator regardless of calling tenant context); read path is in Spring Security filter chain BEFORE TenantContext is bound")
     private final Cache<UUID, Boolean> cache = Caffeine.newBuilder()
             .maximumSize(100_000)
             .expireAfterWrite(Duration.ofMinutes(1))

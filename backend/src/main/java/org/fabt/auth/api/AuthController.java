@@ -57,12 +57,14 @@ public class AuthController {
     private final ApplicationEventPublisher eventPublisher;
 
     // mfaToken attempt tracking: jti → attempt count (Caffeine cache, 5-min TTL)
+    @org.fabt.shared.security.TenantUnscopedCache("MFA JTI is a UUID generated per mfaToken issuance — globally unique across all tenants; attempt counter per-JTI tracks brute-force attempts on that specific token, not tenant-bearing data")
     private final Cache<String, Integer> mfaAttempts = Caffeine.newBuilder()
             .expireAfterWrite(Duration.ofMinutes(5))
             .maximumSize(10000)
             .build();
 
     // mfaToken single-use blocklist: jti → true (Caffeine cache, 5-min TTL)
+    @org.fabt.shared.security.TenantUnscopedCache("MFA JTI single-use blocklist; JTI is globally unique; blocklist entry prevents token replay across all tenants")
     private final Cache<String, Boolean> mfaBlocklist = Caffeine.newBuilder()
             .expireAfterWrite(Duration.ofMinutes(5))
             .maximumSize(10000)
