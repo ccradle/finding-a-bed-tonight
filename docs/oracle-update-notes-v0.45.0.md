@@ -544,11 +544,19 @@ compress.
 > that itself is the diagnostic — a missing log line is a broken check,
 > not a passing one.
 
-### 1. Backend health endpoint
+### 1. Backend health + version confirmation
 
 ```bash
+# Liveness + readiness
 curl -fsS https://findabed.org/actuator/health | jq .status
 # Expected: "UP"
+
+# Version endpoint — confirm the deployed image is actually v0.45.0,
+# not a stale v0.44.3 still serving from the old container. Recurring
+# check across every deploy since v0.39; catches "rebuilt image but
+# compose still pointing at the old tag" cases.
+curl -fsS https://findabed.org/api/v1/version | jq .
+# Expected: {"version":"0.45.0",...} — MUST match the tag, not v0.44.3.
 ```
 
 ### 2. `PgVersionGate` silent at boot (check only if debugging)
