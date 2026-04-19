@@ -33,6 +33,10 @@ fi
 
 FAIL=0
 COUNT=0
+# Strip CR from the pins file before parsing so a Windows/CRLF checkout
+# doesn't leave \r in the last field (which confuses [[ -f "$path" ]] on
+# later lines and produces "pinned file does not exist (release )"
+# noise locally while CI passes on LF).
 while IFS=$'\t' read -r path pinned release || [[ -n "$path" ]]; do
     # Skip comments + blank lines.
     [[ -z "$path" || "$path" =~ ^[[:space:]]*# ]] && continue
@@ -54,7 +58,7 @@ while IFS=$'\t' read -r path pinned release || [[ -n "$path" ]]; do
         echo "    actual:  $actual"
         FAIL=1
     fi
-done < "$PINS"
+done < <(tr -d '\r' < "$PINS")
 
 if (( FAIL == 1 )); then
     cat <<EOF
