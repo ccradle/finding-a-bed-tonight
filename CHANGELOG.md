@@ -5,6 +5,104 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.45.0] — Phase B close-out: PG floor + pgaudit tenant tag + Flyway HWM guard
+
+Three multi-tenant-production-readiness close-out items agreed in the
+v0.45.0 warroom. All three tighten existing Phase B invariants rather
+than adding new surface; the release keeps prod's FORCE RLS 1.0 posture
+unchanged.
+
+### Added
+
+- **`PgVersionGate`** (`@Component`/`@PostConstruct` in `org.fabt.shared.security`)
+  halts JVM boot when the live PostgreSQL server reports
+  `server_version_num < 160005` (PostgreSQL 16.5). Catches prod image
+  drift on every deploy. Paired `PgVersionGateTest` asserts the CI image
+  sits above the same floor — dual-layer because an IT alone
+  tautologically passes whatever image CI tells it to run. Floor doubles
+  as a CVE gate: 16.5 is the first release containing the fix for
+  CVE-2024-10977. Runbook entry "PostgreSQL Minor-Version Bump Checklist"
+  tracks the revisit-on-every-minor responsibility. Unit test covers the
+  fail-fast path (mocked low version → `IllegalStateException`). (#167)
+
+- **`application_name = 'fabt:tenant:<uuid>'`** now set alongside
+  `app.tenant_id` in `RlsDataSourceConfig.applyRlsContext`, co-located in
+  the same prepared statement so the two values cannot drift. pgaudit
+  log lines now carry the tenant UUID via a new `%a` in
+  `deploy/pgaudit.conf` `log_line_prefix`. `PgauditApplicationNameDriftTest`
+  guards the invariant with three `@Test` cases — sequential alternating
+  tenants, null-tenant transition, and a concurrent virtual-thread load
+  (50 threads/tenant × 2 tenants × 20 iterations) asserting drift-count
+  is zero. Null-tenant case resets to `'fabt:tenant:none'` so the tag
+  never carries a stale prior tenant. Known skew documented for the
+  seven service-layer `set_config('app.tenant_id', ?, is_local=true)`
+  callers (all run from SYSTEM_TENANT_ID context; pgaudit will tag their
+  rows with `fabt:tenant:none` while RLS sees the real tenant —
+  misleading but not wrong). (#168)
+
+- **`deploy/prod-state.json`** — committed snapshot (with explicit
+  `"schemaVersion": 1`) of prod's applied Flyway HWM (74 at v0.44.3).
+  Updated post-deploy per the new runbook section "Flyway Out-of-Order
+  Posture". `scripts/ci/check-flyway-migration-versions.sh` + new
+  `flyway-hwm-guard` job in `.github/workflows/ci.yml` reject PRs whose
+  new migration files are at or below the HWM. Enforces the
+  renumber-forward posture chosen in the v0.45 warroom — avoids the
+  permanent `spring.flyway.out-of-order=true` relaxation while still
+  leaving the v0.43 bridge compose on the VM for v0.45 belt-and-suspenders.
+  Manually verified pass (no new migrations in this diff) + fail (adding
+  a below-HWM `V68_5__*.sql` triggers exit 1). (#151)
+
+### Changed
+
+- `docs/runbook.md` gains two new sections: "Flyway Out-of-Order Posture"
+  explains why prod's `installed_rank` is permanently out-of-order until
+  the ~v0.60 B-baseline, documents the renumber-forward rule, and gives
+  the post-deploy HWM-snapshot update procedure; "PostgreSQL
+  Minor-Version Bump Checklist" lists the six-step revisit protocol for
+  CVE-gate bumps when the PG image advances.
+
+- `docs/FOR-DEVELOPERS.md` Tech Stack row updates PostgreSQL floor from
+  "16.6+" (stale) to "16.5+ (enforced by `PgVersionGate` at boot)".
+
+### Release Gate
+
+Phase B release-gate artifacts pinned for this tag so operator-side
+rollback can verify the deploy bit-for-bit (W-CHANGELOG-1 and
+W-CHANGELOG-3):
+
+- **`pg_policies` snapshot SHA-256 pinned** in `deploy/release-gate-pins.txt`
+  (7 regulated tables × USING + WITH CHECK clauses). CI job
+  `release-gate-pin-verify` reruns `scripts/ci/verify-release-gate-pins.sh`
+  on every PR, which recomputes `sha256sum docs/security/pg-policies-snapshot.md`
+  and fails the build on any drift. Pin format + update rules are
+  documented in the header of the pins file.
+- **Named signer** — `@ccradle`, per `.github/CODEOWNERS` lines 18-26
+  (new in this release). The named-signer + SHA-256 pair satisfies the
+  release-gate #4 acceptance criterion from the Phase B warroom.
+- **Supporting artifacts** — `deploy/prod-state.json` captures the prod
+  Flyway HWM (74) + schemaVersion:1. `PgVersionGate` + its test assert
+  the runtime PG floor (16.5) is above the CVE-2024-10977 gate.
+
+### Added (test infrastructure)
+
+These are test-only additions that ship with v0.45.0 but don't change
+production behavior. All referenced above; listed here for
+release-gate counting.
+
+- `PgVersionGateTest` (2 ITs) + `PgVersionGateUnitTest` (4 unit tests).
+- `PgauditApplicationNameDriftTest` (4 ITs — sequential + null +
+  concurrent + transaction-scoped drift documentation).
+- `PhaseBRlsEnforcementTest` (4 ITs covering task 3.19 + 3.21 + 3.22).
+- `RlsAwareDataSourceFailureTest` (3 unit tests for task 3.18 B12).
+- `ForceRlsHealthGaugeTest` (1 IT validating the W-GAUGE-3
+  `java.sql.Array` fix + gauge publication).
+- `TenantKeyRotationSetConfigReuseTest` (2 ITs — W-B-FIXA-1 pinning no
+  pool-reuse leak from is_local=true override).
+- `MigrationLintTest` (1 lint test — task 3.14 SECURITY DEFINER ban
+  with empty allowlist).
+
+---
+
 ## [v0.44.3] — 2026-04-19 — i18n hygiene: missing keys + coverage test (#173)
 
 User-reported 2026-04-18 post-v0.44.2 deploy: the "Security" menu item in

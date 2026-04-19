@@ -1,5 +1,6 @@
 package org.fabt.shared.security;
 
+import java.sql.Array;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -80,14 +81,47 @@ public class ForceRlsHealthGauge {
      */
     @Scheduled(fixedDelay = 60_000L, initialDelay = 15_000L)
     public void poll() {
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                "SELECT c.relname AS table_name, c.relforcerowsecurity AS force_flag "
-                        + "FROM pg_class c "
-                        + "JOIN pg_namespace n ON n.oid = c.relnamespace "
-                        + "WHERE n.nspname = 'public' "
-                        + "AND c.relname = ANY(?::text[])",
-                "{" + String.join(",", REGULATED_TABLES) + "}");
+        // W-GAUGE-3 warroom fix (v0.45.0): build the table-name list as a
+        // java.sql.Array via Connection.createArrayOf("text", ...) rather
+        // than the legacy PostgreSQL array-literal string. The literal form
+        // "{tbl1,tbl2}" breaks for any element containing a comma, brace,
+        // backslash, or double quote — our current table names are safe
+        // but the pattern is a foot-gun for future additions. The typed
+        // Array round-trip also gives us the correct sqltype instead of
+        // an implicit cast to text[].
+        List<Map<String, Object>> rows = jdbcTemplate.execute((java.sql.Connection conn) -> {
+            // java.sql.Array is NOT AutoCloseable in JDBC 4.3, so we free()
+            // it manually in a finally block rather than try-with-resources.
+            Array arr = conn.createArrayOf("text", REGULATED_TABLES.toArray(new String[0]));
+            try (java.sql.PreparedStatement ps = conn.prepareStatement(
+                    "SELECT c.relname AS table_name, c.relforcerowsecurity AS force_flag "
+                            + "FROM pg_class c "
+                            + "JOIN pg_namespace n ON n.oid = c.relnamespace "
+                            + "WHERE n.nspname = 'public' "
+                            + "AND c.relname = ANY(?)")) {
+                ps.setArray(1, arr);
+                try (java.sql.ResultSet rs = ps.executeQuery()) {
+                    List<Map<String, Object>> out = new java.util.ArrayList<>();
+                    while (rs.next()) {
+                        Map<String, Object> row = new LinkedHashMap<>();
+                        row.put("table_name", rs.getString("table_name"));
+                        row.put("force_flag", rs.getBoolean("force_flag"));
+                        out.add(row);
+                    }
+                    return out;
+                }
+            } finally {
+                try {
+                    arr.free();
+                } catch (java.sql.SQLException ignored) {
+                    // free() may no-op on some drivers; we're past the useful point either way.
+                }
+            }
+        });
 
+        if (rows == null) {
+            return;
+        }
         for (Map<String, Object> row : rows) {
             String name = (String) row.get("table_name");
             Boolean forceFlag = (Boolean) row.get("force_flag");

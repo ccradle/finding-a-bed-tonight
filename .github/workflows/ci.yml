@@ -14,6 +14,37 @@ permissions:
   contents: read
 
 jobs:
+  release-gate-pin-verify:
+    name: Release-gate SHA-256 pin verify (v0.45 W-CHANGELOG-1)
+    runs-on: ubuntu-latest
+    # Enforces that every SHA-256 in deploy/release-gate-pins.txt matches
+    # the current file content. Makes the pin load-bearing instead of
+    # decorative — an operator editing pg-policies-snapshot.md without
+    # updating the pin (and without CODEOWNERS re-review) will fail CI
+    # before the drift ever reaches prod.
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify release-gate pins
+        run: bash scripts/ci/verify-release-gate-pins.sh
+
+  flyway-hwm-guard:
+    name: Flyway HWM guard (v0.45 renumber-forward)
+    runs-on: ubuntu-latest
+    # v0.45 task #151 — enforces the renumber-forward Flyway posture
+    # chosen in the Phase B close-out warroom: new migrations must have
+    # version > deploy/prod-state.json.appliedMigrationsHighWaterMark.
+    # Removes the need for SPRING_FLYWAY_OUT_OF_ORDER=true bridge
+    # compose on the VM going forward. See the script docstring +
+    # docs/runbook.md -> 'Flyway Out-of-Order Posture' for rationale.
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # need full history to diff PR against base
+      - name: Check new migrations against HWM
+        env:
+          BASE_REF: ${{ github.base_ref && format('origin/{0}', github.base_ref) || 'origin/main' }}
+        run: bash scripts/ci/check-flyway-migration-versions.sh
+
   backend:
     name: Backend (Java 25 + Maven)
     runs-on: ubuntu-latest

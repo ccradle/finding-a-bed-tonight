@@ -1104,6 +1104,72 @@ SELECT current_setting('app.tenant_id', true);
 
 ---
 
+## Flyway Out-of-Order Posture (v0.45+)
+
+### Why prod's history is permanently out-of-order
+
+The Phase A/A5/B release train landed Flyway versions in non-sequential order on prod:
+
+| Release | Deployed | Migrations added |
+|---|---|---|
+| v0.42.1 | 2026-04-18 | V74 (A5 re-encrypt under per-tenant DEKs) |
+| v0.43.1 | 2026-04-18 | V67–V72 (Phase B FORCE RLS + indexes) |
+| v0.44.1 | 2026-04-18 | V73 (pgaudit session parameters) |
+
+Because V67–V72 were numerically below the already-applied V74 at v0.43.1 deploy time, and V73 was below V74 at v0.44.1 deploy time, Flyway refused to apply them without `spring.flyway.out-of-order=true`. Prod has run that flag (supplied via `~/fabt-secrets/docker-compose.prod-v0.43-flyway-ooo.yml`) on every backend container ever since.
+
+The `flyway_schema_history.installed_rank` sequence therefore reads: …V66 → V74 → V67 → V68 → V69 → V70 → V71 → V72 → V73 — permanently out of installed order. This stays this way until the Flyway B-baseline reset planned for ~v0.60 (see `project_prod_baseline_strategy.md`).
+
+### What changed at v0.45
+
+The Phase B close-out warroom chose **renumber-forward** (option b) over permanent `out-of-order=true` (option a) or keeping the bridge indefinitely (option c):
+
+- **Strict ordering stays on by default** — no `spring.flyway.out-of-order` in `application.yml`.
+- **Every new migration going forward MUST have version > the prod HWM** committed in `deploy/prod-state.json`. A CI guard (`scripts/ci/check-flyway-migration-versions.sh`, wired into `.github/workflows/ci.yml` as `flyway-hwm-guard`) rejects PRs that add migrations below the HWM.
+- **The `docker-compose.prod-v0.43-flyway-ooo.yml` bridge stays on the VM for v0.45** (belt-and-suspenders in case of startup-validation edge cases), then **can be removed after the first successful v0.45+ deploy** that adds only ≥ V75 migrations (the HWM advances monotonically; once the history contains only in-order additions past V74, strict mode works again).
+
+### Post-deploy HWM-snapshot update
+
+After every deploy that applies new migrations:
+
+1. SSH to the VM and capture the new HWM:
+   ```bash
+   docker compose exec -T postgres psql -U postgres -d fabt -tAc \
+       "SELECT max(version::int) FROM flyway_schema_history WHERE success = true AND version ~ '^[0-9]+$'"
+   ```
+2. Update `deploy/prod-state.json` with the new `appliedMigrationsHighWaterMark`, `snapshotTakenAt` (today's date), and `snapshotOriginRelease` (the release tag). Commit to main.
+3. If the bridge compose file is no longer needed (i.e., all post-v0.44 migrations are ≥ V75), drop it from the override chain:
+   ```bash
+   # On the VM
+   docker compose -f docker-compose.yml \
+       -f ~/fabt-secrets/docker-compose.prod.yml \
+       -f ~/fabt-secrets/docker-compose.prod-v0.44-pgaudit.yml \
+       up -d backend
+   # The v0.43-flyway-ooo.yml is intentionally dropped from this list.
+   ```
+4. Verify startup: `docker compose logs --tail=100 backend | grep -i "out-of-order\|SPRING_FLYWAY_OUT_OF_ORDER"` — the `out-of-order` log line should no longer appear.
+
+### Blast radius of a missed renumber
+
+If CI somehow misses a below-HWM migration (e.g., `flyway-hwm-guard` job disabled, or the snapshot is stale) and the migration reaches prod with strict mode on, the backend fails to start at Flyway validation. The VM runs the last-green image; restoring service is `./dev-start.sh stop + rename file to V{HWM+1}__* + redeploy`, ~15 minutes. No data risk because Flyway refused to run the migration in the first place.
+
+---
+
+## PostgreSQL Minor-Version Bump Checklist (v0.45+)
+
+Phase B installed `PgVersionGate` (a `@PostConstruct` check in `org.fabt.shared.security`) that halts JVM boot when the live server reports `server_version_num < 160005` (PostgreSQL 16.5). The floor is both a correctness gate (older versions lack `pg_policies.permissive`) and a security gate (PG 16.5 is the first release containing the fix for CVE-2024-10977 — see [postgresql.org/support/security/CVE-2024-10977](https://www.postgresql.org/support/security/CVE-2024-10977/) for fixed-version list).
+
+When bumping the PostgreSQL image on the VM or in CI, work the following checklist so the floor keeps pace:
+
+1. **Review the release notes + CVE advisories** for every minor release crossed. PostgreSQL CVEs at https://www.postgresql.org/support/security/. If any CVE advisory names the version you were running as affected, the floor MUST move above it.
+2. **Update `PgVersionGate.MIN_SERVER_VERSION_NUM`** to the new floor if CVE-driven. The test class `PgVersionGateTest` reads the same constant, so a single edit covers both layers.
+3. **Rebuild `deploy/pgaudit.Dockerfile`** against the new base (`postgres:<new-minor>-bookworm`) and tag it `fabt-pgaudit:v<release>`.
+4. **Run a full CI pass** (`mvn verify`) to exercise the new image against every integration test.
+5. **Deploy to the VM** following the pgaudit install steps below; verify `SHOW server_version_num` returns the expected value before accepting the deploy.
+6. **Note the new floor + CVE status** in the release's `docs/oracle-update-notes-v<release>.md`.
+
+---
+
 ## pgaudit Management (v0.44+)
 
 Phase B's detection-of-last-resort for cleared FORCE ROW LEVEL SECURITY relies on the pgaudit PostgreSQL extension emitting a log line for every DDL statement (including `ALTER TABLE … NO FORCE ROW LEVEL SECURITY`). Phase B has a 60s gauge (`ForceRlsHealthGauge`) but that's a slow tripwire; pgaudit catches the DDL within milliseconds.

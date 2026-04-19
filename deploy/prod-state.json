@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "snapshotTakenAt": "2026-04-19",
+  "snapshotOriginRelease": "v0.44.3",
+  "appliedMigrationsHighWaterMark": 74,
+  "notes": "Committed snapshot of prod state. Source of truth for CI's Flyway HWM guard (scripts/ci/check-flyway-migration-versions.sh). Updated post-deploy by the release runbook step 'Flyway out-of-order posture maintenance'. appliedMigrationsHighWaterMark reflects the highest V{N}__ version applied to prod; a new repo migration with version <= this value fails CI. Bump schemaVersion when adding fields that consumers must reason about (e.g., bridgeComposeActive, pgServerVersionNum)."
+}

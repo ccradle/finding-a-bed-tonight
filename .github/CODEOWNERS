@@ -1,0 +1,64 @@
+# CODEOWNERS — FABT named security reviewers
+#
+# Every path listed below requires the named owner's explicit review on any
+# PR that modifies it. GitHub will auto-request their review; merges are
+# blocked until the named owner approves (branch protection required — see
+# docs/runbook.md).
+#
+# The file doubles as the source of the "named signer" references cited in
+# each release's CHANGELOG entry (warroom W-CHANGELOG-3). When a CHANGELOG
+# entry says "signed off by @ccradle", that's the human this file maps the
+# handle to; the release-gate verification script can look up the mapping
+# here rather than chase Git author-email history.
+#
+# Format: <path-pattern>  <@owner> [<@owner> ...]
+
+# Phase B invariants — the pg_policies snapshot and the tenant-RLS design
+# carry the compliance-grade owner-bypass contract. Changes here must be
+# reviewed + signed by the named security owner even when edits are
+# typos, because any drift against the committed snapshot breaks the
+# release-gate SHA-256 pin (W-CHANGELOG-1).
+/docs/security/pg-policies-snapshot.md  @ccradle
+/docs/security/logical-replication-posture.md  @ccradle
+/docs/security/phase-b-audited-write-sites.md  @ccradle
+/docs/security/phase-b-silent-audit-write-failures-runbook.md  @ccradle
+/docs/security/rls-coverage.md  @ccradle
+/docs/security/safe-tenant-bypass-sites.md  @ccradle
+/docs/security/compliance-posture-matrix.md  @ccradle
+
+# Phase B source-side invariants — FORCE RLS policy migrations + the
+# runtime RLS wiring. A change here without a matching spec/test update
+# is the exact regression class Phase B was built to prevent.
+#
+# The catch-all below covers both the existing V67-V73 Phase B files AND
+# any future migration that might touch RLS policies (e.g., a rogue
+# `V99__drop_force_rls.sql` would otherwise slip past file-specific
+# patterns). Warroom recommendation — coverage gap Marcus identified in
+# the v0.45.0 pre-PR review.
+/backend/src/main/resources/db/migration/  @ccradle
+/backend/src/main/java/db/migration/  @ccradle
+/backend/src/main/java/org/fabt/shared/security/RlsDataSourceConfig.java  @ccradle
+/backend/src/main/java/org/fabt/shared/security/ForceRlsHealthGauge.java  @ccradle
+/backend/src/main/java/org/fabt/shared/security/PgVersionGate.java  @ccradle
+
+# pgaudit image + alert pipeline — if these drift, the detection-of-last-
+# resort breaks silently.
+/deploy/pgaudit.Dockerfile  @ccradle
+/deploy/pgaudit.conf  @ccradle
+/infra/scripts/pgaudit-enable.sh  @ccradle
+/infra/scripts/pgaudit-alert-tail.sh  @ccradle
+
+# Flyway posture — prod-state.json is the CI HWM guard's source of truth.
+/deploy/prod-state.json  @ccradle
+/scripts/ci/check-flyway-migration-versions.sh  @ccradle
+
+# Release-gate SHA-256 pins — changes here move the compliance-grade
+# attestation for what shipped. Must be reviewed even if the diff looks
+# trivial (a character-transposition on a hash would silently pass
+# deploy verification on the wrong file).
+/deploy/release-gate-pins.txt  @ccradle
+/scripts/ci/verify-release-gate-pins.sh  @ccradle
+
+# The release-gate file itself — ownership must not be self-editable
+# without a second-pair review in a larger team. Solo for now.
+/.github/CODEOWNERS  @ccradle

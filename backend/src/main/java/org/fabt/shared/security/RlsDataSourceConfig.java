@@ -124,21 +124,52 @@ public class RlsDataSourceConfig {
                 //   on regulated tables). No current RLS policy reads it — Elena's
                 //   defense-in-depth insistence (D13). Empty string when null (scheduled-
                 //   task / batch-job case where TenantContext is unset).
+                // set_config('application_name', 'fabt:tenant:<uuid>', ...): tags every
+                //   pgaudit log line + pg_stat_activity row with the bound tenant so an
+                //   operator reading the audit log can correlate a statement to its tenant
+                //   without joining by timestamp+pid (task 3.11 follow-up). Co-located with
+                //   app.tenant_id in the SAME prepared statement so the two values cannot
+                //   drift — a divergence between them would mean pgaudit logs the wrong
+                //   tenant while RLS enforces the right one, which is worse than no tag.
+                //   Drift-safety is covered by PgauditApplicationNameDriftTest.
+                //   KNOWN LIMITATION: seven service-layer call sites (AccessCodeService,
+                //   AuditEventPersister, HmisPushService, KidRegistryService,
+                //   PasswordResetTokenPersister, TenantKeyRotationService, V74 migration)
+                //   override app.tenant_id transaction-scoped with is_local=true to do
+                //   system-scoped work under a specific tenant's RLS. Because
+                //   application_name is session-scoped here, it retains the borrow-time
+                //   value and pgaudit tags those statements with the SESSION tenant
+                //   (typically 'fabt:tenant:none' since system callers run outside any
+                //   TenantContext). RLS still enforces correctly. See
+                //   PgauditApplicationNameDriftTest.transactionScopedOverride_applicationNameKeepsSessionTenant
+                //   for the pinned contract. If you add a new is_local=true call site
+                //   inside an active TenantContext, the audit log will credibly name the
+                //   wrong tenant — update application_name in the same statement or
+                //   accept the documented skew with a test expressing it.
                 // Callers bind context via TenantContext.runWithContext() BEFORE queries.
                 String userIdStr = userId != null ? userId.toString() : "00000000-0000-0000-0000-000000000000";
                 String tenantIdStr = tenantId != null ? tenantId.toString() : "";
+                String applicationNameStr = "fabt:tenant:" + (tenantId != null ? tenantIdStr : "none");
                 try (java.sql.PreparedStatement pstmt = conn.prepareStatement(
                         "SET ROLE fabt_app; SELECT set_config('app.dv_access', ?, false), "
                                 + "set_config('app.current_user_id', ?, false), "
-                                + "set_config('app.tenant_id', ?, false)")) {
+                                + "set_config('app.tenant_id', ?, false), "
+                                + "set_config('application_name', ?, false)")) {
                     pstmt.setString(1, String.valueOf(dvAccess));
                     pstmt.setString(2, userIdStr);
                     pstmt.setString(3, tenantIdStr);
+                    pstmt.setString(4, applicationNameStr);
                     pstmt.execute();
                 }
             } catch (SQLException e) {
                 log.error("Failed to apply RLS context on connection; closing to prevent data leak", e);
-                conn.close();
+                try {
+                    conn.close();
+                } catch (SQLException closeFailure) {
+                    // Preserve the original cause; a secondary failure during
+                    // close() must not mask the real diagnostic.
+                    e.addSuppressed(closeFailure);
+                }
                 throw e;
             }
         }
