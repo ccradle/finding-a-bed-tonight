@@ -142,15 +142,24 @@ Resolve before deploy; do NOT retune the pin from a deploy window.
 ### 2. Verify the current v0.44.3 deploy is healthy
 
 ```bash
-curl -fsS https://findabed.org/actuator/health | jq .status
+# From local laptop — the public API version endpoint returns
+# major.minor only (VersionController strips patch).
+curl -fsS https://findabed.org/api/v1/version | jq .
+# Expected: {"version":"0.44"}
+
+# SSH to the VM for actuator health + FORCE RLS — the management port
+# (9091) is NOT exposed publicly; it binds to 127.0.0.1 on the VM.
+ssh -i ~/.ssh/fabt-oracle ubuntu@<VM-IP> <<'EOF'
+curl -fsS http://localhost:9091/actuator/health | jq .status
 # Expected: "UP"
 
-# FORCE RLS still 1.0 for all 7 regulated tables (Phase B invariant)
 source ~/fabt-secrets/.env.prod
-curl -sf -u "$FABT_ACTUATOR_USER:$FABT_ACTUATOR_PASSWORD" \
-    http://localhost:9091/actuator/prometheus \
+# If the management port uses auth, include it; currently dev-open
+# (no FABT_ACTUATOR_USER set) so skip the -u flag if that var is absent.
+curl -sf http://localhost:9091/actuator/prometheus \
     | grep '^fabt_rls_force_rls_enabled{' | sort
 # Expected: 7 lines, each ending in 1.0.
+EOF
 ```
 
 **If any gauge reports 0.0, DO NOT DEPLOY v0.45.** A pre-existing FORCE
@@ -547,16 +556,23 @@ compress.
 ### 1. Backend health + version confirmation
 
 ```bash
-# Liveness + readiness
-curl -fsS https://findabed.org/actuator/health | jq .status
+# Public version endpoint — returns major.minor only
+# (VersionController strips the patch segment). Catches "rebuilt image
+# but compose still pointing at the old tag" since v0.39.
+curl -fsS https://findabed.org/api/v1/version | jq .
+# Expected: {"version":"0.45"} — MUST be "0.45", NOT "0.44".
+
+# Liveness + readiness — run from inside the VM; management port
+# (9091) is 127.0.0.1-bound by design.
+ssh -i ~/.ssh/fabt-oracle ubuntu@<VM-IP> \
+    'curl -fsS http://localhost:9091/actuator/health | jq .status'
 # Expected: "UP"
 
-# Version endpoint — confirm the deployed image is actually v0.45.0,
-# not a stale v0.44.3 still serving from the old container. Recurring
-# check across every deploy since v0.39; catches "rebuilt image but
-# compose still pointing at the old tag" cases.
-curl -fsS https://findabed.org/api/v1/version | jq .
-# Expected: {"version":"0.45.0",...} — MUST match the tag, not v0.44.3.
+# For the full build version (including patch), check the /actuator/info
+# endpoint (also VM-internal; reads META-INF/build-info.properties).
+ssh -i ~/.ssh/fabt-oracle ubuntu@<VM-IP> \
+    'curl -fsS http://localhost:9091/actuator/info | jq .build.version'
+# Expected: "0.45.0"
 ```
 
 ### 2. `PgVersionGate` silent at boot (check only if debugging)
