@@ -30,10 +30,10 @@ Three deployment tiers allow the same codebase to serve communities of vastly di
 | Layer | Technology |
 |---|---|
 | Backend | Java 25, Spring Boot 4.0, Spring MVC, Spring Data JDBC, Virtual Threads |
-| Database | PostgreSQL 16, Flyway (49 migrations), Row Level Security (DV shelters + notifications) |
+| Database | PostgreSQL 16.6+, Flyway (65 migrations, latest V74), Row Level Security (D14 tenant-RLS + FORCE RLS on 7 regulated tables: `audit_events`, `hmis_audit_log`, `hmis_outbox`, `password_reset_token`, `one_time_access_code`, `tenant_key_material`, `kid_to_tenant_key`; plus DV shelters + notifications), pgaudit extension (Debian + PGDG image) for detection-of-last-resort |
 | Cache | Caffeine L1 / + Redis L2 (Standard/Full) |
 | Events | Spring Events (Lite) / Kafka (Full) |
-| Auth | JWT + OAuth2/OIDC + API Keys (hybrid) |
+| Auth | JWT (per-tenant HKDF-SHA256 signing keys + opaque `kid` header + revocation registry) + OAuth2/OIDC + API Keys (hybrid). Per-tenant DEK-envelope (v1 `FABT` magic + kid + AES-GCM) for secrets at rest — see `design-a3-encryption-envelope.md` + `design-a4-jwt-refactor.md`. |
 | Frontend | React 19, Vite, TypeScript, Workbox PWA (injectManifest), react-intl (EN/ES), CSS custom properties design tokens |
 | Testing | JUnit 5, Testcontainers, ArchUnit (619 tests), Playwright (348 UI tests), Vitest (42 unit tests), Karate (82 API scenarios), Gatling (8 simulations) |
 | Infra | Docker, GitHub Actions CI/CD + E2E pipeline, Terraform (3 tiers) |
@@ -63,7 +63,7 @@ The backend is a **modular monolith** — not a flat package-by-layer structure.
 
 **Shared kernel:** `org.fabt.shared` — config, cache (`CacheService`, `CacheNames`), event (`EventBus`, `DomainEvent`), security (`JwtAuthenticationFilter`, `ApiKeyAuthenticationFilter`, `SecurityConfig`), web (`TenantContext`, `GlobalExceptionHandler`).
 
-**ArchUnit enforcement:** 22 architecture tests verify that modules do not access each other's `domain`, `repository`, or `service` packages. Only `api` and `shared` packages are accessible across module boundaries.
+**ArchUnit enforcement:** The architecture test suite (under `backend/src/test/java/org/fabt/architecture/`) enforces module boundaries (modules cannot access each other's `domain`, `repository`, or `service` packages; only `api` and `shared` are cross-module accessible) plus Phase-0/A/B-specific rules: Family A (`getMasterKekBytes()` callable only from `org.fabt.shared.security`), Family B (tenant-guard `findByIdAndTenantId` coverage + tenant-predicate coverage via JSqlParser), Master KEK visibility, and B11 (`@Transactional` methods must NOT call `TenantContext.runWithContext` — Phase B ordering invariant). Adding a new allowlist entry to any of these rules requires warroom review.
 
 ---
 

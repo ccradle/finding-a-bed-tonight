@@ -74,13 +74,38 @@ consistency). Backend + frontend containers restart; postgres is untouched.
 
 ---
 
-## [Unreleased] — multi-tenant-production-readiness Phases 0 + A + A5 + B (Issue #126)
+## [v0.44.1] — 2026-04-18 — V73 pgaudit config + Debian Postgres image swap (DEPLOYED)
 
-### ⚠️ v0.41 → v0.42 is effectively ONE-WAY
+Legal-scan reword of v0.44.0 CHANGELOG phrasing; scope identical. Deployed to findabed.org 2026-04-18 21:40 UTC. See v0.44.0 below for the full scope.
 
-V74 re-encrypts every existing TOTP / webhook / OAuth2 / HMIS ciphertext from the single-platform-key v0 envelope to per-tenant-DEK v1 envelopes. **v0.41 container images do NOT understand v1 envelopes** — deploying v0.41 against a post-V74 database breaks TOTP login, webhook signing, OAuth2 SSO, and HMIS outbound calls silently at request time. Rollback requires restoring the pre-deploy pg_dump backup (runbook 2.16).
+**Deployment note:** required `SPRING_FLYWAY_OUT_OF_ORDER=true` at deploy time because V73 ships numerically below the already-applied V74 (from v0.42.1). Bridge captured in `~/fabt-secrets/docker-compose.prod-v0.43-flyway-ooo.yml`; the same override was needed for v0.43.1. Both env-var overrides become unnecessary once future migrations settle above the V74 high-water mark (tracked as a Phase C decision per task #151).
 
-**Release gate:** v0.42 MUST ship Phase 0 + Phase A + Phase A5 (V74) together. No valid Phase-0-only v0.41.x release line exists. Per C-A5-N8, the V74 migration itself refuses to run without V60 + V61 applied — release-process belt-and-suspenders.
+## [v0.44.0] — V73 pgaudit + Debian image (CI-only; superseded by v0.44.1)
+
+### Added
+
+- **V73 `ALTER DATABASE` pgaudit session parameters** (config-only; no `CREATE EXTENSION` in the migration). Sets `pgaudit.log = write,ddl`, `log_level = log`, `log_relation = on`, `log_parameter = off`. Uses a `DO` block with `format('ALTER DATABASE %I SET pgaudit.log = %L', current_database(), 'write,ddl')` for database-name portability.
+- **`deploy/pgaudit.Dockerfile`** — Debian bookworm + PGDG `postgresql-16-pgaudit` package. `shared_preload_libraries = 'pgaudit'` wired via `/etc/postgresql/conf.d/pgaudit.conf` and an `include_dir` line injected into the server config template.
+- **`infra/scripts/pgaudit-enable.sh`** — one-time superuser `CREATE EXTENSION pgaudit` step (Flyway runs as `fabt` owner and cannot `CREATE EXTENSION`). Carries `--dry-run` + `--drop` flags.
+- **`infra/scripts/pgaudit-alert-tail.sh`** — systemd-service tailing postgres container logs for `AUDIT: SESSION,.*NO FORCE ROW LEVEL SECURITY` events. 5-minute per-table cooldown; heartbeat file at `/var/lib/fabt/pgaudit-alert-tail.heartbeat`.
+- **Surefire `<excludedGroups>pgaudit</excludedGroups>`** default + `pgaudit-tests` Maven profile (`combine.self="override"` empties the exclusion) so the pgaudit Testcontainers test only runs under its dedicated image-test CI job.
+- **`PgauditLogEntryTest`** `@Tag("pgaudit")` Testcontainers IT using pre-built `fabt-pgaudit:ci` image via `DockerImageName.asCompatibleSubstituteFor("postgres")`.
+- **New CI job** `pgaudit-image-tests (Debian + PGDG)` on push/PR + `release/**` branches.
+
+### Changed
+
+- **Postgres container image** for prod: `postgres:16-alpine` → `fabt-pgaudit:v0.44.0` (Debian 16.6 + PGDG pgaudit). Alpine has no PGDG pgaudit package.
+- **pgdata volume UID flip** 70 → 999 at image swap time (Alpine postgres uses UID 70; Debian uses 999). Documented in `docs/oracle-update-notes-v0.44.0.md` and the v0.44.1 amendments. Not reversible in-place without `chown -R 70:70` — `pg_dump` restore onto a fresh Alpine volume is the recommended rollback.
+
+---
+
+## [v0.43.1] — 2026-04-18 — Phase B: D14 tenant-RLS + FORCE RLS + audit-path hardening (DEPLOYED)
+
+Legal-scan reword of v0.43.0 CHANGELOG phrasing; scope identical. Deployed to findabed.org 2026-04-18 20:08 UTC. First deploy attempt failed on Flyway out-of-order validation (V67–V72 ship numerically below the already-applied V74 from v0.42.1); recovered in ~5 min via backend image rollback; succeeded on the second attempt with `SPRING_FLYWAY_OUT_OF_ORDER=true` env-var bridge (`~/fabt-secrets/docker-compose.prod-v0.43-flyway-ooo.yml`).
+
+See v0.43.0 below for the full Phase B scope.
+
+## [v0.43.0] — Phase B: tenant-RLS + FORCE RLS + audit-path hardening (CI-only; superseded by v0.43.1)
 
 ### ⚠️ v0.43 release gate — Phase B RLS hardening preconditions
 
@@ -145,6 +170,33 @@ Phase B is **not panic-proof** — the rollback surface is the panic script, not
 
 #### Design — Phase B
 - **`openspec/changes/multi-tenant-production-readiness/design-b-rls-hardening.md`** v2 — APPROVED post-warroom, 16 decisions (D42–D62) + Q2 (pgaudit image source) + Q4 (D59 failure path) resolved.
+
+---
+
+## [v0.42.1] — 2026-04-18 — Phase 0 + A + A5 with V74 plaintext-tolerance hotfix (DEPLOYED)
+
+Same Phase 0 + Phase A + Phase A5 scope as v0.42.0 plus a V74 plaintext-tolerance patch. Deployed to findabed.org 2026-04-18 16:46 UTC after v0.42.0 failed at V74 on seed placeholder plaintext webhook secrets.
+
+### Fixed
+
+- **V74 plaintext-tolerance** now uniform across all 4 re-encrypt paths (TOTP, webhook, OAuth2, HMIS). Prior state: OAuth2 + HMIS paths caught non-envelope plaintext gracefully; TOTP + webhook paths did not, which caused V74 to abort on 3 seed-data `subscription.callback_secret_hash` rows containing `placeholder_webhook_s` plaintext.
+- **V74 audit row** extended with four `{totp,webhook,oauth2,hmis}_plaintext_fallback` counters in the JSONB `details` so operators can see which columns hit the fallback path. Verified live: `webhook_plaintext_fallback=3` on v0.42.1 deploy (matches the 3 seed rows).
+
+### Testing
+
+- **`V74ReencryptIntegrationTest.t12_plaintextFallback_uniformAcrossColumns`** — seeds `placeholder_totp_plac` + `placeholder_webhook_s`, asserts V74 completes + wraps values in v1 envelope.
+
+See v0.42.0 below for the full Phase 0 + A + A5 scope.
+
+## [v0.42.0] — Phase 0 + A + A5 (FAILED at V74; superseded by v0.42.1)
+
+First attempt of the Phase 0 + Phase A + Phase A5 bundle. Tagged from `e006ee9`; deploy started 2026-04-18 15:51 UTC. V59/V60/V61 applied cleanly; the V74 Java migration failed on 3 seed rows whose `callback_secret_hash` was pre-Phase-0 plaintext (e.g., `placeholder_webhook_s`) — V74's `decryptV0()` raised on these values. Flyway rolled V74 back atomically; the backend entered a restart loop; the operator rolled back to the v0.41 backend image to restore public service. The v0.42.1 hotfix added uniform plaintext-tolerance to the re-encrypt loop.
+
+### ⚠️ v0.41 → v0.42 is effectively ONE-WAY
+
+V74 re-encrypts every existing TOTP / webhook / OAuth2 / HMIS ciphertext from the single-platform-key v0 envelope to per-tenant-DEK v1 envelopes. **v0.41 container images do NOT understand v1 envelopes** — deploying v0.41 against a post-V74 database breaks TOTP login, webhook signing, OAuth2 SSO, and HMIS outbound calls silently at request time. Rollback requires restoring the pre-deploy pg_dump backup (runbook 2.16).
+
+**Release gate:** v0.42 MUST ship Phase 0 + Phase A + Phase A5 (V74) together. No valid Phase-0-only v0.41.x release line exists. Per C-A5-N8, the V74 migration itself refuses to run without V60 + V61 applied — release-process belt-and-suspenders.
 
 ### Phase A5 — V74 re-encrypt migration + callsite refactor (task 2.13)
 
