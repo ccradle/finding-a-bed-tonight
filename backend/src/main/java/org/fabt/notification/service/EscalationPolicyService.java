@@ -19,7 +19,9 @@ import io.micrometer.core.instrument.MeterRegistry;
 import org.fabt.shared.audit.AuditEventRecord;
 import org.fabt.shared.audit.AuditEventTypes;
 import org.fabt.shared.audit.DetachedAuditPersister;
+import org.fabt.shared.security.TenantScopedByConstruction;
 import org.fabt.shared.security.TenantUnscoped;
+import org.fabt.shared.security.TenantUnscopedCache;
 import io.micrometer.core.instrument.binder.cache.CaffeineCacheMetrics;
 
 import org.fabt.notification.domain.EscalationPolicy;
@@ -112,6 +114,7 @@ public class EscalationPolicyService {
      * {@code EscalationPolicyServiceCacheMetricsTest} pins this against
      * regression (T-53, Alex Chen review 2026-04-12).</p>
      */
+    @TenantUnscopedCache("batch-job cross-tenant snapshot resolution; paired with @TenantUnscoped method guard on findByIdForBatch + EscalationPolicyBatchOnlyArchitectureTest package-restriction rule")
     private final Cache<UUID, EscalationPolicy> policyById = Caffeine.newBuilder()
             .maximumSize(500)
             .expireAfterAccess(Duration.ofMinutes(10))
@@ -124,6 +127,7 @@ public class EscalationPolicyService {
      *
      * <p><b>.recordStats() is REQUIRED</b> — see {@link #policyById} comment.</p>
      */
+    @TenantUnscopedCache("key is composite CurrentKey(tenantId, eventType) — tenantId is structurally embedded in the key; `update()` invalidates the specific (tenantId, eventType) entry so cross-tenant reads cannot observe another tenant's current policy")
     private final Cache<CurrentKey, EscalationPolicy> currentPolicyByTenant = Caffeine.newBuilder()
             .maximumSize(200)
             .expireAfterWrite(Duration.ofMinutes(5))
@@ -163,6 +167,7 @@ public class EscalationPolicyService {
      * discipline before the first real caller. When task 4.b migrates a
      * caller, remove this TODO note.</p>
      */
+    @TenantScopedByConstruction("composite PolicyKey(tenantId, policyId) + on-read tenant verification at EscalationPolicyService.findByTenantAndId; mismatch returns empty and emits CROSS_TENANT_POLICY_READ audit via DetachedAuditPersister; Phase C task 4.4")
     private final Cache<PolicyKey, EscalationPolicy> policyByTenantAndId = Caffeine.newBuilder()
             .maximumSize(500)
             .expireAfterAccess(Duration.ofMinutes(10))

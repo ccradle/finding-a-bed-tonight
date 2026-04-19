@@ -82,6 +82,7 @@ public class JwtService {
     private final long refreshTokenExpiryDays;
     private final ObjectMapper objectMapper;
     private final Environment environment;
+    @org.fabt.shared.security.TenantUnscopedCache("JWT claims by SHA-256 of signature part; token signature is globally unique across all tenants and signing keys, so no cross-tenant collision is possible")
     private final Cache<String, JwtClaims> claimsCache;
 
     // Phase A4 dependencies. Optional (null in pre-A4 unit tests) so the

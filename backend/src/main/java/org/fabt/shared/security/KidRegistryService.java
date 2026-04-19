@@ -56,6 +56,7 @@ public class KidRegistryService {
      * the rotation flow must {@link Cache#invalidate} the affected
      * tenant's entry in this cache.
      */
+    @TenantUnscopedCache("key IS tenantId (not a composite); cache stores per-tenant active kid lookup — structurally tenant-scoped by key shape; used by JwtService.sign to pick the signing key before a request is tenant-bound")
     private final Cache<UUID, UUID> tenantToActiveKidCache = Caffeine.newBuilder()
             .maximumSize(10_000)
             .expireAfterWrite(Duration.ofMinutes(5))
@@ -70,6 +71,7 @@ public class KidRegistryService {
      * registered, it never re-points. Cache eviction only on tenant
      * hard-delete (Phase F crypto-shred).
      */
+    @TenantUnscopedCache("kid is a globally-unique opaque UUID assigned once at kid_to_tenant_key insert; resolution (kid → tenant, generation) is immutable by design; JWT validate path reads this cache BEFORE TenantContext is bound — cache-site tenant-scoping is impossible at this stage")
     private final Cache<UUID, KidResolution> kidToResolutionCache = Caffeine.newBuilder()
             .maximumSize(100_000)
             .expireAfterWrite(Duration.ofHours(1))

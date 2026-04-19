@@ -35,6 +35,7 @@ public class DynamicClientRegistrationSource implements ClientRegistrationReposi
     private final TenantService tenantService;
     private final SecretEncryptionService encryptionService;
 
+    @org.fabt.shared.security.TenantUnscopedCache("pre-authentication OAuth2 provider lookup keyed by {slug}-{provider}; tenant slug is structurally part of the key so cross-tenant collision is impossible; cache is read by Spring Security filter chain before any JWT is validated")
     private final Cache<String, ClientRegistration> cache = Caffeine.newBuilder()
             .expireAfterWrite(5, TimeUnit.MINUTES)
             .maximumSize(100)
