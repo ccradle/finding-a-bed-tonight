@@ -591,6 +591,7 @@
   "login.forgotPassword": "Forgot password?",
   "login.organizationPlaceholder": "my-organization",
   "login.emailPlaceholder": "you@example.com",
+  "totp.settingsButton": "Security",
   "forgotPassword.title": "Reset Your Password",
   "forgotPassword.instructions": "Enter your organization and email address. If an account exists, we'll send a reset link.",
   "forgotPassword.submit": "Send Reset Link",
