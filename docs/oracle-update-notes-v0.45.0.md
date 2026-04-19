@@ -1,0 +1,866 @@
+# Oracle Deploy Notes — v0.45.0 (multi-tenant Phase B close-out, PR #134)
+
+**From:** v0.44.3 (currently live at `findabed.org`)
+**To:** v0.45.0 (PG version gate + pgaudit application_name correlation + Flyway HWM CI guard)
+
+> v0.45.0 is the **Phase B close-out bundle**. Three warroom items — a
+> hard PG-version floor, a pgaudit ↔ tenant-UUID correlation wired into
+> `application_name`, and a CI HWM guard replacing the out-of-order
+> Flyway bridge long-term — all tighten existing Phase B invariants
+> rather than adding new surface. Prod's FORCE RLS `1.0` posture for the
+> seven regulated tables is unchanged.
+>
+> **Jordan's note (SRE):** this is the **first release since Phase B
+> that forces a Postgres container rebuild + restart**. The pgaudit.conf
+> change is baked into the image, not bind-mounted, so the Postgres
+> container drops its buffer cache on restart. Budget ~5 min of slow
+> queries after restart while the cache re-warms; prod data set is small
+> (~71 MB pgdata) so the dip is cosmetic, not an outage. Deploy during a
+> normal 24h bake window — this is not security-critical.
+
+**Bake window math:** v0.44.3 shipped 2026-04-19. v0.45.0 can tag after
+**2026-04-20 ~00:00 UTC** without breaking the 24h guardrail. No need to
+compress the window; Phase C work is not blocked waiting.
+
+---
+
+## What's New in This Deploy
+
+- **No new Flyway migrations.** HWM stays at **V74**. Zero schema risk.
+  `deploy/prod-state.json` (`"appliedMigrationsHighWaterMark": 74`) is
+  the committed source of truth; CI's new `flyway-hwm-guard` job rejects
+  any PR that adds a migration at or below 74.
+- **`PgVersionGate`** (`@Component` / `@PostConstruct` in
+  `org.fabt.shared.security.PgVersionGate`) halts JVM boot if
+  `server_version_num < 160005` (PostgreSQL 16.5). Prod runs 16.6
+  (server_version_num = 160006) so this passes without operator action.
+  Doubles as a CVE-2024-10977 gate — 16.5 is the first release
+  containing the fix. **If this check fails, rollback is image-revert,
+  not SQL.**
+- **`application_name = 'fabt:tenant:<uuid>'`** now set on every JDBC
+  connection borrow, co-located in the same prepared statement as
+  `app.tenant_id` so the two values cannot drift. Visible in
+  `pg_stat_activity` (immediately) and in pgaudit log lines (after the
+  container-side `log_line_prefix` update below).
+- **`deploy/pgaudit.conf`** gains `log_line_prefix = '%m [%p] %q%u@%d
+  app=%a '` — the `app=%a` is the new bit. This file is **baked into the
+  `fabt-pgaudit` Docker image** (not bind-mounted). To take effect the
+  operator MUST rebuild + retag the Postgres image and restart the
+  container. **This is the source of the ~60–90 s Postgres downtime in
+  the deploy window.**
+- **`ForceRlsHealthGauge` poll query rewrite** — functionally equivalent
+  (still polls `pg_class.relforcerowsecurity` for the 7 regulated
+  tables, still publishes `fabt.rls.force_rls_enabled{table=...}`). Uses
+  `java.sql.Array` via `Connection.createArrayOf("text", …)` rather
+  than the legacy PG array-literal string. W-GAUGE-3 warroom fix. No
+  observable behavior change at the Prometheus layer.
+- **`deploy/prod-state.json`** — committed snapshot (schemaVersion 1)
+  of the prod Flyway HWM. Updated post-deploy when a release adds
+  migrations. No migrations in v0.45 → no update needed after this deploy.
+- **`deploy/release-gate-pins.txt`** — committed SHA-256 attestation
+  for `docs/security/pg-policies-snapshot.md`. New CI job
+  `release-gate-pin-verify` reruns `scripts/ci/verify-release-gate-pins.sh`
+  on every PR; drift fails the build. Signed off by `@ccradle` per
+  `.github/CODEOWNERS`.
+- **No new API endpoints, no new frontend routes, no user-visible UI
+  change.** Frontend is not redeployed.
+- **Runbook updates** — two new sections in `docs/runbook.md`: "Flyway
+  Out-of-Order Posture" + "PostgreSQL Minor-Version Bump Checklist".
+  Read before going on call.
+
+---
+
+## What Does NOT Change
+
+- **No DB schema additions.** `flyway_schema_history` is unchanged after
+  this deploy (HWM stays 74).
+- **No frontend bundle changes.** Frontend is not redeployed.
+- **Compose override chain composition stays the same.** The v0.45
+  deploy retags `fabt-pgaudit:v0.44.1` → `fabt-pgaudit:v0.45.0` inside
+  the existing `~/fabt-secrets/docker-compose.prod-v0.44-pgaudit.yml` —
+  the *file lives at the same path*, only the image tag inside changes.
+- **`~/fabt-secrets/docker-compose.prod-v0.43-flyway-ooo.yml` stays on
+  the VM** for v0.45. Per `docs/runbook.md` "Flyway Out-of-Order Posture",
+  removing the bridge is gated on the first post-v0.45 deploy that adds
+  only ≥ V75 migrations. v0.45 adds zero migrations → bridge stays
+  belt-and-suspenders for this deploy.
+- **No JWT signing key changes.** Existing access + refresh tokens stay
+  valid through the cutover. Users do not re-authenticate.
+
+---
+
+## Pre-deploy sanity
+
+> **Jordan's note (SRE):** compose-file drift is the #1 deploy-hour
+> incident. Every command in this section either reads a VM path or
+> builds an image — none of them mutate prod. Do this section end-to-end
+> before you open the deploy window.
+
+### 1. Confirm PR #134 CI is green
+
+```bash
+# From local, confirm the tagged SHA is green on all required checks.
+gh pr checks 134 --required
+gh run list --branch feature/multi-tenant-phase-b-closeout --limit 5
+```
+
+Expected: all required checks ✅, including the three new jobs:
+- `flyway-hwm-guard` — rejects below-HWM migrations
+- `release-gate-pin-verify` — SHA-256 match on `docs/security/pg-policies-snapshot.md`
+- `pgaudit-image-tests` — existing (carried from v0.44.1)
+
+**If `release-gate-pin-verify` is red, STOP.** The pin on
+`docs/security/pg-policies-snapshot.md` is the bit-for-bit operator
+contract on the Phase B policy shape. A failure here means either the
+policy snapshot drifted or the pin was not updated with the edit.
+Resolve before deploy; do NOT retune the pin from a deploy window.
+
+### 2. Verify the current v0.44.3 deploy is healthy
+
+```bash
+curl -fsS https://findabed.org/actuator/health | jq .status
+# Expected: "UP"
+
+# FORCE RLS still 1.0 for all 7 regulated tables (Phase B invariant)
+source ~/fabt-secrets/.env.prod
+curl -sf -u "$FABT_ACTUATOR_USER:$FABT_ACTUATOR_PASSWORD" \
+    http://localhost:9091/actuator/prometheus \
+    | grep '^fabt_rls_force_rls_enabled{' | sort
+# Expected: 7 lines, each ending in 1.0.
+```
+
+**If any gauge reports 0.0, DO NOT DEPLOY v0.45.** A pre-existing FORCE
+RLS regression must be resolved under the v0.44 runbook (panic script +
+warroom) before new code goes on top.
+
+### 3. Capture the `tenant_context_empty` noise floor
+
+v0.44 warroom established ~0.83/s as the single-user traffic baseline on
+`fabt.rls.tenant_context_empty.count`. Sample the current rate so you
+have a post-deploy comparison:
+
+```bash
+source ~/fabt-secrets/.env.prod
+# Sample the counter twice, 60s apart
+V1=$(curl -sf -u "$FABT_ACTUATOR_USER:$FABT_ACTUATOR_PASSWORD" \
+    http://localhost:9091/actuator/prometheus \
+    | awk '/^fabt_rls_tenant_context_empty_count_total/ {print $2}')
+sleep 60
+V2=$(curl -sf -u "$FABT_ACTUATOR_USER:$FABT_ACTUATOR_PASSWORD" \
+    http://localhost:9091/actuator/prometheus \
+    | awk '/^fabt_rls_tenant_context_empty_count_total/ {print $2}')
+echo "rate = $(echo "($V2 - $V1) / 60" | bc -l) /s  (baseline ~0.83/s)"
+```
+
+**Threshold to watch during + after cutover:** sustained rate > **1.5/s**
+for 5 minutes → a code path stopped binding TenantContext before
+borrowing a connection. That would be a v0.45 regression (not Phase B
+pre-existing noise). Investigate before going to bed.
+
+### 4. Verify release-gate SHA-256 pin matches locally (belt-and-suspenders)
+
+CI already ran this, but re-run locally so the operator sees the file
+they're about to deploy with their own eyes:
+
+```bash
+cd ~/src/finding-a-bed-tonight
+git fetch --tags
+git checkout v0.45.0   # once tagged; pre-tag use the branch SHA
+tr -d '\r' < docs/security/pg-policies-snapshot.md | sha256sum
+# Expected: 70618354df1234c69c2bb64d226b7b850177a8f450c4f080e5396c8deb30c6a0
+# (compare against deploy/release-gate-pins.txt; must match exactly)
+```
+
+### 5. Build `deploy/pgaudit.Dockerfile` locally before push
+
+**DIFFERENT FROM v0.44.1** — that deploy rebuilt the pgaudit image from
+scratch for the first time. v0.45 rebuilds an already-known-good image
+with a one-line `log_line_prefix` delta. The local rehearsal is cheaper
+but still non-optional: a broken Dockerfile here pegs the VM deploy
+window.
+
+```bash
+cd ~/src/finding-a-bed-tonight
+docker build -t fabt-pgaudit:v0.45.0-rehearsal -f deploy/pgaudit.Dockerfile deploy/
+# Sanity — start in isolation, verify the conf is baked in
+docker run -d --rm --name fabt-pgaudit-rehearsal \
+    -e POSTGRES_PASSWORD=rehearsal -e POSTGRES_USER=fabt -e POSTGRES_DB=fabt \
+    -p 55432:5432 fabt-pgaudit:v0.45.0-rehearsal
+sleep 8
+docker exec fabt-pgaudit-rehearsal cat /etc/postgresql/conf.d/pgaudit.conf \
+    | grep 'log_line_prefix'
+# Expected: log_line_prefix = '%m [%p] %q%u@%d app=%a '
+docker exec fabt-pgaudit-rehearsal psql -U fabt -d fabt -tAc 'SHOW log_line_prefix'
+# Expected: %m [%p] %q%u@%d app=%a<space>
+docker stop fabt-pgaudit-rehearsal
+docker rmi fabt-pgaudit:v0.45.0-rehearsal
+```
+
+**What breaks if you skip this:** a typo in `pgaudit.conf` makes the
+Postgres container refuse to start on the VM — and at that point the
+only path back is revert to `fabt-pgaudit:v0.44.1`, which you can only
+do fast if you remembered to preserve the old tag (see Deploy Step 3).
+
+### 6. Confirm current PG server version
+
+```bash
+ssh fabt@findabed.org
+docker compose exec -T postgres psql -U fabt -d fabt -tAc \
+    "SELECT current_setting('server_version_num'), version()"
+# Expected: 160006 | PostgreSQL 16.6 (Debian 16.6-1.pgdg120+1) …
+```
+
+**Why we check:** `PgVersionGate` will halt boot on 160005 or lower.
+Prod is 16.6 → passes. A `< 160005` reading here means the VM is running
+an older PG minor than the runbook's last-known state — don't deploy
+v0.45 until that's reconciled (PG bump runbook entry in
+`docs/runbook.md`).
+
+### 7. Fresh pre-v0.45 pg_dump
+
+This is the rollback path for the pgaudit image swap. Take fresh — do
+not rely on the pre-v0.44 dump (that's 2 schema-diffs stale now).
+
+```bash
+TS=$(date -u +%Y%m%dT%H%M%SZ)
+docker compose exec -T postgres pg_dump -U fabt -Fc fabt \
+    > ~/fabt-backups/pre-v0.45-${TS}.sql.gz
+ls -lh ~/fabt-backups/pre-v0.45-${TS}.sql.gz
+sha256sum ~/fabt-backups/pre-v0.45-${TS}.sql.gz \
+    | tee ~/fabt-backups/pre-v0.45-${TS}.sql.gz.sha256
+# Pull to local, SHA-pin locally, confirm both match before cutover.
+scp fabt@findabed.org:~/fabt-backups/pre-v0.45-${TS}.sql.gz* ~/fabt-backups/
+sha256sum -c ~/fabt-backups/pre-v0.45-${TS}.sql.gz.sha256
+```
+
+**Naming convention:** `pre-v0.45-<UTC-timestamp>.sql.gz` +
+`.sha256` sidecar. Matches the pattern set in v0.43.1 / v0.44.1 amendments.
+
+### 8. Pre-tag checklist (run before opening the deploy window)
+
+- [ ] PR #134 CI all-green, including `flyway-hwm-guard` and
+      `release-gate-pin-verify`.
+- [ ] 24h bake satisfied (v0.44.3 shipped 2026-04-19 → cutover ≥ 2026-04-20 00:00 UTC).
+- [ ] Fresh `pre-v0.45-<ts>.sql.gz` taken, pulled to local, SHA-pinned (match).
+- [ ] `tr -d '\r' < docs/security/pg-policies-snapshot.md | sha256sum` matches the pin.
+- [ ] `deploy/pgaudit.Dockerfile` built locally, confirmed `log_line_prefix` present.
+- [ ] Current PG `server_version_num` ≥ 160006 (confirmed 16.6 in step 6).
+- [ ] Tenant-context-empty baseline recorded (step 3) for later comparison.
+- [ ] `~/fabt-secrets/docker-compose.prod-v0.44-pgaudit.yml` backed up before edit (step in Deploy below).
+- [ ] v0.44 runbook pgaudit panic script (`scripts/phase-b-rls-panic.sh`) still present on VM.
+
+---
+
+## Deploy steps
+
+> **Jordan's note (SRE):** order matters. pgaudit image builds FIRST —
+> it's the slowest step and the most likely to catch a typo. Backend
+> JAR + image second. Staged swap third. Between the Postgres restart
+> and the backend restart there is a MANDATORY pause point where the
+> operator verifies pgaudit came back up clean before pointing backend
+> traffic at it. Skip the pause and you risk backend tight-looping
+> against a half-up Postgres while the buffer cache is still cold.
+
+### 1. Checkout tag + preserve last-good image references
+
+**SAME AS v0.44.1** procedure; repeated because skipping it makes
+rollback a rebuild instead of a retag.
+
+```bash
+ssh fabt@findabed.org
+cd ~/finding-a-bed-tonight
+git fetch --tags
+git checkout v0.45.0
+git status   # expect: HEAD detached at v0.45.0, clean tree
+
+# Preserve current images under explicit rollback tags
+docker tag fabt-backend:latest    fabt-backend:v0.44.3-lastgood 2>/dev/null || true
+docker tag fabt-pgaudit:v0.44.1   fabt-pgaudit:v0.44.1-lastgood 2>/dev/null || true
+docker images | grep -E 'fabt-backend|fabt-pgaudit'
+# Confirm both lastgood tags exist before proceeding.
+```
+
+**Rollback command (do NOT run yet — for reference only):**
+```bash
+docker tag fabt-backend:v0.44.3-lastgood fabt-backend:latest
+docker tag fabt-pgaudit:v0.44.1-lastgood fabt-pgaudit:v0.44.1
+# …then restart per Rollback section below.
+```
+
+### 2. (a) Build the new pgaudit image — DO THIS FIRST
+
+**DIFFERENT FROM v0.44.1** — that deploy BUILT the image for the first
+time. v0.45 REBUILDS the same image with a one-line conf delta + a new
+tag.
+
+```bash
+docker build -t fabt-pgaudit:v0.45.0 -f deploy/pgaudit.Dockerfile deploy/
+docker images | grep fabt-pgaudit
+# Expect: fabt-pgaudit:v0.45.0 (new) + fabt-pgaudit:v0.44.1 (preserved)
+#         + fabt-pgaudit:v0.44.1-lastgood (alias)
+```
+
+**Verify the image has the new `log_line_prefix`:**
+
+```bash
+docker run --rm fabt-pgaudit:v0.45.0 \
+    cat /etc/postgresql/conf.d/pgaudit.conf | grep log_line_prefix
+# Expected: log_line_prefix = '%m [%p] %q%u@%d app=%a '
+```
+
+**If this line is missing, STOP.** The image is mis-built. Rollback is
+trivial at this point (we have not touched the running Postgres yet) —
+re-build with a clean local repo, re-verify, then resume.
+
+### 2. (b) Build the new backend JAR + image
+
+```bash
+mvn -B -DskipTests clean package -f backend/pom.xml
+ls -la backend/target/finding-a-bed-tonight-0.45.0.jar
+# Confirm file size > 100 MB, mtime is post-build (no stale JAR)
+# See feedback_deploy_old_jars.md — always mvn clean before image build.
+
+docker build \
+    --no-cache \
+    -t fabt-backend:v0.45.0 \
+    -t fabt-backend:latest \
+    -f backend/Dockerfile backend/
+docker images | grep fabt-backend
+# Expect: fabt-backend:v0.45.0 + fabt-backend:latest (same SHA) +
+#         fabt-backend:v0.44.3-lastgood (alias)
+```
+
+**What breaks if you skip `--no-cache`:** Docker may layer on top of an
+older JAR if the filesystem mtime trickery catches it wrong. Paid that
+price at v0.31 — see `feedback_deploy_old_jars.md`.
+
+### 3. Update the pgaudit compose override file — the ONLY compose edit
+
+**DIFFERENT FROM v0.44.1.** v0.44.1 carried the pgaudit override
+forward unchanged. v0.45 changes ONE line inside
+`~/fabt-secrets/docker-compose.prod-v0.44-pgaudit.yml`: the image tag.
+
+```bash
+# Back up the current file (rollback path)
+cp ~/fabt-secrets/docker-compose.prod-v0.44-pgaudit.yml \
+   ~/fabt-secrets/docker-compose.prod-v0.44-pgaudit.yml.v0.44.1-lastgood
+
+# Edit in place — switch :v0.44.1 → :v0.45.0
+sed -i 's|fabt-pgaudit:v0.44.1|fabt-pgaudit:v0.45.0|g' \
+    ~/fabt-secrets/docker-compose.prod-v0.44-pgaudit.yml
+
+# Verify the edit
+grep 'fabt-pgaudit' ~/fabt-secrets/docker-compose.prod-v0.44-pgaudit.yml
+# Expected: image: fabt-pgaudit:v0.45.0
+
+# Diff against lastgood — should be exactly one line changed
+diff ~/fabt-secrets/docker-compose.prod-v0.44-pgaudit.yml.v0.44.1-lastgood \
+     ~/fabt-secrets/docker-compose.prod-v0.44-pgaudit.yml
+```
+
+**What breaks if you skip the backup:** if the sed mis-fires and you
+don't have the backup, you rebuild the file from memory under deploy-window
+pressure. Don't.
+
+### 4. Staged swap — Postgres container FIRST, then pause, then backend
+
+**DIFFERENT FROM v0.44.1.** v0.44.1 swapped Postgres + backend in the
+same compose invocation because both were being brought up fresh.
+v0.45 must stage them: Postgres container restart drops buffer cache,
+and we want to verify pgaudit is live before backend starts issuing
+queries with stale connections.
+
+```bash
+# 4a. Stop + restart Postgres ONLY, pulling in the new image tag
+docker compose \
+    -f docker-compose.yml \
+    -f ~/fabt-secrets/docker-compose.prod.yml \
+    -f ~/fabt-secrets/docker-compose.prod-v0.43-flyway-ooo.yml \
+    -f ~/fabt-secrets/docker-compose.prod-v0.44-pgaudit.yml \
+    --env-file ~/fabt-secrets/.env.prod --profile observability \
+    up -d --force-recreate postgres
+
+# 4b. WAIT for Postgres healthcheck to go green (~60-90s)
+sleep 30
+docker compose ps postgres
+# Status must read: Up N seconds (healthy)
+# If it reads "unhealthy" or "restarting", STOP + go to Rollback section.
+```
+
+### 5. Mandatory pause — verify pgaudit before backend restart
+
+> **Jordan's note (SRE):** this is the single most important pause in
+> the deploy. Backend will tight-loop against a half-up Postgres. If any
+> of the three checks below fail, roll back Postgres BEFORE starting the
+> backend swap. Backend is still running v0.44.3 at this point and is
+> holding connections to the old Postgres — those connections died with
+> the old container, so the backend is already in a reconnect loop. You
+> have ~2 minutes before HikariCP starts emitting connection-timeout
+> errors that could degrade user-facing requests. Do not exceed.
+
+```bash
+# 5a. pgaudit shared_preload_libraries still loaded
+docker compose exec -T postgres psql -U fabt -d fabt -tAc \
+    "SHOW shared_preload_libraries"
+# Expected: pgaudit
+
+# 5b. log_line_prefix advertises the new %a bit
+docker compose exec -T postgres psql -U fabt -d fabt -tAc \
+    "SHOW log_line_prefix"
+# Expected: %m [%p] %q%u@%d app=%a<space>  (note trailing space)
+
+# 5c. server_version_num still ≥ 160005 (no accidental image-PG downgrade)
+docker compose exec -T postgres psql -U fabt -d fabt -tAc \
+    "SELECT current_setting('server_version_num')::int"
+# Expected: 160006 (or higher if the base image was bumped)
+```
+
+**If any of 5a/5b/5c fail → Rollback Postgres ONLY (Rollback §A below),
+do NOT proceed to backend swap. Backend is still on v0.44.3 and will
+reconnect to the rolled-back Postgres.**
+
+### 6. Backend swap
+
+Now that Postgres is confirmed healthy on `v0.45.0`, bring up the new
+backend. Keep the `-flyway-ooo.yml` bridge in the invocation — v0.45
+adds no migrations so the bridge is a no-op, but removing it is a Phase
+C step, not this release (see `docs/runbook.md` "Flyway Out-of-Order
+Posture").
+
+```bash
+docker compose \
+    -f docker-compose.yml \
+    -f ~/fabt-secrets/docker-compose.prod.yml \
+    -f ~/fabt-secrets/docker-compose.prod-v0.43-flyway-ooo.yml \
+    -f ~/fabt-secrets/docker-compose.prod-v0.44-pgaudit.yml \
+    --env-file ~/fabt-secrets/.env.prod --profile observability \
+    up -d --force-recreate backend
+
+# Tail boot log — watch for PgVersionGate + Flyway + Started Application
+docker compose logs -f --tail=200 backend
+```
+
+**Expected boot sequence:**
+
+1. Hikari pool initializes.
+2. `PgVersionGate` runs silently (no log line on success; failure throws
+   `IllegalStateException: PostgreSQL server_version_num=<N> is below
+   FABT's supported floor 160005 (PostgreSQL 16.5).`).
+3. Flyway: `Successfully validated 74 migrations` (no new migrations
+   applied).
+4. Spring Boot: `Started Application in <X> seconds` — typically <15s
+   on the VM.
+5. First Hikari borrow after startup: single round-trip
+   `SET ROLE fabt_app; SELECT set_config(...)` executes (not logged
+   under prod log levels; observable via pg_stat_activity below).
+
+**Total deploy-step downtime:** ~30 s backend restart + ~60–90 s
+Postgres restart (already happened at step 4b). Total window start to
+fully-up: budget 5–7 min including pauses.
+
+### 7. Bake window
+
+**Jordan's recommendation:** normal 24h bake before tagging v0.46 or
+touching Phase C. v0.45 is not security-critical (the CVE gate is
+preventative, not reactive; prod is already on 16.6). No reason to
+compress.
+
+---
+
+## Post-deploy verification
+
+> **Jordan's note (SRE):** every check below is observable without
+> grepping container logs. Log-tailing is fine for diagnostic
+> escalation, but the release-gate acceptance runs off health endpoints
+> + psql + Prometheus actuator. If a check fails and logs are silent,
+> that itself is the diagnostic — a missing log line is a broken check,
+> not a passing one.
+
+### 1. Backend health endpoint
+
+```bash
+curl -fsS https://findabed.org/actuator/health | jq .status
+# Expected: "UP"
+```
+
+### 2. `PgVersionGate` silent at boot (check only if debugging)
+
+Success is silent — there is no "gate passed" log line. Failure throws
+`IllegalStateException` and the backend container enters a crash loop
+(visible via `docker compose ps backend` — status NOT `(healthy)`).
+
+```bash
+# Only run if you suspect a silent problem — normal case: skip.
+docker compose logs --since 10m backend | grep -i 'PgVersionGate\|server_version_num'
+# Expected: no match (gate runs silently on success)
+```
+
+### 3. `application_name` visible in `pg_stat_activity`
+
+**NEW IN v0.45.** The single highest-value post-deploy check — it
+confirms both the tenant-UUID binding works AND the co-located
+statement in `applyRlsContext` runs end-to-end.
+
+```bash
+# Trigger a few authenticated requests to generate bound connections
+curl -fsS https://findabed.org/api/v1/shelters?lat=35.5951&lng=-82.5515 > /dev/null
+
+# Inspect pg_stat_activity — expect to see application_name values with
+# real UUIDs for backend-held connections
+docker compose exec -T postgres psql -U fabt -d fabt -c \
+    "SELECT pid, application_name, state, query_start
+     FROM pg_stat_activity
+     WHERE application_name LIKE 'fabt:tenant:%'
+     ORDER BY query_start DESC LIMIT 10"
+```
+
+**Expected:** multiple rows with `application_name` values like
+`fabt:tenant:550e8400-e29b-41d4-a716-446655440000` OR `fabt:tenant:none`
+(for scheduler / system-path connections). **Zero rows is a failure** —
+the new statement didn't run; investigate RlsDataSourceConfig boot.
+
+### 4. pgaudit log line carries `app=fabt:tenant:<uuid>` — NEW GATE
+
+**NEW IN v0.45.** Trigger a write operation against a tenant-bound
+table, then confirm the pgaudit log line (emitted to stderr, captured
+by `docker logs`) contains the `app=` prefix component.
+
+```bash
+# Tail Postgres container logs in a separate pane
+docker compose logs --tail=0 -f postgres | grep -i pgaudit &
+TAIL_PID=$!
+
+# Trigger a write via a tenant-bound request
+# (use whatever admin endpoint you have credentials for; ex:
+#  PUT /api/v1/shelters/{id} on a shelter you own)
+#
+# Alternatively, from inside psql bound to fabt_app:
+docker compose exec -T postgres psql -U fabt -d fabt <<'SQL'
+BEGIN;
+SELECT set_config('app.tenant_id',
+                  '550e8400-e29b-41d4-a716-446655440000'::text, true);
+SELECT set_config('application_name',
+                  'fabt:tenant:550e8400-e29b-41d4-a716-446655440000', true);
+-- A write that pgaudit.log='write,ddl' catches
+CREATE TEMPORARY TABLE ztest_appname(ts timestamptz);
+INSERT INTO ztest_appname VALUES (now());
+DROP TABLE ztest_appname;
+COMMIT;
+SQL
+
+# Stop the tail
+sleep 3
+kill $TAIL_PID 2>/dev/null
+
+# Expected log line shape (in the tail output above):
+# 2026-04-20 12:34:56 UTC [1234] fabt@fabt app=fabt:tenant:550e8400-...
+# AUDIT: SESSION,42,1,WRITE,INSERT,TABLE,public.ztest_appname,"INSERT INTO ..."
+#
+# The "app=fabt:tenant:<uuid>" substring MUST be present.
+```
+
+**If `app=` is missing from pgaudit lines:** `log_line_prefix` didn't
+apply (image swap didn't take) OR `application_name` wasn't bound
+(connection was borrowed without RlsDataSourceConfig in path).
+Escalate before the bake completes.
+
+### 5. FORCE RLS gauges all at 1.0 (7 regulated tables)
+
+Phase B invariant — unchanged in v0.45 but must be verified.
+
+```bash
+source ~/fabt-secrets/.env.prod
+curl -sf -u "$FABT_ACTUATOR_USER:$FABT_ACTUATOR_PASSWORD" \
+    http://localhost:9091/actuator/prometheus \
+    | grep '^fabt_rls_force_rls_enabled{' | sort
+# Expected: 7 lines, each ending in 1.0
+#   audit_events, hmis_audit_log, hmis_outbox, kid_to_tenant_key,
+#   one_time_access_code, password_reset_token, tenant_key_material
+```
+
+**W-GAUGE-3 secondary check (new in v0.45):** the ForceRlsHealthGauge
+query rewrite should produce IDENTICAL output to v0.44.3. Any change in
+which tables appear, or in the value set, means the Array rewrite
+regressed. Sort + diff if you kept the pre-deploy output.
+
+### 6. `fabt.rls.tenant_context.empty.count` steady state
+
+Baseline sampled in Pre-deploy Step 3. Re-sample post-deploy; expect
+the rate to match within noise.
+
+```bash
+source ~/fabt-secrets/.env.prod
+V1=$(curl -sf -u "$FABT_ACTUATOR_USER:$FABT_ACTUATOR_PASSWORD" \
+    http://localhost:9091/actuator/prometheus \
+    | awk '/^fabt_rls_tenant_context_empty_count_total/ {print $2}')
+sleep 120
+V2=$(curl -sf -u "$FABT_ACTUATOR_USER:$FABT_ACTUATOR_PASSWORD" \
+    http://localhost:9091/actuator/prometheus \
+    | awk '/^fabt_rls_tenant_context_empty_count_total/ {print $2}')
+echo "post-deploy rate = $(echo "($V2 - $V1) / 120" | bc -l) /s"
+# Compare against pre-deploy baseline. Expect roughly the same.
+```
+
+**Alert threshold:** sustained > 1.5/s for 5 minutes over the bake
+window = regression. Likeliest cause: a virtual-thread scheduler binding
+changed shape under v0.45's one-statement applyRlsContext. Investigate
+by sampling `pg_stat_activity` for `application_name = 'fabt:tenant:'`
+(empty UUID) — those are your culprits.
+
+### 7. Playwright post-deploy smoke
+
+**SAME AS v0.43.1 / v0.44.1** — this suite catches user-facing
+regressions the DB-level checks miss. Bucket4j rate-limit flake on Test
+6 is documented; retry once if you see it.
+
+```bash
+cd ~/src/finding-a-bed-tonight/e2e/playwright
+BASE_URL=https://findabed.org npx playwright test \
+    --config=deploy/playwright.config.ts \
+    deploy/post-deploy-smoke.spec.ts \
+    2>&1 | tee ~/logs/post-deploy-smoke-v0.45.0.log
+# Expected: 11/11 passed.
+# Known Test 6 flake: retry once if 1/11 fails on rate-limit.
+```
+
+### 8. `deploy/prod-state.json` — no update needed for v0.45
+
+v0.45 ships zero new migrations → HWM stays 74 → `prod-state.json`
+unchanged.
+
+**Verify anyway** (cheap check, catches a surprise migration):
+
+```bash
+docker compose exec -T postgres psql -U fabt -d fabt -tAc \
+    "SELECT max(version::int) FROM flyway_schema_history
+     WHERE success = true AND version ~ '^[0-9]+$'"
+# Expected: 74. If 75+, an unexpected migration ran — STOP + investigate.
+```
+
+### 9. Buffer cache re-warm observation
+
+Informational, not a gate. Postgres dropped its buffer cache at
+container restart; expect slow reads for ~5 min as the hot pages page
+back in.
+
+```bash
+docker compose exec -T postgres psql -U fabt -d fabt -c \
+    "SELECT name, setting FROM pg_settings WHERE name = 'shared_buffers'"
+# Informational — 128MB on the Oracle Always Free VM, so cache re-warm
+# is quick. A heavier-traffic deploy would warrant a pgbench warm-up step.
+```
+
+---
+
+## Rollback
+
+> **Jordan's note (SRE):** two independent layers can fail
+> independently. Decide which layer is bad BEFORE running commands.
+> Rolling back both when only one is bad costs you another Postgres
+> cold-cache cycle for no reason.
+
+### Decision tree
+
+- **PgVersionGate throws at boot** → rollback BACKEND ONLY (§B). Postgres
+  is fine; you just need the v0.44.3 backend that doesn't enforce the
+  floor. Fix-forward by correcting the underlying PG version issue, then
+  redeploy.
+- **Backend health UP but pgaudit log lines have no `app=`** → rollback
+  POSTGRES ONLY (§A). Backend is fine; you need v0.44.1 pgaudit image
+  (which still logs, just without the `app=` tag).
+- **FORCE RLS gauge drops to 0 for any table** → PANIC. This is a Phase
+  B invariant breach, not a v0.45 rollback. Run
+  `scripts/phase-b-rls-panic.sh` per `docs/runbook.md`, then roll BOTH
+  layers back (§C).
+- **`tenant_context.empty.count` sustained > 1.5/s** → rollback BACKEND
+  ONLY (§B). The Postgres side is unchanged; the regression is in
+  `applyRlsContext`.
+- **Playwright smoke fails 2+ tests** → rollback BACKEND ONLY (§B). If
+  still failing on v0.44.3, escalate — this is not a v0.45 regression.
+- **Postgres container fails healthcheck or won't restart** → rollback
+  POSTGRES ONLY (§A). If that also fails → recover from
+  `pre-v0.45-<ts>.sql.gz` per §D.
+
+### §A. Rollback Postgres ONLY
+
+```bash
+# Restore the previous compose override
+cp ~/fabt-secrets/docker-compose.prod-v0.44-pgaudit.yml.v0.44.1-lastgood \
+   ~/fabt-secrets/docker-compose.prod-v0.44-pgaudit.yml
+
+# (alias retag for safety — image already tagged v0.44.1-lastgood)
+docker tag fabt-pgaudit:v0.44.1-lastgood fabt-pgaudit:v0.44.1
+
+# Restart Postgres against the previous image tag
+docker compose \
+    -f docker-compose.yml \
+    -f ~/fabt-secrets/docker-compose.prod.yml \
+    -f ~/fabt-secrets/docker-compose.prod-v0.43-flyway-ooo.yml \
+    -f ~/fabt-secrets/docker-compose.prod-v0.44-pgaudit.yml \
+    --env-file ~/fabt-secrets/.env.prod --profile observability \
+    up -d --force-recreate postgres
+
+# Verify
+docker compose ps postgres   # expect: Up N seconds (healthy)
+docker compose exec -T postgres psql -U fabt -d fabt -tAc \
+    "SHOW log_line_prefix"
+# Expected: '%m [%p] %q%u@%d ' (NO app=%a — v0.44.1 form)
+```
+
+**What you lose:** pgaudit log lines carry no `app=` prefix; tenant-log
+correlation goes back to PID+timestamp join-by-hand. **Everything else
+stays functional.** `application_name` still populates in
+`pg_stat_activity` because that's a backend-side write — only the
+pgaudit *display* reverts.
+
+**PG data volume is UNCHANGED** — no `chown`, no pg_restore. This is
+the cheap layer.
+
+### §B. Rollback backend ONLY
+
+```bash
+# Retag the backend image
+docker tag fabt-backend:v0.44.3-lastgood fabt-backend:latest
+
+# Restart backend
+docker compose \
+    -f docker-compose.yml \
+    -f ~/fabt-secrets/docker-compose.prod.yml \
+    -f ~/fabt-secrets/docker-compose.prod-v0.43-flyway-ooo.yml \
+    -f ~/fabt-secrets/docker-compose.prod-v0.44-pgaudit.yml \
+    --env-file ~/fabt-secrets/.env.prod --profile observability \
+    up -d --force-recreate backend
+
+# Verify
+curl -fsS https://findabed.org/actuator/health | jq .status   # UP
+```
+
+**What you lose:**
+- `PgVersionGate` boot check (can't re-add without code; until v0.45+
+  re-tagged).
+- `application_name = 'fabt:tenant:<uuid>'` on `pg_stat_activity`.
+- The ForceRlsHealthGauge query rewrite (reverts to string-literal PG
+  array — functionally fine, just the old form).
+
+**What stays:** Postgres still on v0.45.0 pgaudit image with new
+`log_line_prefix`. pgaudit log lines will read `app=` from whatever
+`application_name` the v0.44.3 backend sends — and v0.44.3 DOESN'T set
+it, so you'll see `app=PostgreSQL JDBC Driver` or similar in pgaudit
+lines. Cosmetically ugly but NOT a security regression (RLS still
+enforces on `app.tenant_id`, which v0.44.3 does set).
+
+### §C. Rollback BOTH layers
+
+Sequential: §A first, then §B. Taking Postgres down while backend is
+still trying to send traffic is fine — Hikari reconnects. Taking
+backend down first and then Postgres leaves no user-facing service for
+~2 min longer than necessary.
+
+### §D. Last-resort pgdata restore (should not be needed)
+
+If somehow pgdata is corrupted (no path in v0.45 scope should do this —
+we don't run migrations and don't touch the data volume):
+
+```bash
+docker compose stop postgres backend
+TS=$(ls -t ~/fabt-backups/pre-v0.45-*.sql.gz | head -1 | grep -oE 'pre-v0\.45-[0-9TZ]+')
+
+# Fresh volume
+docker volume rm finding-a-bed-tonight_postgres_data
+docker compose \
+    -f docker-compose.yml \
+    -f ~/fabt-secrets/docker-compose.prod.yml \
+    -f ~/fabt-secrets/docker-compose.prod-v0.44-pgaudit.yml \
+    up -d postgres
+sleep 30
+
+# Restore
+gunzip -c ~/fabt-backups/${TS}.sql.gz | \
+    docker compose exec -T postgres pg_restore -U fabt -d fabt --no-owner --no-privileges
+
+# Restart backend on v0.44.3 image
+docker tag fabt-backend:v0.44.3-lastgood fabt-backend:latest
+docker compose up -d backend
+```
+
+---
+
+## Operator checklist (one page)
+
+> **Jordan's note (SRE):** this list replaces the pre-deploy + deploy +
+> post-deploy sections as the at-the-keyboard reference. Each line is
+> one command-block's worth of work. Side-effects in parens.
+
+### Pre-deploy
+
+1. `gh pr checks 134 --required` — confirm all-green including `flyway-hwm-guard` + `release-gate-pin-verify`. (Side effect: none.)
+2. `curl` actuator `/health` + prometheus 7-gauge grep — confirm v0.44.3 is healthy pre-cutover. (Side effect: none.)
+3. Sample `tenant_context_empty` counter twice 60s apart — record baseline rate. (Side effect: none; baseline for post-deploy comparison.)
+4. `tr -d '\r' < docs/security/pg-policies-snapshot.md | sha256sum` matches pin in `deploy/release-gate-pins.txt`. (Side effect: none; integrity check.)
+5. `docker build -t fabt-pgaudit:v0.45.0-rehearsal -f deploy/pgaudit.Dockerfile deploy/` locally, verify `log_line_prefix` via `docker run`. (Side effect: local image + 1 ephemeral container, cleaned up in step.)
+6. SSH to VM: `psql -tAc "SELECT current_setting('server_version_num')"` — must be ≥ 160006. (Side effect: none; `PgVersionGate` pre-check.)
+7. `docker compose exec -T postgres pg_dump ... > pre-v0.45-<ts>.sql.gz` + scp to local + sha256 verify. (Side effect: ~500 KB file on VM + laptop; rollback path.)
+
+### Deploy
+
+8. `git checkout v0.45.0` on VM + `docker tag` preserve v0.44.3-lastgood images. (Side effect: detached HEAD, +2 docker tags; no running-service change.)
+9. `docker build -t fabt-pgaudit:v0.45.0 -f deploy/pgaudit.Dockerfile deploy/` on VM. (Side effect: +1 image on VM disk; ~200 MB.)
+10. `mvn -B -DskipTests clean package` + `docker build --no-cache -t fabt-backend:v0.45.0 -t fabt-backend:latest`. (Side effect: JAR + image rebuilt; existing `latest` tag moves.)
+11. `cp` + `sed -i` update `~/fabt-secrets/docker-compose.prod-v0.44-pgaudit.yml` image tag. (Side effect: override file changed; backup taken.)
+12. `docker compose up -d --force-recreate postgres` with full 4-file override chain. (Side effect: **~60-90 s Postgres downtime + buffer cache drop**; backend experiences connection reset.)
+13. Pause: `docker compose ps postgres` = healthy, `SHOW log_line_prefix`, `SHOW shared_preload_libraries`, `server_version_num ≥ 160006`. (Side effect: none; mandatory gate.)
+14. `docker compose up -d --force-recreate backend` with full override chain. (Side effect: **~30 s backend downtime**; first HTTP request post-restart is ~250 ms slower as HikariCP pool primes.)
+
+### Post-deploy
+
+15. `curl /actuator/health` — UP. (Side effect: none.)
+16. `SELECT * FROM pg_stat_activity WHERE application_name LIKE 'fabt:tenant:%'` — non-zero rows. (Side effect: none; confirms `applyRlsContext` runs.)
+17. Trigger write + tail `docker compose logs postgres | grep AUDIT` — pgaudit line contains `app=fabt:tenant:`. (Side effect: temporary table created+dropped in fabt DB.)
+18. 7-gauge `force_rls_enabled` grep — all 1.0. (Side effect: none; Phase B invariant check.)
+19. Sample `tenant_context_empty` counter again 120s apart — rate within noise of pre-deploy baseline. (Side effect: none; regression check.)
+20. `BASE_URL=https://findabed.org npx playwright test deploy/post-deploy-smoke.spec.ts` — 11/11. (Side effect: ~10 synthetic user flows against prod; negligible.)
+21. `SELECT max(version) FROM flyway_schema_history` — 74 (no unexpected migration). (Side effect: none.)
+
+### Deploy-complete criteria
+
+All of the following MUST be true before declaring the deploy
+complete and walking away:
+
+- Step 15 returns `UP`.
+- Step 16 returns ≥ 1 row with a real UUID in `application_name`.
+- Step 17's pgaudit line contains `app=fabt:tenant:`.
+- Step 18 shows all 7 gauges at 1.0.
+- Step 19's rate is within ±0.5 /s of the pre-deploy baseline.
+- Step 20 passes 11/11 (or 10/11 with documented bucket4j flake).
+- Step 21 returns exactly 74.
+
+**If any of the above fail after 15 min of remediation, roll back to
+v0.44.3 per the decision tree in the Rollback section and debug the
+failing check from the lastgood state.**
+
+### After deploy succeeds
+
+- Announce in the ops log channel; bake 24h before tagging v0.46 or
+  touching Phase C.
+- Update `project_live_deployment_status.md` in memory with v0.45.0 entry.
+- Tag PR #134 as merged + closed.
+- `~/fabt-secrets/docker-compose.prod-v0.43-flyway-ooo.yml` bridge file
+  STAYS on the VM until the first post-v0.45 deploy that adds
+  migrations ≥ V75. Removing it is a later task (see
+  `docs/runbook.md` §"Flyway Out-of-Order Posture").
+
+---
+
+## Related
+
+- `docs/oracle-update-notes-v0.44.1-amendments.md` — predecessor deploy notes (pgaudit image rebuild pattern, compose override chain)
+- `docs/oracle-update-notes-v0.43.1-amendments.md` — Phase B RLS release pattern (FORCE RLS + panic script)
+- `docs/oracle-update-notes-v0.41.0.md` — backend-only release pattern
+- `docs/runbook.md` §"Flyway Out-of-Order Posture" — renumber-forward rule + HWM snapshot update procedure
+- `docs/runbook.md` §"PostgreSQL Minor-Version Bump Checklist" — CVE-gate revisit protocol
+- `docs/security/pg-policies-snapshot.md` — release-gate-pinned Phase B policy snapshot (SHA-256 in `deploy/release-gate-pins.txt`)
+- `deploy/prod-state.json` — committed Flyway HWM (74 as of v0.44.3; no change at v0.45)
+- `~/fabt-secrets/docker-compose.prod-v0.44-pgaudit.yml` — pgaudit image override (on VM; image tag updated at Deploy Step 3)
+- `~/fabt-secrets/docker-compose.prod-v0.43-flyway-ooo.yml` — Flyway out-of-order bridge (on VM; stays through v0.45)
+- PR: ccradle/finding-a-bed-tonight#134
+- CHANGELOG: `[v0.45.0]` section
