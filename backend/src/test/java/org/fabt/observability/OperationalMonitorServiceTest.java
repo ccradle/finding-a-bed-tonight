@@ -166,43 +166,43 @@ class OperationalMonitorServiceTest {
     @Test
     void checkTemperatureSurgeGap_coldNoSurge_publishesGaugeAndCachesStatus() {
         Tenant tenant = createTenant();
-        when(noaaClient.getCurrentTemperatureFahrenheit()).thenReturn(25.0);
+        when(noaaClient.getCurrentTemperatureFahrenheit(anyString())).thenReturn(25.0);
         when(tenantRepository.findAll()).thenReturn(List.of(tenant));
         when(surgeEventService.getActive()).thenReturn(Optional.empty());
 
         monitorService.checkTemperatureSurgeGap();
 
         assertEquals(1.0, metrics.getTemperatureSurgeGapValue(), "Gap gauge should be 1 when cold + no surge");
-        assertNotNull(monitorService.getTemperatureStatus());
-        assertTrue(monitorService.getTemperatureStatus().gapDetected());
-        assertEquals(25.0, monitorService.getTemperatureStatus().temperatureF());
-        assertEquals("KRDU", monitorService.getTemperatureStatus().stationId());
+        assertNotNull(monitorService.getTemperatureStatus(tenantId));
+        assertTrue(monitorService.getTemperatureStatus(tenantId).gapDetected());
+        assertEquals(25.0, monitorService.getTemperatureStatus(tenantId).temperatureF());
+        assertEquals("KRDU", monitorService.getTemperatureStatus(tenantId).stationId());
     }
 
     @Test
     void checkTemperatureSurgeGap_coldWithSurge_noGap() {
         Tenant tenant = createTenant();
-        when(noaaClient.getCurrentTemperatureFahrenheit()).thenReturn(25.0);
+        when(noaaClient.getCurrentTemperatureFahrenheit(anyString())).thenReturn(25.0);
         when(tenantRepository.findAll()).thenReturn(List.of(tenant));
         when(surgeEventService.getActive()).thenReturn(Optional.of(mock(SurgeEvent.class)));
 
         monitorService.checkTemperatureSurgeGap();
 
         assertEquals(0.0, metrics.getTemperatureSurgeGapValue(), "Gap gauge should be 0 when surge is active");
-        assertFalse(monitorService.getTemperatureStatus().gapDetected());
+        assertFalse(monitorService.getTemperatureStatus(tenantId).gapDetected());
     }
 
     @Test
     void checkTemperatureSurgeGap_warmWeather_noGap() {
         Tenant tenant = createTenant();
-        when(noaaClient.getCurrentTemperatureFahrenheit()).thenReturn(55.0);
+        when(noaaClient.getCurrentTemperatureFahrenheit(anyString())).thenReturn(55.0);
         when(tenantRepository.findAll()).thenReturn(List.of(tenant));
         when(surgeEventService.getActive()).thenReturn(Optional.empty());
 
         monitorService.checkTemperatureSurgeGap();
 
         assertEquals(0.0, metrics.getTemperatureSurgeGapValue(), "Gap gauge should be 0 when warm");
-        assertFalse(monitorService.getTemperatureStatus().gapDetected());
+        assertFalse(monitorService.getTemperatureStatus(tenantId).gapDetected());
     }
 
     @Test
@@ -211,8 +211,8 @@ class OperationalMonitorServiceTest {
         // Configure a higher threshold (40°F)
         when(configService.getConfig(tenantId)).thenReturn(
                 new ObservabilityConfigService.ObservabilityConfig(
-                        true, false, "http://localhost:4318/v1/traces", 5, 15, 60, 40.0));
-        when(noaaClient.getCurrentTemperatureFahrenheit()).thenReturn(35.0);
+                        true, false, "http://localhost:4318/v1/traces", 5, 15, 60, 40.0, null));
+        when(noaaClient.getCurrentTemperatureFahrenheit(anyString())).thenReturn(35.0);
         when(tenantRepository.findAll()).thenReturn(List.of(tenant));
         when(surgeEventService.getActive()).thenReturn(Optional.empty());
 
@@ -220,15 +220,52 @@ class OperationalMonitorServiceTest {
 
         // 35°F is below 40°F threshold, gap should be detected
         assertEquals(1.0, metrics.getTemperatureSurgeGapValue());
-        assertTrue(monitorService.getTemperatureStatus().gapDetected());
-        assertEquals(40.0, monitorService.getTemperatureStatus().thresholdF());
+        assertTrue(monitorService.getTemperatureStatus(tenantId).gapDetected());
+        assertEquals(40.0, monitorService.getTemperatureStatus(tenantId).thresholdF());
     }
 
     @Test
-    void checkTemperatureSurgeGap_noaaUnavailable_skipsCheck() {
-        when(noaaClient.getCurrentTemperatureFahrenheit()).thenReturn(null);
+    void checkTemperatureSurgeGap_noaaUnavailable_skipsPerTenant() {
+        // Under the per-tenant-weather-station design, we must know the tenant
+        // list before we know which station to query. If NOAA returns null for
+        // that station, the per-tenant work is skipped and no status is cached.
+        Tenant tenant = createTenant();
+        when(tenantRepository.findAll()).thenReturn(List.of(tenant));
+        when(noaaClient.getCurrentTemperatureFahrenheit(anyString())).thenReturn(null);
 
         assertDoesNotThrow(() -> monitorService.checkTemperatureSurgeGap());
-        verifyNoInteractions(tenantRepository);
+        assertNull(monitorService.getTemperatureStatus(tenantId));
+    }
+
+    @Test
+    void checkTemperatureSurgeGap_tenantSpecificStationIsUsed() {
+        Tenant tenant = createTenant();
+        when(configService.getConfig(tenantId)).thenReturn(
+                new ObservabilityConfigService.ObservabilityConfig(
+                        true, false, "http://localhost:4318/v1/traces", 5, 15, 60, 32.0, "KAVL"));
+        when(noaaClient.getCurrentTemperatureFahrenheit("KAVL")).thenReturn(20.0);
+        when(tenantRepository.findAll()).thenReturn(List.of(tenant));
+        when(surgeEventService.getActive()).thenReturn(Optional.empty());
+
+        monitorService.checkTemperatureSurgeGap();
+
+        // Tenant-specific station was queried (not the global KRDU default)
+        verify(noaaClient).getCurrentTemperatureFahrenheit("KAVL");
+        verify(noaaClient, never()).getCurrentTemperatureFahrenheit("KRDU");
+        assertEquals("KAVL", monitorService.getTemperatureStatus(tenantId).stationId());
+    }
+
+    @Test
+    void checkTemperatureSurgeGap_nullStationFallsBackToGlobalDefault() {
+        Tenant tenant = createTenant();
+        // Config has noaaStationId=null → should fall back to injected default (KRDU)
+        when(noaaClient.getCurrentTemperatureFahrenheit("KRDU")).thenReturn(25.0);
+        when(tenantRepository.findAll()).thenReturn(List.of(tenant));
+        when(surgeEventService.getActive()).thenReturn(Optional.empty());
+
+        monitorService.checkTemperatureSurgeGap();
+
+        verify(noaaClient).getCurrentTemperatureFahrenheit("KRDU");
+        assertEquals("KRDU", monitorService.getTemperatureStatus(tenantId).stationId());
     }
 }

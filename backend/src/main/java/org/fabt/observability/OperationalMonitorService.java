@@ -4,7 +4,9 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.StreamSupport;
 
 import org.fabt.availability.domain.BedSearchRequest;
@@ -38,10 +40,13 @@ public class OperationalMonitorService {
     private final ObservabilityMetrics metrics;
     private final ObservabilityConfigService configService;
     private final TenantRepository tenantRepository;
-    private final String stationId;
+    private final String defaultStationId;
 
-    // Cached temperature state for API display
-    private volatile TemperatureStatus cachedTemperatureStatus;
+    // Per-tenant temperature status cache. Populated by the scheduled monitor;
+    // read by the /api/v1/monitoring/temperature endpoint scoped to the
+    // caller's tenant. Each tenant may use a different NOAA station (Option A,
+    // per-tenant-weather-station requirement).
+    private final Map<UUID, TemperatureStatus> cachedTemperatureByTenant = new ConcurrentHashMap<>();
 
     public record TemperatureStatus(
             Double temperatureF,
@@ -60,7 +65,7 @@ public class OperationalMonitorService {
                                      ObservabilityMetrics metrics,
                                      ObservabilityConfigService configService,
                                      TenantRepository tenantRepository,
-                                     @Value("${fabt.monitoring.noaa.station-id:KRDU}") String stationId) {
+                                     @Value("${fabt.monitoring.noaa.station-id:KRDU}") String defaultStationId) {
         this.jdbcTemplate = jdbcTemplate;
         this.shelterRepository = shelterRepository;
         this.bedSearchService = bedSearchService;
@@ -69,11 +74,11 @@ public class OperationalMonitorService {
         this.metrics = metrics;
         this.configService = configService;
         this.tenantRepository = tenantRepository;
-        this.stationId = stationId;
+        this.defaultStationId = defaultStationId;
     }
 
-    public TemperatureStatus getTemperatureStatus() {
-        return cachedTemperatureStatus;
+    public TemperatureStatus getTemperatureStatus(UUID tenantId) {
+        return cachedTemperatureByTenant.get(tenantId);
     }
 
     /**
@@ -144,29 +149,37 @@ public class OperationalMonitorService {
      * Runs every hour. NOAA fetch is a single call; per-tenant surge gap evaluation
      * fans out on virtual threads.
      */
-    @Scheduled(fixedRate = 3_600_000)
+    @Scheduled(fixedRate = 3_600_000, initialDelay = 90_000)
     public void checkTemperatureSurgeGap() {
-        Double tempF = noaaClient.getCurrentTemperatureFahrenheit();
-        if (tempF == null) {
-            log.debug("Temperature monitor: unable to fetch NOAA data, skipping check");
-            return;
-        }
-
+        // initialDelay=90s ensures ObservabilityConfigService.refreshCache() (runs
+        // every 60s from t=0) has populated per-tenant config before the first
+        // per-tenant station lookup. Without it the first run races the cache
+        // and all tenants fall back to the global default station.
         List<UUID> tenantIds = tenantIds();
+        // Fetch temperature once per distinct station across all tenants this cycle,
+        // so multiple tenants sharing a station don't hit NOAA N times.
+        Map<String, Double> tempByStation = new ConcurrentHashMap<>();
         BoundedFanOut.forEachTenant(tenantIds, false, MAX_CONCURRENT_TENANT_CHECKS, tenantId -> {
-            double threshold = configService.getConfig(tenantId).temperatureThresholdF();
+            var cfg = configService.getConfig(tenantId);
+            String resolvedStation = cfg.noaaStationId() != null ? cfg.noaaStationId() : defaultStationId;
+            Double tempF = tempByStation.computeIfAbsent(resolvedStation, noaaClient::getCurrentTemperatureFahrenheit);
+            if (tempF == null) {
+                log.debug("Temperature monitor: unable to fetch NOAA data for station {} (tenant {}), skipping", resolvedStation, tenantId);
+                return;
+            }
+
+            double threshold = cfg.temperatureThresholdF();
             boolean surgeActive = surgeEventService.getActive().isPresent();
             boolean gapDetected = tempF < threshold && !surgeActive;
 
             metrics.setTemperatureSurgeGap(gapDetected);
 
-            // Cache for API display
-            cachedTemperatureStatus = new TemperatureStatus(
-                    tempF, stationId, threshold, surgeActive, gapDetected, Instant.now());
+            cachedTemperatureByTenant.put(tenantId, new TemperatureStatus(
+                    tempF, resolvedStation, threshold, surgeActive, gapDetected, Instant.now()));
 
             if (gapDetected) {
-                log.warn("Temperature/surge gap: temperature is {}°F (below threshold {}°F) but no active surge for tenant {}. Consider activating surge mode.",
-                        String.format("%.1f", tempF), String.format("%.0f", threshold), tenantId);
+                log.warn("Temperature/surge gap: temperature is {}°F (below threshold {}°F) but no active surge for tenant {} (station {}). Consider activating surge mode.",
+                        String.format("%.1f", tempF), String.format("%.0f", threshold), tenantId, resolvedStation);
             }
         });
     }
