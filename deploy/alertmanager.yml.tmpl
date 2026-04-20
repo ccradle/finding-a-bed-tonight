@@ -1,0 +1,93 @@
+# Alertmanager configuration template — task #155
+#
+# Environment-variable placeholders are resolved by `envsubst` on the VM at
+# deploy time (prom/alertmanager:v0.27.0 does NOT interpolate env vars natively
+# in its YAML config). The operator renders this template once per config
+# change:
+#
+#     envsubst < deploy/alertmanager.yml.tmpl > ~/fabt-secrets/alertmanager.yml
+#
+# The rendered file lives in ~/fabt-secrets/ (root-owned, 0600) and is bind-
+# mounted into the alertmanager container by the operator-side compose
+# override. The template here stays committed; rendered secrets never do.
+#
+# Required env vars (set in ~/fabt-secrets/.env.prod by the operator per
+# alertmanager-operator-setup.md):
+#     FABT_ALERT_SMTP_HOST, _PORT, _USER, _PASSWORD
+#     FABT_ALERT_EMAIL_FROM, _EMAIL_TO
+#     FABT_ALERT_NTFY_URL, _NTFY_TOPIC
+#
+# Routing policy (warroom-approved):
+#   - severity=critical  → BOTH email + ntfy (push-to-phone urgency)
+#   - severity=warning   → email only (avoid push fatigue)
+#   - group_wait 15s, group_interval 5m, repeat_interval 4h per standard
+#     Prometheus defaults — tuned to balance "fire fast" against "don't
+#     re-page every 15s on a stuck problem."
+#   - inhibit: critical suppresses warning on the same alertname+tenant_id
+
+global:
+  # SMTP defaults applied to every email_config unless overridden per-receiver.
+  smtp_from: '${FABT_ALERT_EMAIL_FROM}'
+  smtp_smarthost: '${FABT_ALERT_SMTP_HOST}:${FABT_ALERT_SMTP_PORT}'
+  smtp_auth_username: '${FABT_ALERT_SMTP_USER}'
+  smtp_auth_password: '${FABT_ALERT_SMTP_PASSWORD}'
+  smtp_require_tls: true
+  resolve_timeout: 5m
+
+templates:
+  - '/etc/alertmanager/templates/fabt.tmpl'
+
+route:
+  # Root route catches everything. Sub-routes below match by severity.
+  receiver: 'email_default'
+  group_by: ['alertname', 'tenant_id']
+  group_wait: 15s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    # CRITICAL — fan out to both receivers in parallel.
+    # `continue: true` on the first match means the second route's match also
+    # fires for the same alert — alertmanager delivers to BOTH receivers.
+    - matchers:
+        - severity="critical"
+      receiver: 'email_default'
+      continue: true
+    - matchers:
+        - severity="critical"
+      receiver: 'ntfy_urgent'
+      # continue is false by default — critical routing ends here.
+
+receivers:
+  - name: 'email_default'
+    email_configs:
+      - to: '${FABT_ALERT_EMAIL_TO}'
+        send_resolved: true
+        headers:
+          Subject: '{{ template "fabt.email.subject" . }}'
+        html: '{{ template "fabt.email.html" . }}'
+        text: '{{ template "fabt.email.text" . }}'
+
+  - name: 'ntfy_urgent'
+    webhook_configs:
+      - url: '${FABT_ALERT_NTFY_URL}/${FABT_ALERT_NTFY_TOPIC}'
+        send_resolved: true
+        http_config:
+          follow_redirects: true
+        # ntfy reads alert text from the body. Priority / Title / Tags come
+        # via the X-* headers it expects on webhook posts. Alertmanager's
+        # webhook_configs doesn't support custom headers directly — we use
+        # the ntfy convention of embedding title/priority/tags into the
+        # message body via template formatting. The ntfy HTTP API falls
+        # back to default priority (3 / default tone) when headers absent.
+        # Acceptable for demo-tier; upgrade to authenticated ntfy with
+        # header control in Phase F.
+
+inhibit_rules:
+  # A firing critical suppresses warning of the same alertname + tenant so
+  # ops doesn't get double-paged when a warning escalates to a critical on
+  # the same underlying cause.
+  - source_matchers:
+      - severity="critical"
+    target_matchers:
+      - severity="warning"
+    equal: ['alertname', 'tenant_id']

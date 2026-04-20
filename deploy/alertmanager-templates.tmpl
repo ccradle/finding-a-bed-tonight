@@ -1,0 +1,108 @@
+{{/*
+Alertmanager message templates — task #155.
+
+Loaded by alertmanager.yml.tmpl's `templates:` list. Mounted into the
+container at /etc/alertmanager/templates/fabt.tmpl.
+
+Templates:
+  - fabt.email.subject  — one-line summary for email Subject header
+  - fabt.email.html     — HTML body (readable in email clients)
+  - fabt.email.text     — text/plain fallback (for plain-text readers)
+
+Every template receives the Alertmanager root data structure, which is a
+group of firing+resolved alerts sharing `alertname` + `tenant_id` per the
+route.group_by in alertmanager.yml. Access individual alerts via `.Alerts`;
+common labels via `.CommonLabels`; summary via `.CommonAnnotations`.
+
+Design intent: alerts must be self-describing when read at 2am from a
+phone. Include severity, tenant id (if any), counter name, current value,
+runbook link, and a short plain-language "what this means."
+*/}}
+
+{{ define "fabt.email.subject" -}}
+[FABT {{ .Status | toUpper }}] {{ .CommonLabels.severity | toUpper }}:
+{{- with .CommonLabels.alertname }} {{ . }}{{ end }}
+{{- with .CommonLabels.tenant_id }} (tenant {{ . }}){{ end }}
+{{- end }}
+
+{{ define "fabt.email.text" -}}
+Status:   {{ .Status }}
+Severity: {{ .CommonLabels.severity }}
+Alert:    {{ .CommonLabels.alertname }}
+{{ with .CommonLabels.tenant_id }}Tenant:   {{ . }}
+{{ end -}}
+Env:      {{ .CommonLabels.env | default "prod" }}
+
+{{ with .CommonAnnotations.summary -}}
+Summary:  {{ . }}
+{{ end -}}
+{{ with .CommonAnnotations.description -}}
+Detail:   {{ . }}
+{{ end -}}
+{{ with .CommonAnnotations.runbook -}}
+Runbook:  {{ . }}
+{{ end }}
+
+{{ range .Alerts -}}
+---
+Started:   {{ .StartsAt.Format "2006-01-02 15:04:05 MST" }}
+{{- if eq .Status "resolved" }}
+Resolved:  {{ .EndsAt.Format "2006-01-02 15:04:05 MST" }}
+{{- end }}
+{{ range .Labels.SortedPairs -}}
+  {{ .Name }}={{ .Value }}
+{{ end }}
+{{ end -}}
+
+--
+findabed.org Alertmanager (demo-tier, not HIPAA-BAA)
+{{- end }}
+
+{{ define "fabt.email.html" -}}
+<!DOCTYPE html>
+<html><body style="font-family: -apple-system, sans-serif; max-width: 640px;">
+<h2 style="color: {{ if eq .Status "firing" }}{{ if eq .CommonLabels.severity "critical" }}#b91c1c{{ else }}#b45309{{ end }}{{ else }}#15803d{{ end }};">
+  [FABT {{ .Status | toUpper }}] {{ .CommonLabels.severity | toUpper }}: {{ .CommonLabels.alertname }}
+</h2>
+<table cellpadding="6" style="border-collapse: collapse;">
+  <tr><td><b>Status</b></td><td>{{ .Status }}</td></tr>
+  <tr><td><b>Severity</b></td><td>{{ .CommonLabels.severity }}</td></tr>
+  <tr><td><b>Alert</b></td><td>{{ .CommonLabels.alertname }}</td></tr>
+  {{- with .CommonLabels.tenant_id }}
+  <tr><td><b>Tenant</b></td><td><code>{{ . }}</code></td></tr>
+  {{- end }}
+  <tr><td><b>Env</b></td><td>{{ .CommonLabels.env | default "prod" }}</td></tr>
+</table>
+
+{{- with .CommonAnnotations.summary }}
+<p><b>Summary:</b> {{ . }}</p>
+{{- end }}
+{{- with .CommonAnnotations.description }}
+<p><b>Detail:</b> {{ . }}</p>
+{{- end }}
+{{- with .CommonAnnotations.runbook }}
+<p><b>Runbook:</b> <a href="{{ . }}">{{ . }}</a></p>
+{{- end }}
+
+<h3>Alerts in this group:</h3>
+<ul>
+{{ range .Alerts }}
+  <li>
+    {{ .StartsAt.Format "2006-01-02 15:04:05 MST" }}
+    {{- if eq .Status "resolved" }} → {{ .EndsAt.Format "2006-01-02 15:04:05 MST" }}{{ end }}
+    <pre style="font-size: 12px; background: #f1f5f9; padding: 8px; border-radius: 4px;">
+{{- range .Labels.SortedPairs -}}
+  {{ .Name }}={{ .Value }}
+{{ end -}}
+    </pre>
+  </li>
+{{ end }}
+</ul>
+
+<hr>
+<p style="color: #64748b; font-size: 12px;">
+  findabed.org Alertmanager (demo-tier, not HIPAA-BAA).
+  Upgrade path documented in <code>docs/security/compliance-posture-matrix.md</code>.
+</p>
+</body></html>
+{{- end }}
