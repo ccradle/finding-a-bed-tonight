@@ -250,4 +250,67 @@ test.describe('Post-deploy smoke tests', () => {
     await expect(demoBlocked).toBeVisible({ timeout: 10_000 });
     await expect(demoBlocked).toContainText(/demo/i);
   });
+
+  // ==========================================================================
+  // Phase M-light — multi-tenant demo (tests 13–15, added 2026-04-20)
+  // ==========================================================================
+  // Three tenants live: dev-coc (Development CoC) + dev-coc-west (Blue Ridge
+  // CoC (demo)) + dev-coc-east (Pamlico Sound CoC (demo)). Names deliberately
+  // fictional per spec multi-tenant-demo-seed + D12. PLATFORM_ADMIN is tenant-
+  // scoped in v0.48 (per spec requirement platform-admin-tenant-scoping-v0.48 +
+  // design D15): a user seeded PLATFORM_ADMIN in one tenant cannot log in to
+  // another. The negative test below pins that contract.
+
+  test('13. Blue Ridge admin can log in to dev-coc-west (PLATFORM_ADMIN, tenant-scoped)', async ({ page }) => {
+    await page.goto(LOGIN);
+    await page.getByTestId('login-tenant-slug').fill('dev-coc-west');
+    await page.getByTestId('login-email').fill('admin@blueridge.fabt.org');
+    await page.getByTestId('login-password').fill('admin123');
+    await page.getByTestId('login-submit').click();
+
+    // PLATFORM_ADMIN lands at /admin
+    await expect(page).toHaveURL(/admin/, { timeout: 15_000 });
+  });
+
+  test('14. Pamlico Sound admin can log in to dev-coc-east (PLATFORM_ADMIN, tenant-scoped)', async ({ page }) => {
+    await page.goto(LOGIN);
+    await page.getByTestId('login-tenant-slug').fill('dev-coc-east');
+    await page.getByTestId('login-email').fill('admin@pamlico.fabt.org');
+    await page.getByTestId('login-password').fill('admin123');
+    await page.getByTestId('login-submit').click();
+
+    await expect(page).toHaveURL(/admin/, { timeout: 15_000 });
+  });
+
+  test('15. Cross-tenant login rejected — Blue Ridge admin creds in Pamlico tenant MUST fail 401', async ({ page }) => {
+    // This is the load-bearing assertion for spec requirement
+    // platform-admin-tenant-scoping-v0.48: a PLATFORM_ADMIN user seeded in
+    // one tenant cannot log in to another. Users are keyed on (tenant_id,
+    // email) so the admin@blueridge.fabt.org row does not exist in
+    // dev-coc-east's row-set; AuthController.login returns 401 "Invalid
+    // credentials" at backend/src/main/java/org/fabt/auth/api/AuthController.java:108-115.
+    //
+    // Belt-and-suspenders: this also exercises the tenant-binding boundary
+    // that Phase A D25 (JwtService:409-424) enforces at token-validate time.
+    // Even if a cross-tenant login somehow succeeded, the issued JWT's kid
+    // would fail cross-check in validate.
+    await page.goto(LOGIN);
+    await page.getByTestId('login-tenant-slug').fill('dev-coc-east');
+    await page.getByTestId('login-email').fill('admin@blueridge.fabt.org');
+    await page.getByTestId('login-password').fill('admin123');
+
+    // Assert against the API response — the frontend re-navigates to /login
+    // on 401 (no persistent in-page error banner with a stable testid), so
+    // the authoritative signal is the HTTP status, not a rendered string.
+    const [response] = await Promise.all([
+      page.waitForResponse((r) => r.url().endsWith('/api/v1/auth/login')),
+      page.getByTestId('login-submit').click(),
+    ]);
+    expect(response.status()).toBe(401);
+
+    // Belt-and-suspenders: user is not redirected to /admin. Existence-leak
+    // posture (D3) is preserved at the API layer — verifying a UI string
+    // would risk pinning tenant-specific wording that violates the posture.
+    await expect(page).toHaveURL(/login/);
+  });
 });

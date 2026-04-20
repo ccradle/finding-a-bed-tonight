@@ -34,10 +34,15 @@ public class ObservabilityConfigService {
             int monitorStaleIntervalMinutes,
             int monitorDvCanaryIntervalMinutes,
             int monitorTemperatureIntervalMinutes,
-            double temperatureThresholdF
+            double temperatureThresholdF,
+            String noaaStationId
     ) {
+        // noaaStationId is nullable — null means fall back to the global
+        // fabt.monitoring.noaa.station-id property (see NoaaClient). Set
+        // per-tenant to KAVL / KEWN / etc. to get correct local weather for
+        // the surge-trigger threshold.
         static final ObservabilityConfig DEFAULTS = new ObservabilityConfig(
-                true, false, "http://localhost:4318/v1/traces", 5, 15, 60, 32.0
+                true, false, "http://localhost:4318/v1/traces", 5, 15, 60, 32.0, null
         );
     }
 
@@ -88,7 +93,8 @@ public class ObservabilityConfigService {
                     getIntOrDefault(obs, "monitor_stale_interval_minutes", 5),
                     getIntOrDefault(obs, "monitor_dv_canary_interval_minutes", 15),
                     getIntOrDefault(obs, "monitor_temperature_interval_minutes", 60),
-                    getDoubleOrDefault(obs, "temperature_threshold_f", 32.0)
+                    getDoubleOrDefault(obs, "temperature_threshold_f", 32.0),
+                    getStringOrNull(obs, "noaa_station_id")
             );
         } catch (Exception e) {
             log.warn("Failed to parse observability JSON for tenant {}: {}", tenant.getId(), e.getMessage());
@@ -104,6 +110,13 @@ public class ObservabilityConfigService {
     private static String getStringOrDefault(JsonNode node, String field, String defaultValue) {
         JsonNode value = node.get(field);
         return value != null && !value.isNull() ? value.asText(defaultValue) : defaultValue;
+    }
+
+    private static String getStringOrNull(JsonNode node, String field) {
+        JsonNode value = node.get(field);
+        if (value == null || value.isNull()) return null;
+        String text = value.asText(null);
+        return text == null || text.isBlank() ? null : text;
     }
 
     private static int getIntOrDefault(JsonNode node, String field, int defaultValue) {

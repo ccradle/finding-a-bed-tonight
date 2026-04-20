@@ -13,22 +13,27 @@ public class NoaaClient {
     private static final Logger log = LoggerFactory.getLogger(NoaaClient.class);
 
     private final RestClient restClient;
-    private final String stationId;
+    private final String defaultStationId;
 
     public NoaaClient(RestClient.Builder restClientBuilder,
-                      @Value("${fabt.monitoring.noaa.station-id:KRDU}") String stationId) {
+                      @Value("${fabt.monitoring.noaa.station-id:KRDU}") String defaultStationId) {
         this.restClient = restClientBuilder
                 .baseUrl("https://api.weather.gov")
                 .defaultHeader("User-Agent", "(finding-a-bed-tonight, contact@fabt.org)")
                 .build();
-        this.stationId = stationId;
+        this.defaultStationId = defaultStationId;
+    }
+
+    public Double getCurrentTemperatureFahrenheit() {
+        return getCurrentTemperatureFahrenheit(defaultStationId);
     }
 
     @CircuitBreaker(name = "noaa-api", fallbackMethod = "fallbackTemperature")
-    public Double getCurrentTemperatureFahrenheit() {
+    public Double getCurrentTemperatureFahrenheit(String stationId) {
+        String resolvedStation = stationId != null && !stationId.isBlank() ? stationId : defaultStationId;
         try {
             String json = restClient.get()
-                    .uri("/stations/{stationId}/observations/latest", stationId)
+                    .uri("/stations/{stationId}/observations/latest", resolvedStation)
                     .retrieve()
                     .body(String.class);
 
@@ -54,13 +59,13 @@ public class NoaaClient {
             double celsius = Double.parseDouble(json.substring(start, end));
             return celsius * 9.0 / 5.0 + 32.0;
         } catch (Exception e) {
-            log.warn("Failed to fetch NOAA temperature for station {}: {}", stationId, e.getMessage());
+            log.warn("Failed to fetch NOAA temperature for station {}: {}", resolvedStation, e.getMessage());
             throw e;
         }
     }
 
     @SuppressWarnings("unused")
-    private Double fallbackTemperature(Exception e) {
+    private Double fallbackTemperature(String stationId, Exception e) {
         log.warn("NOAA circuit breaker open for station {}: {}", stationId, e.getMessage());
         return null;
     }
