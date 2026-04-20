@@ -51,6 +51,7 @@ class TenantPathGuardIntegrationTest extends BaseIntegrationTest {
     private Tenant tenantA;
     private Tenant tenantB;
     private String tenantAToken;
+    private String tenantBToken;
 
     @BeforeEach
     void setUp() {
@@ -62,7 +63,9 @@ class TenantPathGuardIntegrationTest extends BaseIntegrationTest {
                 .orElseGet(() -> tenantService.create("PathGuard Tenant B", "pg-b-" + suffixB));
 
         User adminA = createAdmin(tenantA.getId(), "admin-a-" + suffixA + "@test.fabt.org");
+        User adminB = createAdmin(tenantB.getId(), "admin-b-" + suffixB + "@test.fabt.org");
         tenantAToken = jwtService.generateAccessToken(adminA);
+        tenantBToken = jwtService.generateAccessToken(adminB);
     }
 
     @Test
@@ -141,7 +144,90 @@ class TenantPathGuardIntegrationTest extends BaseIntegrationTest {
                 .isEqualTo(HttpStatus.OK);
     }
 
+    @Test
+    @DisplayName("PUT /tenants/{B}/dv-address-policy from Tenant A → 404 (guard fires before CONFIRM header check)")
+    void crossTenantUpdateDvAddressPolicy_returns404() {
+        HttpHeaders headers = authHeaders();
+        headers.set("X-Confirm-Policy-Change", "CONFIRM");
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/tenants/" + tenantB.getId() + "/dv-address-policy",
+                HttpMethod.PUT,
+                new HttpEntity<>("{\"policy\":\"NONE\"}", headers),
+                String.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    /**
+     * Nested-resource cross-tenant attack — the scenario warroom concern #1
+     * flagged. Attacker uses their OWN tenant in the URL path (so
+     * {@link TenantPathGuard} passes) but references another tenant's
+     * providerId. The controller guard alone cannot catch this; the
+     * service layer must also enforce tenant-scoped lookup.
+     *
+     * <p>Verifies {@code TenantOAuth2ProviderService.findByIdOrThrow} uses
+     * {@code findByIdAndTenantId(id, TenantContext.getTenantId())}, which
+     * returns empty → 404 when the provider belongs to another tenant.
+     * If this test fails, the service-layer guard is missing and the
+     * guard helper is NOT sufficient defence-in-depth.
+     */
+    @Test
+    @DisplayName("PUT /tenants/{A}/oauth2-providers/{B-provider} → 404 (nested-resource attack, service-layer guard)")
+    void nestedResourceCrossTenantUpdate_returns404() {
+        UUID bProviderId = createOAuth2ProviderUnder(tenantBToken, tenantB.getId(), "nested-attack-target");
+
+        ResponseEntity<String> response = put(
+                "/api/v1/tenants/" + tenantA.getId() + "/oauth2-providers/" + bProviderId,
+                """
+                {
+                    "clientId": "attacker-hijacked",
+                    "clientSecret": "attacker-secret",
+                    "issuerUri": "https://evil.example.com",
+                    "enabled": true
+                }
+                """);
+        assertThat(response.getStatusCode())
+                .as("TenantPathGuard passes (A==A) but service-layer findByIdAndTenantId must reject B's provider. Response: %s", response.getBody())
+                .isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("DELETE /tenants/{A}/oauth2-providers/{B-provider} → 404 (nested-resource attack)")
+    void nestedResourceCrossTenantDelete_returns404() {
+        UUID bProviderId = createOAuth2ProviderUnder(tenantBToken, tenantB.getId(), "nested-delete-target");
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/tenants/" + tenantA.getId() + "/oauth2-providers/" + bProviderId,
+                HttpMethod.DELETE,
+                new HttpEntity<>(authHeaders()),
+                String.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
     // --- helpers ---
+
+    private UUID createOAuth2ProviderUnder(String ownerToken, UUID ownerTenantId, String providerName) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(ownerToken);
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        String body = """
+                {
+                    "providerName": "%s",
+                    "clientId": "test-client-id",
+                    "clientSecret": "test-secret-value",
+                    "issuerUri": "https://accounts.google.com"
+                }
+                """.formatted(providerName);
+        ResponseEntity<Map> response = restTemplate.exchange(
+                "/api/v1/tenants/" + ownerTenantId + "/oauth2-providers",
+                HttpMethod.POST,
+                new HttpEntity<>(body, headers),
+                Map.class);
+        assertThat(response.getStatusCode())
+                .as("Owner POST to create provider must succeed (response body: %s)", response.getBody())
+                .isEqualTo(HttpStatus.CREATED);
+        Object idRaw = response.getBody().get("id");
+        return UUID.fromString(idRaw.toString());
+    }
 
     private ResponseEntity<String> get(String path) {
         return restTemplate.exchange(path, HttpMethod.GET, new HttpEntity<>(authHeaders()), String.class);
