@@ -545,9 +545,11 @@ declaring the deploy complete.
 ( ) Footer (bottom of any page) renders: "Finding A Bed Tonight v0.48.0 — {tenant name}"
 ( ) Shelters tab lists the correct tenant's shelters (NO shelters from
     other tenants bleed through):
-      dev-coc:      13 shelters (Raleigh-area names — Oak City, Crabtree, etc.)
-      dev-coc-west: 3 shelters (Boone, Waynesville, Undisclosed)
-      dev-coc-east: 3 shelters (New Bern, Washington, Undisclosed)
+      dev-coc:      at least 13 seed shelters (Raleigh-area names — Oak City, Crabtree,
+                    Wake County Veterans, 3 DV shelters at "Undisclosed", etc.); prod
+                    may have more if the operator added any via Admin UI since seed
+      dev-coc-west: exactly 3 shelters (Boone, Waynesville, Undisclosed DV)
+      dev-coc-east: exactly 3 shelters (New Bern, Washington NC, Undisclosed DV)
 ( ) Open any non-DV shelter → see bed availability rows (confirms V76/V77
     bed_availability seed applied for west/east; no-op for dev-coc)
 ( ) From the Outreach role view (impersonate or separate session):
