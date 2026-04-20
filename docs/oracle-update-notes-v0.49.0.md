@@ -1,7 +1,14 @@
 # Oracle Deploy Notes — v0.49.0 (Alertmanager routing: Prometheus → email + ntfy push)
 
-**From:** v0.48.1 (currently live at `findabed.org` — 3 tenants, 9 Prometheus rules firing into the UI but no notifications)
-**To:** v0.49.0 (Alertmanager container live, dual receivers: email via Gmail SMTP + ntfy.sh push — operator gets paged sub-5-seconds on CRITICAL)
+**From:** v0.48.0 live at `findabed.org` (NOTE: v0.48.1 was tagged
+2026-04-20 but **never shipped to prod** as a separate deploy — its
+content rolls forward into v0.49.0). Current prod state: 3 tenants, 9
+Prometheus rules firing into the UI but no notifications, 14
+coordinator_assignment rows hot-patched via direct psql INSERT on
+2026-04-20 ~15:40 UTC.
+**To:** v0.49.0 (Alertmanager container live + V78 seed migration
+recorded in flyway_schema_history — Alertmanager is the user-visible
+change; V78 is a data-level no-op because prod already has the rows).
 
 > **Three canonical prod-deploy patterns (codified post-v0.48 live-deploy —
 > apply to every future release, not just v0.49):**
@@ -97,6 +104,30 @@ now deliver through the pipeline. No new rules added in this release.
 ---
 
 ## Pre-deploy sanity
+
+### 1a. Confirm v0.48.1 hot-patch is still intact on prod
+
+**v0.49 rolls in v0.48.1's V78 migration** (coordinator_assignment for Blue
+Ridge + Pamlico). v0.48.1 itself never shipped as a separate deploy — prod
+was hot-patched 2026-04-20 ~15:40 UTC with 14 direct INSERT rows. V78 will
+re-apply those rows via `ON CONFLICT DO NOTHING`, meaning **if the
+hot-patch is still present it's a no-op at the data level**, but V78
+records in `flyway_schema_history` to unblock any future migration above
+V77.
+
+Before proceeding, verify the hot-patch is still there (if it somehow
+got reverted, V78 will restore it — not fatal — but good to know):
+
+```bash
+docker exec finding-a-bed-tonight-postgres-1 psql -U fabt -d fabt -tAc "
+  SELECT COUNT(*) FROM coordinator_assignment ca
+  JOIN app_user u ON u.id = ca.user_id
+  WHERE u.email LIKE '%@blueridge.fabt.org'
+     OR u.email LIKE '%@pamlico.fabt.org';"
+# Expected: 14 (7 per tenant — admin + cocadmin + coordinator + dv-coordinator
+# assigned per dev-coc pattern). If this returns <14, V78 will bring it
+# back to 14; >14 means someone added extras — triage before deploy.
+```
 
 ### 1. Confirm 8 operator env vars present in `~/fabt-secrets/.env.prod`
 
@@ -336,6 +367,49 @@ If ntfy arrives but no email: check SMTP auth; Gmail app password may need regen
 docker logs <alertmanager-container> 2>&1 | grep -i "smtp\|email\|error" | tail -20
 ```
 
+### 3b. V78 (rolled in from v0.48.1) applied + assignment count intact
+
+```bash
+# Flyway should have recorded V78 during backend startup after the deploy
+docker exec finding-a-bed-tonight-postgres-1 psql -U fabt -d fabt -c "
+  SELECT version, description, success, installed_on
+  FROM flyway_schema_history
+  WHERE version::int >= 76
+  ORDER BY installed_rank DESC LIMIT 5;"
+# Expected top 3 rows: V78 (seed coordinator_assignments ...), V77, V76 — all success=t.
+# V78's installed_on should be <now>. V76+V77 installed_on should match the
+# original v0.48.0 deploy timestamp (unchanged).
+
+# Assignment count unchanged from pre-deploy gate 1a (14 rows = no-op re-apply)
+docker exec finding-a-bed-tonight-postgres-1 psql -U fabt -d fabt -tAc "
+  SELECT COUNT(*) FROM coordinator_assignment ca
+  JOIN app_user u ON u.id = ca.user_id
+  WHERE u.email LIKE '%@blueridge.fabt.org'
+     OR u.email LIKE '%@pamlico.fabt.org';"
+# Expected: 14 (same as pre-deploy). Any drift here indicates V78 ran
+# against an unexpected starting state — triage before closing deploy.
+```
+
+### 3c. Banner smoke-check — one DV coordinator from each new tenant
+
+Quick curl against the pending-count endpoint to confirm the
+CoordinatorReferralBanner pipeline still works post-V78 + post-deploy.
+Not load-bearing (V78 is a data-level no-op), just confirms nothing
+regressed:
+
+```bash
+# From laptop — Blue Ridge
+T=$(curl -s -X POST https://findabed.org/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"tenantSlug":"dev-coc-west","email":"dv-coordinator@blueridge.fabt.org","password":"admin123"}' \
+  | python -c "import sys,json; print(json.load(sys.stdin).get('accessToken',''))")
+curl -s -H "Authorization: Bearer $T" https://findabed.org/api/v1/dv-referrals/pending/count
+# Expected: {"count":N, "firstPending":...}  — count may be 0 if no pending
+# referrals exist in Blue Ridge; that's fine. The response shape is the signal.
+```
+
+Same curl with `dev-coc-east` + `dv-coordinator@pamlico.fabt.org` if desired.
+
 ### 4. Existing FORCE RLS + cache-isolation rules still loaded
 
 ```bash
@@ -406,7 +480,13 @@ Backend is unchanged; no backend rollback needed.
    ```
    **No pilot-partner comms** — this is operator-only infrastructure;
    no UI change, no workflow change, no reason to send them email.
-6. **Document the alerting posture** in the GitHub release notes:
+6. **Document the alerting posture + v0.48.1 roll-in** in the GitHub
+   release notes:
+   - **v0.48.1 never shipped separately** — its content (V78 seed fix
+     for Blue Ridge + Pamlico coordinator_assignment gap) is bundled
+     into v0.49.0. This fact needs to be explicit in the release notes
+     so anyone reading later understands why there's a v0.48.1 tag
+     with no deploy trail.
    - Dual receiver: email + ntfy push
    - Demo-tier (no BAA, ntfy public topic with long-random shared-secret
      name). Regulated-tier escalation path documented in
