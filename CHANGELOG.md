@@ -5,6 +5,64 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.48.1] — Seed hotfix: coordinator_assignment gap for Blue Ridge + Pamlico
+
+**Data-only hotfix release.** v0.48.0's V76 + V77 migrations created the
+Blue Ridge + Pamlico Sound tenant + user + shelter rows correctly, but
+missed the `coordinator_assignment` rows that map each coordinator to
+the shelters they oversee. Without those assignments, the
+`GET /api/v1/dv-referrals/pending/count` endpoint (which filters by
+assigned shelters via `ReferralTokenController.countPending` +
+`countPendingByShelterIds`) returned `{count:0, firstPending:null}` for
+every coordinator in the two new tenants — the `CoordinatorReferralBanner`
+never rendered and DV referral wayfinding was a dead end.
+
+Caught live on 2026-04-20 during the v0.48.0 post-deploy 3-tenant
+walkthrough — `dv-coordinator@pamlico.fabt.org` created a PENDING
+referral against Safe Haven Demo DV East and saw no banner. Prod was
+hot-patched (direct INSERT via psql) to unblock the walkthrough; V78
+codifies the fix so any future `--fresh` reseed reproduces the
+correct state.
+
+### Added
+
+- **Flyway `V78__seed_coordinator_assignments_blue_ridge_pamlico.sql`** —
+  6 rows mapping DV coordinator + regular coordinator to their
+  respective shelters in both new tenants, mirroring dev-coc's pattern
+  in `seed-data.sql:247-258`. Idempotent via `ON CONFLICT DO NOTHING`
+  (PK on `(user_id, shelter_id)`) so running against prod's already-
+  hot-patched state is a no-op.
+
+- **`infra/scripts/seed-data.sql`** — parallel `INSERT INTO
+  coordinator_assignment` block for dev-stack parity, so local
+  `dev-start.sh --fresh` reproduces the assignments too.
+
+### Changed
+
+None beyond the seed + migration.
+
+### Fixed
+
+- `CoordinatorReferralBanner` now renders for Blue Ridge + Pamlico
+  coordinators when pending referrals exist, with correct
+  `firstPending` routing hint for click-to-jump to the referral's
+  shelter row.
+
+### Deprecated, Removed, Security, Test posture
+
+No changes. Full backend suite (961 tests) unchanged. Frontend build
+unchanged. Prometheus / compose / pgaudit / FORCE RLS / JWT signing
+keys all unchanged.
+
+### Deploy notes
+
+Backend-only rebuild (no frontend change, no Postgres touch). V78 is a
+6-row INSERT with `ON CONFLICT DO NOTHING`, execution time under 5ms.
+Prod is already hot-patched so the Flyway apply on next deploy is a
+no-op at the data level but records V78 in `flyway_schema_history`.
+
+---
+
 ## [v0.48.0] — Phase D core: URL-path-sink tenant guard + two demo tenants live in prod
 
 **Behavioural-change release.** Two axes:

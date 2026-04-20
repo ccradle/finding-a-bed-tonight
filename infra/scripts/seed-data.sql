@@ -700,3 +700,33 @@ INSERT INTO bed_availability (shelter_id, tenant_id, population_type, beds_total
 ('d0000002-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000003', 'DV_SURVIVOR',          15,  9, 0, true, NOW() - INTERVAL '1 hour', 'seed', NULL),
 ('d0000002-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000003', 'WOMEN_ONLY',           12,  7, 0, true, NOW() - INTERVAL '1 hour', 'seed', NULL)
 ON CONFLICT DO NOTHING;
+
+-- ============================================================================
+-- PHASE M-LIGHT: coordinator_assignment for Blue Ridge + Pamlico
+-- Gap-fix for V76/V77 caught during v0.48 post-deploy walkthrough — without
+-- these rows the `GET /api/v1/dv-referrals/pending/count` endpoint returns 0
+-- for every new-tenant coordinator and the CoordinatorReferralBanner never
+-- renders. Mirrors the dev-coc pattern above: DV coordinator → DV shelter,
+-- regular coordinator → non-DV shelters.
+-- ============================================================================
+-- Pattern mirrors dev-coc: admin → DV only; cocadmin → all shelters in tenant;
+-- coordinator → non-DV; dv-coordinator → DV (banner recipient).
+INSERT INTO coordinator_assignment (user_id, shelter_id) VALUES
+    -- Blue Ridge (dev-coc-west)
+    ('b0000001-0000-0000-0000-000000000001', 'd0000001-0000-0000-0000-000000000003'),  -- admin → DV West
+    ('b0000001-0000-0000-0000-000000000002', 'd0000001-0000-0000-0000-000000000001'),  -- cocadmin → Example House North
+    ('b0000001-0000-0000-0000-000000000002', 'd0000001-0000-0000-0000-000000000002'),  -- cocadmin → Blue Ridge Example
+    ('b0000001-0000-0000-0000-000000000002', 'd0000001-0000-0000-0000-000000000003'),  -- cocadmin → DV West
+    ('b0000001-0000-0000-0000-000000000003', 'd0000001-0000-0000-0000-000000000001'),  -- coord → Example House North
+    ('b0000001-0000-0000-0000-000000000003', 'd0000001-0000-0000-0000-000000000002'),  -- coord → Blue Ridge Example
+    ('b0000001-0000-0000-0000-000000000005', 'd0000001-0000-0000-0000-000000000003'),  -- dv-coord → DV West
+
+    -- Pamlico Sound (dev-coc-east)
+    ('b0000002-0000-0000-0000-000000000001', 'd0000002-0000-0000-0000-000000000003'),  -- admin → DV East
+    ('b0000002-0000-0000-0000-000000000002', 'd0000002-0000-0000-0000-000000000001'),  -- cocadmin → Example Coastal House
+    ('b0000002-0000-0000-0000-000000000002', 'd0000002-0000-0000-0000-000000000002'),  -- cocadmin → Pamlico Example
+    ('b0000002-0000-0000-0000-000000000002', 'd0000002-0000-0000-0000-000000000003'),  -- cocadmin → DV East
+    ('b0000002-0000-0000-0000-000000000003', 'd0000002-0000-0000-0000-000000000001'),  -- coord → Example Coastal House
+    ('b0000002-0000-0000-0000-000000000003', 'd0000002-0000-0000-0000-000000000002'),  -- coord → Pamlico Example
+    ('b0000002-0000-0000-0000-000000000005', 'd0000002-0000-0000-0000-000000000003')   -- dv-coord → DV East
+ON CONFLICT DO NOTHING;
