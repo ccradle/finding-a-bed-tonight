@@ -13,7 +13,15 @@
 
 services:
   prometheus:
+    # Compose override semantics: `volumes:` list fully replaces the base
+    # service's list — so any mount the base compose defines (config file +
+    # rules dir) must be re-stated here. Added `./deploy/prometheus` rules
+    # mount 2026-04-19 per v0.47.0 deep warroom blocker #1 — keeps dev
+    # and prod Prometheus behaviour symmetric (same rule_files: glob in
+    # both prometheus.yml and prometheus.dev.yml; alerts filter on
+    # env="prod" so dev scrapes don't false-fire).
     volumes:
       - ./prometheus.dev.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/prometheus:/etc/prometheus/rules:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"

@@ -27,6 +27,16 @@ global:
   external_labels:
     env: prod
 
+# Rule file glob matching files in /etc/prometheus/rules/ inside the
+# container. The volume is mounted by docker-compose.yml Prometheus
+# service block (`./deploy/prometheus:/etc/prometheus/rules:ro`).
+# Currently loads:
+#   - phase-b-rls.rules.yml        (5 Phase B rules — retroactively wired)
+#   - phase-c-cache-isolation.rules.yml (4 Phase C rules)
+# Added 2026-04-19 per v0.47.0 pre-release deep warroom blocker #1.
+rule_files:
+  - '/etc/prometheus/rules/*.rules.yml'
+
 scrape_configs:
   - job_name: 'fabt-backend'
     metrics_path: '/actuator/prometheus'

@@ -13,6 +13,17 @@
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
+  # No external_labels in dev — keeps CI / local-dev scrapes unlabelled so
+  # the Phase C alert rules (which filter on env="prod") do NOT fire on
+  # dev traffic. Production sets env=prod in prometheus.yml; this file
+  # deliberately omits it.
+
+# Rule files load the same globs as prod; individual rules filter by
+# env="prod" so dev scrapes without the label produce no alerts. Keeping
+# this symmetric with prometheus.yml means `promtool check rules` works
+# identically in both modes.
+rule_files:
+  - '/etc/prometheus/rules/*.rules.yml'
 
 scrape_configs:
   - job_name: 'fabt-backend'

@@ -5,6 +5,141 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.47.0] — Phase C completes: cache isolation active across all application call sites
+
+**Behavioural-change release.** The `TenantScopedCacheService` wrapper
+bean — shipped idle in v0.46.0 — is now in the request path of every
+application-layer cache caller. Nine call sites in `AnalyticsService`
+(6 methods), `BedSearchService`, `AvailabilityService`, and
+`ShelterService` route reads and writes through the wrapper instead
+of raw `CacheService`. Every cached value is now stamped with the
+writer's `TenantContext.getTenantId()` and verified on read; the
+`PENDING_MIGRATION_SITES` ArchUnit allowlist is empty — this is the
+release gate per spec requirement `pending-migration-sites-drained`.
+
+No Flyway migrations. No schema change. No pgaudit config change.
+No frontend. No API change. Phase B FORCE RLS `1.0` posture on the
+seven regulated tables is unchanged.
+
+### Added
+
+- **9 call sites migrated to `TenantScopedCacheService`** (Phase C task 4.b) —
+  `AnalyticsService.getUtilization`, `getDemand`, `getCapacity`,
+  `getDvSummary`, `getGeographic`, `getHmisHealth`;
+  `BedSearchService.doSearch`; `AvailabilityService.createSnapshot`;
+  `ShelterService.evictTenantShelterCaches`. Composite-key callers
+  strip the caller-side tenant prefix (wrapper re-prefixes with `|`
+  separator). Singleton-per-tenant callers collapse to the `"latest"`
+  constant logical key per design-c D-4.b-2. Two `ShelterService`
+  evicts retained explicit per-cache form (D-4.b-3 rejects
+  `invalidateTenant` refactor — 5.5× evict amplification + audit
+  surface pollution). Three orphan evicts (SHELTER_PROFILE +
+  SHELTER_LIST — no production put-site) kept with inline comment
+  markers as defensive posture for future put paths.
+
+- **Four new Prometheus alert rules** (`deploy/prometheus/phase-c-cache-isolation.rules.yml`)
+  carrying `env="prod"` label filter so CI / dev scrapes cannot
+  false-page: `FabtPhaseCCrossTenantCacheRead` (CRITICAL, immediate
+  page on any envelope-mismatch); `FabtPhaseCMalformedCacheEntry`
+  (WARN, 15m — caller wrote raw non-envelope value);
+  `FabtPhaseCCacheHitRateCollapse` (WARN, 30m — per-cache hit-rate
+  under half of 7-day moving avg); `FabtPhaseCDetachedAuditPersistFailure`
+  (WARN, 15m — `DetachedAuditPersister` swallowed a persistence
+  exception, losing a security-evidence audit row).
+
+- **`external_labels: env=prod` in `prometheus.yml`** — added to the
+  `global:` block so every scraped time-series in prod carries the
+  label. `prometheus.dev.yml` (dev-compose override via
+  `docker-compose.dev-observability.yml`) deliberately omits the
+  block so dev scrapes stay unlabelled. Prometheus reload (SIGHUP
+  via `curl -X POST :9090/-/reload`) is a mandatory post-deploy
+  step; without it the new alerts are silent.
+
+- **`docs/security/phase-c-cache-isolation-runbook.md`** — 240-line
+  triage runbook for the four alerts. Each alert section: symptom,
+  possible causes, triage steps with actual bash and SQL commands,
+  rollback criterion. Referenced by every alert's `runbook:`
+  annotation.
+
+- **`docs/oracle-update-notes-v0.47.0.md`** — deploy runbook mirroring
+  the v0.45 / v0.46 shape with pre-deploy checklist + 3-step deploy
+  sequence + 9-gate post-deploy sanity + 1-hour active-watch matrix +
+  single-command rollback.
+
+- **`Task4bCacheHitRateTest`** — parametrized `@MethodSource` × 7
+  rows (6 Analytics + 1 BedSearch). Warm cache, invoke twice under
+  bound `TenantContext`, assert `fabt_cache_get_total{result="hit"}`
+  delta is exactly 1 and `result="miss"` delta is exactly 1.
+  Catches the migration put-key ≠ get-key regression (composite-key
+  `toString()` drift, caller-prefix-strip mismatch) before it
+  flat-lines hit-rate in prod.
+
+- **`Tenant4bMigrationCrossTenantAttackTest`** — parametrized × 8
+  rows, one per cache name populated by a migrated site. Each row
+  stages a poisoned envelope stamped tenant A under tenant B's
+  prefixed key via raw `CacheService`, then reads via the wrapper
+  under tenant B. Asserts `IllegalStateException` with exact message
+  `CROSS_TENANT_CACHE_READ` + one `audit_events` row committed via
+  `DetachedAuditPersister` REQUIRES_NEW under Phase B FORCE RLS.
+
+- **`CacheIsolationDiscoveryTest`** (Phase C task 4.6) — ArchUnit +
+  `Class.getFields()` reflection over `CacheNames` produces a
+  parametrized `@MethodSource` of every cache name in the inventory.
+  Per cache: tenant A put → tenant A get HIT (precondition) →
+  tenant B get MISS (isolation). Silent-empty floor = 8; expected
+  exact count pin = 11 via `.hasSize(EXPECTED_SITES)` so future
+  additions fire the reminder to update per-cache tests. Companion
+  positive-discovery assertion of zero `@Cacheable` methods in
+  `org.fabt` (mirror of Family C rule C2 — catches a rule-scope
+  typo that would silently re-admit `@Cacheable`).
+
+- **`docs/performance/probe-bedsearch-4b.sql`** — operator-runnable
+  100-probe `pg_stat_statements` harness measuring the DB-floor
+  latency of `BedAvailabilityRepository.findLatestByTenantId` (the
+  canonical recursive skip-scan BedSearch issues on cache miss).
+  Explicitly NOT a wrapper A/B/C — harness bypasses Spring so
+  before/after-migration scenarios would measure identical paths.
+  Baseline tool for future SQL-shape changes.
+
+### Changed
+
+- **`FamilyCArchitectureTest.PENDING_MIGRATION_SITES`** drained from 9
+  entries to `Set.of()`. The empty state is the v0.47.0 release gate.
+
+- **`AnalyticsIntegrationTest` DV suppression tests** — raw
+  `cacheService.evictAll("analytics-dv-summary")` at lines 320 + 353
+  swapped to tenant-scoped
+  `cacheService.evict(CacheNames.ANALYTICS_DV_SUMMARY, "latest")`
+  wrapped in `TenantContext.runWithContext`. Per-tenant eviction
+  instead of global cache wipe.
+
+### Deprecated, Removed, Fixed, Security
+
+None in this release beyond the cache-isolation activation above.
+Exception messages propagated from the wrapper into HTTP responses
+continue to carry only short action tags (`CROSS_TENANT_CACHE_READ`,
+`MALFORMED_CACHE_ENTRY`, `TENANT_CONTEXT_UNBOUND`) — never tenant
+UUIDs, keys, or cached payload fragments. UUID-leak hygiene verified
+by `TenantScopedCacheServiceUnitTest`.
+
+### Test posture
+
+Full backend suite: **949/949 green** in 2:20 min.
+The new test classes add 29 assertions (7 hit-rate rows + 8 attack
+rows + 14 discovery tests). Reverting Phase C would fail 50+ tests
+across the `architecture` package, `shared.cache` package, and the
+`notification.service` `EscalationPolicyService` tests.
+
+### Design trail
+
+Phase C design decisions are captured in
+`openspec/changes/multi-tenant-production-readiness/design-c-cache-isolation.md`:
+D-C-1 through D-C-13 (initial design warroom + skeleton-review
+amendments) + D-4.b-1 through D-4.b-7 (task 4.b plan + post-commit
+test-quality warroom).
+
+---
+
 ## [v0.46.0] — Phase C groundwork: TenantScopedCacheService bean (not yet wired)
 
 **Preparatory release.** This release adds `TenantScopedCacheService` and

@@ -80,8 +80,28 @@ services:
     image: prom/prometheus:v2.51.0
     ports:
       - "9090:9090"
+    # --web.enable-lifecycle exposes /-/reload so config changes can be
+    # SIGHUPed without a container restart. Mandatory for the Phase C
+    # `external_labels: env=prod` flow (prometheus.yml edit → reload →
+    # env label propagates to scraped metrics). Without the flag the
+    # reload endpoint returns 405 Method Not Allowed and only
+    # `docker compose restart prometheus` picks up config changes.
+    #
+    # --config.file repeats the default because the flag list replaces
+    # the image entrypoint's default args; keeping it explicit keeps
+    # the invocation self-documenting.
+    #
+    # Added 2026-04-19 per v0.47.0 pre-release deep warroom blocker #1
+    # (Jordan). Retroactively wires `phase-b-rls.rules.yml` + the four
+    # Phase C `phase-c-cache-isolation.rules.yml` rules via the new
+    # rules volume + prometheus.yml rule_files directive.
+    command:
+      - '--web.enable-lifecycle'
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/prometheus:/etc/prometheus/rules:ro
     profiles:
       - observability
 
