@@ -31,7 +31,7 @@ Severity: {{ .CommonLabels.severity }}
 Alert:    {{ .CommonLabels.alertname }}
 {{ with .CommonLabels.tenant_id }}Tenant:   {{ . }}
 {{ end -}}
-Env:      {{ .CommonLabels.env | default "prod" }}
+Env:      {{ with .CommonLabels.env }}{{ . }}{{ else }}prod{{ end }}
 
 {{ with .CommonAnnotations.summary -}}
 Summary:  {{ . }}
@@ -71,7 +71,7 @@ findabed.org Alertmanager (demo-tier, not HIPAA-BAA)
   {{- with .CommonLabels.tenant_id }}
   <tr><td><b>Tenant</b></td><td><code>{{ . }}</code></td></tr>
   {{- end }}
-  <tr><td><b>Env</b></td><td>{{ .CommonLabels.env | default "prod" }}</td></tr>
+  <tr><td><b>Env</b></td><td>{{ with .CommonLabels.env }}{{ . }}{{ else }}prod{{ end }}</td></tr>
 </table>
 
 {{- with .CommonAnnotations.summary }}
