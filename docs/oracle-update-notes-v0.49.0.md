@@ -98,7 +98,7 @@ now deliver through the pipeline. No new rules added in this release.
 - Frontend — no change, no rebuild
 - Postgres / pgaudit — no change, no restart
 - Prometheus rule files (`phase-b-rls.rules.yml`, `phase-c-cache-isolation.rules.yml`) — unchanged
-- Phase B FORCE RLS posture — 5 regulated tables stay `t`
+- Phase B FORCE RLS posture — 7 regulated tables stay `t` (matches V69 + `ForceRlsHealthGauge.REGULATED_TABLES`)
 - Flyway schema — no new migrations (HWM stays 77 or 78 if v0.48.1 applies first)
 
 ---
@@ -184,22 +184,33 @@ docker compose \
     --profile alerting \
     config > /tmp/v0.49-config.rendered.yml
 
-diff /tmp/v0.48-config.rendered.yml /tmp/v0.49-config.rendered.yml
-# EXPECTED DIFF: new `alertmanager` service block + `alerting:` block in
-# prometheus env config. Nothing else should change. If there's drift
-# elsewhere, STOP.
+# If you saved /tmp/v0.48-config.rendered.yml from a previous deploy,
+# diff it against the v0.49 render to confirm the only changes are the
+# new alertmanager block + the alerting: stanza. If there is no v0.48
+# render to compare, just sanity-grep for the expected new content:
+test -f /tmp/v0.48-config.rendered.yml && \
+    diff /tmp/v0.48-config.rendered.yml /tmp/v0.49-config.rendered.yml || \
+    grep -E "^  alertmanager:|alertmanager:9093" /tmp/v0.49-config.rendered.yml
+# EXPECTED: either a clean diff with only alertmanager+alerting changes,
+# OR (no baseline) the grep finds the alertmanager service block + the
+# prometheus alerting target. If neither, STOP.
 ```
 
 ---
 
 ## Deploy steps
 
-### 1. Preserve last-good backend image (no backend code change but standard discipline)
+### 1. Preserve last-good backend image
+
+Prod is currently live on **v0.48.0** (per project_live_deployment_status.md
++ runbook header). v0.48.1 was tagged but never deployed to prod, so no
+v0.48.1 image exists on the VM — tag the current `latest` as v0.48.0-lastgood:
 
 ```bash
-docker tag fabt-backend:latest fabt-backend:v0.48.1-lastgood 2>/dev/null || \
-  docker tag fabt-backend:latest fabt-backend:v0.48.0-lastgood
-# (whichever version is currently live)
+docker tag fabt-backend:latest fabt-backend:v0.48.0-lastgood
+docker images | grep -E "fabt-backend.*(latest|v0\.48\.0-lastgood)"
+# Both rows should reference the same IMAGE ID (proves the tag landed on
+# what's actually running, not on a stale `latest` from a long-ago build).
 ```
 
 ### 2. Checkout + confirm template + render alertmanager.yml on the VM
@@ -257,8 +268,14 @@ Then reference this compose file via `--profile alerting` in the deploy
 command (see step 5 below). One-time setup; future deploys just re-render
 step 2 + restart step 5.
 
-### 4. Build backend image `--no-cache` (no backend code change but keeps
-    image tag advancing, per `feedback_deploy_old_jars.md` discipline)
+### 4. Build backend image `--no-cache`
+
+Two reasons we DO need a new backend image even though there's no Java
+change: (a) `pom.xml` bumped 0.48.1 → 0.49.0 — `/actuator/info` should
+report the new version, (b) Flyway runs at startup and needs to pick up
+V78 from the JAR's classpath (V78 was hot-patched directly via psql
+2026-04-20; without a backend recreate it never enters
+`flyway_schema_history`, blocking any future migration above V77).
 
 ```bash
 cd ~/finding-a-bed-tonight/backend && mvn -B -DskipTests clean package -q
@@ -271,11 +288,25 @@ docker build --no-cache \
 
 Frontend is NOT rebuilt (no frontend change in v0.49).
 
-### 5. Start alertmanager + recreate backend to reload prometheus.yml
+### 5. Start alertmanager + recreate backend + reload prometheus
+
+Three things happen here, in order:
+
+1. **Start alertmanager** (new container) — picks up the rendered config
+   bind-mounted from `~/fabt-secrets/alertmanager.yml`.
+2. **Recreate backend** (new image with v0.49.0 in pom.xml) — Flyway
+   discovers V78 in the JAR's classpath and applies it (data-level no-op
+   on prod since the rows are already hot-patched, but records V78 in
+   `flyway_schema_history`). `/actuator/info` then reports v0.49.0
+   accurately.
+3. **SIGHUP Prometheus** (no container restart) — reloads `prometheus.yml`
+   so the new `alerting:` block takes effect. Possible because the
+   `--web.enable-lifecycle` flag has been active since v0.47.
 
 ```bash
 source ~/fabt-secrets/.env.prod
 
+# 1 + 2: alertmanager + backend together
 docker compose \
     -f docker-compose.yml \
     -f ~/fabt-secrets/docker-compose.prod.yml \
@@ -283,16 +314,20 @@ docker compose \
     -f ~/fabt-secrets/docker-compose.prod-v0.44-pgaudit.yml \
     --env-file ~/fabt-secrets/.env.prod \
     --profile observability --profile alerting \
-    up -d --force-recreate alertmanager
+    up -d --force-recreate alertmanager backend
 
-# Prometheus needs to SIGHUP to reload prometheus.yml and pick up the
-# new `alerting:` block. Since v0.47's --web.enable-lifecycle flag is
-# active, this is a simple HTTP POST (no restart).
+# Wait for backend to come back (Flyway runs during startup; public
+# /actuator/health path is unauthenticated for load-balancer probes)
+until curl -fsS https://findabed.org/actuator/health 2>/dev/null | grep -q '"status":"UP"'; do
+    echo "waiting for backend..."; sleep 3
+done
+echo "backend is UP"
+
+# 3: Prometheus reload (picks up new alerting: block)
 curl -s -XPOST http://localhost:9090/-/reload
 # Expect: empty response + 200
 
-# Backend stays on same image; no backend recreate needed (backend has
-# no awareness of alertmanager).
+# Frontend NOT recreated (no frontend change, no rebuild in step 4)
 ```
 
 ---
