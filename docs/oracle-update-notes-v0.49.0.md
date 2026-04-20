@@ -3,10 +3,32 @@
 **From:** v0.48.1 (currently live at `findabed.org` — 3 tenants, 9 Prometheus rules firing into the UI but no notifications)
 **To:** v0.49.0 (Alertmanager container live, dual receivers: email via Gmail SMTP + ntfy.sh push — operator gets paged sub-5-seconds on CRITICAL)
 
+> **Three canonical prod-deploy patterns (codified post-v0.48 live-deploy —
+> apply to every future release, not just v0.49):**
+>  1. `docker compose up -d --build` is a **no-op** on this project — prod
+>     compose files declare `image:` tags only, no `build:` blocks. Use
+>     explicit `docker build --no-cache -f infra/docker/Dockerfile.<svc>`
+>     BEFORE the compose up.
+>  2. `-f docker-compose.yml` must be the FIRST `-f` in the chain (compose
+>     does NOT auto-add the default base file when any `-f` is passed).
+>     Without it: `"service 'prometheus' has neither an image nor a build
+>     context specified"`.
+>  3. `--force-recreate` is mandatory to swap running containers onto a new
+>     image. `up -d` without it sees "matching config + running" and
+>     declines to recreate — leaves old image running.
+>
+> See `feedback_prod_docker_build_pattern.md` for full context.
+>
 > **Jordan's note (SRE):** Closes task #155 — the largest operational gap
 > post-v0.48. 9 rules have been loading since v0.47 (5 Phase B + 4 Phase C)
 > and none of them could wake anyone up. With 3 tenants in prod, that gap
 > grew a 3× blast radius. This release adds the delivery pipeline.
+>
+> **Flyway note:** v0.49 rolls in v0.48.1's V78 seed migration
+> (`coordinator_assignment` for Blue Ridge + Pamlico — see v0.48.1 runbook
+> for context). Prod is already hot-patched so V78 applies as a data-level
+> no-op (`ON CONFLICT DO NOTHING`) but records in `flyway_schema_history`
+> to unblock future migrations past V78. No other schema change.
 >
 > **Two concurrent additions to the compose chain:**
 >  1. Base `docker-compose.yml` gets a new `alertmanager` service under
@@ -100,6 +122,19 @@ Though no schema change, standard safety net:
 DUMP=~/fabt-backups/fabt-pre-v0.49-$(date -u +%Y%m%d-%H%M%S).dump
 docker exec finding-a-bed-tonight-postgres-1 pg_dump -U fabt -d fabt -Fc > "$DUMP"
 sha256sum "$DUMP" | tee "$DUMP.sha256"
+```
+
+### 3.5. Capture release-prep commit SHA
+
+The v0.49.0 tag attaches to the release-prep commit (pom bump + CHANGELOG
++ this runbook finalization), NOT to the PR merge commit. Record the SHA
+now so it appears in deploy logs + 1Password entry for this release.
+
+```bash
+cd ~/finding-a-bed-tonight
+git fetch origin main
+git rev-parse origin/main
+# Copy this SHA — fills in the deploy incident thread + tag annotation.
 ```
 
 ### 4. Compose dry-render — Jordan's #1 gate
@@ -257,6 +292,19 @@ curl -s http://localhost:9090/api/v1/alertmanagers | python3 -m json.tool
 # expect: activeAlertmanagers list includes "alertmanager:9093"
 ```
 
+### 2b. Prometheus reload idempotency
+
+Fire the reload endpoint twice in a row; second call should also return
+empty + 200 (no "already in progress" or config errors):
+
+```bash
+curl -s -XPOST http://localhost:9090/-/reload && echo "first reload ok"
+sleep 2
+curl -s -XPOST http://localhost:9090/-/reload && echo "second reload ok"
+# Both must print "ok" — if either errors, Prometheus config is in a bad
+# state and won't page until a restart.
+```
+
 ### 3. Test-fire a synthetic CRITICAL alert (confirm end-to-end delivery)
 
 ```bash
@@ -315,6 +363,17 @@ curl -s -XPOST http://localhost:9090/-/reload
 
 Backend is unchanged; no backend rollback needed.
 
+### Rollback triage matrix
+
+| Symptom | Action |
+|---|---|
+| Alertmanager `Up` but `status` shows `configError` | Check `docker logs fabt-alertmanager` for YAML parse error; re-source `~/fabt-secrets/.env.prod` and re-render step 2 (likely SMTP password has unescaped chars). |
+| Alertmanager unhealthy (restart loop) | Confirm rendered file has `0` remaining `${FABT_` placeholders. If >0, envsubst whitelist in step 2 missed a var — re-render with all 8 vars listed. |
+| Email not arriving (ntfy works) | Gmail app password may have been revoked (regenerate per operator-setup Part A); check `docker logs fabt-alertmanager` for `535 Authentication failed`. |
+| ntfy not arriving (email works) | Verify `FABT_ALERT_NTFY_URL` + `_TOPIC` in rendered config; publish manually per operator-setup Part B.5 — if manual publish succeeds the config is wrong, if it fails check ntfy.sh status. |
+| Both receivers silent + Prometheus has active alerts | Prometheus may not have reloaded after the `alerting:` block was added. Run reload twice per post-deploy step 2b. |
+| FORCE RLS gauge drops to 0 during deploy | **Path B full rollback** — this is a Phase B posture regression unrelated to Alertmanager. See v0.48.0 runbook. |
+
 ---
 
 ## After deploy succeeds
@@ -325,11 +384,29 @@ Backend is unchanged; no backend rollback needed.
    tunnel)
 2. **Remove the smoke-test email + ntfy notification** from the operator
    inbox / app (it's noise)
-3. **Update memory** `project_live_deployment_status.md` to v0.49.0 live
+3. **Update memory files:**
+   - `project_live_deployment_status.md` → v0.49.0 live, alertmanager
+     active, Flyway HWM now 78
+   - New: `project_operational_alerting_posture.md` — document the
+     dual-receiver active state, ntfy topic UX, email integration,
+     resolve-timeout lifecycle, Phase F upgrade path
 4. **30-min active watch** for any unexpected rule fires (the 9 existing
    rules now PAGE, not just sit silent; anything that was quietly
-   misconfigured will surface here)
-5. **Document the alerting posture** in the release announcement:
+   misconfigured will surface here). Keep the phone + inbox visible
+   during this window.
+5. **Operator comms (internal only):** brief Slack post to `#fabt-demo`:
+   ```
+   v0.49.0 live at findabed.org — Alertmanager wired.
+   CRITICAL alerts now email + push to phone within ~30s (CRITICAL),
+   email-only for WARN.
+   9 existing rules (Phase B + Phase C) now deliver — no new rules.
+   Test alert `FabtV049DeployTest` fired + auto-resolved during deploy.
+   No user-visible change. V78 seed migration from v0.48.1 applied
+   as a no-op (prod was hot-patched earlier).
+   ```
+   **No pilot-partner comms** — this is operator-only infrastructure;
+   no UI change, no workflow change, no reason to send them email.
+6. **Document the alerting posture** in the GitHub release notes:
    - Dual receiver: email + ntfy push
    - Demo-tier (no BAA, ntfy public topic with long-random shared-secret
      name). Regulated-tier escalation path documented in
