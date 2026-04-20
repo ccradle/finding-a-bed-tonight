@@ -36,6 +36,17 @@ global:
 rule_files:
   - '/etc/prometheus/rules/*.rules.yml'
 
+# Alertmanager routing added in v0.49 (task #155). Alertmanager runs as
+# a sibling container on the same docker-compose network; address by
+# service name. Prior to v0.49, alerts fired into the Prometheus UI
+# only (no notifications). See deploy/alertmanager.yml.tmpl for the
+# receiver config (email + ntfy).
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - 'alertmanager:9093'
+
 scrape_configs:
   - job_name: 'fabt-backend'
     metrics_path: '/actuator/prometheus'

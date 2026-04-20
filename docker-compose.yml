@@ -105,6 +105,40 @@ services:
     profiles:
       - observability
 
+  # --- Alertmanager (wired in v0.49, task #155) ---
+  # Receives fired alerts from Prometheus (see prometheus.yml `alerting:`
+  # block) and delivers to two receivers in parallel: email (Gmail SMTP)
+  # and ntfy.sh push. Receiver config is in deploy/alertmanager.yml.tmpl
+  # — the template has ${VAR} placeholders that the operator renders
+  # via envsubst into ~/fabt-secrets/alertmanager.yml during deploy.
+  # The rendered file is bind-mounted here via the prod compose override.
+  #
+  # Separate `alerting` profile (NOT `observability`) so dev workflows
+  # that run `dev-start.sh --observability` don't pick up alertmanager
+  # and crashloop on the unrendered template. Operators opt in via the
+  # prod compose override or by explicit `--profile alerting`. Dev can
+  # activate it via `dev-start.sh --observability --alerting` once a
+  # rendered config is provided (see FOR-DEVELOPERS.md).
+  #
+  # Port 9093: alertmanager UI + API. Operator access via SSH tunnel in
+  # prod (localhost-only binding, no public exposure).
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    ports:
+      - "127.0.0.1:9093:9093"
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+      - '--cluster.listen-address='  # disable HA cluster mode (single-instance deploy)
+    volumes:
+      # Prod operator's compose override replaces these mounts with
+      # the rendered ~/fabt-secrets/alertmanager.yml file. Dev without
+      # a rendered config: just don't activate the `alerting` profile.
+      - ./deploy/alertmanager.yml.tmpl:/etc/alertmanager/alertmanager.yml:ro
+      - ./deploy/alertmanager-templates.tmpl:/etc/alertmanager/templates/fabt.tmpl:ro
+    profiles:
+      - alerting
+
   grafana:
     image: grafana/grafana:10.4.0
     ports:
