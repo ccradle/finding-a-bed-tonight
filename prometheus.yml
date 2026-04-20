@@ -17,15 +17,14 @@
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
-  # env=prod label is attached to EVERY scraped time-series. The Phase C
-  # alert rules in deploy/prometheus/phase-c-cache-isolation.rules.yml
-  # filter on env="prod" so CI / dev / staging scrapes (which use
-  # prometheus.dev.yml without this label, see the companion file) do not
-  # false-page the production on-call when the Tenant4bMigrationCrossTenantAttackTest
-  # harness intentionally fires cross_tenant_reject counters. Added 2026-04-19
-  # per pre-release warroom Jordan blocker #1 — PR #140.
-  external_labels:
-    env: prod
+  # NOTE on env=prod placement (post-v0.47.0-deploy finding):
+  # external_labels is attached to metrics sent OUT to federation / remote_write
+  # / Alertmanager — NOT to local PromQL queries or rule evaluation. The Phase C
+  # alert rules filter on env="prod" in their PromQL selector, so the label
+  # must be attached DURING scrape (instance-level) to be visible at rule-eval
+  # time. Moved env=prod from here (external_labels) to the scrape_configs
+  # static_configs labels block below. prometheus.dev.yml deliberately omits
+  # env=prod so dev scrapes stay unlabelled.
 
 # Rule file glob matching files in /etc/prometheus/rules/ inside the
 # container. The volume is mounted by docker-compose.yml Prometheus
@@ -44,3 +43,8 @@ scrape_configs:
       - targets: ['backend:9091']
         labels:
           application: 'finding-a-bed-tonight'
+          # env=prod attached at scrape time so Phase C alert rules can
+          # filter {env="prod"} at rule-eval. Fixed 2026-04-20 during
+          # v0.47.0 post-deploy Gate 7 verification — external_labels
+          # placement was wrong (see NOTE in global: block above).
+          env: 'prod'
