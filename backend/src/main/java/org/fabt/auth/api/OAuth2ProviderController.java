@@ -1,14 +1,13 @@
 package org.fabt.auth.api;
 
 import java.util.List;
-import java.util.NoSuchElementException;
 import java.util.UUID;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import jakarta.validation.Valid;
 import org.fabt.auth.service.TenantOAuth2ProviderService;
-import org.fabt.shared.web.TenantContext;
+import org.fabt.shared.web.TenantPathGuard;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -47,17 +46,7 @@ public class OAuth2ProviderController {
             @Parameter(description = "UUID of the tenant to register the provider under") @PathVariable UUID tenantId,
             @Valid @RequestBody CreateOAuth2ProviderRequest request) {
 
-        // Design D11 (cross-tenant-isolation-audit): the URL path tenantId
-        // MUST match the caller's JWT tenant. A CoC admin in Tenant A sending
-        // POST /api/v1/tenants/{tenantB}/oauth2-providers would otherwise
-        // create a provider row under Tenant B with attacker-controlled
-        // fields — the URL-path-sink class of cross-tenant write. Mismatch
-        // returns 404 (symmetric with D3 for read paths); the service
-        // itself sources tenantId from TenantContext internally so even a
-        // bypass of this guard cannot reach cross-tenant.
-        if (!tenantId.equals(TenantContext.getTenantId())) {
-            throw new NoSuchElementException("Tenant not found: " + tenantId);
-        }
+        TenantPathGuard.requireMatchingTenant(tenantId);
 
         var provider = providerService.create(
                 request.providerName(),
@@ -80,6 +69,7 @@ public class OAuth2ProviderController {
     @GetMapping
     public ResponseEntity<List<OAuth2ProviderResponse>> list(
             @Parameter(description = "UUID of the tenant whose OAuth2 providers to list") @PathVariable UUID tenantId) {
+        TenantPathGuard.requireMatchingTenant(tenantId);
         List<OAuth2ProviderResponse> providers = providerService.findByTenantId(tenantId).stream()
                 .map(OAuth2ProviderResponse::from)
                 .toList();
@@ -100,6 +90,8 @@ public class OAuth2ProviderController {
             @Parameter(description = "UUID of the owning tenant") @PathVariable UUID tenantId,
             @Parameter(description = "UUID of the OAuth2 provider to update") @PathVariable UUID providerId,
             @Valid @RequestBody UpdateOAuth2ProviderRequest request) {
+
+        TenantPathGuard.requireMatchingTenant(tenantId);
 
         var provider = providerService.update(
                 providerId,
@@ -125,6 +117,7 @@ public class OAuth2ProviderController {
             @Parameter(description = "UUID of the owning tenant") @PathVariable UUID tenantId,
             @Parameter(description = "UUID of the OAuth2 provider to delete") @PathVariable UUID providerId) {
 
+        TenantPathGuard.requireMatchingTenant(tenantId);
         providerService.delete(providerId);
         return ResponseEntity.noContent().build();
     }

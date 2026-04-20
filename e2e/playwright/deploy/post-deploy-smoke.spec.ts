@@ -270,6 +270,12 @@ test.describe('Post-deploy smoke tests', () => {
 
     // PLATFORM_ADMIN lands at /admin
     await expect(page).toHaveURL(/admin/, { timeout: 15_000 });
+
+    // Tenant-identity UI surfaces (14.t-1, 14.t-2) — header chip + footer both
+    // render the authoritative tenant name, pinned here so a regression in
+    // either surface flags cross-tenant confusion before it reaches a user.
+    await expect(page.getByTestId('app-tenant-name')).toHaveText('Blue Ridge CoC (demo)');
+    await expect(page.getByTestId('app-tenant-name-footer')).toHaveText('Blue Ridge CoC (demo)');
   });
 
   test('14. Pamlico Sound admin can log in to dev-coc-east (PLATFORM_ADMIN, tenant-scoped)', async ({ page }) => {
@@ -280,6 +286,8 @@ test.describe('Post-deploy smoke tests', () => {
     await page.getByTestId('login-submit').click();
 
     await expect(page).toHaveURL(/admin/, { timeout: 15_000 });
+    await expect(page.getByTestId('app-tenant-name')).toHaveText('Pamlico Sound CoC (demo)');
+    await expect(page.getByTestId('app-tenant-name-footer')).toHaveText('Pamlico Sound CoC (demo)');
   });
 
   test('15. Cross-tenant login rejected — Blue Ridge admin creds in Pamlico tenant MUST fail 401', async ({ page }) => {

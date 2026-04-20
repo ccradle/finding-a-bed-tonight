@@ -133,40 +133,68 @@ class TenantIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    void test_updateTenant() {
+    void test_updateTenant_selfTenant_ok() {
+        // Admin PUT on their OWN tenant must succeed. Per D15, PLATFORM_ADMIN is
+        // tenant-scoped (see openspec multi-tenant-production-readiness Phase M
+        // platform-admin-tenant-scoping-v0.48 + Phase D TenantPathGuard D11).
+        HttpHeaders headers = authHelper.adminHeaders();
+        UUID ownTenantId = authHelper.getTestTenantId();
+
+        // Read the original name so we can restore it (setupTestTenant is idempotent
+        // across tests via findBySlug — we must not leave a mutated name behind).
+        ResponseEntity<TenantResponse> before = restTemplate.exchange(
+                "/api/v1/tenants/" + ownTenantId,
+                HttpMethod.GET,
+                new HttpEntity<>(headers),
+                TenantResponse.class);
+        assertThat(before.getStatusCode()).isEqualTo(HttpStatus.OK);
+        String originalName = before.getBody().name();
+
+        try {
+            ResponseEntity<TenantResponse> response = restTemplate.exchange(
+                    "/api/v1/tenants/" + ownTenantId,
+                    HttpMethod.PUT,
+                    new HttpEntity<>("{\"name\": \"Updated Name\"}", headers),
+                    TenantResponse.class);
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(response.getBody()).isNotNull();
+            assertThat(response.getBody().name()).isEqualTo("Updated Name");
+            assertThat(response.getBody().id()).isEqualTo(ownTenantId);
+        } finally {
+            // Restore so other tests see the setup-time name
+            restTemplate.exchange(
+                    "/api/v1/tenants/" + ownTenantId,
+                    HttpMethod.PUT,
+                    new HttpEntity<>("{\"name\": \"" + originalName + "\"}", headers),
+                    TenantResponse.class);
+        }
+    }
+
+    @Test
+    void test_updateTenant_otherTenant_rejectedBy_D11_guard() {
+        // D11 URL-path-sink: an admin in tenant A creates tenant B (bootstrap
+        // path is still open under D15), but then cannot rename B via
+        // PUT /api/v1/tenants/{B} — the TenantPathGuard rejects with 404
+        // (symmetric with D3 existence-leak posture). Phase F will revisit
+        // with a dedicated platform-operator role.
         HttpHeaders headers = authHelper.adminHeaders();
 
-        // Create a tenant to update
-        String slug = "update-test-" + UUID.randomUUID().toString().substring(0, 8);
-        String createBody = """
-                {"name": "Original Name", "slug": "%s"}
-                """.formatted(slug);
-
+        String slug = "update-rejected-" + UUID.randomUUID().toString().substring(0, 8);
         ResponseEntity<TenantResponse> created = restTemplate.exchange(
                 "/api/v1/tenants",
                 HttpMethod.POST,
-                new HttpEntity<>(createBody, headers),
-                TenantResponse.class
-        );
+                new HttpEntity<>("{\"name\": \"Foreign Name\", \"slug\": \"" + slug + "\"}", headers),
+                TenantResponse.class);
         assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        UUID tenantId = created.getBody().id();
+        UUID foreignTenantId = created.getBody().id();
 
-        // Update the tenant
-        String updateBody = """
-                {"name": "Updated Name"}
-                """;
-
-        ResponseEntity<TenantResponse> response = restTemplate.exchange(
-                "/api/v1/tenants/" + tenantId,
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/api/v1/tenants/" + foreignTenantId,
                 HttpMethod.PUT,
-                new HttpEntity<>(updateBody, headers),
-                TenantResponse.class
-        );
+                new HttpEntity<>("{\"name\": \"Attacker Name\"}", headers),
+                String.class);
 
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(response.getBody()).isNotNull();
-        assertThat(response.getBody().name()).isEqualTo("Updated Name");
-        assertThat(response.getBody().slug()).isEqualTo(slug);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }
 
     @Test

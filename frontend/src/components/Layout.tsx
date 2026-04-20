@@ -316,6 +316,30 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
         </h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '8px' : '12px' }}>
           {/* Desktop-only inline controls */}
+          {!isMobile && user?.tenantName && (
+            <span
+              data-testid="app-tenant-name"
+              title={user.tenantName}
+              style={{
+                // Border-only pill: sidesteps opacity-over-header contrast
+                // concern (per project_accessibility_contrast_failures.md).
+                // headerText token is WCAG-verified against headerBg; used
+                // here for the border color and the text itself.
+                fontSize: text.sm,
+                color: color.headerText,
+                padding: '4px 10px',
+                borderRadius: '12px',
+                backgroundColor: 'transparent',
+                border: `1px solid ${color.headerText}`,
+                whiteSpace: 'nowrap',
+                maxWidth: '200px',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              {user.tenantName}
+            </span>
+          )}
           {!isMobile && user && (
             <span style={{ fontSize: text.base, color: color.headerText }}>
               {user.displayName || user.tenantName || ''}
@@ -438,12 +462,26 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
                     padding: '4px 0',
                   }}
                 >
+                  {/* Tenant identity — matches desktop chip; wayfinding on mobile */}
+                  {user?.tenantName && (
+                    <div
+                      data-testid="header-overflow-tenant-name"
+                      style={{
+                        padding: '12px 16px 4px',
+                        fontSize: text.sm,
+                        color: color.text,
+                        fontWeight: weight.semibold,
+                      }}
+                    >
+                      {user.tenantName}
+                    </div>
+                  )}
                   {/* Username display */}
                   {user && (
                     <div
                       data-testid="header-overflow-username"
                       style={{
-                        padding: '12px 16px',
+                        padding: user?.tenantName ? '0 16px 12px' : '12px 16px',
                         fontSize: text.sm,
                         color: color.textTertiary,
                         borderBottom: `1px solid ${color.border}`,
@@ -588,6 +626,12 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
               }}
             >
               Finding A Bed Tonight v{appVersion}
+              {user?.tenantName && (
+                <>
+                  {' — '}
+                  <span data-testid="app-tenant-name-footer">{user.tenantName}</span>
+                </>
+              )}
             </footer>
           )}
         </main>
