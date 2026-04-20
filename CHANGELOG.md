@@ -5,6 +5,180 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.48.0] — Phase D core: URL-path-sink tenant guard + two demo tenants live in prod
+
+**Behavioural-change release.** Two axes:
+
+1. **D11 URL-path-sink guard live on 9 write-path endpoints.** Any HTTP
+   request whose URL path tenantId differs from the caller's JWT
+   tenantId now receives `404 Not Found` — symmetric with D3's existence-
+   leak posture for reads. Previously an admin could rename or
+   reconfigure a foreign tenant via path manipulation (the service layer
+   blocked the data mutation but the controller returned OK-ish shapes);
+   now the controller boundary itself rejects. Per D15, PLATFORM_ADMIN
+   is tenant-scoped — bootstrap-era cross-tenant writes are deliberately
+   gone. Phase F will restore a narrow platform-operator path.
+
+2. **Blue Ridge CoC (demo) + Pamlico Sound CoC (demo) land in prod.**
+   Flyway `V76` + `V77` seed two new demo tenants alongside the existing
+   `dev-coc` (Development CoC). Each ships with its six-role user
+   matrix, three shelters, bed availability, and a per-tenant NOAA
+   station (`KAVL` for Blue Ridge / Appalachian; `KEWN` for Pamlico /
+   coastal — wired to the per-tenant-weather-station feature shipped
+   idle in v0.47.0 code).
+
+No schema change beyond the two seed migrations (neither alters tables
+or indexes). No pgaudit config change. No compose / Prometheus config
+change. Phase B FORCE RLS `1.0` posture on the seven regulated tables
+is unchanged.
+
+### Added
+
+- **`TenantPathGuard.requireMatchingTenant(UUID)`** — new shared helper
+  in `org.fabt.shared.web`. Throws `NoSuchElementException` (rendered as
+  `404` by `GlobalExceptionHandler`) when the URL-path tenantId differs
+  from `TenantContext.getTenantId()`. 27-line class with full Javadoc
+  covering the threat model + the 404-over-403 existence-leak rationale.
+  Called as the first line of every guarded controller method.
+
+- **9 controller endpoints now guarded by `TenantPathGuard`** (Phase D
+  tasks 5.2 + 5.3 + 5.4):
+  - `TenantController` — `update (PUT /{id})`, `getObservabilityConfig
+    (GET /{id}/observability)`, `updateObservabilityConfig (PUT same)`,
+    `updateDvAddressPolicy (PUT /{id}/dv-address-policy)`
+  - `TenantConfigController` — `getConfig (GET /{tenantId}/config)`,
+    `updateConfig (PUT same)`
+  - `OAuth2ProviderController` — `create (POST)`, `list (GET)`,
+    `update (PUT /{providerId})`, `delete (DELETE /{providerId})`.
+    Existing inline D11 block on `create` refactored to the shared
+    helper for consistency.
+
+- **`TenantPathGuardIntegrationTest`** (Phase D task 5.9) — 11 cases:
+  10 cross-tenant attack vectors + 1 same-tenant control. Covers every
+  guarded endpoint plus two nested-resource attacks
+  (`PUT /tenants/{A}/oauth2-providers/{B-provider-id}` and DELETE
+  counterpart) that verify the service-layer
+  `findByIdAndTenantId` defence-in-depth — not just assert it in a code
+  comment.
+
+- **Flyway `V76__seed_blue_ridge_demo_tenant.sql`** — creates
+  `dev-coc-west` tenant, 6-role user matrix (`admin`, `cocadmin`,
+  `coordinator`, `outreach`, `dv-coordinator`, `dv-outreach` — all
+  password `admin123`, same shared demo bcrypt as `dev-coc`), three
+  shelters in Boone / Waynesville / undisclosed, bed_availability for
+  all three, tenant.config including `noaa_station_id: KAVL`. Idempotent
+  via `ON CONFLICT DO UPDATE` on tenant / user / shelter /
+  shelter_constraints; `DO NOTHING` on bed_availability (no natural
+  unique key).
+
+- **Flyway `V77__seed_pamlico_sound_demo_tenant.sql`** — parallel to
+  V76. `dev-coc-east` tenant, 6 users, three shelters in New Bern /
+  Washington, NC / undisclosed, bed_availability, `noaa_station_id:
+  KEWN`. Same idempotency semantics.
+
+- **Tenant-identity header chip** (`Layout.tsx`) — neutral
+  border-only pill left of the user menu, `data-testid="app-tenant-name"`,
+  desktop-only with `header-overflow-tenant-name` entry in the mobile
+  kebab dropdown. Uses `color.headerText` token (WCAG-verified against
+  `color.headerBg` in both light + dark modes) instead of rgba opacity
+  to avoid contrast failures on theme change.
+
+- **Augmented footer** (`Layout.tsx`) — appends
+  ` — {user.tenantName}` after the version string, wrapped in a
+  separate `data-testid="app-tenant-name-footer"` so tests assert
+  without string-parsing the combined line.
+
+- **Smoke tests 13 + 14** (`post-deploy-smoke.spec.ts`) extended to
+  assert both header chip and footer tenant-name testids render the
+  expected tenant string after login (Blue Ridge / Pamlico Sound).
+
+### Changed
+
+- **`TenantIntegrationTest.test_updateTenant`** split into
+  `test_updateTenant_selfTenant_ok` (own-tenant PUT → 200, with
+  name restoration in try/finally) + `test_updateTenant_otherTenant_rejectedBy_D11_guard`
+  (cross-tenant PUT → 404). The single pre-existing test exercised a
+  legitimate cross-tenant rename under the pre-D15 model — that
+  workflow is deliberately removed.
+
+- **`OAuth2ProviderController.create` inline D11 block** replaced by
+  `TenantPathGuard.requireMatchingTenant(tenantId)`. Functionally
+  identical; consolidates the guard.
+
+- **`seed-data.sql` Blue Ridge + Pamlico tenant INSERT clauses**
+  flipped to `ON CONFLICT (slug) DO UPDATE SET name, config, updated_at`
+  (from `DO NOTHING`) so a re-run with an edited seed actually updates
+  the row rather than silently skipping. Matches V76/V77 semantics so
+  dev and prod stay in lock-step on tenant config edits.
+
+- **`dev-start.sh`** — `Login credentials:` banner rewritten to list
+  all three demo tenants with their NOAA stations. Stale
+  `(13 shelters, 4 users, 1 tenant)` seed-load log line corrected to
+  `(19 shelters across 3 tenants: dev-coc + dev-coc-west + dev-coc-east)`.
+
+### Deprecated
+
+- **Cross-tenant write paths via URL-path manipulation.** Not a
+  documented API — but some tests (notably
+  `TenantIntegrationTest.test_updateTenant` in its old form) implicitly
+  depended on it. Callers relying on this implicit capability now
+  receive `404`; migration is to bind a JWT scoped to the target
+  tenant. Phase F's platform-operator role will offer a narrow,
+  audited, optional re-opening of this path for documented operational
+  workflows.
+
+### Removed
+
+None in this release.
+
+### Fixed
+
+None directly — this release hardens an attack surface rather than
+fixing a reported bug. The nested-resource guard adds a test pinning a
+capability the service layer already had (via
+`findByIdAndTenantId`) but which was previously only documented in a
+code comment.
+
+### Security
+
+- **URL-path-sink cross-tenant writes blocked at the controller
+  boundary.** Per the threat model documented in
+  `TenantPathGuard.java`, pre-fix an attacker with a valid JWT in
+  tenant A could construct `PUT /api/v1/tenants/{B-uuid}/config` and
+  mutate tenant B's configuration row. The service layer already
+  routed writes through `TenantContext.getTenantId()` so the
+  ciphertext of the MUTATION would land on tenant A, but the HTTP
+  response shape and side-effect observability could still leak B's
+  existence. Post-fix the controller returns `404` before the service
+  is invoked; no observability, no side-effect.
+
+- **Defence-in-depth verified**, not claimed. The nested-resource
+  attack tests (`PUT /tenants/{A}/oauth2-providers/{B-provider-id}`
+  + DELETE counterpart) exercise the service layer's
+  `findByIdAndTenantId` guard directly, confirming the guard-helper
+  and the service-layer guard together form a complete defence.
+
+### Test posture
+
+Full backend suite: **961/961 green** (949 baseline + 11
+`TenantPathGuardIntegrationTest` + 1 net `TenantIntegrationTest`
+delta — one test split into two). Frontend `npm run build` clean, 0
+TypeScript errors. Playwright post-deploy smoke 13 + 14 + 15: 3/3 green
+with new tenant-identity UI assertions.
+
+### Design trail
+
+- Phase D URL-path-sink rationale: `openspec/changes/multi-tenant-production-readiness/design.md` — D11
+- PLATFORM_ADMIN tenant-scoping: same change, D15 + requirement
+  `platform-admin-tenant-scoping-v0.48`
+- Per-tenant NOAA station (code shipped v0.47.0; first tenant exercising it in prod = v0.48.0):
+  `openspec/.../specs/per-tenant-observability-isolation/spec.md` —
+  requirement `per-tenant-weather-station`
+- Blue Ridge / Pamlico branding: D12 (fictional-regional, no real CoC
+  collision) + spec `multi-tenant-demo-seed`
+
+---
+
 ## [v0.47.0] — Phase C completes: cache isolation active across all application call sites
 
 **Behavioural-change release.** The `TenantScopedCacheService` wrapper
