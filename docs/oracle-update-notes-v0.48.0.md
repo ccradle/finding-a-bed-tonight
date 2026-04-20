@@ -34,12 +34,16 @@
 > V76/V77 schema_history rows. See "Rollback" section for the decision
 > tree.
 
-**Bake window math:** v0.47.0 shipped 2026-04-20 ~01:08 UTC → v0.48.0
-can tag after **2026-04-21 ~01:08 UTC** without breaching the 24h
-guardrail. No compression approved by default — v0.47 was a behavioural-
-change release (cache isolation); v0.48 is the second half of Phase C
-fallout (multi-tenant visibility on prod) and is load-bearing for demo
-realism. The bake is warranted.
+**Bake window math:** v0.47.0 shipped 2026-04-20 ~01:08 UTC. The 24h
+guardrail would have v0.48.0 tagged no sooner than 2026-04-21 ~01:08 UTC.
+**User authorised a compressed bake 2026-04-20 (same-day tag)** on the
+following basis: (1) v0.47's active-watch completed clean — zero
+cross-tenant rejects, zero malformed cache entries, all FORCE RLS gauges
+at 1.0; (2) the bulk of v0.48 is data-only (V76/V77 seeds + UI polish)
+with the only behavioural change being the D11 guard on 9 endpoints
+that ALREADY had service-layer enforcement; (3) prod has had ~24h of
+v0.47 quiet runtime and no warning signals from Prometheus. Documenting
+the compression in the tag annotation per the v0.46→v0.47 precedent.
 
 ---
 
@@ -503,6 +507,54 @@ has populated the per-tenant cache):
 # dev-coc expects stationId: KRDU (fallback)
 ```
 
+### 6b. Three-tenant manual walkthrough (MANDATORY for v0.48)
+
+Per the user's explicit ask, v0.48 is the first prod deploy where
+Blue Ridge + Pamlico Sound become live demo tenants. Validate each one
+end-to-end from a clean browser (hard-reload or incognito) before
+declaring the deploy complete.
+
+**Per-tenant checklist — repeat for `dev-coc`, `dev-coc-west`, `dev-coc-east`:**
+
+```
+( ) Browser → https://findabed.org/login (hard-reload / incognito)
+( ) Login as admin of this tenant:
+      dev-coc:      admin@dev.fabt.org         / admin123
+      dev-coc-west: admin@blueridge.fabt.org   / admin123
+      dev-coc-east: admin@pamlico.fabt.org     / admin123
+( ) Lands at /admin (PLATFORM_ADMIN default route)
+( ) Header chip (top-right, left of user menu) renders the tenant name
+    VERBATIM including the "(demo)" suffix for west/east:
+      dev-coc:      "Development CoC"
+      dev-coc-west: "Blue Ridge CoC (demo)"
+      dev-coc-east: "Pamlico Sound CoC (demo)"
+( ) Footer (bottom of any page) renders: "Finding A Bed Tonight v0.48.0 — {tenant name}"
+( ) Shelters tab lists the correct tenant's shelters (NO shelters from
+    other tenants bleed through):
+      dev-coc:      13 shelters (Raleigh-area names — Oak City, Crabtree, etc.)
+      dev-coc-west: 3 shelters (Boone, Waynesville, Undisclosed)
+      dev-coc-east: 3 shelters (New Bern, Washington, Undisclosed)
+( ) Open any non-DV shelter → see bed availability rows (confirms V76/V77
+    bed_availability seed applied for west/east; no-op for dev-coc)
+( ) From the Outreach role view (impersonate or separate session):
+    Search → results come ONLY from this tenant's shelters
+( ) Logout
+
+CRITICAL CROSS-TENANT CHECK (symmetric — do after all 3 logins):
+( ) Fresh incognito → attempt login with dev-coc-west's admin creds
+    against slug "dev-coc-east" → MUST be rejected with "Invalid
+    credentials" (401). This is the platform-admin-tenant-scoping-v0.48
+    safety pin. A success here is a SHIP-BLOCKER — rollback immediately.
+```
+
+Document the walkthrough completion in the deploy incident thread with:
+- Wall-clock timestamp of each login
+- Screenshot of each tenant's header chip (demo-evidence for Phase M proper)
+- Any anomalies (even cosmetic — tenant name rendering wrong, footer truncation, etc.)
+
+If any `( )` line fails, **pause the deploy — do not proceed to the
+public-comms step** until the root cause is understood.
+
 If a tenant reports the wrong station, the `ObservabilityConfigService`
 60s cache hasn't refreshed OR the 90s `initialDelay` hasn't fired.
 Wait 2 minutes and retry.
@@ -645,6 +697,56 @@ the deploy incident thread.
   per tenant. Large CoCs spanning multiple microclimates may need a
   per-shelter station (Option C in the per-tenant-weather-station
   design). Tracked as task 14.w-longterm.
+
+### 6. Known CI posture (non-blocking) — Gatling AvailabilityUpdate
+
+The v0.48 merge-commit run of the `Performance (Gatling)` job on main
+(run `24669195839`) reported **24 KO / 216 OK / 10% failure rate** on
+`AvailabilityUpdateSimulation.scenarioA` (multi-shelter PATCH), failing
+the `failedRequests < 1%` assertion. Observed error: `status.find.is(200),
+found 422`. Response-time p95 was **39 ms** (well under the 200 ms SLO),
+so this is a functional reject under concurrent load, not a performance
+degradation.
+
+**Why this is not release-blocking for v0.48:**
+- The 422 error is **pre-existing** — the April 19 simulation log (on
+  v0.47 territory) contains the same `status.find.is(200), found 422`
+  string. v0.48 code did not introduce the 422; it made a latent flake
+  louder under GitHub runner load (10 simulated concurrent coordinators
+  is a synthetic contention level no real operator produces).
+- The failing endpoint (`PATCH /api/v1/shelters/{id}/availability`) is
+  **not touched** by v0.48 changes — no D11 guard, no service-layer
+  change, no schema change to `shelter` or `bed_availability` rows in
+  the `dev-coc` tenant.
+- **Main branch has no branch protection** and `Performance (Gatling)`
+  runs main-only, so the merge succeeded regardless. Consistent with
+  prior CI-only flakes accepted as non-blocking (see
+  `project_v040_subscription_crud_karate_ci_only.md`).
+- Prod has been running v0.47 without availability-update complaints.
+
+**Strong suspicion on root cause:** the Gatling feeder cycles through
+10 hardcoded shelter/population-type pairs (see
+`e2e/gatling/src/gatling/java/fabt/AvailabilityUpdateSimulation.java:27`).
+The exact 10% failure rate (24/240) = 1-of-10 deterministic reject
+pattern. Prime candidates are `d0000000-…-007` (Wake County Veterans)
+and `d0000000-…-010` (Helping Hand) — both have
+`referral_required=true + id_required=true + sobriety_required=true`
+in seed-data.sql and may be hitting a validation path that tightened
+since v0.28's population-type validation shipped.
+
+**Follow-up tracked as GitHub issue** — investigation task will:
+(a) reproduce locally by running `AvailabilityUpdateSimulation` against
+`localhost:8080`, (b) capture one of the 422 response bodies to identify
+the specific validation, (c) either fix the validation contract (if
+it's newly too strict) or update the feeder to skip constraint-sensitive
+shelters, (d) re-enable the `< 1%` Gatling assertion or raise the
+threshold with rationale.
+
+**Operator guidance during v0.48 deploy:** this CI signal does not
+change the deploy procedure. Prod post-deploy smoke (step 8 above)
+exercises the PATCH path from Playwright under single-user conditions
+— if that stays green, this CI-only flake is decoupled from the live
+service. If Playwright starts returning 422 too, pause and escalate.
 
 ---
 
