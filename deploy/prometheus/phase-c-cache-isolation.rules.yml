@@ -173,3 +173,45 @@ groups:
             wrapper emits `fabt.cache.put` at the same cache-name
             rate — a put-counter that stayed flat while get-misses
             rose means the put path itself broke.
+
+      # ---- WARN — DetachedAuditPersister persist failure --------------
+      # Added 2026-04-19 night per pre-release warroom Marcus #4.
+      # DetachedAuditPersister wraps security-evidence audit writes in
+      # PROPAGATION_REQUIRES_NEW so the row survives the caller's
+      # rollback (the leading attack vector: trigger cross-tenant read
+      # inside a @Transactional endpoint + rely on rollback to erase
+      # the audit trail). The persister catches any persistence
+      # exception and logs loudly rather than re-throwing (re-throwing
+      # would mask the original IllegalStateException). The counter
+      # below fires when that swallow happens — we lose a
+      # security-evidence audit row. Triage urgency parallels
+      # fabt.audit.rls_rejected.count: both represent lost audit data.
+      - alert: FabtPhaseCDetachedAuditPersistFailure
+        expr: |
+          sum by (action) (
+            rate(fabt_audit_detached_failed_count_total{env="prod"}[15m])
+          ) > 0
+        for: 15m
+        labels:
+          severity: warning
+          surface: phase-c-cache
+          runbook: docs/security/phase-c-cache-isolation-runbook.md
+        annotations:
+          summary: "Phase C: detached audit row failed to persist (action={{ $labels.action }})"
+          description: |
+            DetachedAuditPersister.persistDetached swallowed a
+            persistence exception while writing a
+            {{ $labels.action }} audit row (rate
+            {{ $value | humanize }}/s over 15 minutes). The backing
+            cross-tenant-read or policy-read event already fired;
+            the AUDIT record of it is lost. Investigate loudly — this
+            is the same posture as Phase B's audit-loss signal
+            (fabt.audit.rls_rejected.count).
+
+            Triage: grep `docker logs fabt-backend` for
+            "DetachedAuditPersister failed for action=" in the last
+            hour; stack trace + SQLState reveal whether this is
+            (a) RLS rejection (42501 — connection bind broke),
+            (b) FK constraint (actor_user_id → app_user — seed gap),
+            or (c) DB connectivity. Per-action tag isolates the
+            specific security-evidence surface losing rows.
