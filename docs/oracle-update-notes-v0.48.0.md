@@ -1,5 +1,12 @@
 # Oracle Deploy Notes — v0.48.0 (Phase D core + two demo tenants live in prod)
 
+> **POST-DEPLOY UPDATE (2026-04-20 ~15:25 UTC):** v0.48.0 is LIVE at findabed.org. Three tenants confirmed (`dev-coc` + `dev-coc-west` + `dev-coc-east`), all post-deploy gates green, Playwright smoke 3/3, per-tenant NOAA stations exercised (Blue Ridge=KAVL 57°F, Pamlico=KEWN 64°F, dev-coc=KRDU 64°F fallback — 7°F mountain/coastal spread validates the feature).
+>
+> **Three canonical-pattern corrections captured during the live deploy** (now reflected in steps 3–5 below; apply to every future release runbook):
+> 1. `docker compose up -d --build` is a **no-op** on this project — prod compose files declare `image:` tags only, no `build:` blocks. Canonical pattern: `docker build --no-cache -f infra/docker/Dockerfile.backend -t fabt-backend:<version> -t fabt-backend:latest .` BEFORE compose up (bash-history evidence since v0.21.0).
+> 2. **`-f docker-compose.yml` must be passed explicitly as the first `-f`** — compose does NOT auto-add the default base file when any `-f` is used. Without it: `"service 'prometheus' has neither an image nor a build context specified"`.
+> 3. `docker compose up -d backend frontend` alone will **NOT recreate** running containers even with a newer image — must add `--force-recreate`.
+
 **From:** v0.47.0 (currently live at `findabed.org` — single `dev-coc` tenant; Phase C cache isolation active; all 9 Phase C alert rules loaded; per-tenant NOAA weather-station code present but unexercised because only one tenant exists)
 **To:** v0.48.0 (three tenants live — `dev-coc` + `dev-coc-west` (Blue Ridge) + `dev-coc-east` (Pamlico Sound); `TenantPathGuard` D11 controller-layer 404 on URL-path cross-tenant writes; per-tenant NOAA stations `KAVL` + `KEWN` exercised)
 **Release-prep commit SHA:** filled in at tag time (see pre-deploy step 5.5 — `git rev-parse HEAD` on `main` immediately before `git tag -a`). The tag attaches to the release-prep commit (pom bump + CHANGELOG + this runbook), NOT to PR #143's merge commit.
@@ -162,11 +169,11 @@ the surface is genuinely small.
 
 - Repo on VM: `~/finding-a-bed-tonight/`
 - Secrets: `~/fabt-secrets/docker-compose.prod.yml` + `~/fabt-secrets/.env.prod`
-- 4-file compose override chain (unchanged from v0.45+). `docker-compose.yml` is the implicit base via the CWD (`~/finding-a-bed-tonight/`); the three `-f` overrides all live in `~/fabt-secrets/`:
-  1. `docker-compose.yml` — repo base (implicit, loaded by CWD)
-  2. `~/fabt-secrets/docker-compose.prod.yml` (secrets, port bindings, backend `build:` block)
-  3. `~/fabt-secrets/docker-compose.prod-v0.43-flyway-ooo.yml` (Flyway out-of-order bridge)
-  4. `~/fabt-secrets/docker-compose.prod-v0.44-pgaudit.yml` (pgaudit image override)
+- 4-file compose override chain (unchanged from v0.45+). `docker-compose.yml` (repo base) MUST be passed explicitly as the first `-f` flag — when any `-f` is used, compose does NOT auto-add the default base file. The three override files live in `~/fabt-secrets/`:
+  1. `-f docker-compose.yml` — repo base (explicit first `-f` required)
+  2. `-f ~/fabt-secrets/docker-compose.prod.yml` (secrets, port bindings — service blocks use `image:` tags, NO `build:` blocks)
+  3. `-f ~/fabt-secrets/docker-compose.prod-v0.43-flyway-ooo.yml` (Flyway out-of-order bridge)
+  4. `-f ~/fabt-secrets/docker-compose.prod-v0.44-pgaudit.yml` (pgaudit image override)
 - Backups: `~/fabt-backups/` (`pg_dump -Fc` custom-archive format)
 - SSH: `ssh -i ~/.ssh/fabt-oracle ubuntu@$VM_HOST`. Set `VM_HOST` from `~/.ssh/config` alias or a local env var sourced before opening the window — **never paste the raw IP into any commit** (per `feedback_no_ip_in_repo.md`).
 
@@ -288,14 +295,18 @@ git checkout v0.48.0
 source ~/fabt-secrets/.env.prod
 
 docker compose \
+    -f docker-compose.yml \
     -f ~/fabt-secrets/docker-compose.prod.yml \
     -f ~/fabt-secrets/docker-compose.prod-v0.43-flyway-ooo.yml \
     -f ~/fabt-secrets/docker-compose.prod-v0.44-pgaudit.yml \
     --env-file ~/fabt-secrets/.env.prod \
     config > /tmp/v0.48-config.rendered.yml
-# Note: base docker-compose.yml is implicit via CWD (no -f needed). If the
-# diff below is non-empty on the prometheus service, that's EXPECTED — see
-# "Prometheus config reconciliation" note in "What Does NOT Change" table.
+# CRITICAL: -f docker-compose.yml as the FIRST -f is required. When any -f is
+# passed, docker compose does NOT auto-add the default ./docker-compose.yml.
+# Without it you get "service 'prometheus' has neither an image nor a build
+# context specified: invalid compose project" (discovered during v0.48
+# deploy — runbook originally omitted this on the incorrect belief that
+# CWD made it implicit).
 
 # Compare with the currently-running v0.47 render
 diff /tmp/v0.47-config.rendered.yml /tmp/v0.48-config.rendered.yml
@@ -393,58 +404,100 @@ mvn clean package -DskipTests
 ls -la target/finding-a-bed-tonight-0.48.0.jar
 ```
 
-The backend Docker image is built by `docker compose build` in step 4, which
-reads the `build:` block in `~/fabt-secrets/docker-compose.prod.yml` to
-locate the Dockerfile (`infra/docker/Dockerfile.backend`). Don't run
-`docker build -f infra/docker/Dockerfile.backend .` here — let compose do
-it so the operator-managed prod override stays authoritative.
-
 ### 3. Preserve last-good backend image (fast rollback)
 
-Per the v0.44.1+ pattern:
+Per the v0.44.1+ pattern — **must be done BEFORE docker build in step 4**,
+or the `latest` tag will already be moved.
 
 ```bash
 docker tag fabt-backend:latest fabt-backend:v0.47.0-lastgood
+docker tag fabt-frontend:latest fabt-frontend:v0.47.0-lastgood  # if frontend changed
 docker images fabt-backend --format '{{.Tag}} {{.ID}} {{.CreatedAt}}'
-# Expect two tags: latest + v0.47.0-lastgood pointing at the same image ID.
-# After step 4's --build, latest will advance; lastgood stays pinned at v0.47.
+# Expect two backend tags: latest + v0.47.0-lastgood pointing at the same ID.
+# After step 4's docker build, latest will advance; lastgood stays pinned at v0.47.
 ```
 
-### 4. Restart backend + frontend via `docker compose up --build`
+### 4. Build backend + frontend images with `--no-cache`
+
+**⚠️ CRITICAL — `docker compose up -d --build` is a no-op on this project.**
+The prod compose files (`~/fabt-secrets/docker-compose.prod.yml` etc.) declare
+only `image:` tags, no `build:` blocks. `docker compose build` will emit
+`No services to build` and `docker compose up -d --build` will happily
+recreate containers with the CURRENT (v0.47) image. This was discovered live
+during v0.48 deploy — the canonical prod pattern, per bash-history evidence
+since v0.21.0, is explicit `docker build -f infra/docker/Dockerfile.backend
+-t fabt-backend:<version> -t fabt-backend:latest .` BEFORE the compose up.
+
+**`--no-cache` is mandatory** per `feedback_deploy_old_jars.md` — without
+it, Docker's COPY layer cache can serve a stale JAR even after `mvn clean`
+produced a new one.
 
 ```bash
 cd ~/finding-a-bed-tonight
+
+# Backend image (writes fabt-backend:v0.48.0 + fabt-backend:latest)
+docker build --no-cache \
+    -f infra/docker/Dockerfile.backend \
+    -t fabt-backend:v0.48.0 \
+    -t fabt-backend:latest \
+    .
+
+# Frontend image (writes fabt-frontend:v0.48.0 + fabt-frontend:latest).
+# The Dockerfile.frontend multi-stage build runs `npm ci && npm run build`
+# inside the build stage and copies dist/ into the nginx runtime stage.
+# No separate npm step on the host.
+docker build --no-cache \
+    -f infra/docker/Dockerfile.frontend \
+    -t fabt-frontend:v0.48.0 \
+    -t fabt-frontend:latest \
+    .
+
+# Verify NEW image IDs (must differ from v0.47.0-lastgood from step 3)
+docker images fabt-backend --format '{{.Tag}} {{.ID}} {{.CreatedAt}}' | head -5
+docker images fabt-frontend --format '{{.Tag}} {{.ID}} {{.CreatedAt}}' | head -5
+# `latest` + `v0.48.0` should show a NEW image ID.
+# `v0.47.0-lastgood` should still show the OLD image ID.
+# If `latest` ID still equals `v0.47.0-lastgood` ID: STOP — build didn't
+# produce a new image. Check mvn target/ for the v0.48 JAR; verify -f path.
+```
+
+### 5. Restart backend + frontend with `--force-recreate`
+
+**Also CRITICAL** — plain `docker compose up -d backend frontend` will see
+the running containers, find the compose config unchanged, and DO NOTHING
+even though the `latest` tag now points to a new image. `--force-recreate`
+forces the containers to be destroyed + recreated against the current image.
+
+```bash
 source ~/fabt-secrets/.env.prod
 
 docker compose \
+    -f docker-compose.yml \
     -f ~/fabt-secrets/docker-compose.prod.yml \
     -f ~/fabt-secrets/docker-compose.prod-v0.43-flyway-ooo.yml \
     -f ~/fabt-secrets/docker-compose.prod-v0.44-pgaudit.yml \
     --env-file ~/fabt-secrets/.env.prod \
-    up -d --build backend frontend
+    up -d --force-recreate backend frontend
+
+# Expected: "Container fabt-backend Recreated" + "Container fabt-backend Started"
+# If you see "Container fabt-backend Running" (without Recreate) — STOP, something
+# is wrong with the --force-recreate flag or the container state.
 
 # Tail backend logs for Flyway V76 + V77 apply success
-docker logs -f fabt-backend 2>&1 | grep -iE "flyway|V76|V77|Started|error"
+docker logs --since=3m -f fabt-backend 2>&1 | grep -iE "Current version|Migrating|Successfully applied|seed.blue|seed.pamlico|Started Application|ERROR"
 # Expected messages:
+#   Current version of schema "public": 74
 #   Migrating schema "public" to version "76 - seed blue ridge demo tenant"
+#   Migrating schema "public" to version "77 - seed pamlico sound demo tenant"
 #   Successfully applied 2 migrations to schema "public", now at version v77
 #   Started Application in N seconds
 # ^C after "Started Application"
 ```
 
-`--build` rebuilds both images from source; `docker compose` honors
-`--no-cache` semantics via its build cache invalidation (Dockerfile content
-SHA changes force rebuild). If you want to be extra defensive against
-layer-cache staleness, `docker compose build --no-cache backend frontend`
-first, then `up -d` — but this doubles the window.
-
-The `frontend` service rebuilds from `infra/docker/Dockerfile.frontend`
-which runs `npm ci && npm run build` inside the build stage and copies
-the resulting `dist/` into the nginx runtime stage. No separate
-`npm run build` on the host is needed.
-
-Expected total window: **~2-3 minutes**. No Postgres restart — pgaudit
-keeps flowing. No Prometheus restart — alerts stay alive.
+Expected total window: **~8-12 minutes** (mvn clean package is ~3-4 min; two
+docker builds with --no-cache are ~3-5 min; container recreate + backend
+startup is ~30s). No Postgres restart — pgaudit keeps flowing. No Prometheus
+restart — alerts stay alive.
 
 ---
 
@@ -778,21 +831,34 @@ git fetch --tags origin && git checkout v0.48.0
 docker tag fabt-backend:latest fabt-backend:v0.47.0-lastgood
 pg_dump -Fc backup → ~/fabt-backups/fabt-pre-v0.48-*.dump
 
-# Build + deploy (docker compose builds both backend + frontend from Dockerfiles in infra/docker/)
+# Build backend + frontend images EXPLICITLY with --no-cache
+# (prod compose has no build: blocks — `docker compose up --build` is a no-op)
 cd backend && mvn clean package -DskipTests
 cd ~/finding-a-bed-tonight
+docker build --no-cache -f infra/docker/Dockerfile.backend \
+    -t fabt-backend:v0.48.0 -t fabt-backend:latest .
+docker build --no-cache -f infra/docker/Dockerfile.frontend \
+    -t fabt-frontend:v0.48.0 -t fabt-frontend:latest .
+
+# Verify NEW image IDs differ from v0.47.0-lastgood before proceeding
+docker images fabt-backend  | head -5
+docker images fabt-frontend | head -5
+
+# Force-recreate containers against the new images
 source ~/fabt-secrets/.env.prod
 docker compose \
+    -f docker-compose.yml \
     -f ~/fabt-secrets/docker-compose.prod.yml \
     -f ~/fabt-secrets/docker-compose.prod-v0.43-flyway-ooo.yml \
     -f ~/fabt-secrets/docker-compose.prod-v0.44-pgaudit.yml \
     --env-file ~/fabt-secrets/.env.prod \
-    up -d --build backend frontend
+    up -d --force-recreate backend frontend
 
 # Verify
-curl https://findabed.org/api/v1/version  # expect 0.48.0
-# Flyway V76/V77 applied, 3 tenants visible, FORCE RLS 7/7 at 1.0
-# Playwright post-deploy-smoke 3/3 for Blue Ridge/Pamlico/Cross-tenant
+curl https://findabed.org/api/v1/version  # expect 0.48
+# Flyway V76/V77 applied at ~15:23 UTC, 3 tenants visible (dev-coc/KRDU,
+# dev-coc-west/KAVL, dev-coc-east/KEWN), FORCE RLS 5/5 applicable tables at t,
+# Playwright post-deploy-smoke 3/3 for Blue Ridge/Pamlico/Cross-tenant.
 ```
 
 ---
