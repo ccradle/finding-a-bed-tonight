@@ -5,6 +5,118 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.49.0] — Operational alerting: Prometheus → Alertmanager → email + ntfy push (+ v0.48.1 roll-in)
+
+**Operations-tier release.** The 9 Prometheus rules (5 Phase B + 4 Phase C)
+that have been loading since v0.47 but firing into a dashboard no one
+watches now actually deliver notifications. With three tenants live on
+prod post-v0.48, the "loaded but silent" gap had a 3× blast radius —
+this release closes it.
+
+**v0.48.1 content rolled in.** v0.48.1 was tagged 2026-04-20 with the
+V78 seed migration (coordinator_assignment gap-fix for Blue Ridge +
+Pamlico) but never shipped as a separate deploy. Prod was hot-patched
+with the 14 rows directly via psql on 2026-04-20 ~15:40 UTC. v0.49.0
+rolls V78 forward via Flyway so the rows are codified in
+`flyway_schema_history`; the migration is a data-level no-op on prod
+(ON CONFLICT DO NOTHING on the already-hot-patched rows). Future
+deploys will find V78 as an applied entry.
+
+No backend Java code change. No frontend change. No Postgres restart.
+
+### Added
+
+- **Alertmanager container** (`prom/alertmanager:v0.27.0`) under a new
+  compose profile `alerting` (deliberately NOT `observability` so dev
+  workflows running `dev-start.sh --observability` don't crashloop on
+  the unrendered template). Localhost-only port binding (`127.0.0.1:9093`);
+  operator access via SSH tunnel.
+
+- **Two parallel receivers**:
+  - `email_default` — Gmail SMTP with app password; handles WARN + CRITICAL
+  - `ntfy_urgent` — ntfy.sh webhook; handles CRITICAL only (to avoid push fatigue)
+
+  Route tree uses `continue: true` on first CRITICAL match so a single
+  alert fans out to both receivers. Inhibit rule: CRITICAL suppresses
+  WARNING with same `alertname`+`tenant_id` (prevents double-paging on
+  escalations). Group by `alertname`+`tenant_id`, `group_wait: 15s`,
+  `group_interval: 5m`, `repeat_interval: 4h`.
+
+- **`deploy/alertmanager.yml.tmpl`** — config template with 8
+  `${FABT_ALERT_*}` placeholders. `prom/alertmanager:v0.27.0` does NOT
+  interpolate env vars natively in its YAML, so the operator renders
+  the template via `envsubst` into `~/fabt-secrets/alertmanager.yml`
+  (0600, VM-only, never committed) during deploy. Rendered config
+  validated via `amtool check-config`: 1 global + 1 route + 1 inhibit
+  + 2 receivers + 1 template.
+
+- **`deploy/alertmanager-templates.tmpl`** — shared email Subject +
+  HTML + text message templates. Severity color-coding, tenant_id
+  grouping, pass-through of `runbook:` annotation links from the alert
+  rules. Legal-scan-safe language throughout.
+
+- **`prometheus.yml`** — new `alerting:` block pointing Prometheus at
+  `alertmanager:9093` over the compose network. No change to scrape
+  targets or rule files.
+
+- **`docs/oracle-update-notes-v0.49.0.md`** — deploy runbook with
+  v0.48.1 roll-in gates (pre-deploy: verify 14 hot-patched rows still
+  intact; post-deploy: V78 recorded in `flyway_schema_history`,
+  assignment count unchanged, banner-endpoint smoke for DV coordinator).
+  Includes the three canonical prod-deploy patterns codified post-v0.48
+  live-deploy (`docker build --no-cache -f infra/docker/Dockerfile.*`
+  before compose up; explicit `-f docker-compose.yml` first; mandatory
+  `--force-recreate`).
+
+- **`docs/security/alertmanager-triage-runbook.md`** (NEW) — triage
+  runbook for alerts routed through the new pipeline. Supersedes the
+  scope creep in `phase-c-cache-isolation-runbook.md`.
+
+### Changed
+
+- **`docs/security/compliance-posture-matrix.md`** — new
+  "## Alerting Tier Posture (v0.49+)" section documenting demo-tier
+  (ntfy public shared-secret topic, Gmail SMTP) vs regulated-tier upgrade
+  path (authenticated ntfy or PagerDuty with BAA + HA). The prior matrix
+  note flagging "Phase C MUST complete rule loading + Alertmanager
+  routing" is retired.
+
+- **`README.md`** + **`docs/FOR-DEVELOPERS.md`** — version / migration-
+  count / test-count refresh to reflect v0.48+v0.48.1+v0.49 state
+  (V78 latest Flyway migration, 3 demo tenants, 961 backend tests).
+
+- **V78 `coordinator_assignment` Flyway migration** (rolled in from
+  v0.48.1) — adds 14 rows mapping coordinator / cocadmin / admin /
+  dv-coordinator users to their shelters in Blue Ridge + Pamlico,
+  mirroring dev-coc's pattern.
+
+### Deprecated, Removed, Fixed, Security
+
+- **Fixed:** `CoordinatorReferralBanner` now renders for Blue Ridge +
+  Pamlico DV coordinators when pending referrals exist (via V78 —
+  rolled in from v0.48.1).
+
+- **Security:** Demo-tier alerting posture documented as explicitly
+  NOT suitable for regulated-tier (HIPAA / VAWA / CJIS). Upgrade path
+  in `compliance-posture-matrix.md`.
+
+### Test posture
+
+Full backend suite: 961/961 green (unchanged from v0.48.1 — no Java
+code change in v0.49). Frontend build clean. `amtool check-config`
+validates the Alertmanager template with dummy env values.
+
+### Deploy notes
+
+Backend-only rebuild (no frontend change). V78 Flyway migration is a
+5ms no-op on already-hot-patched prod. Alertmanager container starts
+under `--profile alerting`. Prometheus SIGHUP picks up the new
+`alerting:` block. Expected window ~5 min.
+
+Documented fully in `docs/oracle-update-notes-v0.49.0.md`.
+
+---
+
 ## [v0.48.1] — Seed hotfix: coordinator_assignment gap for Blue Ridge + Pamlico
 
 **Data-only hotfix release.** v0.48.0's V76 + V77 migrations created the

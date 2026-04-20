@@ -141,12 +141,12 @@ Prometheus instance on the v0.43.1 demo VM (0 rule groups active via
 `/api/v1/rules`). So the alert is defined in source, not watching in prod.
 This is the same operational gap flagged in
 `docs/oracle-update-notes-v0.43.1-amendments.md` as "Alertmanager Slack
-wiring deferred to backlog," broadened here: rule loading itself is
-incomplete. Control signals remain visible via direct actuator scrape
-(the compliance position does not depend on the alerting path), but
-operator-pager early-warning is not active. Phase C MUST complete rule
-loading + Alertmanager routing alongside label enrichment, and revisit
-threshold sizing with multi-user load data.
+wiring deferred to backlog." **RESOLVED in v0.49.0** — Alertmanager routing
+is live (email + ntfy push), 9 Prometheus rules (5 Phase B + 4 Phase C)
+now deliver notifications per the "Alerting tier posture" section below.
+Threshold sizing with multi-user load data is a separate follow-up
+(Phase C task #154 — label-enrich `tenant_context_empty` counter + load
+regression test).
 
 **What auditors can rely on:**
 1. The control for cross-tenant data isolation is FORCE ROW LEVEL SECURITY
@@ -165,6 +165,68 @@ threshold sizing with multi-user load data.
   jobs caused Y%." The characterization above is forensic reasoning from
   log correlation, not code instrumentation.
 
+## Alerting tier posture (v0.49.0+)
+
+**Contract.** The Prometheus rules that gate data-integrity signals
+(FORCE RLS drop, cross-tenant cache read, malformed audit row,
+detached-audit-persist failure) are paging signals — they notify an
+operator who is then expected to triage. The posture of that notification
+path differs between demo-tier (findabed.org today) and regulated-tier
+(future HIPAA / VAWA / CJIS deployment).
+
+### Demo-tier (current, findabed.org)
+
+- **Delivery:** Prometheus → Alertmanager → (a) Gmail SMTP for WARN +
+  CRITICAL, (b) ntfy.sh webhook push for CRITICAL only.
+- **Auth:**
+  - Gmail SMTP uses an app password (manual rotation via Google account UI).
+  - ntfy.sh uses a public topic with a long-random name as a shared
+    secret — treat as the weakest link. Alert bodies include tenant
+    UUIDs and metric names but NO PII; acceptable for demo.
+- **Availability:** Single-instance Alertmanager on a single Oracle
+  VM. If the VM dies, alerts die with it.
+- **Audit:** Alert routing is NOT logged to `audit_events` (pgaudit
+  covers the underlying DB events; alert delivery is ops-visibility,
+  not audit-trail).
+- **What an auditor can rely on:** the *existence* of the alerting
+  path is demonstrable (template file version-controlled, rendered
+  config `0600` on disk, rule files auditable). What they *cannot*
+  rely on: that a specific alert reached a specific person within a
+  specific SLA — demo-tier has no delivery-confirmation audit.
+
+### Regulated-tier upgrade path
+
+Before a HIPAA / VAWA / CJIS deployment carries real PII:
+
+1. **Replace ntfy.sh public topic** with authenticated ntfy (self-
+   hosted on VPC + access-token auth), PagerDuty / Opsgenie with BAA,
+   OR private Slack workspace with webhook verification.
+2. **SMTP hardening:** Gmail app-password → dedicated SMTP relay
+   (SES / SendGrid / in-house Postfix) with TLS + DKIM + SPF, audit
+   logs exported to SIEM.
+3. **HA Alertmanager** — 3-node cluster across availability zones.
+   Prometheus federation / remote_write to a reliable store.
+4. **Delivery-confirmation audit trail** — every routed alert
+   recorded to `audit_events` via `DetachedAuditPersister`; weekly
+   roll-up signed + exported to compliance bucket.
+5. **Alert content PII scrub** — filter tenant_id UUIDs and any
+   label that could identify a household / individual before webhook
+   send. Current demo-tier templates are unfiltered.
+
+Tracked for Phase F in `openspec/changes/multi-tenant-production-readiness/tasks.md`.
+
+### What auditors can rely on today
+
+1. The 9 Prometheus rules (`deploy/prometheus/phase-b-rls.rules.yml` +
+   `phase-c-cache-isolation.rules.yml`) are version-controlled and
+   loaded in prod. `promtool check rules` in CI on every PR.
+2. Alertmanager template (`deploy/alertmanager.yml.tmpl`) version-
+   controlled; `amtool check-config` runs on the rendered form
+   pre-deploy (documented in the v0.49 runbook).
+3. Secrets live in `~/fabt-secrets/.env.prod` on the VM with `0600`
+   perms; `feedback_no_ip_in_repo.md` discipline keeps no secrets
+   in git.
+
 ## Change log
 
 | Date       | Change                                                                  | Driver                                       |
@@ -172,3 +234,4 @@ threshold sizing with multi-user load data.
 | 2026-04-17 | Initial matrix — audit-row = committed-event contract documented.       | Phase B warroom W-AUDIT-DOC-1 (Casey).       |
 | 2026-04-17 | BED_HOLDS_RECONCILED audit attribution — per-tenant, not platform-wide. | Phase B warroom W-B-FIXB-1.                  |
 | 2026-04-18 | `tenant_context.empty` noise-floor characterized; alert threshold flap risk documented; Phase C task filed. | v0.43.1 live rehearsal warroom (Riley + Marcus + Casey). |
+| 2026-04-21 | Alerting-tier posture section added (demo-tier vs regulated-tier upgrade path). Retires the prior "Phase C MUST complete Alertmanager routing" future-work flag — v0.49 ships Alertmanager wiring. | v0.49 release-prep audit (Jordan + Marcus + Casey). |

@@ -30,7 +30,7 @@ Three deployment tiers allow the same codebase to serve communities of vastly di
 | Layer | Technology |
 |---|---|
 | Backend | Java 25, Spring Boot 4.0, Spring MVC, Spring Data JDBC, Virtual Threads |
-| Database | PostgreSQL 16.5+ (enforced by `PgVersionGate` at boot; floor doubles as CVE gate), Flyway (65 migrations, latest V74; renumber-forward posture from v0.45 — see `deploy/prod-state.json`), Row Level Security (D14 tenant-RLS + FORCE RLS on 7 regulated tables: `audit_events`, `hmis_audit_log`, `hmis_outbox`, `password_reset_token`, `one_time_access_code`, `tenant_key_material`, `kid_to_tenant_key`; plus DV shelters + notifications), pgaudit extension (Debian + PGDG image) for detection-of-last-resort, `application_name = 'fabt:tenant:<uuid>'` co-located with `app.tenant_id` so pgaudit log lines carry tenant UUID |
+| Database | PostgreSQL 16.5+ (enforced by `PgVersionGate` at boot; floor doubles as CVE gate), Flyway (66 migrations, latest V78; renumber-forward posture from v0.45 — see `deploy/prod-state.json`), Row Level Security (D14 tenant-RLS + FORCE RLS on 7 regulated tables: `audit_events`, `hmis_audit_log`, `hmis_outbox`, `password_reset_token`, `one_time_access_code`, `tenant_key_material`, `kid_to_tenant_key`; plus DV shelters + notifications), pgaudit extension (Debian + PGDG image) for detection-of-last-resort, `application_name = 'fabt:tenant:<uuid>'` co-located with `app.tenant_id` so pgaudit log lines carry tenant UUID |
 | Cache | Caffeine L1 / + Redis L2 (Standard/Full) |
 | Events | Spring Events (Lite) / Kafka (Full) |
 | Auth | JWT (per-tenant HKDF-SHA256 signing keys + opaque `kid` header + revocation registry) + OAuth2/OIDC + API Keys (hybrid). Per-tenant DEK-envelope (v1 `FABT` magic + kid + AES-GCM) for secrets at rest — see `design-a3-encryption-envelope.md` + `design-a4-jwt-refactor.md`. |
@@ -173,6 +173,24 @@ Phase 2 will add an MCP server as a thin wrapper around the REST API, enabling n
 ---
 
 ## Recent Changes
+
+### Operational Alerting + v0.48.1 Roll-In (v0.49, current)
+
+The 9 Prometheus rules (5 Phase B + 4 Phase C) loaded since v0.47 but firing into a dashboard no one watches now actually deliver notifications. New `alertmanager` compose service (profile `alerting`, deliberately separate from `observability` so dev workflows running `dev-start.sh --observability` don't crashloop on an unrendered template) routes via `prom/alertmanager:v0.27.0` to two parallel receivers: `email_default` (Gmail SMTP, WARN + CRITICAL) and `ntfy_urgent` (ntfy.sh push, CRITICAL only). Alertmanager config is rendered from `deploy/alertmanager.yml.tmpl` via `envsubst` into `~/fabt-secrets/alertmanager.yml` (0600, VM-only) — `prom/alertmanager:v0.27.0` does NOT interpolate env vars natively at parse time. Route tree groups by `alertname`+`tenant_id`; inhibit rule suppresses WARNING when CRITICAL is firing on the same `(alertname, tenant_id)` pair. v0.48.1 V78 seed migration (coordinator_assignment gap-fix for `dev-coc-west` + `dev-coc-east`, hot-patched on prod 2026-04-20) is rolled forward via Flyway in this release — data-level no-op on prod, codifies the rows in `flyway_schema_history`. Triage runbook: `docs/security/alertmanager-triage-runbook.md`.
+
+### Multi-Tenant Phase D + Three Live Tenants (v0.48)
+
+Three tenants live on prod, all seeded by Flyway (no manual setup):
+
+- `dev-coc` — "Development CoC" (the original; no `noaa_station_id` set in `tenant.config`, so falls back to `${fabt.monitoring.noaa.station-id:KRDU}` in `NoaaClient`)
+- `dev-coc-west` — "Blue Ridge CoC (demo)", V76, `noaa_station_id=KAVL` (Asheville regional airport)
+- `dev-coc-east` — "Pamlico Sound CoC (demo)", V77, `noaa_station_id=KEWN` (Craven County Regional, New Bern)
+
+Per-tenant weather stations resolve via `OperationalMonitorService.checkTemperatureSurge` (Option A from the design-c warroom): the hourly job iterates registered tenants, reads each `tenant.config → observability.noaa_station_id`, and de-duplicates NOAA fetches by station so multiple tenants on KAVL hit NOAA once.
+
+**D11 URL-path-sink tenant guard** — new `TenantPathGuard.requireMatchingTenant(UUID)` helper in `org.fabt.shared.web` throws `NoSuchElementException` (→ HTTP 404 via `GlobalExceptionHandler`) when the URL-path `tenantId` differs from `TenantContext.getTenantId()`. Symmetric with the D3 existence-leak posture for reads. Applied to 10 endpoints across `TenantController`, `TenantConfigController`, `OAuth2ProviderController`. **D15** ratified the existing implementation: `Role.PLATFORM_ADMIN` is tenant-scoped (users keyed on `(tenantId, email)`, JWTs carry a hard `tenantId` claim) — Phase F will rename to `TENANT_ADMIN` and split out a genuine platform-spanning role; for v0.48 Phase M-light, each demo tenant carries its own independently-seeded `PLATFORM_ADMIN`.
+
+**Tenant-identity UI** — desktop header carries a neutral border-only pill displaying the full `tenant.name` (`Layout.tsx:319-342`, `data-testid=app-tenant-name`), styled with the WCAG-verified `color.headerText` token. Mobile users get the same name via the kebab-overflow row (`data-testid=header-overflow-tenant-name`) and the footer (`data-testid=app-tenant-name-footer`). Walked back from the original 14.9 proposal that used per-tenant accent colors, per warroom feedback (gimmicky, inconsistent screenshots).
 
 ### Multi-Tenant Production Readiness — Phase C Cache Isolation (v0.46 → v0.47, active)
 

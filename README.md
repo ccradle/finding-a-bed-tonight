@@ -57,7 +57,7 @@ Full setup guide: [For Developers](docs/FOR-DEVELOPERS.md#prerequisites)
 | Layer | Technology |
 |---|---|
 | Backend | Java 25, Spring Boot 4.0, Spring MVC, Spring Data JDBC, Virtual Threads |
-| Database | PostgreSQL 16, Flyway (54 migrations), Row Level Security (DV shelters + notifications) |
+| Database | PostgreSQL 16, Flyway (66 migrations), Row Level Security (Phase B FORCE RLS on 7 regulated tables + tenant isolation) |
 | Frontend | React 19, Vite, TypeScript, Workbox PWA (injectManifest), react-intl (EN/ES), CSS custom properties design tokens |
 | Testing | JUnit 5, Testcontainers, ArchUnit (619 tests), Playwright (348 UI tests), Vitest (42 unit tests), Karate (82 API scenarios), Gatling (8 simulations) |
 | Infra | Docker, GitHub Actions CI/CD + E2E pipeline, Terraform (3 tiers) |
@@ -66,7 +66,7 @@ Full setup guide: [For Developers](docs/FOR-DEVELOPERS.md#prerequisites)
 
 ## What's Complete
 
-**Current version: v0.38.0** — 62 archived OpenSpec changes, 91 specs, 14 modules.
+**Current version: v0.49.0** — 63 archived OpenSpec changes, 89 specs, 14 modules. Multi-tenant SaaS (3 demo tenants live), Phase B FORCE RLS shipped, Phase C cache-isolation guardrails shipped, operational alerting (Prometheus → Alertmanager → email + ntfy) live.
 
 - Real-time bed search with freshness indicators and constraint filters
 - Soft-hold reservations with configurable hold duration (default 90 min)
