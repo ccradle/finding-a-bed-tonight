@@ -5,6 +5,7 @@ import java.util.UUID;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import org.fabt.shared.web.TenantPathGuard;
 import org.fabt.tenant.service.TenantService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -37,6 +38,7 @@ public class TenantConfigController {
     @GetMapping
     public ResponseEntity<Map<String, Object>> getConfig(
             @Parameter(description = "UUID of the tenant whose configuration to retrieve") @PathVariable UUID tenantId) {
+        TenantPathGuard.requireMatchingTenant(tenantId);
         Map<String, Object> config = tenantService.getConfig(tenantId);
         return ResponseEntity.ok(config);
     }
@@ -54,6 +56,7 @@ public class TenantConfigController {
     public ResponseEntity<Map<String, Object>> updateConfig(
             @Parameter(description = "UUID of the tenant whose configuration to replace") @PathVariable UUID tenantId,
             @RequestBody Map<String, Object> config) {
+        TenantPathGuard.requireMatchingTenant(tenantId);
         tenantService.updateConfig(tenantId, config);
         return ResponseEntity.ok(tenantService.getConfig(tenantId));
     }

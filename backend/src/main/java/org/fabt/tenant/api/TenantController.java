@@ -12,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.fabt.observability.ObservabilityConfigService;
 import org.fabt.observability.ObservabilityConfigService.ObservabilityConfig;
+import org.fabt.shared.web.TenantPathGuard;
 import org.fabt.tenant.domain.Tenant;
 import org.fabt.tenant.service.TenantService;
 import org.springframework.http.HttpStatus;
@@ -99,6 +100,7 @@ public class TenantController {
     public ResponseEntity<TenantResponse> update(
             @Parameter(description = "UUID of the tenant to update") @PathVariable UUID id,
             @Valid @RequestBody UpdateTenantRequest request) {
+        TenantPathGuard.requireMatchingTenant(id);
         Tenant tenant = tenantService.update(id, request.name());
         return ResponseEntity.ok(TenantResponse.from(tenant));
     }
@@ -112,8 +114,7 @@ public class TenantController {
     @GetMapping("/{id}/observability")
     public ResponseEntity<ObservabilityConfig> getObservabilityConfig(
             @Parameter(description = "UUID of the tenant") @PathVariable UUID id) {
-        tenantService.findById(id)
-                .orElseThrow(() -> new java.util.NoSuchElementException("Tenant not found: " + id));
+        TenantPathGuard.requireMatchingTenant(id);
         return ResponseEntity.ok(observabilityConfigService.getConfig(id));
     }
 
@@ -127,6 +128,7 @@ public class TenantController {
     public ResponseEntity<ObservabilityConfig> updateObservabilityConfig(
             @Parameter(description = "UUID of the tenant") @PathVariable UUID id,
             @RequestBody Map<String, Object> observabilitySettings) {
+        TenantPathGuard.requireMatchingTenant(id);
         Map<String, Object> currentConfig = tenantService.getConfig(id);
         currentConfig.put("observability", observabilitySettings);
         tenantService.updateConfig(id, currentConfig);
@@ -148,6 +150,8 @@ public class TenantController {
             @RequestBody Map<String, String> body,
             @RequestHeader(value = "X-Confirm-Policy-Change", required = false) String confirmHeader,
             Authentication authentication) {
+
+        TenantPathGuard.requireMatchingTenant(id);
 
         if (!"CONFIRM".equals(confirmHeader)) {
             return ResponseEntity.badRequest()

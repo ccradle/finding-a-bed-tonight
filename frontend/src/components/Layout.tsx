@@ -316,6 +316,26 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
         </h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '8px' : '12px' }}>
           {/* Desktop-only inline controls */}
+          {!isMobile && user?.tenantName && (
+            <span
+              data-testid="app-tenant-name"
+              title={user.tenantName}
+              style={{
+                fontSize: text.sm,
+                color: color.headerText,
+                padding: '4px 10px',
+                borderRadius: '12px',
+                backgroundColor: 'rgba(255,255,255,0.12)',
+                border: '1px solid rgba(255,255,255,0.22)',
+                whiteSpace: 'nowrap',
+                maxWidth: '200px',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              {user.tenantName}
+            </span>
+          )}
           {!isMobile && user && (
             <span style={{ fontSize: text.base, color: color.headerText }}>
               {user.displayName || user.tenantName || ''}
@@ -588,6 +608,12 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
               }}
             >
               Finding A Bed Tonight v{appVersion}
+              {user?.tenantName && (
+                <>
+                  {' — '}
+                  <span data-testid="app-tenant-name-footer">{user.tenantName}</span>
+                </>
+              )}
             </footer>
           )}
         </main>
