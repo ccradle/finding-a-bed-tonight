@@ -145,7 +145,7 @@ reflecting D15 tenant-scoping.
 | `.env.prod` | unchanged |
 | Postgres image | unchanged (Debian-based pgaudit image from v0.44.1) |
 | pgaudit config | unchanged — no new logging rules |
-| Prometheus config (`prometheus.yml`) | unchanged — `env=prod` scrape label stays |
+| Prometheus config (`prometheus.yml`) | **reconciled** — the post-v0.47-deploy manual fix on the VM (moving `env=prod` from `external_labels` to `scrape_configs.static_configs.labels`, per `feedback_prometheus_external_labels_gotcha.md`) is now codified in the repo. If the prod VM's `prometheus.yml` is already the fixed version (operator applied on 2026-04-20), the v0.48 checkout will produce an identical file — no behavioural change. The compose dry-render in pre-deploy step 4 WILL show a diff if the live file differs from the v0.48 repo version; treat any non-prometheus drift as STOP |
 | Prometheus alert rules | unchanged — 9 rules (5 Phase B + 4 Phase C) carry forward |
 | Alertmanager routing | pending (task #155) — same posture as v0.47 |
 | FORCE RLS posture | unchanged — 7 regulated tables still 1.0 |
@@ -162,13 +162,13 @@ the surface is genuinely small.
 
 - Repo on VM: `~/finding-a-bed-tonight/`
 - Secrets: `~/fabt-secrets/docker-compose.prod.yml` + `~/fabt-secrets/.env.prod`
-- 4-file compose override chain (unchanged from v0.45+):
-  1. `docker-compose.yml` (base)
-  2. `~/fabt-secrets/docker-compose.prod.yml` (secrets + port bindings)
-  3. `docker-compose.prod-v0.43-flyway-ooo.yml` (Flyway out-of-order bridge)
-  4. `docker-compose.prod-v0.44-pgaudit.yml` (pgaudit image override)
+- 4-file compose override chain (unchanged from v0.45+). `docker-compose.yml` is the implicit base via the CWD (`~/finding-a-bed-tonight/`); the three `-f` overrides all live in `~/fabt-secrets/`:
+  1. `docker-compose.yml` — repo base (implicit, loaded by CWD)
+  2. `~/fabt-secrets/docker-compose.prod.yml` (secrets, port bindings, backend `build:` block)
+  3. `~/fabt-secrets/docker-compose.prod-v0.43-flyway-ooo.yml` (Flyway out-of-order bridge)
+  4. `~/fabt-secrets/docker-compose.prod-v0.44-pgaudit.yml` (pgaudit image override)
 - Backups: `~/fabt-backups/` (`pg_dump -Fc` custom-archive format)
-- SSH key: `~/.ssh/fabt-oracle` (local) → `ubuntu@150.136.221.232`
+- SSH: `ssh -i ~/.ssh/fabt-oracle ubuntu@$VM_HOST`. Set `VM_HOST` from `~/.ssh/config` alias or a local env var sourced before opening the window — **never paste the raw IP into any commit** (per `feedback_no_ip_in_repo.md`).
 
 ---
 
@@ -195,7 +195,7 @@ If any are red, **abort**. Do not tag.
 ### 2. Verify v0.47.0 is live + healthy
 
 ```bash
-ssh -i ~/.ssh/fabt-oracle ubuntu@150.136.221.232
+ssh -i ~/.ssh/fabt-oracle ubuntu@$VM_HOST
 
 # Version probe
 curl -s https://findabed.org/api/v1/version | jq .
@@ -285,13 +285,17 @@ If any step fails: **abort** — triage the migration before tag.
 cd ~/finding-a-bed-tonight
 git fetch origin
 git checkout v0.48.0
+source ~/fabt-secrets/.env.prod
 
 docker compose \
-    -f docker-compose.yml \
     -f ~/fabt-secrets/docker-compose.prod.yml \
-    -f docker-compose.prod-v0.43-flyway-ooo.yml \
-    -f docker-compose.prod-v0.44-pgaudit.yml \
+    -f ~/fabt-secrets/docker-compose.prod-v0.43-flyway-ooo.yml \
+    -f ~/fabt-secrets/docker-compose.prod-v0.44-pgaudit.yml \
+    --env-file ~/fabt-secrets/.env.prod \
     config > /tmp/v0.48-config.rendered.yml
+# Note: base docker-compose.yml is implicit via CWD (no -f needed). If the
+# diff below is non-empty on the prometheus service, that's EXPECTED — see
+# "Prometheus config reconciliation" note in "What Does NOT Change" table.
 
 # Compare with the currently-running v0.47 render
 diff /tmp/v0.47-config.rendered.yml /tmp/v0.48-config.rendered.yml
@@ -309,7 +313,7 @@ backup before any migration apply. V76/V77 touch `tenant`, `app_user`,
 `shelter`, `shelter_constraints`, `bed_availability` — identity data.
 
 ```bash
-ssh -i ~/.ssh/fabt-oracle ubuntu@150.136.221.232
+ssh -i ~/.ssh/fabt-oracle ubuntu@$VM_HOST
 
 # Create dump (custom-archive format per v0.43.1 precedent — NOT .sql.gz)
 DUMP_FILE=~/fabt-backups/fabt-pre-v0.48-$(date +%Y%m%d-%H%M%S).dump
@@ -365,7 +369,7 @@ git push origin v0.48.0
 ### 1. Checkout tag + preserve last-good backend image
 
 ```bash
-ssh -i ~/.ssh/fabt-oracle ubuntu@150.136.221.232
+ssh -i ~/.ssh/fabt-oracle ubuntu@$VM_HOST
 cd ~/finding-a-bed-tonight
 git fetch --tags origin
 git checkout v0.48.0
@@ -376,58 +380,68 @@ docker images fabt-backend
 # Expect two tags now: latest + v0.47.0-lastgood
 ```
 
-### 2. Build backend JAR + image (mvn clean package + docker --no-cache)
+### 2. Build backend JAR (mvn clean package)
 
 **Per `feedback_deploy_old_jars.md` + `feedback_deploy_checklist_v031.md` —
-NEVER skip `clean`; ALWAYS use `--no-cache`.**
+NEVER skip `clean`.**
 
 ```bash
 cd ~/finding-a-bed-tonight/backend
 mvn clean package -DskipTests
+
 # Verify JAR is timestamped NOW + contains v0.48.0 in name
 ls -la target/finding-a-bed-tonight-0.48.0.jar
+```
 
-cd ~/finding-a-bed-tonight
-docker build --no-cache -t fabt-backend:latest -f deploy/backend.Dockerfile .
+The backend Docker image is built by `docker compose build` in step 4, which
+reads the `build:` block in `~/fabt-secrets/docker-compose.prod.yml` to
+locate the Dockerfile (`infra/docker/Dockerfile.backend`). Don't run
+`docker build -f infra/docker/Dockerfile.backend .` here — let compose do
+it so the operator-managed prod override stays authoritative.
 
-# Verify image SHA is new (not reused from v0.47 cached layer)
+### 3. Preserve last-good backend image (fast rollback)
+
+Per the v0.44.1+ pattern:
+
+```bash
+docker tag fabt-backend:latest fabt-backend:v0.47.0-lastgood
 docker images fabt-backend --format '{{.Tag}} {{.ID}} {{.CreatedAt}}'
+# Expect two tags: latest + v0.47.0-lastgood pointing at the same image ID.
+# After step 4's --build, latest will advance; lastgood stays pinned at v0.47.
 ```
 
-### 3. Build frontend (SW cycle applies)
-
-```bash
-cd ~/finding-a-bed-tonight/frontend
-npm ci
-npm run build
-
-# Verify new asset hashes (SW will cycle on next visit)
-ls -la dist/assets/index-*.js | head -3
-```
-
-### 4. Restart backend + frontend only (no Postgres, no Prometheus)
+### 4. Restart backend + frontend via `docker compose up --build`
 
 ```bash
 cd ~/finding-a-bed-tonight
+source ~/fabt-secrets/.env.prod
 
 docker compose \
-    -f docker-compose.yml \
     -f ~/fabt-secrets/docker-compose.prod.yml \
-    -f docker-compose.prod-v0.43-flyway-ooo.yml \
-    -f docker-compose.prod-v0.44-pgaudit.yml \
-    up -d --build backend
+    -f ~/fabt-secrets/docker-compose.prod-v0.43-flyway-ooo.yml \
+    -f ~/fabt-secrets/docker-compose.prod-v0.44-pgaudit.yml \
+    --env-file ~/fabt-secrets/.env.prod \
+    up -d --build backend frontend
 
 # Tail backend logs for Flyway V76 + V77 apply success
-docker logs -f finding-a-bed-tonight-backend-1 2>&1 | grep -iE "flyway|V76|V77|Started|error"
+docker logs -f fabt-backend 2>&1 | grep -iE "flyway|V76|V77|Started|error"
 # Expected messages:
 #   Migrating schema "public" to version "76 - seed blue ridge demo tenant"
 #   Successfully applied 2 migrations to schema "public", now at version v77
 #   Started Application in N seconds
 # ^C after "Started Application"
-
-# Restart nginx/frontend container to pick up new built assets
-docker compose ... restart frontend
 ```
+
+`--build` rebuilds both images from source; `docker compose` honors
+`--no-cache` semantics via its build cache invalidation (Dockerfile content
+SHA changes force rebuild). If you want to be extra defensive against
+layer-cache staleness, `docker compose build --no-cache backend frontend`
+first, then `up -d` — but this doubles the window.
+
+The `frontend` service rebuilds from `infra/docker/Dockerfile.frontend`
+which runs `npm ci && npm run build` inside the build stage and copies
+the resulting `dist/` into the nginx runtime stage. No separate
+`npm run build` on the host is needed.
 
 Expected total window: **~2-3 minutes**. No Postgres restart — pgaudit
 keeps flowing. No Prometheus restart — alerts stay alive.
@@ -607,7 +621,7 @@ For database corruption, cross-tenant data leak, or Phase B FORCE RLS
 downgrade: full revert required.
 
 ```bash
-ssh -i ~/.ssh/fabt-oracle ubuntu@150.136.221.232
+ssh -i ~/.ssh/fabt-oracle ubuntu@$VM_HOST
 cd ~/finding-a-bed-tonight
 
 # Restore the pg_dump from pre-deploy step 5
@@ -754,7 +768,7 @@ service. If Playwright starts returning 422 too, pause and escalate.
 
 ```bash
 # On VM
-ssh -i ~/.ssh/fabt-oracle ubuntu@150.136.221.232
+ssh -i ~/.ssh/fabt-oracle ubuntu@$VM_HOST
 cd ~/finding-a-bed-tonight
 
 # Pre-deploy
@@ -762,19 +776,16 @@ git fetch --tags origin && git checkout v0.48.0
 docker tag fabt-backend:latest fabt-backend:v0.47.0-lastgood
 pg_dump -Fc backup → ~/fabt-backups/fabt-pre-v0.48-*.dump
 
-# Build
+# Build + deploy (docker compose builds both backend + frontend from Dockerfiles in infra/docker/)
 cd backend && mvn clean package -DskipTests
-cd .. && docker build --no-cache -t fabt-backend:latest -f deploy/backend.Dockerfile .
-cd frontend && npm ci && npm run build
-
-# Deploy
 cd ~/finding-a-bed-tonight
-docker compose -f docker-compose.yml \
+source ~/fabt-secrets/.env.prod
+docker compose \
     -f ~/fabt-secrets/docker-compose.prod.yml \
-    -f docker-compose.prod-v0.43-flyway-ooo.yml \
-    -f docker-compose.prod-v0.44-pgaudit.yml \
-    up -d --build backend
-docker compose ... restart frontend
+    -f ~/fabt-secrets/docker-compose.prod-v0.43-flyway-ooo.yml \
+    -f ~/fabt-secrets/docker-compose.prod-v0.44-pgaudit.yml \
+    --env-file ~/fabt-secrets/.env.prod \
+    up -d --build backend frontend
 
 # Verify
 curl https://findabed.org/api/v1/version  # expect 0.48.0
