@@ -137,6 +137,13 @@ Per `~/OneDrive/Documents/Ark Public Technology LLC/alertmanager-operator-setup.
 grep -c "^FABT_ALERT_" ~/fabt-secrets/.env.prod
 # expect: 8 (SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD,
 #           EMAIL_FROM, EMAIL_TO, NTFY_URL, NTFY_TOPIC)
+
+# Critical format check — bash sourcing requires KEY=value with NO whitespace
+# around the `=`. A trailing space after `=` (e.g. `FABT_ALERT_NTFY_TOPIC= xyz`)
+# breaks `source <(grep ^FABT_ALERT_ .env.prod)` at render time. Caught
+# during v0.49 deploy.
+grep -nE "^FABT_ALERT_[A-Z_]*= " ~/fabt-secrets/.env.prod
+# expect: NO output. If any line shows, fix the trailing space before proceeding.
 ```
 
 If count < 8: return to the operator-setup guide; do not proceed.
@@ -235,8 +242,13 @@ envsubst '$FABT_ALERT_SMTP_HOST $FABT_ALERT_SMTP_PORT $FABT_ALERT_SMTP_USER $FAB
     < deploy/alertmanager.yml.tmpl \
     > ~/fabt-secrets/alertmanager.yml
 
-# Protect the rendered file (contains SMTP password)
-chmod 600 ~/fabt-secrets/alertmanager.yml
+# Protect the rendered file (contains SMTP password). Must be 644 (NOT 600) —
+# the alertmanager container runs as UID 65534 (nobody), distinct from the
+# host file owner (ubuntu, UID 1000); 600 would prevent the container from
+# reading the config and cause a config-load failure on startup. Parent dir
+# ~/fabt-secrets is 700 so host non-root users still can't read the file.
+# Caught during v0.49 deploy.
+chmod 644 ~/fabt-secrets/alertmanager.yml
 
 # Sanity check — should have no remaining ${} placeholders
 grep -c '\${FABT_' ~/fabt-secrets/alertmanager.yml
@@ -288,9 +300,10 @@ docker build --no-cache \
 
 Frontend is NOT rebuilt (no frontend change in v0.49).
 
-### 5. Start alertmanager + recreate backend + reload prometheus
+### 5. Start alertmanager + recreate backend + frontend + reload prometheus
 
-Three things happen here, in order:
+Four things happen here, in order (steps 1-3 bundled in the same
+`up -d --force-recreate`; step 4 is a separate SIGHUP):
 
 1. **Start alertmanager** (new container) — picks up the rendered config
    bind-mounted from `~/fabt-secrets/alertmanager.yml`.
@@ -299,14 +312,20 @@ Three things happen here, in order:
    on prod since the rows are already hot-patched, but records V78 in
    `flyway_schema_history`). `/actuator/info` then reports v0.49.0
    accurately.
-3. **SIGHUP Prometheus** (no container restart) — reloads `prometheus.yml`
+3. **Recreate frontend** (same image, no rebuild) — refreshes
+   docker-network state so host nginx → frontend upstream pool points at
+   the live container. Without this, backend recreate alone leaves
+   frontend pinned to stale network state and host nginx serves sustained
+   502s until manual recreate. Caught during v0.49 deploy. Matches the
+   recreate pattern from v0.47/v0.48.
+4. **SIGHUP Prometheus** (no container restart) — reloads `prometheus.yml`
    so the new `alerting:` block takes effect. Possible because the
    `--web.enable-lifecycle` flag has been active since v0.47.
 
 ```bash
 source ~/fabt-secrets/.env.prod
 
-# 1 + 2: alertmanager + backend together
+# 1 + 2 + 3: alertmanager + backend + frontend together
 docker compose \
     -f docker-compose.yml \
     -f ~/fabt-secrets/docker-compose.prod.yml \
@@ -314,20 +333,22 @@ docker compose \
     -f ~/fabt-secrets/docker-compose.prod-v0.44-pgaudit.yml \
     --env-file ~/fabt-secrets/.env.prod \
     --profile observability --profile alerting \
-    up -d --force-recreate alertmanager backend
+    up -d --force-recreate alertmanager backend frontend
 
-# Wait for backend to come back (Flyway runs during startup; public
-# /actuator/health path is unauthenticated for load-balancer probes)
-until curl -fsS https://findabed.org/actuator/health 2>/dev/null | grep -q '"status":"UP"'; do
+# Wait for backend to come back (Flyway runs during startup). Actuator binds
+# to port 9091 localhost-only — the public URL returns 404 (v0.47 Lesson 3).
+# Management port permits unauthenticated /actuator/health for probes.
+until curl -fsS http://localhost:9091/actuator/health 2>/dev/null | grep -q '"status":"UP"'; do
     echo "waiting for backend..."; sleep 3
 done
 echo "backend is UP"
 
-# 3: Prometheus reload (picks up new alerting: block)
+# 4: Prometheus reload (picks up new alerting: block)
 curl -s -XPOST http://localhost:9090/-/reload
 # Expect: empty response + 200
 
-# Frontend NOT recreated (no frontend change, no rebuild in step 4)
+# Frontend was recreated alongside backend above — same image, no rebuild;
+# the recreate refreshes docker-network state so host nginx routes correctly.
 ```
 
 ---
