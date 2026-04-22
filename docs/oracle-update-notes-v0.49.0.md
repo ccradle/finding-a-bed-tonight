@@ -1,5 +1,36 @@
 # Oracle Deploy Notes — v0.49.0 (Alertmanager routing: Prometheus → email + ntfy push)
 
+> **Template version:** runbook-template-v1 (back-converted 2026-04-22 as worked example)
+> This is the canonical worked example for the deploy runbook template. See `docs/runbook-template.md`.
+
+---
+
+## 1. Consulted Memories
+
+```yaml
+consulted:
+  - file: feedback_prod_docker_build_pattern.md
+    # why-cited: explicit docker build + --force-recreate required; three no-op traps
+  - file: feedback_bind_mount_inode_pitfall.md
+    # why-cited: prometheus.yml git-checkout on VM → --force-recreate, not /-/reload
+  - file: feedback_deploy_old_jars.md
+    # why-cited: mvn clean required before docker build to avoid stale JAR
+  - file: project_live_deployment_status.md
+    # why-cited: confirmed prod was on v0.48.0 (not v0.48.1), compose chain, Flyway HWM
+  - file: feedback_release_after_scans.md
+    # why-cited: GitHub release created only after CI green
+  - file: feedback_never_print_rendered_secrets.md
+    not-applicable: created mid-deploy (SMTP password leaked during v0.49 — this memory did not exist at author time; now back-cited as the lesson)
+  - file: feedback_verify_doc_facts_against_source.md
+    not-applicable: created mid-deploy (fabricated rule names + tenant slugs in triage runbook — this memory did not exist at author time; now back-cited as the lesson)
+  - file: feedback_smoke_spec_default_target.md
+    not-applicable: smoke gate was skipped entirely in this runbook (v0.49 issue; now a mandatory gate in the template)
+```
+
+---
+
+## 2. Scope & Non-Scope
+
 **From:** v0.48.0 live at `findabed.org` (NOTE: v0.48.1 was tagged
 2026-04-20 but **never shipped to prod** as a separate deploy — its
 content rolls forward into v0.49.0). Current prod state: 3 tenants, 9
@@ -103,7 +134,19 @@ now deliver through the pipeline. No new rules added in this release.
 
 ---
 
-## Pre-deploy sanity
+## 3. Service-Recreate Matrix
+
+| Service | What triggers recreate | Changed? | Recreate required? |
+|---|---|---|---|
+| `backend` + `frontend` | Any backend image rebuild — recreating backend without frontend leaves docker-network stale; host nginx serves 502s until both recreated. **This row is the v0.49 issue #3 lesson; deploy step 5 was originally missing `frontend` here, fixed in commit `def9ea7`.** | ☑ | ☑ |
+| `prometheus` | `prometheus.yml` replaced via `git checkout` / `git pull` — inode changes, `/-/reload` insufficient | ☑ (alerting block added) | ☑ via `curl -XPOST /-/reload` (acceptable here because `prometheus.yml` was edited in-place on VM — no git checkout; inode unchanged) |
+| `alertmanager` | New container — first deploy; rendered `~/fabt-secrets/alertmanager.yml` bind-mounted | ☑ (new container) | ☑ |
+| `postgres` | No pgaudit.conf change in this release | ☐ | ☐ |
+| Host `nginx` | No nginx config change in this release | ☐ | ☐ |
+
+---
+
+## 4. Pre-Deploy Gates
 
 ### 1a. Confirm v0.48.1 hot-patch is still intact on prod
 
@@ -131,7 +174,7 @@ docker exec finding-a-bed-tonight-postgres-1 psql -U fabt -d fabt -tAc "
 
 ### 1. Confirm 8 operator env vars present in `~/fabt-secrets/.env.prod`
 
-Per `~/OneDrive/Documents/Ark Public Technology LLC/alertmanager-operator-setup.md`:
+Per the alertmanager operator setup guide (operator local docs, not in repo):
 
 ```bash
 grep -c "^FABT_ALERT_" ~/fabt-secrets/.env.prod
@@ -205,7 +248,7 @@ test -f /tmp/v0.48-config.rendered.yml && \
 
 ---
 
-## Deploy steps
+## 5. Deploy Steps
 
 ### 1. Preserve last-good backend image
 
@@ -353,7 +396,7 @@ curl -s -XPOST http://localhost:9090/-/reload
 
 ---
 
-## Post-deploy sanity
+## 6. Post-Deploy Gates
 
 ### 1. Alertmanager is up + config accepted
 
@@ -366,8 +409,8 @@ docker ps | grep alertmanager
 curl -s http://localhost:9093/api/v2/status | python3 -m json.tool | head -30
 # expect: versionInfo with "v0.27.0", no configError
 
-# Rendered config loaded (no ${} placeholders visible)
-docker exec <alertmanager-container-name> cat /etc/alertmanager/alertmanager.yml | grep -c '\${FABT_'
+# Rendered config: zero unresolved placeholders (structural check only — do NOT cat the file)
+docker exec <alertmanager-container-name> grep -c '\${FABT_' /etc/alertmanager/alertmanager.yml
 # expect: 0
 ```
 
@@ -457,7 +500,7 @@ regressed:
 # From laptop — Blue Ridge
 T=$(curl -s -X POST https://findabed.org/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"tenantSlug":"dev-coc-west","email":"dv-coordinator@blueridge.fabt.org","password":"admin123"}' \
+  -d '{"tenantSlug":"dev-coc-west","email":"dv-coordinator@blueridge.fabt.org","password":"<seed-password>"}' \
   | python -c "import sys,json; print(json.load(sys.stdin).get('accessToken',''))")
 curl -s -H "Authorization: Bearer $T" https://findabed.org/api/v1/dv-referrals/pending/count
 # Expected: {"count":N, "firstPending":...}  — count may be 0 if no pending
@@ -476,7 +519,7 @@ curl -s http://localhost:9090/api/v1/rules | python3 -c \
 
 ---
 
-## Rollback
+## 7. Rollback Matrix
 
 V0.49 adds capability but doesn't change existing behavior. If
 Alertmanager causes any issue:
@@ -506,7 +549,7 @@ Backend is unchanged; no backend rollback needed.
 
 ---
 
-## After deploy succeeds
+## 8. Post-Deploy Housekeeping
 
 1. **Delete the v0.49 test alert** from the Alertmanager UI (the firing
    `FabtV049DeployTest` alert will self-resolve after ~5 min; speed it
@@ -547,6 +590,28 @@ Backend is unchanged; no backend rollback needed.
    - Demo-tier (no BAA, ntfy public topic with long-random shared-secret
      name). Regulated-tier escalation path documented in
      `docs/security/compliance-posture-matrix.md` — Phase F territory
+
+---
+
+### Lessons Surfaced (v0.49 deploy — 10 issues)
+
+The following issues hit during the v0.49 live deploy on 2026-04-20. Each entry
+records whether the lesson was already in a memory file (missed) or is new.
+
+| # | Issue | Pre-existing memory? | Outcome |
+|---|---|---|---|
+| 1 | Env-var trailing-space (`FABT_ALERT_NTFY_TOPIC= xyz`) breaks `source <(grep ...)` | No — new lesson | New pre-deploy gate added to `docs/runbook-template.md` |
+| 2 | `chmod 644` needed (not 600) — alertmanager container runs as UID 65534 (`nobody`) | No — new lesson | New pre-deploy gate added to template |
+| 3 | `--force-recreate` must include `frontend` — backend-only recreate leaves docker-network stale | Yes — `feedback_prod_docker_build_pattern.md` (MISSED) | Service-recreate matrix row (a) explicitly calls this out |
+| 4 | Wait-loop must use `http://localhost:9091/actuator/health`, not public URL | Yes — `project_live_deployment_status.md` Lesson 3 (MISSED) | Now in template § Deploy Steps wait loop with callout |
+| 5 | Prometheus `external_labels` invisible to local PromQL — use `scrape_configs.labels` | Yes — `feedback_prometheus_external_labels_gotcha.md` (MISSED) | Not a deploy step, but cited in memory index |
+| 6 | Docker bind-mount `prometheus.yml` inode pitfall — `git checkout` = new inode, `/-/reload` fails | Yes — `feedback_bind_mount_inode_pitfall.md` (MISSED) | Service-recreate matrix row (b) + pre-deploy gate |
+| 7 | Playwright smoke gate omitted entirely — no end-to-end verification ran | Yes — implied by `feedback_smoke_spec_default_target.md` (MISSED) | Now a mandatory numbered post-deploy gate in template |
+| 8 | Alertmanager template `default` (Sprig) not available in v0.27.0 — `function "default" not defined` | No — new lesson | `feedback_alertmanager_template_funcs.md` created; deploy fixed in commit `47d348d` |
+| 9 | SMTP password leaked to transcript via `grep ~/fabt-secrets/alertmanager.yml` | No — new lesson | `feedback_never_print_rendered_secrets.md` created; Gmail app password rotated |
+| 10 | Fabricated rule names + tenant slugs in `alertmanager-triage-runbook.md` | No — new lesson | `feedback_verify_doc_facts_against_source.md` created; triage runbook rewritten against source |
+
+**Pattern:** issues 3–7 all had pre-existing memory entries that the runbook author did not consult. The `consulted:` frontmatter block above lists what SHOULD have been reviewed; the `not-applicable:` entries flag the two memories that didn't exist yet.
 
 ---
 
