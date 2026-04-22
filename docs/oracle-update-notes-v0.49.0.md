@@ -174,7 +174,7 @@ docker exec finding-a-bed-tonight-postgres-1 psql -U fabt -d fabt -tAc "
 
 ### 1. Confirm 8 operator env vars present in `~/fabt-secrets/.env.prod`
 
-Per `~/OneDrive/Documents/Ark Public Technology LLC/alertmanager-operator-setup.md`:
+Per the alertmanager operator setup guide (operator local docs, not in repo):
 
 ```bash
 grep -c "^FABT_ALERT_" ~/fabt-secrets/.env.prod
@@ -409,8 +409,8 @@ docker ps | grep alertmanager
 curl -s http://localhost:9093/api/v2/status | python3 -m json.tool | head -30
 # expect: versionInfo with "v0.27.0", no configError
 
-# Rendered config loaded (no ${} placeholders visible)
-docker exec <alertmanager-container-name> cat /etc/alertmanager/alertmanager.yml | grep -c '\${FABT_'
+# Rendered config: zero unresolved placeholders (structural check only — do NOT cat the file)
+docker exec <alertmanager-container-name> grep -c '\${FABT_' /etc/alertmanager/alertmanager.yml
 # expect: 0
 ```
 
@@ -500,7 +500,7 @@ regressed:
 # From laptop — Blue Ridge
 T=$(curl -s -X POST https://findabed.org/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"tenantSlug":"dev-coc-west","email":"dv-coordinator@blueridge.fabt.org","password":"admin123"}' \
+  -d '{"tenantSlug":"dev-coc-west","email":"dv-coordinator@blueridge.fabt.org","password":"<seed-password>"}' \
   | python -c "import sys,json; print(json.load(sys.stdin).get('accessToken',''))")
 curl -s -H "Authorization: Bearer $T" https://findabed.org/api/v1/dv-referrals/pending/count
 # Expected: {"count":N, "firstPending":...}  — count may be 0 if no pending
