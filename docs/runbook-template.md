@@ -137,7 +137,19 @@ Use `feedback_prod_docker_build_pattern.md` for the canonical build sequence:
 1. `mvn clean package -DskipTests -q`
 2. `docker build --no-cache -f infra/docker/Dockerfile.backend -t fabt-backend:vNEW -t fabt-backend:latest .`
 3. `docker build --no-cache -f infra/docker/Dockerfile.frontend -t fabt-frontend:vNEW -t fabt-frontend:latest .` (skip if no frontend change)
-4. `docker compose -f docker-compose.yml -f ... up -d --force-recreate backend frontend`
+4. `docker compose <FULL_CHAIN> --env-file ~/fabt-secrets/.env.prod --profile alerting up -d --force-recreate backend frontend`
+
+> **`<FULL_CHAIN>` — every compose override must be included.** Per
+> `project_live_deployment_status.md`, the live stack uses a 4-file chain:
+> ```
+> -f docker-compose.yml \
+> -f ~/fabt-secrets/docker-compose.prod.yml \
+> -f ~/fabt-secrets/docker-compose.prod-v0.43-flyway-ooo.yml \
+> -f ~/fabt-secrets/docker-compose.prod-v0.44-pgaudit.yml
+> ```
+> Omitting `prod-v0.44-pgaudit.yml` causes compose to recreate `postgres` with
+> stock `postgres:16-alpine` (lacking pgaudit config dir), triggering a crash
+> loop and cascading backend failure. (v0.50 post-deploy lesson.)
 
 ### N. Wait for backend readiness
 
@@ -158,15 +170,32 @@ Run every gate; record the actual value alongside the expected.
 ### Mandatory smoke gate
 
 ```bash
-# Must use BASE_URL override — smoke specs default to localhost (feedback_smoke_spec_default_target.md)
-cd e2e/playwright && BASE_URL=https://findabed.org npx playwright test \
-    --config=deploy/playwright.config.ts --reporter=list --trace on \
+# - FABT_BASE_URL (NOT BASE_URL) is what post-deploy-smoke.spec.ts reads directly
+# - --config selects the deploy-isolated config (feedback_deploy_verify_isolation.md)
+# - `post-deploy-smoke` positional filter restricts to the smoke spec only
+#   (the deploy/ config glob picks up old version-specific specs like
+#   deploy-verify-v0.29.x that would fail-by-design against the current version)
+cd e2e/playwright && FABT_BASE_URL=https://findabed.org npx playwright test \
+    --config=deploy/playwright.config.ts --project=chromium \
+    --reporter=list --trace on post-deploy-smoke \
     2>&1 | tee ../../logs/post-deploy-smoke-vX.Y.Z.log
 ```
 
 > **Do NOT skip this gate.** The smoke is the only test that exercises the full
 > Cloudflare → host nginx → frontend → backend chain. It is a numbered gate,
 > not an "if time permits" footnote.
+
+> **Known prod flake:** The 15-test suite rapidly triggers 16+ requests to
+> `/api/v1/version` within ~60s, exceeding the `public_api` nginx zone
+> (10r/m, burst=5). Cloudflare caches that endpoint for organic traffic but
+> Playwright's fresh-session bursts can outpace the cache warmup and hit the
+> origin rate limit directly. Symptom: test 13 or 14 fails with
+> `app-tenant-name-footer` not found (the `{appVersion && ...}` guard is
+> false when `/api/v1/version` returns 429). If you see only ONE test fail
+> in the footer-render pair (13/14), re-run that test alone:
+> `npx playwright test ... post-deploy-smoke -g "13\."`. A pass-on-retry
+> confirms rate-limit flake, not a deploy regression. (v0.50 post-deploy
+> lesson; first observed in rehearsal — see `feedback_deploy_rehearsal_lessons.md`.)
 
 ### Version check
 
