@@ -373,7 +373,9 @@ cd "$REPO_ROOT/e2e/playwright"
 # early-exit before PIPESTATUS is captured and the gate message is printed.
 set +e
 FABT_BASE_URL=http://localhost:18081 \
-    npx playwright test ./deploy/post-deploy-smoke.spec.ts \
+    BASE_URL=http://localhost:18081 \
+    npx playwright test --config=deploy/playwright.config.ts \
+    post-deploy-smoke \
     --project chromium \
     --trace on \
     --reporter=list \
