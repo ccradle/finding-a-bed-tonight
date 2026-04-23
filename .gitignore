@@ -64,6 +64,9 @@ yarn-error.log*
 .env.local
 .env.*.local
 *.env
+.env.rehearsal
+# Rehearsal rendered config (contains stub credentials)
+.fabt-rehearsal/
 
 # Logs
 logs/

@@ -1675,6 +1675,79 @@ curl -X DELETE http://localhost:8080/api/v1/test/reset \
 
 ---
 
+## Pre-tag Rehearsal
+
+Before tagging any release, the operator runs the deploy rehearsal harness on their laptop to catch the class of failures that only appear in a prod-mirror environment (wrong env var values, UID/perm mismatches, compose merge errors, alertmanager routing failures).
+
+```bash
+# One-time setup: copy stub env file and customize if needed
+cp deploy/rehearsal.env.example .env.rehearsal
+
+# Run the full rehearsal (≈10 minutes)
+make rehearse-deploy
+```
+
+### Operator-laptop prerequisites
+
+Most of these are already present from regular dev work:
+
+| Tool | Why needed |
+|---|---|
+| Docker Desktop (Engine 24+) | Runs rehearsal containers; `docker compose alpha dry-run` requires Engine 24+ |
+| Maven (`mvn`) | Backend build (`mvn clean package -DskipTests`) |
+| Node 20+ + Playwright (`npx playwright`) | Playwright smoke spec |
+| `jq` | JSON parsing in health-check assertions |
+| `envsubst` | Renders `deploy/alertmanager.yml.tmpl` → `~/.fabt-rehearsal/alertmanager.yml` |
+| Python 3 | ntfy stub HTTP server (built-in `http.server`; no pip install) |
+
+### Harness flow (10 gates)
+
+1. **Prereq check** — fail loud if `docker`, `envsubst`, `mvn`, `jq`, or `npx playwright` is missing
+2. **Trailing-space env-var lint** — catches `KEY= value` typos that silently blank the var inside Docker (v0.49 incident #1)
+3. **envsubst render** — renders alertmanager config from template; sets file to `644` so container UID 65534 can read it (v0.49 incident #2)
+4. **Container UID / host file perm check** — verifies alertmanager and prometheus images' UIDs can actually read the bind-mounted files
+5. **Compose merge dry-render** — validates the full overlay merge without starting containers
+6. **Build** — `mvn clean package -DskipTests` + `docker build --no-cache` for backend and frontend; skippable with `REHEARSAL_SKIP_BUILD=1` if JAR is fresh
+7. **Force-recreate start** — starts backend, frontend, alertmanager, prometheus, mailpit via `--force-recreate` (exercises the full recreate matrix, not just `docker compose up`)
+8. **Health checks** — polls VM-internal endpoints: `localhost:19091/actuator/health`, `localhost:19093/-/healthy`, `localhost:19090/-/ready`
+9. **Synthetic alert routing** — fires a `FabtRehearsalTest` CRITICAL alert via `amtool` (bundled in the alertmanager image); asserts Mailpit HTTP API shows receipt and ntfy stub log shows POST
+10. **Playwright smoke** — runs `./deploy/post-deploy-smoke.spec.ts` against `http://localhost:18081` (rehearsal nginx); trace saved to `logs/`
+
+**What the harness catches:** env-var typos, perm mismatches on bind-mounts, compose overlay merge errors, misconfigured alertmanager routing, backend startup failures, nginx proxy misconfiguration.
+
+**What it does not catch:** CDN edge-cache behavior, Oracle-specific networking, TLS cert issues, production data migrations (no prod data in rehearsal).
+
+### Ports used
+
+Rehearsal services run on +10000 offsets so they can coexist with the dev stack:
+
+| Service | Dev port | Rehearsal port |
+|---|---|---|
+| Backend HTTP | 8080 | 18080 |
+| Backend actuator | 9091 | 19091 |
+| nginx (frontend) | 8081 | 18081 |
+| Alertmanager | 9093 | 19093 |
+| Prometheus | 9090 | 19090 |
+| Mailpit SMTP | — | 11025 |
+| Mailpit HTTP UI | — | 18025 |
+
+### Pass / fail output
+
+```
+REHEARSAL PASS — safe to tag 20260422-143012
+```
+
+or
+
+```
+REHEARSAL FAIL — DO NOT TAG (gate: health-checks)
+Artifacts preserved at /tmp/deploy-rehearsal-20260422-143012/
+```
+
+Rehearsal containers are torn down on both pass and fail. Artifacts (compose config, UID check log, smoke trace) are preserved under `/tmp/deploy-rehearsal-<timestamp>/`.
+
+---
+
 ## Troubleshooting
 
 ### Testcontainers "Could not find valid Docker environment"

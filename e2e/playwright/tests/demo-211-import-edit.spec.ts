@@ -171,7 +171,7 @@ test.describe('211 Import — negative cases', () => {
     }
 
     // Should show an error
-    await expect(adminPage.locator('[role="alert"], [data-testid="error-message"]')).toBeVisible({ timeout: 5000 });
+    await expect(adminPage.locator('[role="alert"]:not([data-testid="critical-notification-banner"])')).toBeVisible({ timeout: 5000 });
   });
 
   test('headers-only file shows error message', async ({ adminPage }) => {
@@ -189,7 +189,7 @@ test.describe('211 Import — negative cases', () => {
       await previewBtn.click();
     }
 
-    await expect(adminPage.locator('[role="alert"], [data-testid="error-message"]')).toBeVisible({ timeout: 5000 });
+    await expect(adminPage.locator('[role="alert"]:not([data-testid="critical-notification-banner"])')).toBeVisible({ timeout: 5000 });
   });
 
   test('CSV injection payloads are sanitized on import', async ({ adminPage }) => {

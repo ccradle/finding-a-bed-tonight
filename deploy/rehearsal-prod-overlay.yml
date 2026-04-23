@@ -1,0 +1,116 @@
+# Rehearsal compose overlay — mirrors prod docker-compose override structure
+# with stub values. Used by scripts/deploy-rehearsal.sh.
+#
+# Invoke via:
+#   docker compose \
+#     -f docker-compose.yml \
+#     -f deploy/rehearsal-prod-overlay.yml \
+#     --env-file .env.rehearsal \
+#     --profile alerting \
+#     -p fabt-rehearsal \
+#     up -d --force-recreate backend frontend alertmanager prometheus
+#
+# COMPOSE_PROJECT_NAME=fabt-rehearsal isolates rehearsal containers from the
+# operator's running dev stack. Ports are offset (+10000) so both stacks can
+# coexist if needed — backend on 18080, nginx on 18081, alertmanager on 19093.
+#
+# All env vars are sourced from .env.rehearsal (gitignored; copy from
+# deploy/rehearsal.env.example). No real secrets are ever in this file.
+
+name: fabt-rehearsal
+
+services:
+
+  # ── Backend ─────────────────────────────────────────────────────────────────
+  # Prod mirrors this: operator's override adds the backend service built from
+  # Dockerfile.backend, with env vars sourced from .env.prod.
+  backend:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.backend
+    image: fabt-backend:rehearsal
+    container_name: fabt-rehearsal-backend
+    ports:
+      - "18080:8080"
+      - "19091:9091"
+    environment:
+      SPRING_PROFILES_ACTIVE: lite,observability
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/fabt
+      SPRING_DATASOURCE_USERNAME: ${FABT_DB_APP_USER}
+      SPRING_DATASOURCE_PASSWORD: ${FABT_DB_APP_PASSWORD}
+      SPRING_FLYWAY_URL: jdbc:postgresql://postgres:5432/fabt
+      SPRING_FLYWAY_USER: ${FABT_DB_OWNER_USER}
+      SPRING_FLYWAY_PASSWORD: ${FABT_DB_OWNER_PASSWORD}
+      FABT_DB_POOL_SIZE: ${FABT_DB_POOL_SIZE}
+      FABT_JWT_SECRET: ${FABT_JWT_SECRET}
+      FABT_JWT_ACCESS_TOKEN_EXPIRY_MINUTES: ${FABT_JWT_ACCESS_TOKEN_EXPIRY_MINUTES}
+      FABT_ENCRYPTION_KEY: ${FABT_ENCRYPTION_KEY}
+      FABT_TOTP_ENCRYPTION_KEY: ${FABT_TOTP_ENCRYPTION_KEY}
+      FABT_CORS_ALLOWED_ORIGINS: ${FABT_CORS_ALLOWED_ORIGINS}
+      FABT_DEPLOYMENT_TIER: ${FABT_DEPLOYMENT_TIER}
+      FABT_NOAA_LAT: ${FABT_NOAA_LAT}
+      FABT_NOAA_LON: ${FABT_NOAA_LON}
+      FABT_NOAA_STATION: ${FABT_NOAA_STATION}
+      FABT_WEBHOOK_CONNECT_TIMEOUT_SECONDS: ${FABT_WEBHOOK_CONNECT_TIMEOUT_SECONDS}
+      FABT_WEBHOOK_READ_TIMEOUT_SECONDS: ${FABT_WEBHOOK_READ_TIMEOUT_SECONDS}
+      FABT_PANIC_ALERT_WEBHOOK: ${FABT_PANIC_ALERT_WEBHOOK:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9091/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
+  # ── Frontend (nginx) ────────────────────────────────────────────────────────
+  # Prod mirrors this: operator's override adds the frontend service built from
+  # Dockerfile.frontend, proxying to backend.
+  frontend:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.frontend
+    image: fabt-frontend:rehearsal
+    container_name: fabt-rehearsal-frontend
+    ports:
+      - "18081:80"
+    extra_hosts:
+      - "backend:host-gateway"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  # ── Alertmanager override ───────────────────────────────────────────────────
+  # Override the base alertmanager service: replace the template bind-mount
+  # with the rendered rehearsal config (mirrors prod's operator override).
+  alertmanager:
+    container_name: fabt-rehearsal-alertmanager
+    ports:
+      - "19093:9093"
+    volumes:
+      - ${HOME}/.fabt-rehearsal/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./deploy/alertmanager-templates.tmpl:/etc/alertmanager/templates/fabt.tmpl:ro
+
+  # ── Prometheus override ─────────────────────────────────────────────────────
+  # Override to use rehearsal port and scrape the rehearsal backend.
+  prometheus:
+    container_name: fabt-rehearsal-prometheus
+    ports:
+      - "19090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./deploy/prometheus:/etc/prometheus/rules:ro
+
+  # ── Mailpit SMTP stub ───────────────────────────────────────────────────────
+  # Captures all SMTP traffic from alertmanager. Inspectable via HTTP API on
+  # port 18025 (/api/v1/messages). No real email is ever sent.
+  # Activated via --profile alerting (mirrors alertmanager's profile).
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: fabt-rehearsal-mailpit
+    ports:
+      - "11025:1025"   # SMTP
+      - "18025:8025"   # HTTP UI + API
+    profiles:
+      - alerting
