@@ -17,6 +17,14 @@ public class Tenant {
     private JsonString config;
     private Instant createdAt;
     private Instant updatedAt;
+    /**
+     * Lifecycle state. Mirrors the {@code tenant_state} enum column declared in V60.
+     * Defaults to {@link TenantState#ACTIVE} so existing {@link org.fabt.tenant.service.TenantService}
+     * {@code create()} paths (which never touch state) match the DB default.
+     * Write-path state mutations flow exclusively through
+     * {@code TenantLifecycleService} once Phase F slice F-4 lands.
+     */
+    private TenantState state = TenantState.ACTIVE;
 
     public Tenant() {
     }
@@ -76,5 +84,13 @@ public class Tenant {
 
     public void setUpdatedAt(Instant updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public TenantState getState() {
+        return state;
+    }
+
+    public void setState(TenantState state) {
+        this.state = state;
     }
 }
