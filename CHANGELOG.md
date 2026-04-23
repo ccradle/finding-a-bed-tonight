@@ -5,6 +5,48 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.50.0] — Ops hardening: Phase D nginx header stripping + deploy rehearsal harness
+
+**Operations-tier release.** No backend code change, no schema migrations.
+Flyway HWM stays at V78. The only containers that change are `frontend`
+(nginx.conf baked into the image) and `alertmanager` (config re-rendered
+with new `FABT_ALERT_SMTP_REQUIRE_TLS` env var).
+
+**Operator action required before deploy:** add `FABT_ALERT_SMTP_REQUIRE_TLS=true`
+to `~/fabt-secrets/.env.prod` before re-rendering alertmanager.yml. If
+omitted, alertmanager will refuse to start (literal `${FABT_ALERT_SMTP_REQUIRE_TLS}`
+in the rendered config).
+
+### Added
+
+- **Phase D nginx tenant-header stripping (D11 defence-in-depth):** The
+  frontend nginx proxy now explicitly blanks `X-FABT-Tenant-Id`,
+  `X-Scope-OrgID`, and `X-Tenant-Id` on all proxied requests. Backend has
+  always resolved tenant from JWT claims only — this closes any future code
+  path that might accidentally trust a client-supplied header. Covered by
+  `e2e/playwright/tests/nginx-tenant-header-stripping.spec.ts`.
+
+- **Deploy rehearsal harness:** `make rehearse-deploy` runs a 10-gate
+  prod-mirror rehearsal on the operator laptop before any tag. Catches the
+  class of failure that produced the v0.49 post-deploy hotfixes (trailing-
+  space env vars, UID/perm mismatches, alertmanager routing errors).
+  Required within 72h of any release tag per `deploy/release-gate-pins.txt`.
+  First release the harness is used.
+
+- **`smtp_require_tls` parameterized:** `FABT_ALERT_SMTP_REQUIRE_TLS` env
+  var replaces a hardcoded value in `deploy/alertmanager.yml.tmpl`. Prod
+  stays `true` (Gmail). Allows the rehearsal harness to use Mailpit
+  (plaintext SMTP) without touching the production template.
+
+### Changed
+
+- **Docs:** Canonical runbook template (`docs/runbook-template.md`)
+  introduced. All `oracle-update-notes-vX.Y.Z.md` from this release onward
+  follow this template, including a `consulted-memories` YAML block
+  documenting which institutional-memory files applied during authoring.
+
+---
+
 ## [v0.49.0] — Operational alerting: Prometheus → Alertmanager → email + ntfy push (+ v0.48.1 roll-in)
 
 **Operations-tier release.** The 9 Prometheus rules (5 Phase B + 4 Phase C)

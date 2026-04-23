@@ -1,6 +1,6 @@
 # Oracle Deploy Notes — v0.50.0
 
-**Status:** DRAFT — do not tag until PR #149 (deploy-rehearsal-harness) merges and CI is green.
+**Status:** READY — PR #149 merged 2026-04-23; CI green.
 
 **Release summary:** Ops hardening bundle.
 - Phase D nginx tenant-header stripping (D11 defense-in-depth)
