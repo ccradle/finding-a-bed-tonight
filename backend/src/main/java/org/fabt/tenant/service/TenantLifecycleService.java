@@ -17,6 +17,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
@@ -52,17 +53,47 @@ public class TenantLifecycleService {
     private final ApiKeyService apiKeyService;
     private final ApplicationEventPublisher eventPublisher;
     private final JdbcTemplate jdbc;
+    private final TenantStateGuard tenantStateGuard;
 
     public TenantLifecycleService(TenantRepository tenantRepository,
                                    TenantKeyRotationService tenantKeyRotationService,
                                    ApiKeyService apiKeyService,
                                    ApplicationEventPublisher eventPublisher,
-                                   JdbcTemplate jdbc) {
+                                   JdbcTemplate jdbc,
+                                   TenantStateGuard tenantStateGuard) {
         this.tenantRepository = tenantRepository;
         this.tenantKeyRotationService = tenantKeyRotationService;
         this.apiKeyService = apiKeyService;
         this.eventPublisher = eventPublisher;
         this.jdbc = jdbc;
+        this.tenantStateGuard = tenantStateGuard;
+    }
+
+    /**
+     * Registers an after-commit hook to invalidate the {@link TenantStateGuard} cache
+     * for {@code tenantId}. Runs ONLY if the transaction commits — on rollback the
+     * state change didn't happen, so the cache entry is still correct. Without this
+     * hook, suspended tenants could continue serving reads for up to the 10s cache
+     * TTL; with it, the next request sees the new state within milliseconds.
+     */
+    private void scheduleStateCacheInvalidation(UUID tenantId) {
+        if (TransactionSynchronizationManager.isActualTransactionActive()
+            && TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(
+                new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        tenantStateGuard.invalidate(tenantId);
+                    }
+                });
+        } else {
+            // Defensive — callers shouldn't reach here (all public methods are
+            // @Transactional and Spring enables synchronization within the tx
+            // boundary). Fall back to synchronous invalidation so unit tests
+            // without a real tx still see the right behavior, and any future
+            // refactor that drops @Transactional doesn't leave the cache stale.
+            tenantStateGuard.invalidate(tenantId);
+        }
     }
 
     /**
@@ -80,7 +111,7 @@ public class TenantLifecycleService {
      * SYSTEM_TENANT_ID. Catching this at call time surfaces the silent regression that
      * would otherwise only show up in production audit queries.</p>
      */
-    private void bindTenantContextForAudit(java.util.UUID tenantId) {
+    private void bindTenantContextForAudit(UUID tenantId) {
         if (!TransactionSynchronizationManager.isActualTransactionActive()) {
             throw new IllegalStateException(
                 "bindTenantContextForAudit requires an active transaction; caller must "
@@ -166,6 +197,7 @@ public class TenantLifecycleService {
                 "deactivatedApiKeys", deactivatedKeys)),
             null));
 
+        scheduleStateCacheInvalidation(tenantId);
         return saved;
     }
 
@@ -205,6 +237,7 @@ public class TenantLifecycleService {
             auditDetails(actorUserId, justification, previous, Map.of()),
             null));
 
+        scheduleStateCacheInvalidation(tenantId);
         return saved;
     }
 
@@ -260,7 +293,9 @@ public class TenantLifecycleService {
             .orElseThrow(() -> new NoSuchElementException("tenant not found: " + tenantId));
         TenantState.assertTransition(tenant.getState(), target);
         tenant.setState(target);
-        return tenantRepository.save(tenant);
+        Tenant saved = tenantRepository.save(tenant);
+        scheduleStateCacheInvalidation(tenantId);
+        return saved;
     }
 
     /**

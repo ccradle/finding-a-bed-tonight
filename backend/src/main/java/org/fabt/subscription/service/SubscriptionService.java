@@ -126,7 +126,7 @@ public class SubscriptionService {
      * ArchUnit.
      */
     private Subscription findByIdOrThrow(UUID id) {
-        return subscriptionRepository.findByIdAndTenantId(id, TenantContext.getTenantId())
+        return subscriptionRepository.findByIdAndActiveTenantId(id, TenantContext.getTenantId())
                 .orElseThrow(() -> new NoSuchElementException("Subscription not found: " + id));
     }
 

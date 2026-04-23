@@ -196,7 +196,7 @@ public class ApiKeyService {
      * forgotten at one site while the others are hardened.
      */
     private ApiKey findByIdOrThrow(UUID keyId) {
-        return apiKeyRepository.findByIdAndTenantId(keyId, TenantContext.getTenantId())
+        return apiKeyRepository.findByIdAndActiveTenantId(keyId, TenantContext.getTenantId())
                 .orElseThrow(() -> new NoSuchElementException("API key not found: " + keyId));
     }
 

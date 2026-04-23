@@ -30,4 +30,15 @@ public interface TenantOAuth2ProviderRepository extends CrudRepository<TenantOAu
     @Query("SELECT * FROM tenant_oauth2_provider WHERE id = :id AND tenant_id = :tenantId")
     Optional<TenantOAuth2Provider> findByIdAndTenantId(@Param("id") UUID id,
                                                         @Param("tenantId") UUID tenantId);
+
+    /**
+     * Phase F §D3 active-state guard. Returns the provider only if the owning tenant
+     * is ACTIVE; rows for non-ACTIVE tenants appear as empty (caller maps to 404).
+     * Preferred over {@link #findByIdAndTenantId} for request-bound paths.
+     */
+    @Query("SELECT p.* FROM tenant_oauth2_provider p "
+         + "INNER JOIN tenant t ON t.id = p.tenant_id "
+         + "WHERE p.id = :id AND p.tenant_id = :tenantId AND t.state = 'ACTIVE'")
+    Optional<TenantOAuth2Provider> findByIdAndActiveTenantId(@Param("id") UUID id,
+                                                              @Param("tenantId") UUID tenantId);
 }

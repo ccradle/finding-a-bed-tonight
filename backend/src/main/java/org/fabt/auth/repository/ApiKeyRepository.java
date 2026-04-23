@@ -32,4 +32,19 @@ public interface ApiKeyRepository extends CrudRepository<ApiKey, UUID> {
     @Query("SELECT * FROM api_key WHERE id = :id AND tenant_id = :tenantId")
     Optional<ApiKey> findByIdAndTenantId(@Param("id") UUID id,
                                           @Param("tenantId") UUID tenantId);
+
+    /**
+     * Phase F §D3 active-state guard. Returns the API key only if the owning tenant
+     * is ACTIVE; a row belonging to a SUSPENDED/OFFBOARDING/ARCHIVED/DELETED tenant
+     * appears as empty (caller maps to 404 — no existence leak). This is the
+     * preferred read-path method for request-bound operations; use the plain
+     * {@link #findByIdAndTenantId} only when the caller is annotated
+     * {@link org.fabt.shared.security.TenantInternal} (e.g. the lifecycle service
+     * itself, batch sweeps).
+     */
+    @Query("SELECT ak.* FROM api_key ak "
+         + "INNER JOIN tenant t ON t.id = ak.tenant_id "
+         + "WHERE ak.id = :id AND ak.tenant_id = :tenantId AND t.state = 'ACTIVE'")
+    Optional<ApiKey> findByIdAndActiveTenantId(@Param("id") UUID id,
+                                                @Param("tenantId") UUID tenantId);
 }

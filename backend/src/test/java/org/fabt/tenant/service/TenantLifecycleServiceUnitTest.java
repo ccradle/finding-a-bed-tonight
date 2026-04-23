@@ -19,6 +19,7 @@ import org.fabt.auth.service.ApiKeyService;
 import org.fabt.shared.audit.AuditEventRecord;
 import org.fabt.shared.audit.AuditEventTypes;
 import org.fabt.shared.security.TenantKeyRotationService;
+import org.fabt.tenant.service.TenantStateGuard;
 import org.fabt.tenant.domain.IllegalStateTransitionException;
 import org.fabt.tenant.domain.Tenant;
 import org.fabt.tenant.domain.TenantState;
@@ -62,9 +63,13 @@ class TenantLifecycleServiceUnitTest {
     @Mock
     org.springframework.jdbc.core.JdbcTemplate jdbc;
 
+    @Mock
+    TenantStateGuard tenantStateGuard;
+
     private TenantLifecycleService newService() {
         return new TenantLifecycleService(tenantRepository, tenantKeyRotationService,
-                                          apiKeyService, eventPublisher, jdbc);
+                                          apiKeyService, eventPublisher, jdbc,
+                                          tenantStateGuard);
     }
 
     /**

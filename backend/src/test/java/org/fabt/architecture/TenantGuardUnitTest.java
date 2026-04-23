@@ -62,13 +62,13 @@ class TenantGuardUnitTest {
         var provider = new TenantOAuth2Provider();
         provider.setId(ENTITY_ID);
         provider.setTenantId(TENANT_ID);
-        when(providerRepo.findByIdAndTenantId(ENTITY_ID, TENANT_ID))
+        when(providerRepo.findByIdAndActiveTenantId(ENTITY_ID, TENANT_ID))
                 .thenReturn(Optional.of(provider));
 
         var service = new TenantOAuth2ProviderService(providerRepo, urlValidator, encryptionService);
         TenantContext.runWithContext(TENANT_ID, false, () -> service.delete(ENTITY_ID));
 
-        verify(providerRepo).findByIdAndTenantId(eq(ENTITY_ID), eq(TENANT_ID));
+        verify(providerRepo).findByIdAndActiveTenantId(eq(ENTITY_ID), eq(TENANT_ID));
     }
 
     @Test
@@ -77,7 +77,7 @@ class TenantGuardUnitTest {
         var provider = new TenantOAuth2Provider();
         provider.setId(ENTITY_ID);
         provider.setTenantId(TENANT_ID);
-        when(providerRepo.findByIdAndTenantId(ENTITY_ID, TENANT_ID))
+        when(providerRepo.findByIdAndActiveTenantId(ENTITY_ID, TENANT_ID))
                 .thenReturn(Optional.of(provider));
         when(providerRepo.save(any())).thenReturn(provider);
 
@@ -85,7 +85,7 @@ class TenantGuardUnitTest {
         TenantContext.runWithContext(TENANT_ID, false, () ->
                 service.update(ENTITY_ID, null, null, null, null));
 
-        verify(providerRepo).findByIdAndTenantId(eq(ENTITY_ID), eq(TENANT_ID));
+        verify(providerRepo).findByIdAndActiveTenantId(eq(ENTITY_ID), eq(TENANT_ID));
     }
 
     @Test
@@ -148,14 +148,14 @@ class TenantGuardUnitTest {
         key.setTenantId(TENANT_ID);
         key.setKeyHash("old-hash");
         key.setActive(true);
-        when(apiKeyRepo.findByIdAndTenantId(ENTITY_ID, TENANT_ID))
+        when(apiKeyRepo.findByIdAndActiveTenantId(ENTITY_ID, TENANT_ID))
                 .thenReturn(Optional.of(key));
         when(apiKeyRepo.save(any())).thenReturn(key);
 
         var service = new ApiKeyService(apiKeyRepo, apiKeyJdbc);
         TenantContext.runWithContext(TENANT_ID, false, () -> service.rotate(ENTITY_ID));
 
-        verify(apiKeyRepo).findByIdAndTenantId(eq(ENTITY_ID), eq(TENANT_ID));
+        verify(apiKeyRepo).findByIdAndActiveTenantId(eq(ENTITY_ID), eq(TENANT_ID));
     }
 
     @Test
@@ -164,14 +164,14 @@ class TenantGuardUnitTest {
         var key = new ApiKey();
         key.setId(ENTITY_ID);
         key.setTenantId(TENANT_ID);
-        when(apiKeyRepo.findByIdAndTenantId(ENTITY_ID, TENANT_ID))
+        when(apiKeyRepo.findByIdAndActiveTenantId(ENTITY_ID, TENANT_ID))
                 .thenReturn(Optional.of(key));
         when(apiKeyRepo.save(any())).thenReturn(key);
 
         var service = new ApiKeyService(apiKeyRepo, apiKeyJdbc);
         TenantContext.runWithContext(TENANT_ID, false, () -> service.deactivate(ENTITY_ID));
 
-        verify(apiKeyRepo).findByIdAndTenantId(eq(ENTITY_ID), eq(TENANT_ID));
+        verify(apiKeyRepo).findByIdAndActiveTenantId(eq(ENTITY_ID), eq(TENANT_ID));
     }
 
     // ------------------------------------------------------------------
@@ -190,7 +190,7 @@ class TenantGuardUnitTest {
         sub.setId(ENTITY_ID);
         sub.setTenantId(TENANT_ID);
         sub.setStatus("ACTIVE");
-        when(subRepo.findByIdAndTenantId(ENTITY_ID, TENANT_ID))
+        when(subRepo.findByIdAndActiveTenantId(ENTITY_ID, TENANT_ID))
                 .thenReturn(Optional.of(sub));
         when(subRepo.save(any())).thenReturn(sub);
 
@@ -198,6 +198,6 @@ class TenantGuardUnitTest {
                 encryptionService, subUrlValidator, objectMapper);
         TenantContext.runWithContext(TENANT_ID, false, () -> service.delete(ENTITY_ID));
 
-        verify(subRepo).findByIdAndTenantId(eq(ENTITY_ID), eq(TENANT_ID));
+        verify(subRepo).findByIdAndActiveTenantId(eq(ENTITY_ID), eq(TENANT_ID));
     }
 }

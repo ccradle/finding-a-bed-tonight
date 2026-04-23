@@ -79,6 +79,23 @@ public class ReservationRepository {
         return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
     }
 
+    /**
+     * Phase F §D3 active-state guard. Returns the reservation only if the owning
+     * tenant is ACTIVE; non-ACTIVE tenants' reservations appear as empty (caller maps
+     * to 404 — no existence leak). Preferred over {@link #findByIdAndTenantId} for
+     * request-bound paths.
+     */
+    public Optional<Reservation> findByIdAndActiveTenantId(UUID id, UUID tenantId) {
+        List<Reservation> results = jdbcTemplate.query(
+                "SELECT r.* FROM reservation r "
+                + "INNER JOIN tenant t ON t.id = r.tenant_id "
+                + "WHERE r.id = ? AND r.tenant_id = ? AND t.state = 'ACTIVE'",
+                ROW_MAPPER,
+                id, tenantId
+        );
+        return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
+    }
+
     public Optional<Reservation> findById(UUID id) {
         List<Reservation> results = jdbcTemplate.query(
                 "SELECT * FROM reservation WHERE id = ?",

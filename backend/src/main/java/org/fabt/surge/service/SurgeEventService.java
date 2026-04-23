@@ -83,7 +83,7 @@ public class SurgeEventService {
     public SurgeEvent deactivate(UUID surgeEventId, UUID deactivatedBy) {
         UUID tenantId = TenantContext.getTenantId();
 
-        SurgeEvent event = repository.findByIdAndTenantId(surgeEventId, tenantId)
+        SurgeEvent event = repository.findByIdAndActiveTenantId(surgeEventId, tenantId)
                 .orElseThrow(() -> new NoSuchElementException("Surge event not found: " + surgeEventId));
 
         if (!event.isActive()) {
@@ -141,6 +141,6 @@ public class SurgeEventService {
     @Transactional(readOnly = true)
     public Optional<SurgeEvent> findById(UUID id) {
         UUID tenantId = TenantContext.getTenantId();
-        return repository.findByIdAndTenantId(id, tenantId);
+        return repository.findByIdAndActiveTenantId(id, tenantId);
     }
 }
