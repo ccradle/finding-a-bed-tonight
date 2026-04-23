@@ -49,8 +49,11 @@ public class TenantLifecycleService {
      * (derives JWT gen-1 key, derives DEKs, seeds audit_chain_head, verifies RLS canary).
      * Callers must continue to use {@link TenantService#create(String, String)} until
      * F-4 lands and the switch is made with a {@code @Deprecated} redirect.
+     *
+     * <p>Not {@code @Transactional} yet — F-4 adds the annotation when real bodies land,
+     * avoiding the wasted tx open-then-rollback cycle that a stub throw would otherwise
+     * incur.</p>
      */
-    @Transactional
     public Tenant create(String name, String slug, UUID actorUserId) {
         throw new UnsupportedOperationException(
             "TenantLifecycleService.create is implemented in slice F-4; "
@@ -103,8 +106,11 @@ public class TenantLifecycleService {
      * which (a) gates on {@code archived_at < NOW() - 30d}, (b) writes TENANT_HARD_DELETED
      * audit row in a separate committed tx BEFORE the destructive tx, (c) deletes in the
      * order {@code tenant_key_material → tenant_audit_chain_head → tenant} per §D11.
+     *
+     * <p>Not {@code @Transactional} yet — F-6's two-tx pattern (audit-commit first,
+     * destructive-tx second) is NOT a single {@code @Transactional} wrap anyway. The
+     * annotation arrives on a private helper in F-6, not here.</p>
      */
-    @Transactional
     public void hardDelete(UUID tenantId, UUID actorUserId, String justification) {
         throw new UnsupportedOperationException(
             "TenantLifecycleService.hardDelete is implemented in slice F-6 with full "
