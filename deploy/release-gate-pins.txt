@@ -24,3 +24,15 @@
 # with: tr -d '\r' < path/to/file | sha256sum
 
 docs/security/pg-policies-snapshot.md	70618354df1234c69c2bb64d226b7b850177a8f450c4f080e5396c8deb30c6a0	v0.45.0
+
+# ── Process gates (not file-hash pins) ───────────────────────────────────────
+# These are policy gates enforced by verify-release-gate-pins.sh on release PRs.
+# A release PR is defined as: bumps backend/pom.xml version AND modifies CHANGELOG.md.
+#
+# rehearsal-green-within-72h: operator must run `make rehearse-deploy` within 72 hours
+#   of tagging and either (a) reference the rehearsal log filename
+#   (logs/rehearsal-smoke-YYYYMMDD-HHMMSS.log) in the PR description, OR
+#   (b) commit a sidecar file deploy/rehearsal-attest-<version>.txt.
+#   Catches the class of prod failures first seen in v0.49 (trailing-space
+#   env vars, perm mismatches, alertmanager routing misconfiguration).
+rehearsal-green-within-72h	PROCESS_GATE	v0.50.0
