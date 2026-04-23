@@ -330,13 +330,15 @@ else
         alert add FabtRehearsalTest \
         severity=critical \
         alertname=FabtRehearsalTest \
-        summary="Rehearsal test alert — not a real incident" \
+        'summary=Rehearsal test alert' \
         2>&1 | tee -a "$ARTIFACT_DIR/amtool.log" || fail "ALERT_ROUTING" "amtool alert add failed"
 
-    # Wait up to 30s for Mailpit to receive the email
-    log "  Waiting for Mailpit to receive alert email (up to 30s)..."
+    # group_wait is 15s — email dispatches at t+15s. Poll up to 60s so a
+    # cold-start alertmanager (which needs a few extra seconds after /-/healthy)
+    # doesn't race with the dispatch window.
+    log "  Waiting for Mailpit to receive alert email (up to 60s)..."
     MAILPIT_RECEIVED=0
-    for i in $(seq 1 15); do
+    for i in $(seq 1 30); do
         MSG_COUNT=$(curl -sf "http://localhost:18025/api/v1/messages" 2>/dev/null | jq '.total // 0' 2>/dev/null || true)
         if [[ "$MSG_COUNT" -gt 0 ]]; then
             MAILPIT_RECEIVED=1
@@ -345,7 +347,7 @@ else
         fi
         sleep 2
     done
-    [[ $MAILPIT_RECEIVED -eq 0 ]] && fail "ALERT_ROUTING" "Mailpit received no messages within 30s — check alertmanager template/config (v0.49 issue #3 class)"
+    [[ $MAILPIT_RECEIVED -eq 0 ]] && fail "ALERT_ROUTING" "Mailpit received no messages within 60s — check alertmanager template/config (v0.49 issue #3 class)"
 
     # Check ntfy stub received POST
     NTFY_RECEIVED=$(grep -c "\[ntfy-stub\] POST" "$NTFY_STUB_LOG" 2>/dev/null || true)
