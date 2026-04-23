@@ -1,0 +1,63 @@
+REHEARSAL ATTESTATION — v0.50.0
+==============================
+
+Run ID  : 20260423-154632
+Result  : REHEARSAL PASS — safe to tag
+Date    : 2026-04-23
+Operator: Corey Cradle
+Machine : operator laptop (Windows 11, Docker Desktop)
+
+Gates passed
+------------
+[OK] Step 0  Prerequisite check (docker, mvn, npx, jq, envsubst, python3)
+[OK] Step 1  Trailing-space env-var lint (.env.rehearsal)
+[OK] Step 2  alertmanager.yml envsubst render (chmod 644)
+[OK] Step 3  Container UID vs host file perm check (alertmanager, prometheus)
+[OK] Step 4  Compose merge dry-render (docker compose alpha dry-run)
+[OK] Step 5  Build skipped (REHEARSAL_SKIP_BUILD=1; JAR fresh)
+[OK] Step 6  ntfy stub started on :8888
+[OK] Step 7  Rehearsal stack started with --force-recreate (all Creating)
+[OK] Step 8  Health checks: backend (0s), alertmanager (0s), prometheus (0s)
+[OK] Step 8.5 Dev seed data loaded (dev-coc tenant + @dev.fabt.org users)
+[OK] Step 9  Synthetic alert routing: Mailpit 1 msg, ntfy 1 POST
+[OK] Step 10 Playwright smoke: 13 passed, 2 skipped, 0 failed (38.9s)
+
+Smoke test results
+------------------
+PASS  1. Version shows a valid v0.x tag (3.6s)
+PASS  2. Outreach worker login + search returns results (1.9s)
+PASS  3. Outreach worker can hold a bed (3.6s)
+SKIP  4. Demo guard blocks admin user creation [gated: findabed.org only]
+PASS  5. DV coordinator can login and sees notification bell (1.6s)
+PASS  6. Notification count endpoint responds (1.5s)
+PASS  7. Notification API returns 200 (Flyway V35 migration ran) (1.5s)
+PASS  8. SSE connects without reconnecting banner (outreach) (6.6s)
+PASS  9. Admin can see assigned shelters on user edit drawer (3.6s)
+PASS 10. Admin can see coordinator combobox on shelter edit (2.7s)
+PASS 11. Forgot password link wires from /login + page renders (1.6s)
+SKIP 12. Forgot password submit shows demo-blocked message [gated: findabed.org only]
+PASS 13. Blue Ridge admin can log in to dev-coc-west (1.5s)
+PASS 14. Pamlico Sound admin can log in to dev-coc-east (1.5s)
+PASS 15. Cross-tenant login rejected — Blue Ridge creds in Pamlico MUST fail 401 (1.4s)
+
+Artifacts
+---------
+Rehearsal log : /tmp/deploy-rehearsal-20260423-154632/rehearsal.log
+Smoke log     : /tmp/deploy-rehearsal-20260423-154632/smoke/smoke-20260423-154632.log
+Smoke traces  : /tmp/deploy-rehearsal-20260423-154632/smoke/
+
+Fixes applied during rehearsal validation (commit 563255b)
+----------------------------------------------------------
+1. Test 4 skip guard — DemoGuardFilter is demo-profile-only; added test.skip
+   matching test 12 pattern so rehearsal doesn't fail on missing demo block.
+2. Rate limit 429 — rehearsal overlay now mounts 00-rate-limit-dev.conf (100r/m)
+   over prod's 10r/m config; Cloudflare caches /api/v1/version on prod but not
+   in rehearsal, causing burst exhaustion mid-suite.
+3. amtool v0.27.0 silent drop — removed space-containing label value; amtool's
+   UTF-8 parser fallback exits 0 but never POSTs when label value has spaces.
+4. repeat_interval nflog persistence — alert name now includes run timestamp
+   (FabtRehearsalYYYYMMDDHHMMSS) so each run creates a fresh notification group
+   unaffected by the 4h repeat_interval from prior runs' nflog.
+
+NOTE: Receivers are stubbed. This attestation does NOT validate real-Gmail
+deliverability or live ntfy.sh push reliability.
