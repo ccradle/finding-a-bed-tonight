@@ -137,6 +137,7 @@ class TenantGuardUnitTest {
     // ------------------------------------------------------------------
 
     @Mock ApiKeyRepository apiKeyRepo;
+    @Mock org.springframework.jdbc.core.JdbcTemplate apiKeyJdbc;
     @Mock SecretEncryptionService encryptionService;
 
     @Test
@@ -151,7 +152,7 @@ class TenantGuardUnitTest {
                 .thenReturn(Optional.of(key));
         when(apiKeyRepo.save(any())).thenReturn(key);
 
-        var service = new ApiKeyService(apiKeyRepo);
+        var service = new ApiKeyService(apiKeyRepo, apiKeyJdbc);
         TenantContext.runWithContext(TENANT_ID, false, () -> service.rotate(ENTITY_ID));
 
         verify(apiKeyRepo).findByIdAndTenantId(eq(ENTITY_ID), eq(TENANT_ID));
@@ -167,7 +168,7 @@ class TenantGuardUnitTest {
                 .thenReturn(Optional.of(key));
         when(apiKeyRepo.save(any())).thenReturn(key);
 
-        var service = new ApiKeyService(apiKeyRepo);
+        var service = new ApiKeyService(apiKeyRepo, apiKeyJdbc);
         TenantContext.runWithContext(TENANT_ID, false, () -> service.deactivate(ENTITY_ID));
 
         verify(apiKeyRepo).findByIdAndTenantId(eq(ENTITY_ID), eq(TENANT_ID));

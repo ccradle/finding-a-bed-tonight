@@ -1,14 +1,23 @@
 package org.fabt.tenant.service;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
 
+import org.fabt.auth.service.ApiKeyService;
+import org.fabt.shared.audit.AuditEventRecord;
+import org.fabt.shared.audit.AuditEventTypes;
+import org.fabt.shared.security.TenantKeyRotationService;
 import org.fabt.tenant.domain.Tenant;
 import org.fabt.tenant.domain.TenantState;
 import org.fabt.tenant.repository.TenantRepository;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * Tenant lifecycle FSM, authoritative owner of every {@code tenant.state} write.
@@ -39,9 +48,47 @@ import org.springframework.transaction.annotation.Transactional;
 public class TenantLifecycleService {
 
     private final TenantRepository tenantRepository;
+    private final TenantKeyRotationService tenantKeyRotationService;
+    private final ApiKeyService apiKeyService;
+    private final ApplicationEventPublisher eventPublisher;
+    private final JdbcTemplate jdbc;
 
-    public TenantLifecycleService(TenantRepository tenantRepository) {
+    public TenantLifecycleService(TenantRepository tenantRepository,
+                                   TenantKeyRotationService tenantKeyRotationService,
+                                   ApiKeyService apiKeyService,
+                                   ApplicationEventPublisher eventPublisher,
+                                   JdbcTemplate jdbc) {
         this.tenantRepository = tenantRepository;
+        this.tenantKeyRotationService = tenantKeyRotationService;
+        this.apiKeyService = apiKeyService;
+        this.eventPublisher = eventPublisher;
+        this.jdbc = jdbc;
+    }
+
+    /**
+     * Binds {@code app.tenant_id} session GUC to {@code tenantId} for the duration of
+     * the current {@code @Transactional} scope. Mirrors the pattern in
+     * {@link TenantKeyRotationService#bumpJwtKeyGeneration} (the B11 ArchUnit rule forbids
+     * nested {@code TenantContext.runWithContext} inside {@code @Transactional}, so we
+     * {@code set_config} directly). {@code AuditEventService} reads this GUC via its D55
+     * three-level lookup so the audit row lands with the correct {@code tenant_id} rather
+     * than the {@code SYSTEM_TENANT_ID} fallback.
+     *
+     * <p>Asserts an active transaction — {@code set_config(..., true)} binds to the
+     * current tx only. Without an active tx the binding scopes to a single statement
+     * and the subsequent audit INSERT silently loses the GUC, falling back to
+     * SYSTEM_TENANT_ID. Catching this at call time surfaces the silent regression that
+     * would otherwise only show up in production audit queries.</p>
+     */
+    private void bindTenantContextForAudit(java.util.UUID tenantId) {
+        if (!TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new IllegalStateException(
+                "bindTenantContextForAudit requires an active transaction; caller must "
+                + "be @Transactional so set_config(..., is_local=true) persists across "
+                + "the subsequent audit INSERT (D55 path 2)");
+        }
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+            String.class, tenantId.toString());
     }
 
     /**
@@ -61,23 +108,104 @@ public class TenantLifecycleService {
     }
 
     /**
-     * Transition ACTIVE → SUSPENDED. Slice F-1 performs the state mutation only; slice
-     * F-2 adds JWT key-generation bump, API-key deactivation, audit emission, and
-     * idempotency handling (second call returns 409, not 200).
+     * Quarantines a tenant — transitions ACTIVE → SUSPENDED with the §D11 5-action
+     * atomic pattern (here we execute 4 of 5; the 5th — stop background worker
+     * dispatch — is a no-op today because worker dispatch is not yet tenant-scoped,
+     * tracked as part of Phase E).
+     *
+     * <ol>
+     *   <li>Load + FSM assert (self-transition on already-SUSPENDED → 409 via
+     *       {@link org.fabt.tenant.domain.IllegalStateTransitionException}, which is
+     *       the idempotency contract).</li>
+     *   <li>Bump JWT key generation — invalidates every live refresh token across
+     *       the tenant; delegates to {@link TenantKeyRotationService#bumpJwtKeyGeneration}
+     *       (joins this tx via default REQUIRED propagation, emits its own
+     *       {@code JWT_KEY_GENERATION_BUMPED} audit row).</li>
+     *   <li>Deactivate all API keys for the tenant (bulk UPDATE via
+     *       {@link ApiKeyService#deactivateAllForTenant}). Intentionally NOT
+     *       auto-reactivated on {@link #unsuspend}: operator re-issues keys after
+     *       incident review (post-compromise hygiene).</li>
+     *   <li>Flip state to SUSPENDED + save.</li>
+     *   <li>Emit {@link AuditEventTypes#TENANT_SUSPENDED} — details capture
+     *       actor, justification, previous state, and counts returned by steps 2–3
+     *       for forensic join with the {@code JWT_KEY_GENERATION_BUMPED} row.</li>
+     * </ol>
+     *
+     * @param tenantId      the tenant to quarantine
+     * @param actorUserId   platform admin triggering the suspend; may be null for
+     *                      system-initiated operations (e.g. automated abuse response)
+     * @param justification human-readable reason recorded in the audit row
+     * @return the suspended tenant aggregate
      */
     @Transactional
     public Tenant suspend(UUID tenantId, UUID actorUserId, String justification) {
-        return transitionTo(tenantId, TenantState.SUSPENDED);
+        Tenant tenant = tenantRepository.findById(tenantId)
+            .orElseThrow(() -> new NoSuchElementException("tenant not found: " + tenantId));
+        TenantState previous = tenant.getState();
+        TenantState.assertTransition(previous, TenantState.SUSPENDED);
+
+        // Bind app.tenant_id GUC so the TENANT_SUSPENDED audit row lands with the
+        // correct tenant_id (AuditEventService D55 path 2). bumpJwtKeyGeneration
+        // also sets this same GUC at its own entry, but re-binding here is
+        // defensive: if a future refactor reorders steps or drops the JWT bump,
+        // the TENANT_SUSPENDED audit must still carry the right tenant_id.
+        bindTenantContextForAudit(tenantId);
+
+        TenantKeyRotationService.RotationResult rotation =
+            tenantKeyRotationService.bumpJwtKeyGeneration(tenantId, actorUserId);
+
+        int deactivatedKeys = apiKeyService.deactivateAllForTenant(tenantId);
+
+        tenant.setState(TenantState.SUSPENDED);
+        Tenant saved = tenantRepository.save(tenant);
+
+        eventPublisher.publishEvent(new AuditEventRecord(
+            actorUserId, null, AuditEventTypes.TENANT_SUSPENDED,
+            auditDetails(actorUserId, justification, previous, Map.of(
+                "revokedKidCount", rotation.revokedKidCount(),
+                "deactivatedApiKeys", deactivatedKeys)),
+            null));
+
+        return saved;
     }
 
     /**
-     * Transition SUSPENDED → ACTIVE. Slice F-2 adds audit emission; JWT keys are NOT
-     * re-rotated on unsuspend (the bump on suspend invalidated all prior tokens, and
-     * unsuspend issues a fresh JWT from the current gen at next login).
+     * Restores a SUSPENDED tenant to ACTIVE. Intentionally asymmetric with
+     * {@link #suspend}:
+     *
+     * <ul>
+     *   <li>JWT keys are <em>not</em> re-rotated — the suspend bump already
+     *       invalidated prior tokens; fresh tokens issue at next login from the
+     *       current generation.</li>
+     *   <li>API keys are <em>not</em> auto-reactivated — post-compromise the
+     *       operator decides which keys to re-issue (D11 safer default).</li>
+     * </ul>
+     *
+     * @param tenantId      the tenant to un-quarantine
+     * @param actorUserId   platform admin triggering the unsuspend; may be null
+     * @param justification reason recorded in the audit row
      */
     @Transactional
     public Tenant unsuspend(UUID tenantId, UUID actorUserId, String justification) {
-        return transitionTo(tenantId, TenantState.ACTIVE);
+        Tenant tenant = tenantRepository.findById(tenantId)
+            .orElseThrow(() -> new NoSuchElementException("tenant not found: " + tenantId));
+        TenantState previous = tenant.getState();
+        TenantState.assertTransition(previous, TenantState.ACTIVE);
+
+        // Bind app.tenant_id so TENANT_UNSUSPENDED audit row lands with the correct
+        // tenant_id. No JWT bump on unsuspend (§D11 post-compromise hygiene), so this
+        // is the only path that sets the GUC for the audit lookup.
+        bindTenantContextForAudit(tenantId);
+
+        tenant.setState(TenantState.ACTIVE);
+        Tenant saved = tenantRepository.save(tenant);
+
+        eventPublisher.publishEvent(new AuditEventRecord(
+            actorUserId, null, AuditEventTypes.TENANT_UNSUSPENDED,
+            auditDetails(actorUserId, justification, previous, Map.of()),
+            null));
+
+        return saved;
     }
 
     /**
@@ -118,8 +246,10 @@ public class TenantLifecycleService {
     }
 
     /**
-     * Core transition helper: load tenant, assert transition via {@link TenantState#assertTransition},
-     * flip state, save. Extracted so every lifecycle method shares the same guard.
+     * Core transition helper used by offboard/archive (suspend/unsuspend inline the same
+     * load-assert-flip-save pattern because they also need to emit audits and call other
+     * services). F-5 will restructure offboard/archive with export logic; until then this
+     * helper keeps those methods shaped like F-1's skeleton.
      *
      * <p>Throws {@link NoSuchElementException} if the tenant does not exist (F-3 translates
      * to 404). Throws {@link org.fabt.tenant.domain.IllegalStateTransitionException} if the
@@ -131,5 +261,26 @@ public class TenantLifecycleService {
         TenantState.assertTransition(tenant.getState(), target);
         tenant.setState(target);
         return tenantRepository.save(tenant);
+    }
+
+    /**
+     * Builds the audit-event details JSON skeleton shared by every Phase F lifecycle
+     * event. The schema is pinned in
+     * {@link AuditEventTypes#TENANT_SUSPENDED} (and peers): Phase G's
+     * {@code platform_admin_access_log} reads {@code actor_user_id} and
+     * {@code justification} directly, so we commit to those field names now.
+     *
+     * <p>{@code extras} layers transition-specific details (e.g. revokedKidCount)
+     * on top without duplicating the baseline at every call site.</p>
+     */
+    private static Map<String, Object> auditDetails(UUID actorUserId, String justification,
+                                                     TenantState previousState,
+                                                     Map<String, Object> extras) {
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("actor_user_id", actorUserId == null ? null : actorUserId.toString());
+        details.put("justification", justification);
+        details.put("previous_state", previousState.name());
+        details.putAll(extras);
+        return details;
     }
 }
