@@ -68,6 +68,9 @@ test.describe('Post-deploy smoke tests', () => {
   });
 
   test('4. Demo guard blocks admin user creation', async ({ page }) => {
+    // DemoGuardFilter only activates on the demo-profile backend (findabed.org).
+    // In rehearsal (FABT_DEPLOYMENT_TIER=lite) user creation succeeds — no demo block.
+    test.skip(!/findabed\.org/i.test(BASE), 'demo_restricted only applies on demo-profile backends');
     await page.goto(LOGIN);
     await page.getByTestId('login-tenant-slug').fill('dev-coc');
     await page.getByTestId('login-email').fill('admin@dev.fabt.org');

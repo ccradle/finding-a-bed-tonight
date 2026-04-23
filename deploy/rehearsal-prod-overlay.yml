@@ -75,8 +75,14 @@ services:
     container_name: fabt-rehearsal-frontend
     ports:
       - "18081:80"
-    extra_hosts:
-      - "backend:host-gateway"
+    volumes:
+      # Prod bakes in 00-rate-limit.conf (10r/m on /api/v1/version). On prod
+      # Cloudflare caches that endpoint so the rate limit is never hit.
+      # In rehearsal there is no CDN — the 15-test smoke suite exhausts the
+      # burst=5 allowance mid-run and returns 429, which prevents appVersion
+      # from loading and breaks the footer tenant-name assertions.
+      # Override with the dev conf (100r/m) so smoke can run without throttling.
+      - ./infra/docker/00-rate-limit-dev.conf:/etc/nginx/conf.d/00-rate-limit.conf:ro
     depends_on:
       backend:
         condition: service_healthy

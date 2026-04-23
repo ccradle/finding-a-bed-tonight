@@ -317,6 +317,24 @@ done
 
 [[ $FAIL -eq 1 ]] && { echo -e "${RED}REHEARSAL FAIL — DO NOT TAG${NC} (gate: $FAIL_GATE) — artifacts: $ARTIFACT_DIR" >&2; exit 1; }
 
+# ── Step 8.5: Load dev seed data (mirrors dev-start.sh behavior) ─────────────
+# seed-data.sql creates the dev-coc tenant + @dev.fabt.org users with admin123.
+# These are NOT in Flyway migrations (they're dev/demo-only seed data loaded
+# manually on the Oracle VM and by dev-start.sh locally). The smoke spec in
+# step 10 targets dev-coc credentials, so this seed must run before smoke.
+log "=== Step 8.5: Load dev seed data ==="
+POSTGRES_CONTAINER="$(docker ps --filter "name=${COMPOSE_PROJECT}-postgres" --format '{{.Names}}' | head -1)"
+if [[ -z "$POSTGRES_CONTAINER" ]]; then
+    fail "SEED_DATA" "Could not find rehearsal postgres container"
+else
+    docker exec -i "$POSTGRES_CONTAINER" psql -U fabt -d fabt \
+        < "$REPO_ROOT/infra/scripts/seed-data.sql" \
+        >> "$ARTIFACT_DIR/seed-data.log" 2>&1 || fail "SEED_DATA" "seed-data.sql failed — see $ARTIFACT_DIR/seed-data.log"
+    ok "Dev seed data loaded (dev-coc tenant + @dev.fabt.org users)"
+fi
+
+[[ $FAIL -eq 1 ]] && { echo -e "${RED}REHEARSAL FAIL — DO NOT TAG${NC} (gate: $FAIL_GATE) — artifacts: $ARTIFACT_DIR" >&2; exit 1; }
+
 # ── Step 9: Synthetic alert routing (catches v0.49 issue #3 — template errors) ─
 log "=== Step 9: Synthetic alert routing ==="
 # amtool is bundled in the alertmanager image — no Windows install needed
@@ -324,13 +342,20 @@ ALERTMANAGER_CONTAINER="$(docker ps --filter "name=fabt-rehearsal-alertmanager" 
 if [[ -z "$ALERTMANAGER_CONTAINER" ]]; then
     fail "ALERT_ROUTING" "Could not find rehearsal alertmanager container"
 else
-    log "  Firing FabtRehearsalTest CRITICAL alert via docker exec amtool..."
+    # Use a timestamp-based alert name so each rehearsal run creates a fresh
+    # notification group. Alertmanager's repeat_interval (4h) is scoped to
+    # groups; if the same name is reused across runs (e.g. on a recreated
+    # container whose nflog persists in the image layer), the first-dispatch
+    # flag blocks re-dispatch within the window.
+    # amtool v0.27.0 silently drops labels with unquoted spaces — keep values
+    # to no-space strings only.
+    REHEARSAL_ALERT_NAME="FabtRehearsal${TIMESTAMP//[^0-9]/}"
+    log "  Firing $REHEARSAL_ALERT_NAME CRITICAL alert via docker exec amtool..."
     MSYS_NO_PATHCONV=1 docker exec "$ALERTMANAGER_CONTAINER" \
         /bin/amtool --alertmanager.url http://127.0.0.1:9093 \
-        alert add FabtRehearsalTest \
+        alert add "$REHEARSAL_ALERT_NAME" \
         severity=critical \
-        alertname=FabtRehearsalTest \
-        'summary=Rehearsal test alert' \
+        "alertname=$REHEARSAL_ALERT_NAME" \
         2>&1 | tee -a "$ARTIFACT_DIR/amtool.log" || fail "ALERT_ROUTING" "amtool alert add failed"
 
     # group_wait is 15s — email dispatches at t+15s. Poll up to 60s so a
