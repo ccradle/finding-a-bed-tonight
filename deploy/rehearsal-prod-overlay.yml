@@ -91,6 +91,11 @@ services:
     volumes:
       - ${HOME}/.fabt-rehearsal/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
       - ./deploy/alertmanager-templates.tmpl:/etc/alertmanager/templates/fabt.tmpl:ro
+    # host.docker.internal resolves automatically on Docker Desktop (macOS/Windows).
+    # On Linux Docker it requires this extra_hosts entry — without it the ntfy stub
+    # URL (http://host.docker.internal:8888) would not resolve inside the container.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   # ── Prometheus override ─────────────────────────────────────────────────────
   # Override to use rehearsal port and scrape the rehearsal backend.

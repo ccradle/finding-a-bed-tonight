@@ -48,6 +48,11 @@ while IFS=$'\t' read -r path pinned release || [[ -n "$path" ]]; do
     # Skip comments + blank lines.
     [[ -z "$path" || "$path" =~ ^[[:space:]]*# ]] && continue
 
+    # Skip process-gate entries (e.g. rehearsal-green-within-72h) — these are
+    # policy declarations, not file-hash pins. They use "PROCESS_GATE" as their
+    # hash sentinel and are enforced by the is_release_pr() block below.
+    [[ "$pinned" == "PROCESS_GATE" ]] && continue
+
     COUNT=$((COUNT + 1))
     if [[ ! -f "$path" ]]; then
         echo "FAIL: pinned file $path does not exist (release $release)"

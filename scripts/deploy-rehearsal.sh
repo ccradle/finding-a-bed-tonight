@@ -139,7 +139,7 @@ RENDERED_AM="$REHEARSAL_CONFIG_DIR/alertmanager.yml"
 set -a; source "$ENV_FILE"; set +a
 
 # Render only the FABT_ALERT_* vars (mirror the prod runbook whitelist exactly)
-envsubst '${FABT_ALERT_SMTP_HOST}${FABT_ALERT_SMTP_PORT}${FABT_ALERT_SMTP_USER}${FABT_ALERT_SMTP_PASSWORD}${FABT_ALERT_EMAIL_FROM}${FABT_ALERT_EMAIL_TO}${FABT_ALERT_NTFY_URL}${FABT_ALERT_NTFY_TOPIC}' \
+envsubst '${FABT_ALERT_SMTP_HOST}${FABT_ALERT_SMTP_PORT}${FABT_ALERT_SMTP_USER}${FABT_ALERT_SMTP_PASSWORD}${FABT_ALERT_SMTP_REQUIRE_TLS}${FABT_ALERT_EMAIL_FROM}${FABT_ALERT_EMAIL_TO}${FABT_ALERT_NTFY_URL}${FABT_ALERT_NTFY_TOPIC}' \
     < "$REPO_ROOT/deploy/alertmanager.yml.tmpl" \
     > "$RENDERED_AM"
 
@@ -151,18 +151,16 @@ ok "alertmanager.yml rendered to $RENDERED_AM (chmod 644)"
 log "=== Step 3: Container UID vs host file perm verification ==="
 # For each service that bind-mounts a host file:
 #   alertmanager UID = 65534 (nobody) → needs read access to rendered alertmanager.yml
-declare -A SERVICE_IMAGES=(
-    ["alertmanager"]="prom/alertmanager:v0.27.0"
-    ["prometheus"]="prom/prometheus:v2.51.0"
-)
-declare -A SERVICE_FILES=(
-    ["alertmanager"]="$RENDERED_AM"
-    ["prometheus"]="$REPO_ROOT/prometheus.yml"
-)
+# Use parallel indexed arrays rather than associative arrays — bash 3.2 (macOS
+# system default) does not support declare -A.
+UID_CHECK_SVCS=(alertmanager prometheus)
+UID_CHECK_IMAGES=(prom/alertmanager:v0.27.0 prom/prometheus:v2.51.0)
+UID_CHECK_FILES=("$RENDERED_AM" "$REPO_ROOT/prometheus.yml")
 
-for svc in "${!SERVICE_IMAGES[@]}"; do
-    image="${SERVICE_IMAGES[$svc]}"
-    host_file="${SERVICE_FILES[$svc]}"
+for i in 0 1; do
+    svc="${UID_CHECK_SVCS[$i]}"
+    image="${UID_CHECK_IMAGES[$i]}"
+    host_file="${UID_CHECK_FILES[$i]}"
 
     if [[ ! -f "$host_file" ]]; then
         warn "Host file for $svc not found: $host_file — skipping UID check"
@@ -371,6 +369,9 @@ SMOKE_LOG="$ARTIFACT_DIR/smoke/smoke-${TIMESTAMP}.log"
 
 log "  Running post-deploy smoke against http://localhost:18081"
 cd "$REPO_ROOT/e2e/playwright"
+# Temporarily disable set -e so a Playwright exit-1 doesn't trigger bash's
+# early-exit before PIPESTATUS is captured and the gate message is printed.
+set +e
 FABT_BASE_URL=http://localhost:18081 \
     npx playwright test ./deploy/post-deploy-smoke.spec.ts \
     --project chromium \
@@ -379,6 +380,7 @@ FABT_BASE_URL=http://localhost:18081 \
     --output "$ARTIFACT_DIR/smoke" \
     2>&1 | tee "$SMOKE_LOG"
 SMOKE_EXIT=${PIPESTATUS[0]}
+set -e
 cd "$REPO_ROOT"
 
 if [[ $SMOKE_EXIT -ne 0 ]]; then

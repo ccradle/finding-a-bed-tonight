@@ -7,15 +7,21 @@
 #
 #     envsubst < deploy/alertmanager.yml.tmpl > ~/fabt-secrets/alertmanager.yml
 #
+# NOTE: if upgrading from a version before FABT_ALERT_SMTP_REQUIRE_TLS was
+# added, set it to 'true' in ~/fabt-secrets/.env.prod before re-rendering.
+#
 # The rendered file lives in ~/fabt-secrets/ (root-owned, 0600) and is bind-
 # mounted into the alertmanager container by the operator-side compose
 # override. The template here stays committed; rendered secrets never do.
 #
 # Required env vars (set in ~/fabt-secrets/.env.prod by the operator per
 # alertmanager-operator-setup.md):
-#     FABT_ALERT_SMTP_HOST, _PORT, _USER, _PASSWORD
+#     FABT_ALERT_SMTP_HOST, _PORT, _USER, _PASSWORD, _REQUIRE_TLS
 #     FABT_ALERT_EMAIL_FROM, _EMAIL_TO
 #     FABT_ALERT_NTFY_URL, _NTFY_TOPIC
+#
+# FABT_ALERT_SMTP_REQUIRE_TLS: set 'true' in .env.prod (Gmail requires TLS),
+# set 'false' in .env.rehearsal (Mailpit speaks plaintext SMTP on port 1025).
 #
 # Routing policy (warroom-approved):
 #   - severity=critical  → BOTH email + ntfy (push-to-phone urgency)
@@ -31,7 +37,7 @@ global:
   smtp_smarthost: '${FABT_ALERT_SMTP_HOST}:${FABT_ALERT_SMTP_PORT}'
   smtp_auth_username: '${FABT_ALERT_SMTP_USER}'
   smtp_auth_password: '${FABT_ALERT_SMTP_PASSWORD}'
-  smtp_require_tls: true
+  smtp_require_tls: ${FABT_ALERT_SMTP_REQUIRE_TLS}
   resolve_timeout: 5m
 
 templates:
