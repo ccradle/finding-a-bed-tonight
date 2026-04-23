@@ -325,7 +325,7 @@ if [[ -z "$ALERTMANAGER_CONTAINER" ]]; then
     fail "ALERT_ROUTING" "Could not find rehearsal alertmanager container"
 else
     log "  Firing FabtRehearsalTest CRITICAL alert via docker exec amtool..."
-    docker exec "$ALERTMANAGER_CONTAINER" \
+    MSYS_NO_PATHCONV=1 docker exec "$ALERTMANAGER_CONTAINER" \
         /bin/amtool --alertmanager.url http://127.0.0.1:9093 \
         alert add FabtRehearsalTest \
         severity=critical \
@@ -337,7 +337,7 @@ else
     log "  Waiting for Mailpit to receive alert email (up to 30s)..."
     MAILPIT_RECEIVED=0
     for i in $(seq 1 15); do
-        MSG_COUNT=$(curl -sf "http://localhost:18025/api/v1/messages" 2>/dev/null | jq '.total // 0' 2>/dev/null || echo "0")
+        MSG_COUNT=$(curl -sf "http://localhost:18025/api/v1/messages" 2>/dev/null | jq '.total // 0' 2>/dev/null || true)
         if [[ "$MSG_COUNT" -gt 0 ]]; then
             MAILPIT_RECEIVED=1
             ok "Mailpit received $MSG_COUNT message(s)"
@@ -348,7 +348,7 @@ else
     [[ $MAILPIT_RECEIVED -eq 0 ]] && fail "ALERT_ROUTING" "Mailpit received no messages within 30s — check alertmanager template/config (v0.49 issue #3 class)"
 
     # Check ntfy stub received POST
-    NTFY_RECEIVED=$(grep -c "\[ntfy-stub\] POST" "$NTFY_STUB_LOG" 2>/dev/null || echo "0")
+    NTFY_RECEIVED=$(grep -c "\[ntfy-stub\] POST" "$NTFY_STUB_LOG" 2>/dev/null || true)
     if [[ "$NTFY_RECEIVED" -gt 0 ]]; then
         ok "ntfy stub received $NTFY_RECEIVED POST(s)"
     else
