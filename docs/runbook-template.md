@@ -177,7 +177,7 @@ Run every gate; record the actual value alongside the expected.
 #   deploy-verify-v0.29.x that would fail-by-design against the current version)
 cd e2e/playwright && FABT_BASE_URL=https://findabed.org npx playwright test \
     --config=deploy/playwright.config.ts --project=chromium \
-    --reporter=list --trace on post-deploy-smoke \
+    --reporter=list --trace on --retries=1 post-deploy-smoke \
     2>&1 | tee ../../logs/post-deploy-smoke-vX.Y.Z.log
 ```
 
@@ -185,24 +185,31 @@ cd e2e/playwright && FABT_BASE_URL=https://findabed.org npx playwright test \
 > Cloudflare → host nginx → frontend → backend chain. It is a numbered gate,
 > not an "if time permits" footnote.
 
-> **Known prod flake:** The 15-test suite rapidly triggers 16+ requests to
-> `/api/v1/version` within ~60s, exceeding the `public_api` nginx zone
-> (10r/m, burst=5). Cloudflare caches that endpoint for organic traffic but
-> Playwright's fresh-session bursts can outpace the cache warmup and hit the
-> origin rate limit directly. Symptom: test 13 or 14 fails with
-> `app-tenant-name-footer` not found (the `{appVersion && ...}` guard is
-> false when `/api/v1/version` returns 429). If you see only ONE test fail
-> in the footer-render pair (13/14), re-run that test alone:
-> `npx playwright test ... post-deploy-smoke -g "13\."`. A pass-on-retry
-> confirms rate-limit flake, not a deploy regression. (v0.50 post-deploy
-> lesson; first observed in rehearsal — see `feedback_deploy_rehearsal_lessons.md`.)
+> **`--retries=1` rationale:** The prod `public_api` nginx zone allows 10r/m
+> burst=5 on `/api/v1/version`. Before the v0.50+1 frontend rebuild shipped
+> `Cache-Control: public, max-age=60` on that endpoint, the 15-test suite
+> could exhaust the burst allowance mid-run and trip 429s on test 13/14,
+> which broke `app-tenant-name-footer` rendering. The `--retries=1` is
+> belt-and-suspenders: once Cloudflare caches the version endpoint for
+> organic traffic, retries should be zero; keep the flag so any residual
+> flake does not wedge a deploy. First observed in rehearsal
+> (`feedback_deploy_rehearsal_lessons.md`); root-caused during v0.50 deploy
+> (`feedback_smoke_config_on_prod.md`).
 
 ### Version check
 
 ```bash
 curl -s https://findabed.org/api/v1/version
-# expect: {"version":"X.Y.Z", ...}
 ```
+
+Expected value depends on release class:
+
+| Release class | Expected value | Why |
+|---|---|---|
+| Backend-code release (new `mvn clean package` + backend recreate) | `{"version":"X.Y.Z"}` matching the tag | Backend JAR was rebuilt with the new `pom.xml` version |
+| Ops-only release (no backend rebuild, e.g. frontend/nginx/alertmanager-only change) | `{"version":"<previous tag>"}` — UNCHANGED | Backend JAR is still the prior release's build; the *repository* tag is newer than the *backend binary* version |
+
+Example: v0.50.0 was ops-only (Phase D nginx + alertmanager TLS parameterization). The `/api/v1/version` endpoint continued to report `"0.49"` post-deploy because no backend rebuild occurred. This is correct behavior — do NOT treat as a deploy failure. (v0.50 post-deploy lesson.)
 
 ### Flyway HWM
 
