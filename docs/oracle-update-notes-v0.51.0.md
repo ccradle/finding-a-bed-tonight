@@ -110,7 +110,15 @@ consulted:
 
 ## 4. Pre-Deploy Gates
 
-- [ ] **Rehearsal green** — `make rehearse-deploy` on operator laptop; confirm PASS. Includes fresh run of V79–V84 against the stub stack. **Expected new rehearsal findings** (this is v0.51's first pass through the harness): V82 trigger function, V83 Java migration encryption-key handling. Log filename: `logs/rehearsal-smoke-YYYYMMDD-HHMMSS.log`.
+- [ ] **Windows operator only — `make` available in Git Bash.** If `make --version` fails with `command not found`, run `winget install ezwinports.make --accept-package-agreements --accept-source-agreements` (user-scope, no admin needed) and open a fresh Git Bash shell. Verified 2026-04-24 on v0.51 rehearsal — see `feedback_windows_make_rehearsal.md`. Fallback: invoke `bash scripts/deploy-rehearsal.sh` directly (the Makefile only wraps that one line).
+- [ ] **Stale rehearsal containers pruned** — if a prior rehearsal was killed before its cleanup trap ran, the `fabt-rehearsal-*` containers may still be Up. Before running `make rehearse-deploy`, tear them down:
+      ```bash
+      docker compose -f docker-compose.yml -f deploy/rehearsal-prod-overlay.yml \
+          --env-file .env.rehearsal -p fabt-rehearsal \
+          down --volumes --remove-orphans
+      ```
+      Observed 2026-04-24: v0.50 rehearsal's cleanup trap didn't fire on session-end, leaving prometheus + alertmanager + mailpit stale for 22h. The new run would have hit port conflicts / project-name reuse without this prune.
+- [ ] **Rehearsal green** — `make rehearse-deploy` on operator laptop; confirm PASS. Includes fresh run of V79–V84 against the stub stack. **Expected new rehearsal findings** (this is v0.51's first pass through the harness): V82 trigger function, V83 Java migration encryption-key handling — both validated on 2026-04-24 run (`deploy/rehearsal-attest-v0.51.0.txt`). Log filename: `logs/rehearsal-v0.51.0.log`.
 - [ ] **CI green** — `gh run list --branch feature/phase-f-lifecycle-fsm --limit 5`; all runs green.
 - [ ] **Feature branch merged to main** — confirm `feature/phase-f-lifecycle-fsm` is merged before tagging v0.51.0.
 - [ ] **pom.xml version bump merged** — `backend/pom.xml` shows `<version>0.51.0</version>`. Prod currently serves JAR `0.49.0.jar` (last built at v0.49 — v0.50 was ops-tier, pom bumped but not rebuilt). Without the v0.51.0 bump, a rebuild would produce `0.50.0.jar` and post-deploy `/api/v1/version` would show `0.50` — the deploy gate would fail.

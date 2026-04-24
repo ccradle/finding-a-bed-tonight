@@ -1,0 +1,85 @@
+REHEARSAL ATTESTATION — v0.51.0
+==============================
+
+Run ID  : 20260424-134449
+Result  : REHEARSAL PASS — safe to tag
+Date    : 2026-04-24
+Operator: Corey Cradle
+Machine : operator laptop (Windows 11, Docker Desktop, Git Bash)
+
+Gates passed
+------------
+[OK]   Step 0  Prerequisite check (docker, mvn, npx, jq, envsubst, python3)
+[OK]   Step 1  Trailing-space env-var lint (.env.rehearsal)
+[OK]   Step 2  alertmanager.yml envsubst render (chmod 644)
+[WARN] Step 3  Container UID vs host file perm check — "Could not determine
+               UID for prom/alertmanager:v0.27.0 / prom/prometheus:v2.51.0"
+               (non-blocking; images not pre-pulled, UID check skipped)
+[OK]   Step 4  Compose merge dry-render (docker compose alpha dry-run)
+[OK]   Step 5  Full build: mvn clean package + backend docker --no-cache +
+               frontend docker --no-cache (first full build run in v0.51;
+               v0.50 rehearsal skipped build via REHEARSAL_SKIP_BUILD=1)
+[OK]   Step 6  ntfy stub started on :8888
+[OK]   Step 7  Rehearsal stack started with --force-recreate (all Creating)
+[OK]   Step 8  Health checks: backend (0s), alertmanager (0s), prometheus (0s)
+               Backend 0s means Flyway V1–V84 applied + Spring boot in <2s
+[OK]   Step 8.5 Dev seed data loaded (dev-coc tenant + @dev.fabt.org users)
+[OK]   Step 9  Synthetic alert routing: Mailpit 1 msg, ntfy 1 POST
+[OK]   Step 10 Playwright smoke: 13 passed, 2 skipped, 0 failed (39.6s)
+
+Smoke test results
+------------------
+PASS  1. Version shows a valid v0.x tag (3.6s)
+PASS  2. Outreach worker login + search returns results (1.9s)
+PASS  3. Outreach worker can hold a bed (3.7s)
+SKIP  4. Demo guard blocks admin user creation [gated: findabed.org only]
+PASS  5. DV coordinator can login and sees notification bell (1.6s)
+PASS  6. Notification count endpoint responds (1.5s)
+PASS  7. Notification API returns 200 (Flyway V35 migration ran) (1.6s)
+PASS  8. SSE connects without reconnecting banner (outreach) (6.5s)
+PASS  9. Admin can see assigned shelters on user edit drawer (3.7s)
+PASS 10. Admin can see coordinator combobox on shelter edit (2.8s)
+PASS 11. Forgot password link wires from /login + page renders (1.7s)
+SKIP 12. Forgot password submit shows demo-blocked message [gated: findabed.org only]
+PASS 13. Blue Ridge admin can log in to dev-coc-west (1.5s)
+PASS 14. Pamlico Sound admin can log in to dev-coc-east (1.6s)
+PASS 15. Cross-tenant login rejected — Blue Ridge creds in Pamlico MUST fail 401 (1.5s)
+
+Artifacts
+---------
+Rehearsal log : /tmp/deploy-rehearsal-20260424-134449/rehearsal.log
+                (also preserved in repo at logs/rehearsal-v0.51.0.log)
+Smoke log     : /tmp/deploy-rehearsal-20260424-134449/smoke/smoke-20260424-134449.log
+Smoke traces  : /tmp/deploy-rehearsal-20260424-134449/smoke/
+
+v0.51.0-specific validations
+----------------------------
+Backend boot time (0s to healthy) confirms the new migrations V79–V84
+apply cleanly in the rehearsal schema + Spring context starts without
+bean-wiring errors from the F-6 additions (TenantDekService +
+SecretEncryptionService refactor + hardDelete). V83 in particular — a
+Java migration that reads FABT_ENCRYPTION_KEY and walks 4 encrypted
+columns — had no skip-warn in the backend log, meaning the key was
+picked up from .env.rehearsal via the system-property fallback path
+(V83 source §168-174).
+
+Smoke test 1 (version gate) confirms /api/v1/version reports "0.51"
+from the freshly rebuilt JAR — the pom.xml 0.50 → 0.51 bump committed
+in 5a8e214 is in the built artifact.
+
+Pre-rehearsal housekeeping
+--------------------------
+1. `make` not preinstalled on Git Bash — fixed via
+   `winget install ezwinports.make` (user-scope, no admin). PATH needed
+   manual prepend for the current session; future sessions inherit
+   automatically. Runbook updated to call out this one-time install
+   step for Windows operators (see oracle-update-notes-v0.51.0.md §4).
+2. Stale `fabt-rehearsal-*` containers from the v0.50 rehearsal (22h
+   old — previous session's cleanup trap didn't fire) were force-
+   removed before this run. Runbook follow-up: add a pre-run
+   `docker compose -p fabt-rehearsal down --volumes --remove-orphans`
+   step to scripts/deploy-rehearsal.sh's Step 0, so a killed prior run
+   doesn't pollute the next one.
+
+NOTE: Receivers are stubbed. This attestation does NOT validate real-
+Gmail deliverability or live ntfy.sh push reliability.
