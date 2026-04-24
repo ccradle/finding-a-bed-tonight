@@ -113,6 +113,33 @@ public class KeyDerivationService {
     }
 
     /**
+     * Derives the per-tenant AES-KWP wrapping key used by
+     * {@link TenantDekService} to wrap / unwrap random per-tenant DEKs in
+     * the {@code tenant_dek} table. Per F-6.0 design (design-f6-real-
+     * cryptoshred §3 D61), this is the ONLY HKDF-derived key that survives
+     * Phase F — all other DEKs become random + wrapped + shreddable.
+     *
+     * <p><b>Package-private access.</b> The wrapping key is the single most
+     * privileged output of this class: anyone who can call this method and
+     * read a {@code wrapped_dek} row can recover the plaintext DEK. Access
+     * is package-private so the class remains extensible in the
+     * {@code shared.security} package while ArchUnit Family F rule 7.8h
+     * pins actual callers to {@link TenantDekService} at build time.
+     * Application code outside {@code shared.security} cannot reach this
+     * method; a reflection-bypass is possible but would be flagged by the
+     * same ArchUnit rule (it scans for any reference to the method name,
+     * reflective or direct).
+     *
+     * <p><b>Why HKDF is safe here.</b> The wrapping key alone decrypts
+     * nothing; the shred surface is the {@code tenant_dek.wrapped_dek}
+     * column. An adversary who recomputes the wrapping key gains nothing
+     * without a wrapped-DEK row to unwrap. See §2 threat model.
+     */
+    SecretKey deriveKekWrappingKey(UUID tenantId) {
+        return deriveKey(tenantId, "kek-wrap");
+    }
+
+    /**
      * Derives a 32-byte key for the given tenant + purpose. Private; callers
      * must use the typed {@code deriveXxxKey} methods above so the purpose
      * value is constrained at compile time. Same-input determinism is the
