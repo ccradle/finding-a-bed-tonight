@@ -630,7 +630,7 @@ Wait 2 minutes and retry.
 
 ### 7. Frontend SW cycle reminder
 
-Pilot users (Sarah Dickerson + friends) may see the old UI until their
+Pilot users may see the old UI until their
 service worker cycles. Include hard-reload guidance in the post-deploy
 comms:
 
