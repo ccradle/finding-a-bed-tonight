@@ -61,15 +61,18 @@ public class DetachedAuditPersister {
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
     private final MeterRegistry meterRegistry;
+    private final AuditChainHasher chainHasher;
 
     public DetachedAuditPersister(AuditEventRepository repository,
                                    JdbcTemplate jdbc,
                                    ObjectMapper objectMapper,
-                                   ObjectProvider<MeterRegistry> meterRegistryProvider) {
+                                   ObjectProvider<MeterRegistry> meterRegistryProvider,
+                                   AuditChainHasher chainHasher) {
         this.repository = repository;
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.meterRegistry = meterRegistryProvider.getIfAvailable();
+        this.chainHasher = chainHasher;
     }
 
     /**
@@ -96,7 +99,19 @@ public class DetachedAuditPersister {
                     event.action() == null ? null : event.action().name(),
                     details,
                     event.ipAddress());
+
+            // Phase G-1 chain hashing — compute BEFORE save so the hashes
+            // are stamped onto the row, advance AFTER save so we have the
+            // DB-assigned id. REQUIRES_NEW scope means the chain head
+            // UPDATE commits independently of the caller's rollback,
+            // matching the security-evidence contract of this persister.
+            AuditChainHasher.HashedRow hashed = chainHasher.computeHashes(tenantId, entity);
+            entity.setPrevHash(hashed.prevHash());
+            entity.setRowHash(hashed.rowHash());
+
             repository.save(entity);
+
+            chainHasher.advanceChainHead(tenantId, entity.getId(), hashed);
         } catch (Exception e) {
             // Swallow + log: the security-evidence contract is best-effort; the
             // caller's IllegalStateException (the reason we're here) has already

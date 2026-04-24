@@ -73,10 +73,20 @@ class TenantLifecycleCreateIntegrationTest extends BaseIntegrationTest {
         byte[] hash = jdbc.queryForObject(
             "SELECT last_hash FROM tenant_audit_chain_head WHERE tenant_id = ?",
             byte[].class, tenantId);
+        // Post-Slice G-1: chain head is seeded with 32 zero bytes (step 8 of
+        // create()), then immediately advanced when the TENANT_CREATED audit
+        // row (step 9) is hashed by AuditChainHasher. So the observed hash
+        // after create() returns is the SHA-256 of the genesis row, NOT the
+        // original zero sentinel. The zero-sentinel seed behavior is
+        // verified separately in AuditChainHasherIntegrationTest.
         assertThat(hash)
-            .as("chain head seeded with 32 zero bytes (chain-start sentinel)")
-            .hasSize(32)
-            .containsOnly((byte) 0);
+            .as("chain head exists and is 32 bytes — advanced by the TENANT_CREATED "
+                + "audit event written in the same tx as create()")
+            .hasSize(32);
+        assertThat(hash)
+            .as("chain head must have been advanced from the zero sentinel — the "
+                + "TENANT_CREATED audit row hashed into it")
+            .isNotEqualTo(new byte[32]);
 
         // TENANT_CREATED audit row — query under tenant context so RLS admits it
         List<String> actions = queryAuditActionsForTenant(tenantId, actor);

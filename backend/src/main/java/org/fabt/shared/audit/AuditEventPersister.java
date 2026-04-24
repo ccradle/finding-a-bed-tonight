@@ -58,21 +58,33 @@ class AuditEventPersister {
 
     private final AuditEventRepository repository;
     private final JdbcTemplate jdbc;
+    private final AuditChainHasher chainHasher;
 
-    AuditEventPersister(AuditEventRepository repository, JdbcTemplate jdbc) {
+    AuditEventPersister(AuditEventRepository repository, JdbcTemplate jdbc,
+                        AuditChainHasher chainHasher) {
         this.repository = repository;
         this.jdbc = jdbc;
+        this.chainHasher = chainHasher;
     }
 
     /**
      * Binds {@code app.tenant_id} to {@code tenantId} for this transaction,
-     * then persists the audit event.
+     * then persists the audit event with Phase G-1 chain hashes stamped in.
      *
      * <p>{@code PROPAGATION_REQUIRED} preserves the "audit joins publisher tx"
      * contract — a publisher rollback rolls the audit row back too. When
      * there is no publisher tx (orphan paths), REQUIRED creates a fresh one,
      * which is exactly what we need for the {@code set_config(is_local=true)}
      * to behave correctly.
+     *
+     * <p><b>Phase G-1 chain hashing:</b> {@link AuditChainHasher#computeHashes}
+     * runs BEFORE {@code repository.save}, reads
+     * {@code tenant_audit_chain_head.last_hash} under a row lock, and
+     * returns the row's {@code prev_hash} + {@code row_hash}.
+     * {@link AuditChainHasher#advanceChainHead} runs AFTER save (needs the
+     * DB-assigned row id) and bumps the chain head. Both operations run in
+     * this method's REQUIRED transaction — the audit row INSERT, the chain
+     * head UPDATE, and the publisher's work all commit or roll back together.
      *
      * <p>Called only from {@link AuditEventService#onAuditEvent}. Package-
      * private to enforce that.
@@ -88,6 +100,13 @@ class AuditEventPersister {
                 event.action() == null ? null : event.action().name(),
                 details,
                 event.ipAddress());
+
+        AuditChainHasher.HashedRow hashed = chainHasher.computeHashes(tenantId, entity);
+        entity.setPrevHash(hashed.prevHash());
+        entity.setRowHash(hashed.rowHash());
+
         repository.save(entity);
+
+        chainHasher.advanceChainHead(tenantId, entity.getId(), hashed);
     }
 }
