@@ -131,6 +131,15 @@ Deploy runbook: `docs/oracle-update-notes-v0.51.0.md`.
   entry. Discovered in warroom code-review pass-3 (2026-04-24) before
   ship; no known exploitation.
 
+- **CVE-2026-41305 / GHSA-qx2v-qp2m-jg93 (postcss <8.5.10, CVSS 6.1
+  Medium):** transitive dev dependency bumped via `frontend/package.json`
+  overrides. postcss is used only at `npm run build` time; output is a
+  static `.css` file served via `<link rel="stylesheet">`, never re-
+  embedded into runtime `<style>` tags. FABT does not accept user-
+  submitted CSS anywhere, so the CVE's attack path is structurally
+  unreachable. Bumped for clean Dependabot + audit signal; no production
+  behavior change. Dependabot alert #16 auto-closed on PR #151 merge.
+
 ---
 
 ## [v0.50.0] — Ops hardening: Phase D nginx header stripping + deploy rehearsal harness

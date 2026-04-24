@@ -1,6 +1,6 @@
 # Oracle Deploy Notes — v0.51.0
 
-**Status:** DRAFT — feature branch `feature/phase-f-lifecycle-fsm`; PR not yet opened. Update to READY before tagging.
+**Status:** READY — PR #150 merged 2026-04-24 17:39 UTC; PR #151 (postcss CVE-2026-41305 transitive dep bump) merged 2026-04-24 post-scan; rehearsal PASS attested at `deploy/rehearsal-attest-v0.51.0.txt` (run 20260424-134449).
 
 **Release summary:** Phase F slice F-6 — real crypto-shred.
 - Backend-code release (first since v0.49 — v0.50 was ops-tier)
