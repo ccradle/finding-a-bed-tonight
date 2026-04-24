@@ -12,11 +12,16 @@ import org.fabt.tenant.service.TenantLifecycleService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+
+import java.nio.file.Path;
 
 /**
  * §11.7 of design-f6-real-cryptoshred — trigger-guard semantics for
@@ -51,6 +56,20 @@ import org.springframework.transaction.support.TransactionTemplate;
 })
 @DisplayName("tenant_dek trigger-guard — positive + no-GUC + cross-tenant-poisoning (F-6.0 §11.7)")
 class TenantDekShredGuardTest extends BaseIntegrationTest {
+
+    // Override fabt.tenant.offboard.export-path so each test run writes to
+    // an OS-appropriate tmpdir instead of the prod default /var/fabt/exports
+    // (which on a Linux CI runner requires root to create). The positive
+    // case drives a tenant through offboard → archive → hardDelete which
+    // invokes TenantOffboardExportService.exportTenant(). Matches the
+    // pattern in TenantLifecycleHardDeleteIntegrationTest.
+    @TempDir
+    static Path tempExportRoot;
+
+    @DynamicPropertySource
+    static void exportPath(DynamicPropertyRegistry registry) {
+        registry.add("fabt.tenant.offboard.export-path", () -> tempExportRoot.toString());
+    }
 
     @Autowired private TestAuthHelper authHelper;
     @Autowired private TenantLifecycleService lifecycleService;
