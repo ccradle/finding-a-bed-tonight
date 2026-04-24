@@ -7,7 +7,7 @@ import java.util.List;
 import java.util.UUID;
 
 import org.fabt.BaseIntegrationTest;
-import org.fabt.shared.audit.AuditEventTypes;
+import org.fabt.shared.audit.AuditEventType;
 import org.fabt.tenant.domain.Tenant;
 import org.fabt.tenant.domain.TenantState;
 import org.fabt.tenant.repository.TenantRepository;
@@ -82,7 +82,7 @@ class TenantLifecycleCreateIntegrationTest extends BaseIntegrationTest {
         List<String> actions = queryAuditActionsForTenant(tenantId, actor);
         assertThat(actions)
             .as("TENANT_CREATED audit lands in the same tx as the tenant + key material")
-            .contains(AuditEventTypes.TENANT_CREATED);
+            .contains(AuditEventType.TENANT_CREATED.name());
     }
 
     @Test
@@ -110,7 +110,7 @@ class TenantLifecycleCreateIntegrationTest extends BaseIntegrationTest {
         List<String> secondActorActions = queryAuditActionsForTenant(first.getId(), secondActor);
         assertThat(secondActorActions)
             .as("second actor's failed create has no audit rows")
-            .doesNotContain(AuditEventTypes.TENANT_CREATED);
+            .doesNotContain(AuditEventType.TENANT_CREATED.name());
     }
 
     @Test

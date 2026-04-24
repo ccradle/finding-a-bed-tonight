@@ -7,5 +7,5 @@ import java.util.UUID;
  * Lives in shared.audit so any module can publish without creating
  * a dependency on the auth module.
  */
-public record AuditEventRecord(UUID actorUserId, UUID targetUserId, String action,
+public record AuditEventRecord(UUID actorUserId, UUID targetUserId, AuditEventType action,
                                 Object details, String ipAddress) {}

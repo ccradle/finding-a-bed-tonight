@@ -16,7 +16,7 @@ import tools.jackson.databind.ObjectMapper;
 import org.fabt.BaseIntegrationTest;
 import org.fabt.auth.domain.ApiKey;
 import org.fabt.auth.repository.ApiKeyRepository;
-import org.fabt.shared.audit.AuditEventTypes;
+import org.fabt.shared.audit.AuditEventType;
 import org.fabt.tenant.domain.Tenant;
 import org.fabt.tenant.domain.TenantState;
 import org.fabt.tenant.repository.TenantRepository;
@@ -123,7 +123,7 @@ class TenantLifecycleOffboardArchiveIntegrationTest extends BaseIntegrationTest 
 
         // TENANT_OFFBOARDING_STARTED audit row
         List<String> actions = queryAuditActionsForTenant(created.getId(), actor);
-        assertThat(actions).contains(AuditEventTypes.TENANT_OFFBOARDING_STARTED);
+        assertThat(actions).contains(AuditEventType.TENANT_OFFBOARDING_STARTED.name());
     }
 
     @Test
@@ -146,7 +146,7 @@ class TenantLifecycleOffboardArchiveIntegrationTest extends BaseIntegrationTest 
 
         // TENANT_ARCHIVED audit row
         List<String> actions = queryAuditActionsForTenant(created.getId(), actor);
-        assertThat(actions).contains(AuditEventTypes.TENANT_ARCHIVED);
+        assertThat(actions).contains(AuditEventType.TENANT_ARCHIVED.name());
     }
 
     @Test

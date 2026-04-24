@@ -28,7 +28,7 @@ import tools.jackson.databind.ObjectMapper;
  * happened.
  *
  * <p>For security-evidence audits — specifically
- * {@link AuditEventTypes#CROSS_TENANT_CACHE_READ} emitted from
+ * {@link AuditEventType#CROSS_TENANT_CACHE_READ} emitted from
  * {@code TenantScopedCacheService.get} when on-read tenant verification detects
  * a stamp mismatch — this rollback-coupling is an anti-feature. An attacker who
  * triggers a cross-tenant read in a transactional endpoint and relies on the
@@ -93,7 +93,7 @@ public class DetachedAuditPersister {
                     tenantId,
                     event.actorUserId(),
                     event.targetUserId(),
-                    event.action(),
+                    event.action() == null ? null : event.action().name(),
                     details,
                     event.ipAddress());
             repository.save(entity);
@@ -110,7 +110,7 @@ public class DetachedAuditPersister {
             // `fabt.audit.rls_rejected.count` — both represent lost audit rows.
             if (meterRegistry != null) {
                 Counter.builder("fabt.audit.detached_failed.count")
-                        .tag("action", event.action() == null ? "unknown" : event.action())
+                        .tag("action", event.action() == null ? "unknown" : event.action().name())
                         .description("DetachedAuditPersister persist failures (security-evidence audit rows lost due to DB contention / schema / RLS rejection)")
                         .register(meterRegistry)
                         .increment();

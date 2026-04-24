@@ -12,7 +12,7 @@ import jakarta.validation.Valid;
 import org.fabt.notification.domain.EscalationPolicy;
 import org.fabt.notification.service.EscalationPolicyService;
 import org.fabt.shared.audit.AuditEventRecord;
-import org.fabt.shared.audit.AuditEventTypes;
+import org.fabt.shared.audit.AuditEventType;
 import org.fabt.shared.event.DomainEvent;
 import org.fabt.shared.event.EventBus;
 import org.fabt.shared.web.TenantContext;
@@ -140,7 +140,7 @@ public class EscalationPolicyController {
         if (created.version() > 1) {
             auditDetails.put("previousVersion", created.version() - 1);
         }
-        publishAudit(actorUserId, created.id(), AuditEventTypes.ESCALATION_POLICY_UPDATED, auditDetails);
+        publishAudit(actorUserId, created.id(), AuditEventType.ESCALATION_POLICY_UPDATED, auditDetails);
 
         // SSE: tell connected admin clients the policy has changed so any
         // open editor can refresh and any new-referral creation form can
@@ -184,7 +184,7 @@ public class EscalationPolicyController {
                 dto.recipients());
     }
 
-    private void publishAudit(UUID actorUserId, UUID targetId, String action, Object details) {
+    private void publishAudit(UUID actorUserId, UUID targetId, AuditEventType action, Object details) {
         eventPublisher.publishEvent(new AuditEventRecord(
                 actorUserId, targetId, action, details, /* ipAddress */ null));
     }

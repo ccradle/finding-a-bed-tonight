@@ -20,7 +20,7 @@ import org.fabt.observability.ObservabilityMetrics;
 import org.fabt.referral.domain.ReferralToken;
 import org.fabt.referral.service.ReferralTokenService;
 import org.fabt.shared.audit.AuditEventRecord;
-import org.fabt.shared.audit.AuditEventTypes;
+import org.fabt.shared.audit.AuditEventType;
 import org.fabt.shelter.domain.Shelter;
 import org.fabt.shelter.repository.CoordinatorAssignmentRepository;
 import org.fabt.shelter.service.ShelterService;
@@ -214,7 +214,7 @@ public class ReferralTokenController {
 
         // Snapshot shelter name for the audit trail (Casey Drummond compliance)
         String shelterName = token.getShelterName() != null ? token.getShelterName() : "Unknown Shelter";
-        publishAudit(userId, token.getId(), AuditEventTypes.DV_REFERRAL_REQUESTED,
+        publishAudit(userId, token.getId(), AuditEventType.DV_REFERRAL_REQUESTED,
                 Map.of("shelter_id", request.shelterId().toString(),
                        "shelter_name", shelterName,
                        "urgency", request.urgency()));
@@ -429,7 +429,7 @@ public class ReferralTokenController {
      * {@link org.fabt.referral.service.ReferralTokenService} and {@link org.fabt.auth.service.UserService}
      * (Casey Drummond chain-of-custody; Alex Chen keeps referral module free of direct {@code AuditService}).
      */
-    private void publishAudit(UUID userId, UUID referralId, String action, Map<String, String> details) {
+    private void publishAudit(UUID userId, UUID referralId, AuditEventType action, Map<String, String> details) {
         eventPublisher.publishEvent(new AuditEventRecord(
                 userId, referralId, action, details, /* ipAddress */ null));
     }

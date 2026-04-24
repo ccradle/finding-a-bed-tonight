@@ -7,6 +7,8 @@ import java.util.NoSuchElementException;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
+import org.fabt.shared.audit.AuditEventRecord;
+import org.fabt.shared.audit.AuditEventType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.MessageSource;
@@ -157,10 +159,10 @@ public class GlobalExceptionHandler {
                 "actualTenantId", ex.getActualTenantId().toString(),
                 "actorUserId", actorUserId == null ? "null" : actorUserId.toString(),
                 "sourceIp", sourceIp == null ? "null" : sourceIp);
-        eventPublisher.publishEvent(new org.fabt.shared.audit.AuditEventRecord(
+        eventPublisher.publishEvent(new AuditEventRecord(
                 actorUserId,
                 null, // no targetUserId — the target is a ciphertext, not a user
-                "CROSS_TENANT_CIPHERTEXT_REJECTED",
+                AuditEventType.CROSS_TENANT_CIPHERTEXT_REJECTED,
                 details,
                 sourceIp));
 
@@ -233,8 +235,9 @@ public class GlobalExceptionHandler {
         details.put("claimsSub", ex.getClaimsSub() == null ? "null" : ex.getClaimsSub().toString());
         details.put("claimsIat", ex.getClaimsIat() == null ? "null" : ex.getClaimsIat());
         details.put("claimsExp", ex.getClaimsExp() == null ? "null" : ex.getClaimsExp());
-        eventPublisher.publishEvent(new org.fabt.shared.audit.AuditEventRecord(
-                actorUserId, null, "CROSS_TENANT_JWT_REJECTED", details, sourceIp));
+        eventPublisher.publishEvent(new AuditEventRecord(
+                actorUserId, null, AuditEventType.CROSS_TENANT_JWT_REJECTED,
+                details, sourceIp));
 
         return ResponseEntity
                 .status(HttpStatus.FORBIDDEN)

@@ -15,6 +15,7 @@ import javax.crypto.spec.GCMParameterSpec;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.fabt.shared.audit.AuditEventRecord;
+import org.fabt.shared.audit.AuditEventType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -403,7 +404,7 @@ public class SecretEncryptionService {
             details.put("purpose", purpose.name());
             details.put("note", "v0 fallback decrypt — expected only for stuck V74 rows or attack indicator");
             eventPublisher.publishEvent(
-                    new AuditEventRecord(null, null, "CIPHERTEXT_V0_DECRYPT", details, null));
+                    new AuditEventRecord(null, null, AuditEventType.CIPHERTEXT_V0_DECRYPT, details, null));
         }
     }
 

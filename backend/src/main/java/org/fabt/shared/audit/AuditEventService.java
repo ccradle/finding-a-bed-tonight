@@ -68,19 +68,21 @@ public class AuditEventService {
     private static final Logger log = LoggerFactory.getLogger(AuditEventService.class);
 
     /**
-     * Sam checkpoint warroom: bound Prometheus counter-tag cardinality. Audit
-     * actions in this codebase are UPPER_SNAKE_CASE (see AuditEventTypes).
-     * Any publisher that puts a free-form string (UUID, user-supplied text)
-     * into the action would explode the TSDB if we tagged the raw value.
-     * The allowlist regex matches the canonical shape + length cap; anything
-     * that fails falls to "UNKNOWN", keeping tag cardinality bounded to
-     * (number of real action types) + 1.
+     * Sam checkpoint warroom: bound Prometheus counter-tag cardinality. Since
+     * Slice G-0 (issue #98) {@link AuditEventRecord#action()} is a typed
+     * {@link AuditEventType} — typo-safe by construction — so the sanitiser
+     * collapses to {@code .name()} for non-null, {@code "unknown"} for null.
+     * The allowlist regex check that existed in the pre-enum world is no
+     * longer load-bearing (enum names satisfy {@code ^[A-Z0-9_]{1,64}$} by
+     * construction) but remains as a belt-and-braces guard against a future
+     * enum case with a stray character.
      */
     private static final Pattern ACTION_TAG_PATTERN = Pattern.compile("^[A-Z0-9_]{1,64}$");
 
-    private static String sanitizedActionTag(String action) {
+    private static String sanitizedActionTag(AuditEventType action) {
         if (action == null) return "unknown";
-        return ACTION_TAG_PATTERN.matcher(action).matches() ? action : "UNKNOWN";
+        String name = action.name();
+        return ACTION_TAG_PATTERN.matcher(name).matches() ? name : "UNKNOWN";
     }
 
     private final AuditEventRepository repository;

@@ -20,7 +20,7 @@ import java.util.UUID;
 
 import org.fabt.auth.service.ApiKeyService;
 import org.fabt.shared.audit.AuditEventRecord;
-import org.fabt.shared.audit.AuditEventTypes;
+import org.fabt.shared.audit.AuditEventType;
 import org.fabt.shared.audit.DetachedAuditPersister;
 import org.fabt.shared.security.TenantKeyRotationService;
 import org.fabt.tenant.service.TenantStateGuard;
@@ -161,7 +161,7 @@ class TenantLifecycleServiceUnitTest {
         ArgumentCaptor<AuditEventRecord> captor = ArgumentCaptor.forClass(AuditEventRecord.class);
         verify(detachedAuditPersister, times(1)).persistDetached(eq(active.getId()), captor.capture());
         AuditEventRecord rejection = captor.getValue();
-        assertThat(rejection.action()).isEqualTo(AuditEventTypes.TENANT_UNSUSPEND_REJECTED);
+        assertThat(rejection.action()).isEqualTo(AuditEventType.TENANT_UNSUSPEND_REJECTED);
         assertThat(rejection.actorUserId()).isEqualTo(actor);
     }
 
@@ -190,7 +190,7 @@ class TenantLifecycleServiceUnitTest {
         ArgumentCaptor<AuditEventRecord> captor = ArgumentCaptor.forClass(AuditEventRecord.class);
         verify(detachedAuditPersister, times(1)).persistDetached(eq(archived.getId()), captor.capture());
         AuditEventRecord rejection = captor.getValue();
-        assertThat(rejection.action()).isEqualTo(AuditEventTypes.TENANT_SUSPEND_REJECTED);
+        assertThat(rejection.action()).isEqualTo(AuditEventType.TENANT_SUSPEND_REJECTED);
         assertThat(rejection.actorUserId()).isEqualTo(actor);
     }
 
@@ -210,7 +210,7 @@ class TenantLifecycleServiceUnitTest {
         ArgumentCaptor<AuditEventRecord> captor = ArgumentCaptor.forClass(AuditEventRecord.class);
         verify(detachedAuditPersister, times(1)).persistDetached(eq(active.getId()), captor.capture());
         assertThat(captor.getValue().action())
-            .isEqualTo(AuditEventTypes.TENANT_ARCHIVE_REJECTED);
+            .isEqualTo(AuditEventType.TENANT_ARCHIVE_REJECTED);
     }
 
     // ─── Happy path: load → assert → flip → save ────────────────────────────
@@ -233,7 +233,7 @@ class TenantLifecycleServiceUnitTest {
         verify(tenantRepository, times(1)).save(active);
 
         AuditEventRecord audit = captureAuditEvent();
-        assertThat(audit.action()).isEqualTo(AuditEventTypes.TENANT_SUSPENDED);
+        assertThat(audit.action()).isEqualTo(AuditEventType.TENANT_SUSPENDED);
         assertThat(audit.actorUserId()).isEqualTo(actor);
         assertThat(audit.targetUserId()).isNull();
     }
@@ -254,7 +254,7 @@ class TenantLifecycleServiceUnitTest {
         newService().suspend(active.getId(), actor, "quarterly-review-fire");
 
         AuditEventRecord audit = captureAuditEvent();
-        assertThat(audit.action()).isEqualTo(AuditEventTypes.TENANT_SUSPENDED);
+        assertThat(audit.action()).isEqualTo(AuditEventType.TENANT_SUSPENDED);
         @SuppressWarnings("unchecked")
         Map<String, Object> details = (Map<String, Object>) audit.details();
         assertThat(details)
@@ -305,7 +305,7 @@ class TenantLifecycleServiceUnitTest {
         verify(tenantRepository, times(1)).save(suspended);
 
         AuditEventRecord audit = captureAuditEvent();
-        assertThat(audit.action()).isEqualTo(AuditEventTypes.TENANT_UNSUSPENDED);
+        assertThat(audit.action()).isEqualTo(AuditEventType.TENANT_UNSUSPENDED);
         @SuppressWarnings("unchecked")
         Map<String, Object> details = (Map<String, Object>) audit.details();
         assertThat(details).containsEntry("previous_state", "SUSPENDED");
@@ -333,7 +333,7 @@ class TenantLifecycleServiceUnitTest {
             verify(offboardExportService, times(1)).exportTenant(t.getId());
 
             AuditEventRecord audit = captureAuditEvent();
-            assertThat(audit.action()).isEqualTo(AuditEventTypes.TENANT_OFFBOARDING_STARTED);
+            assertThat(audit.action()).isEqualTo(AuditEventType.TENANT_OFFBOARDING_STARTED);
             @SuppressWarnings("unchecked")
             Map<String, Object> details = (Map<String, Object>) audit.details();
             assertThat(details)
@@ -378,7 +378,7 @@ class TenantLifecycleServiceUnitTest {
             .isNotNull();
 
         AuditEventRecord audit = captureAuditEvent();
-        assertThat(audit.action()).isEqualTo(AuditEventTypes.TENANT_ARCHIVED);
+        assertThat(audit.action()).isEqualTo(AuditEventType.TENANT_ARCHIVED);
         @SuppressWarnings("unchecked")
         Map<String, Object> details = (Map<String, Object>) audit.details();
         assertThat(details)
@@ -445,7 +445,7 @@ class TenantLifecycleServiceUnitTest {
         verify(jdbc, times(1)).update(contains("tenant_audit_chain_head"), eq(generatedId));
 
         AuditEventRecord audit = captureAuditEvent();
-        assertThat(audit.action()).isEqualTo(AuditEventTypes.TENANT_CREATED);
+        assertThat(audit.action()).isEqualTo(AuditEventType.TENANT_CREATED);
         assertThat(audit.actorUserId()).isEqualTo(actor);
         @SuppressWarnings("unchecked")
         Map<String, Object> details = (Map<String, Object>) audit.details();
@@ -544,7 +544,7 @@ class TenantLifecycleServiceUnitTest {
 
         verify(detachedAuditPersister).persistDetached(
                 eq(active.getId()),
-                argThat(event -> org.fabt.shared.audit.AuditEventTypes.TENANT_HARD_DELETE_REJECTED
+                argThat(event -> org.fabt.shared.audit.AuditEventType.TENANT_HARD_DELETE_REJECTED
                         .equals(event.action())));
     }
 

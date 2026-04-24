@@ -17,7 +17,7 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.fabt.shared.audit.AuditEventRecord;
-import org.fabt.shared.audit.AuditEventTypes;
+import org.fabt.shared.audit.AuditEventType;
 import org.fabt.shared.audit.DetachedAuditPersister;
 import org.fabt.shared.security.TenantScopedByConstruction;
 import org.fabt.shared.security.TenantUnscoped;
@@ -247,7 +247,7 @@ public class EscalationPolicyService {
      * {@link Optional#empty()} — matching the D3 no-existence-leak posture
      * applied elsewhere in FABT (cross-tenant resource lookups return 404,
      * not 403, so an attacker cannot confirm existence) — AND emits a
-     * {@link AuditEventTypes#CROSS_TENANT_POLICY_READ} audit row via
+     * {@link AuditEventType#CROSS_TENANT_POLICY_READ} audit row via
      * {@link DetachedAuditPersister} (REQUIRES_NEW) so the security signal
      * survives attacker-triggered caller rollback, mirroring
      * {@code TenantScopedCacheService.get}'s treatment of
@@ -485,7 +485,7 @@ public class EscalationPolicyService {
         detachedAuditPersister.persistDetached(readerTenant, new AuditEventRecord(
                 TenantContext.getUserId(),
                 null,
-                AuditEventTypes.CROSS_TENANT_POLICY_READ,
+                AuditEventType.CROSS_TENANT_POLICY_READ,
                 details,
                 null));
     }

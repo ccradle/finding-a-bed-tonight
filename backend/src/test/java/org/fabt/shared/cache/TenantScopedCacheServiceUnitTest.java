@@ -10,7 +10,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.fabt.shared.audit.AuditEventRecord;
-import org.fabt.shared.audit.AuditEventTypes;
+import org.fabt.shared.audit.AuditEventType;
 import org.fabt.shared.audit.DetachedAuditPersister;
 import org.fabt.shared.web.TenantContext;
 import org.junit.jupiter.api.BeforeEach;
@@ -96,7 +96,7 @@ class TenantScopedCacheServiceUnitTest {
         verify(eventPublisher).publishEvent(captor.capture());
         AuditEventRecord audit = captor.getValue();
 
-        assertThat(audit.action()).isEqualTo(AuditEventTypes.TENANT_CACHE_INVALIDATED);
+        assertThat(audit.action()).isEqualTo(AuditEventType.TENANT_CACHE_INVALIDATED);
         @SuppressWarnings("unchecked")
         java.util.Map<String, Object> details = (java.util.Map<String, Object>) audit.details();
         assertThat(details.get("tenantId")).isEqualTo(TENANT_A.toString());
@@ -303,7 +303,7 @@ class TenantScopedCacheServiceUnitTest {
         verify(eventPublisher).publishEvent(captor.capture());
         AuditEventRecord audit = captor.getValue();
 
-        assertThat(audit.action()).isEqualTo(AuditEventTypes.TENANT_CACHE_INVALIDATED);
+        assertThat(audit.action()).isEqualTo(AuditEventType.TENANT_CACHE_INVALIDATED);
         @SuppressWarnings("unchecked")
         java.util.Map<String, Object> details = (java.util.Map<String, Object>) audit.details();
         assertThat(details.get("totalEvicted")).isEqualTo(3L);
@@ -344,7 +344,7 @@ class TenantScopedCacheServiceUnitTest {
         // DetachedAuditPersister called with CROSS_TENANT_CACHE_READ
         ArgumentCaptor<AuditEventRecord> captor = ArgumentCaptor.forClass(AuditEventRecord.class);
         verify(detachedAuditPersister).persistDetached(eq(TENANT_B), captor.capture());
-        assertThat(captor.getValue().action()).isEqualTo(AuditEventTypes.CROSS_TENANT_CACHE_READ);
+        assertThat(captor.getValue().action()).isEqualTo(AuditEventType.CROSS_TENANT_CACHE_READ);
 
         // No event-bus audit for this security-evidence event
         verify(eventPublisher, never()).publishEvent(any());

@@ -16,7 +16,7 @@ import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
 import org.fabt.shared.audit.AuditEventRecord;
-import org.fabt.shared.audit.AuditEventTypes;
+import org.fabt.shared.audit.AuditEventType;
 import org.fabt.shared.audit.DetachedAuditPersister;
 import org.fabt.shared.web.TenantContext;
 import org.slf4j.Logger;
@@ -311,7 +311,7 @@ public class TenantScopedCacheService {
      * across every registered cache name. Idempotent across retries.
      *
      * <p>Emits an {@code audit_events} row with action
-     * {@link AuditEventTypes#TENANT_CACHE_INVALIDATED} and per-cache eviction
+     * {@link AuditEventType#TENANT_CACHE_INVALIDATED} and per-cache eviction
      * counts in the details column. Uses the normal event-bus audit path
      * (operator-initiated; rollback-coupling is correct here).
      *
@@ -338,7 +338,7 @@ public class TenantScopedCacheService {
         eventPublisher.publishEvent(new AuditEventRecord(
                 TenantContext.getUserId(),
                 null,
-                AuditEventTypes.TENANT_CACHE_INVALIDATED,
+                AuditEventType.TENANT_CACHE_INVALIDATED,
                 details,
                 null));
     }
@@ -386,7 +386,7 @@ public class TenantScopedCacheService {
         detachedAuditPersister.persistDetached(readerTenant, new AuditEventRecord(
                 TenantContext.getUserId(),
                 null,
-                AuditEventTypes.CROSS_TENANT_CACHE_READ,
+                AuditEventType.CROSS_TENANT_CACHE_READ,
                 details,
                 null));
     }
@@ -400,7 +400,7 @@ public class TenantScopedCacheService {
         eventPublisher.publishEvent(new AuditEventRecord(
                 TenantContext.getUserId(),
                 null,
-                AuditEventTypes.MALFORMED_CACHE_ENTRY,
+                AuditEventType.MALFORMED_CACHE_ENTRY,
                 details,
                 null));
     }

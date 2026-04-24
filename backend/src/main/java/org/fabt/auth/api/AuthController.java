@@ -17,6 +17,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
 import org.fabt.auth.domain.User;
 import org.fabt.shared.audit.AuditEventRecord;
+import org.fabt.shared.audit.AuditEventType;
 import org.fabt.auth.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
@@ -265,7 +266,7 @@ public class AuthController {
         log.info("Access code login successful for user {}", user.getId());
         TenantContext.runWithContext(user.getTenantId(), user.getId(), false, () ->
             eventPublisher.publishEvent(
-                new AuditEventRecord(user.getId(), user.getId(), "ACCESS_CODE_USED",
+                new AuditEventRecord(user.getId(), user.getId(), AuditEventType.ACCESS_CODE_USED,
                         null, request.getRemoteAddr())));
 
         // Issue JWTs with mustChangePassword flag

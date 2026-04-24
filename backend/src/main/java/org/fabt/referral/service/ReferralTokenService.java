@@ -21,7 +21,7 @@ import org.fabt.referral.repository.ReferralTokenRepository;
 import org.fabt.notification.service.EscalationPolicyService;
 import org.fabt.notification.service.NotificationPersistenceService;
 import org.fabt.shared.audit.AuditEventRecord;
-import org.fabt.shared.audit.AuditEventTypes;
+import org.fabt.shared.audit.AuditEventType;
 import org.fabt.shared.event.DomainEvent;
 import org.fabt.shared.event.EventBus;
 import org.fabt.shared.web.TenantContext;
@@ -195,9 +195,9 @@ public class ReferralTokenService {
         // CoC admins acting on a referral are recorded as ADMIN_ACCEPTED so the
         // audit trail distinguishes "coordinator screened normally" from "admin
         // intervened on the queue."
-        String auditAction = isAdminActor(respondedBy)
-                ? AuditEventTypes.DV_REFERRAL_ADMIN_ACCEPTED
-                : "DV_REFERRAL_ACCEPTED";
+        AuditEventType auditAction = isAdminActor(respondedBy)
+                ? AuditEventType.DV_REFERRAL_ADMIN_ACCEPTED
+                : AuditEventType.DV_REFERRAL_ACCEPTED;
         publishAudit(respondedBy, tokenId, auditAction,
                 Map.of("shelter_id", token.getShelterId().toString()));
 
@@ -245,9 +245,9 @@ public class ReferralTokenService {
         token.setRespondedBy(respondedBy);
         token.setRejectionReason(rejectionReason);
 
-        String auditAction = isAdminActor(respondedBy)
-                ? AuditEventTypes.DV_REFERRAL_ADMIN_REJECTED
-                : "DV_REFERRAL_REJECTED";
+        AuditEventType auditAction = isAdminActor(respondedBy)
+                ? AuditEventType.DV_REFERRAL_ADMIN_REJECTED
+                : AuditEventType.DV_REFERRAL_REJECTED;
         publishAudit(respondedBy, tokenId, auditAction,
                 Map.of("shelter_id", token.getShelterId().toString(), "reason", rejectionReason));
 
@@ -481,7 +481,7 @@ public class ReferralTokenService {
 
             ReferralToken token = claimed.get();
 
-            publishAudit(adminId, tokenId, AuditEventTypes.DV_REFERRAL_CLAIMED,
+            publishAudit(adminId, tokenId, AuditEventType.DV_REFERRAL_CLAIMED,
                     Map.of("claimed_until", claimExpires.toString(),
                            "override", String.valueOf(override)));
 
@@ -537,7 +537,7 @@ public class ReferralTokenService {
         ReferralToken token = repository.findByIdAndActiveTenantId(tokenId, TenantContext.getTenantId()).orElse(null);
         UUID tenantId = token != null ? token.getTenantId() : TenantContext.getTenantId();
 
-        publishAudit(adminId, tokenId, AuditEventTypes.DV_REFERRAL_RELEASED,
+        publishAudit(adminId, tokenId, AuditEventType.DV_REFERRAL_RELEASED,
                 Map.of("reason", "manual", "override", String.valueOf(override)));
 
         eventBus.publish(new DomainEvent("referral.released", tenantId,
@@ -698,7 +698,7 @@ public class ReferralTokenService {
         if (chainResumed) {
             auditDetails.put("chainResumed", true);
         }
-        publishAudit(actorUserId, tokenId, AuditEventTypes.DV_REFERRAL_REASSIGNED, auditDetails);
+        publishAudit(actorUserId, tokenId, AuditEventType.DV_REFERRAL_REASSIGNED, auditDetails);
 
         eventBus.publish(new DomainEvent("referral.queue-changed", tenantId,
                 Map.of("referralId", tokenId.toString(),
@@ -759,7 +759,7 @@ public class ReferralTokenService {
                     // (not SYSTEM_TENANT_ID — that would flood the sentinel + the
                     // row wouldn't be visible to the tenant's admins under FORCE RLS).
                     TenantContext.runWithContext(r.tenantId(), true, () ->
-                        publishAudit(null, r.id(), AuditEventTypes.DV_REFERRAL_RELEASED,
+                        publishAudit(null, r.id(), AuditEventType.DV_REFERRAL_RELEASED,
                                 Map.of("reason", "timeout")));
                     eventBus.publish(new DomainEvent("referral.released", r.tenantId(),
                             Map.of("referralId", r.id().toString(), "reason", "timeout")));
@@ -795,7 +795,7 @@ public class ReferralTokenService {
      * picks these up via {@code @EventListener} and writes to {@code audit_events}
      * — the same indirection used by {@code UserService.publishAuditEvent}.
      */
-    private void publishAudit(UUID actorUserId, UUID targetId, String action, Object details) {
+    private void publishAudit(UUID actorUserId, UUID targetId, AuditEventType action, Object details) {
         eventPublisher.publishEvent(new AuditEventRecord(
                 actorUserId, targetId, action, details, /* ipAddress */ null));
     }

@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import org.fabt.shared.audit.AuditEventRecord;
+import org.fabt.shared.audit.AuditEventType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
@@ -235,7 +236,7 @@ public class TenantKeyRotationService {
         details.put("actorUserId", actorUserId == null ? "null" : actorUserId.toString());
         details.put("revokedKidCount", kidsToRevoke.size());
         eventPublisher.publishEvent(new AuditEventRecord(
-                actorUserId, null, "JWT_KEY_GENERATION_BUMPED", details, null));
+                actorUserId, null, AuditEventType.JWT_KEY_GENERATION_BUMPED, details, null));
 
         // 8. Register after-commit cache invalidation. Runs ONLY if the
         //    transaction commits — a rollback skips it, preventing the

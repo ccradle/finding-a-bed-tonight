@@ -6,6 +6,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.fabt.shared.audit.AuditEventRecord;
+import org.fabt.shared.audit.AuditEventType;
 import org.fabt.shared.security.CrossTenantCiphertextException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -77,7 +78,7 @@ class GlobalExceptionHandlerCrossTenantTest {
         assertNotNull(event, "ApplicationEventPublisher must have received an event");
         assertTrue(event instanceof AuditEventRecord, "event must be an AuditEventRecord");
         AuditEventRecord record = (AuditEventRecord) event;
-        assertEquals("CROSS_TENANT_CIPHERTEXT_REJECTED", record.action());
+        assertEquals(AuditEventType.CROSS_TENANT_CIPHERTEXT_REJECTED, record.action());
     }
 
     @Test
