@@ -1,5 +1,7 @@
 package org.fabt.shared.audit;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -117,11 +119,11 @@ class AuditChainHasherIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("T2 — genesis row has zero-sentinel prev_hash and a 32-byte row_hash")
-    void t2_genesisHashStructuralProperties() throws Exception {
+    @DisplayName("T2 — genesis row_hash == SHA-256(zeros || canonical_json(row)) (full reconstruction)")
+    void t2_genesisHashFullReconstruction() throws Exception {
         UUID tenantId = seedTenantAndChainHead();
         UUID actor = UUID.randomUUID();
-        String probeToken = "G1_GENESIS_" + UUID.randomUUID();
+        String probeToken = "G2_GENESIS_" + UUID.randomUUID();
 
         TenantContext.runWithContext(tenantId, false, () -> {
             eventPublisher.publishEvent(new AuditEventRecord(
@@ -132,7 +134,9 @@ class AuditChainHasherIntegrationTest extends BaseIntegrationTest {
 
         Map<String, Object> row = WithTenantContext.readAs(tenantId, () ->
                 jdbc.queryForMap(
-                        "SELECT prev_hash, row_hash FROM audit_events "
+                        "SELECT id, timestamp, tenant_id, actor_user_id, target_user_id, "
+                        + "action, details::text AS details, ip_address, "
+                        + "prev_hash, row_hash FROM audit_events "
                         + "WHERE tenant_id = ? AND details ->> 'probe_token' = ?",
                         tenantId, probeToken));
 
@@ -146,19 +150,30 @@ class AuditChainHasherIntegrationTest extends BaseIntegrationTest {
                 .as("Genesis row_hash must be 32 bytes (SHA-256 digest)")
                 .isNotNull()
                 .hasSize(32);
-        assertThat(rowHash)
-                .as("Genesis row_hash must differ from the zero sentinel — hashing a "
-                    + "non-empty canonical_json with any input yields a non-zero digest "
-                    + "with overwhelming probability")
-                .isNotEqualTo(ZERO_SENTINEL);
 
-        // NOTE on full hash re-computation: asserting `row_hash == SHA-256(zeros || canonical_json(row))`
-        // requires a canonicalizer that matches the form stored in the DB. At write time the
-        // hasher consumes Jackson's JSON output for `details`; at verify time the DB returns
-        // PG's JSONB canonical form (`::text`) which has different whitespace + sorted keys.
-        // Bridging that gap is G-2's canonicalizer — tracked as §8.6 in
-        // multi-tenant-production-readiness/tasks.md. For G-1 we verify structural
-        // properties only; full round-trip verification lands with the verifier.
+        // G-2 full reconstruction: rebuild the entity from the stored DB row
+        // (details arrives as PG JSONB ::text form) and recompute SHA-256
+        // via the same canonicalJson path the writer used. The canonicaliser
+        // (§8.6a) normalises both forms so the hash input matches.
+        AuditEventEntity reconstructed = new AuditEventEntity();
+        reconstructed.setTenantId(tenantId);
+        reconstructed.setTimestamp(((java.sql.Timestamp) row.get("timestamp")).toInstant());
+        reconstructed.setActorUserId((UUID) row.get("actor_user_id"));
+        reconstructed.setTargetUserId((UUID) row.get("target_user_id"));
+        reconstructed.setAction((String) row.get("action"));
+        reconstructed.setDetails(new org.fabt.shared.config.JsonString((String) row.get("details")));
+        reconstructed.setIpAddress((String) row.get("ip_address"));
+
+        String canonical = chainHasher.canonicalJson(reconstructed);
+        byte[] canonicalBytes = canonical.getBytes(StandardCharsets.UTF_8);
+        byte[] expectedHash = MessageDigest.getInstance("SHA-256")
+                .digest(concat(ZERO_SENTINEL, canonicalBytes));
+
+        assertThat(rowHash)
+                .as("Genesis row_hash must equal SHA-256(zero-sentinel || canonical_json(row)). "
+                    + "If this fails, the canonicaliser form drifted between writer + re-computation "
+                    + "— the Phase G verifier would fail to validate historical rows.")
+                .isEqualTo(expectedHash);
     }
 
     @Test
@@ -245,6 +260,13 @@ class AuditChainHasherIntegrationTest extends BaseIntegrationTest {
             return null;
         });
         return tenantId;
+    }
+
+    private static byte[] concat(byte[] a, byte[] b) {
+        byte[] out = new byte[a.length + b.length];
+        System.arraycopy(a, 0, out, 0, a.length);
+        System.arraycopy(b, 0, out, a.length, b.length);
+        return out;
     }
 
     private static AuditEventEntity sampleEntity() {
