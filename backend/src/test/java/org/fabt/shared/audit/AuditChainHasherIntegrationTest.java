@@ -72,12 +72,18 @@ class AuditChainHasherIntegrationTest extends BaseIntegrationTest {
             }
         });
 
-        // Read the 3 rows back, ordered by timestamp.
+        // Read the 3 rows back, ordered by publish sequence. NOT timestamp
+        // alone — after AuditEventEntity's microsecond truncation, two events
+        // fired inside the same microsecond (possible on a fast JVM) share
+        // the same timestamp value and the DB's tie-break order is
+        // undefined, producing flaky chain assertions. The details->>'seq'
+        // marker is deterministic by publish order (Alex + Riley warroom
+        // lens on G-1 PR #154).
         List<byte[][]> hashes = WithTenantContext.readAs(tenantId, () ->
                 jdbc.query(
                         "SELECT prev_hash, row_hash FROM audit_events "
                         + "WHERE tenant_id = ? AND details ->> 'probe_token' = ? "
-                        + "ORDER BY timestamp",
+                        + "ORDER BY (details ->> 'seq')::int",
                         (rs, n) -> new byte[][]{ rs.getBytes(1), rs.getBytes(2) },
                         tenantId, probeToken));
 
