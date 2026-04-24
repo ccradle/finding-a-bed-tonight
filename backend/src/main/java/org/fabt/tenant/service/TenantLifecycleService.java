@@ -10,6 +10,8 @@ import java.time.temporal.ChronoUnit;
 import java.util.HexFormat;
 
 import org.fabt.auth.service.ApiKeyService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.fabt.shared.audit.AuditEventRecord;
 import org.fabt.shared.audit.AuditEventTypes;
 import org.fabt.shared.audit.DetachedAuditPersister;
@@ -59,6 +61,8 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 @ConditionalOnProperty(name = "fabt.tenant.lifecycle.enabled", havingValue = "true", matchIfMissing = false)
 public class TenantLifecycleService {
 
+    private static final Logger log = LoggerFactory.getLogger(TenantLifecycleService.class);
+
     private final TenantRepository tenantRepository;
     private final TenantKeyRotationService tenantKeyRotationService;
     private final KidRegistryService kidRegistryService;
@@ -99,6 +103,24 @@ public class TenantLifecycleService {
         this.detachedAuditPersister = detachedAuditPersister;
         this.offboardExportService = offboardExportService;
         this.tenantDekService = tenantDekService;
+
+        // Floor guard per warroom pass-3 (Riley). Negative retention days is
+        // always a configuration error; fail fast before the service ever
+        // accepts a hardDelete call. Zero is valid for test harnesses but
+        // logs WARN so an operator who typo'd 0 into prod config sees the
+        // signal immediately at startup.
+        if (hardDeleteRetentionDays < 0) {
+            throw new IllegalArgumentException(
+                "fabt.tenant.hard-delete.retention-days must be >= 0; got "
+                + hardDeleteRetentionDays);
+        }
+        if (hardDeleteRetentionDays == 0) {
+            log.warn("fabt.tenant.hard-delete.retention-days=0 — ZERO-day retention "
+                + "is valid ONLY for test harnesses. In production the correct "
+                + "value is 30 (GDPR Art. 17 industry practice, V81 column contract). "
+                + "If this log fires outside a test profile, fix the config before "
+                + "any hardDelete is invoked.");
+        }
         this.hardDeleteRetentionDays = hardDeleteRetentionDays;
     }
 

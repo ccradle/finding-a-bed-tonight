@@ -150,11 +150,20 @@ public class KeyDerivationService {
      * read a {@code wrapped_dek} row can recover the plaintext DEK. Access
      * is package-private so the class remains extensible in the
      * {@code shared.security} package while ArchUnit Family F rule 7.8h
-     * pins actual callers to {@link TenantDekService} at build time.
-     * Application code outside {@code shared.security} cannot reach this
-     * method; a reflection-bypass is possible but would be flagged by the
-     * same ArchUnit rule (it scans for any reference to the method name,
-     * reflective or direct).
+     * ({@code CryptoShredArchitectureTest}) pins direct callers to
+     * {@link TenantDekService} at build time.
+     *
+     * <p><b>Reflection is NOT caught by the 7.8h rule</b> (warroom pass-4
+     * docs fix, 2026-04-24). ArchUnit's {@code callMethod} inspects
+     * bytecode call-sites only; a reflective
+     * {@code Method.setAccessible(true)} + {@code invoke} compiles as a
+     * call to {@code java.lang.reflect.Method.invoke} in the caller's
+     * bytecode, not a direct call to this method. The pilot-scale
+     * threat model accepts this gap — FABT runs no third-party code in
+     * the backend JVM. Phase L hardening will add a separate rule that
+     * scans for {@code setAccessible(true)} targeting
+     * {@code KeyDerivationService.class.getDeclaredMethod(...)} if the
+     * deployment perimeter widens (e.g., to plugin-based integrations).
      *
      * <p><b>Why HKDF is safe here.</b> The wrapping key alone decrypts
      * nothing; the shred surface is the {@code tenant_dek.wrapped_dek}
