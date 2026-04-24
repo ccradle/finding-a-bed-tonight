@@ -43,7 +43,7 @@ consulted:
   - file: project_phase_f_implementation_plan.md
     not-applicable: internal slice-sequencing reference — implementation is complete for this release
   - file: feedback_legal_claims_review.md
-    # why-cited: release notes language must say "designed to support" not "compliant" re NIST/GDPR. CHANGELOG + crypto-shred runbook legal-scanned.
+    # why-cited: release notes language must use "designed to support" phrasing for NIST/GDPR references; CHANGELOG + crypto-shred runbook legal-scanned.
 ```
 
 ---
