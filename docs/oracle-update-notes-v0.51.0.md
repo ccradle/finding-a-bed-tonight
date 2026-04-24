@@ -73,7 +73,7 @@ consulted:
 | Crypto-shred TDD anchor flipped green | `backend/src/test/java/org/fabt/shared/security/CryptoShredGapIntegrationTest.java` | Test-only |
 | New §11 tests (TenantDekRlsTest, TenantDekShredGuardTest, NTenantCanaryShredTest) | `backend/src/test/java/org/fabt/shared/security/` | Test-only |
 | Docs: `docs/security/crypto-shred-runbook.md` | NEW | No container action |
-| `pom.xml` version bump `0.49.0 → 0.51.0` | `backend/pom.xml` | Landed with backend rebuild |
+| `pom.xml` version bump `0.50.0 → 0.51.0` | `backend/pom.xml` | Landed with backend rebuild. (Prod `/api/v1/version` currently shows `0.49` because v0.50 didn't rebuild the JAR — the checked-in pom is already at 0.50.0. Post-deploy the reported version jumps 0.49 → 0.51, skipping 0.50.) |
 
 ### What does NOT change in this deploy
 
@@ -113,7 +113,7 @@ consulted:
 - [ ] **Rehearsal green** — `make rehearse-deploy` on operator laptop; confirm PASS. Includes fresh run of V79–V84 against the stub stack. **Expected new rehearsal findings** (this is v0.51's first pass through the harness): V82 trigger function, V83 Java migration encryption-key handling. Log filename: `logs/rehearsal-smoke-YYYYMMDD-HHMMSS.log`.
 - [ ] **CI green** — `gh run list --branch feature/phase-f-lifecycle-fsm --limit 5`; all runs green.
 - [ ] **Feature branch merged to main** — confirm `feature/phase-f-lifecycle-fsm` is merged before tagging v0.51.0.
-- [ ] **pom.xml version bump merged** — `backend/pom.xml` shows `<version>0.51.0</version>`. Without this, `/actuator/info` keeps reporting 0.49.0 and the post-deploy gate fails.
+- [ ] **pom.xml version bump merged** — `backend/pom.xml` shows `<version>0.51.0</version>`. Prod currently serves JAR `0.49.0.jar` (last built at v0.49 — v0.50 was ops-tier, pom bumped but not rebuilt). Without the v0.51.0 bump, a rebuild would produce `0.50.0.jar` and post-deploy `/api/v1/version` would show `0.50` — the deploy gate would fail.
 - [ ] **Env-var trailing-space lint** — `grep -nE "^FABT_[A-Z_]*= " ~/fabt-secrets/.env.prod` must return NO output (v0.49 lesson).
 - [ ] **`FABT_ENCRYPTION_KEY` present in `.env.prod`** — V83 Java migration will read it at Flyway boot time. Variable has been in `.env.prod` since v0.42; confirm presence without printing value (`grep -c '^FABT_ENCRYPTION_KEY=' ~/fabt-secrets/.env.prod` expect: 1). **If missing, V83 will WARN-and-skip (Flyway still marks it APPLIED); you then cannot re-run without `DELETE FROM flyway_schema_history WHERE version = '83'`.**
 - [ ] **pg_dump backup — MANDATORY** — V82/V83/V84 are irreversible without `pg_restore`. Take the dump BEFORE starting the backend recreate:
@@ -169,7 +169,8 @@ git pull origin main
 ```bash
 grep '<version>' backend/pom.xml | head -3
 # expect: <version>0.51.0</version>
-# If still 0.49.0, the version-bump commit is missing — STOP and investigate.
+# If 0.50.0, the v0.51 bump commit is missing — STOP and investigate.
+# If 0.49.0, this branch is behind main somehow — STOP and investigate.
 ```
 
 ### 4. Confirm `FABT_ENCRYPTION_KEY` is present (no cat)
@@ -187,7 +188,7 @@ grep -c '^FABT_ENCRYPTION_KEY=' ~/fabt-secrets/.env.prod
 cd backend
 mvn clean package -DskipTests
 ls target/*.jar
-# expect: finding-a-bed-tonight-0.51.0.jar present; no 0.49.0.jar or 0.50.0.jar
+# expect: finding-a-bed-tonight-0.51.0.jar present; no 0.50.0.jar or 0.49.0.jar
 
 cd ..
 
@@ -259,7 +260,7 @@ curl -s http://localhost:9091/actuator/info | grep version
 # expect: 0.51.0
 ```
 
-If these report 0.49.0, the `pom.xml` version bump was not in the built JAR — re-check step 3 + step 5.
+If these report anything other than `0.51.0` (most likely `0.50.0` if the pom-bump commit was missed, or `0.49.0` if the backend wasn't rebuilt at all), re-check step 3 + step 5.
 
 ### Flyway HWM
 
@@ -350,7 +351,7 @@ BASE_URL=https://findabed.org npx playwright test \
 | V84 fails mid-ALTER | Unlikely — ACCESS EXCLUSIVE is brief and table scans are pilot-scale. If it happens: transaction rolls back (all 18 ALTERs live in one `DO $$ ... $$` block); re-attempt by `--force-recreate backend`. |
 | Post-deploy: tests reach 500s on decrypt | Backward-compat shim broken. Downgrade: `docker tag fabt-backend:v0.50.0-lastgood fabt-backend:latest`; `--force-recreate backend`. New schema rows in `tenant_dek` become unused but don't break v0.50.0 code (it doesn't know the table exists). |
 | Full-release rollback (worst case) | (1) Stop backend: `docker compose ... stop backend`. (2) `pg_restore -U fabt -d fabt --clean --create ~/fabt-backups/fabt-pre-v0.51.0-*.dump` (will replace the live DB — expect ~30s outage). (3) Downgrade backend image: `docker tag fabt-backend:v0.50.0-lastgood fabt-backend:latest`. (4) `--force-recreate backend` with full 4-file chain. |
-| Backend boots but `/api/v1/version` shows 0.49 | pom.xml not bumped in the built JAR. Re-check step 3 + 5; rebuild with explicit `mvn clean`; re-run step 6. |
+| Backend boots but `/api/v1/version` shows `0.50` (or `0.49`) | pom.xml not bumped in the built JAR (0.50), or backend image wasn't rebuilt at all (0.49 — still running the v0.49-era JAR). Re-check step 3 + 5; rebuild with explicit `mvn clean`; re-run step 6. |
 
 ---
 
