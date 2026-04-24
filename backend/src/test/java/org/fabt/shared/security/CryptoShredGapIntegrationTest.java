@@ -145,15 +145,17 @@ class CryptoShredGapIntegrationTest extends BaseIntegrationTest {
         String adversaryRecovered;
         try {
             adversaryRecovered = adversaryDirectHkdfDecrypt(tenantId, ciphertext);
-        } catch (Exception tagFailure) {
+        } catch (javax.crypto.BadPaddingException | javax.crypto.IllegalBlockSizeException gcmFailure) {
             // Under Option A the GCM tag check fails when the adversary's
             // HKDF-derived key is applied to a ciphertext that was encrypted
             // under a DIFFERENT (random) DEK. That IS the crypto-shred
-            // guarantee we want. Represent as a sentinel so the assertion
-            // below still uses the same shape (positive form: NOT the
-            // canary), and the failure message stays informative if
-            // something regresses.
-            adversaryRecovered = "(unrecoverable: " + tagFailure.getClass().getSimpleName() + ")";
+            // guarantee we want. BadPaddingException covers AEADBadTagException
+            // (subclass); IllegalBlockSizeException covers the padding-alignment
+            // failure path. Any OTHER exception (NPE from a refactor,
+            // Testcontainer timeout, etc.) is a genuine test bug and should
+            // propagate as an ERROR, not be silently coerced to "passed."
+            // Warroom pass-3 Jordan blocker fix.
+            adversaryRecovered = "(unrecoverable: " + gcmFailure.getClass().getSimpleName() + ")";
         }
 
         // THE ANCHOR ASSERTION — the crypto-shred claim's core invariant.

@@ -160,6 +160,43 @@ public class TenantLifecycleService {
     }
 
     /**
+     * Wind-down transitions (OFFBOARDING / ARCHIVED) variant of
+     * {@link #scheduleStateCacheInvalidation} that ALSO evicts the
+     * {@link TenantDekService} caches for the tenant. Fires on the same
+     * after-commit hook so either both caches are evicted (commit) or
+     * neither is (rollback).
+     *
+     * <p>Warroom pass-3 blocker fix (Alex): the pass-1 §5 design requirement
+     * to invalidate TenantDekService on OFFBOARDING/ARCHIVED (not just
+     * DELETED) was not wired through to the offboard + archive methods in
+     * earlier slices. Without this hook the 1-hour {@code resolveDek}
+     * cache TTL kept unwrapped DEKs available in JVM memory for up to an
+     * hour after a tenant entered OFFBOARDING — reopening the hot-JVM
+     * decrypt window pass-1 explicitly closed.
+     *
+     * <p>Idempotent with {@link #scheduleStateCacheInvalidation}: both can
+     * be scheduled on the same tx; the ordering doesn't matter because
+     * {@link TenantDekService#invalidateTenantDeks} and
+     * {@link TenantStateGuard#invalidate} don't interact.
+     */
+    private void scheduleWindDownCacheInvalidation(UUID tenantId) {
+        if (TransactionSynchronizationManager.isActualTransactionActive()
+            && TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(
+                new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        tenantDekService.invalidateTenantDeks(tenantId);
+                        tenantStateGuard.invalidate(tenantId);
+                    }
+                });
+        } else {
+            tenantDekService.invalidateTenantDeks(tenantId);
+            tenantStateGuard.invalidate(tenantId);
+        }
+    }
+
+    /**
      * Binds {@code app.tenant_id} session GUC to {@code tenantId} for the duration of
      * the current {@code @Transactional} scope. Mirrors the pattern in
      * {@link TenantKeyRotationService#bumpJwtKeyGeneration} (the B11 ArchUnit rule forbids
@@ -440,7 +477,13 @@ public class TenantLifecycleService {
             auditDetails(actorUserId, justification, previous, extras),
             null));
 
-        scheduleStateCacheInvalidation(tenantId);
+        // Wind-down variant: invalidates BOTH TenantStateGuard AND
+        // TenantDekService caches. Design §5 pass-1 Alex requirement —
+        // closes the hot-JVM decrypt window during the OFFBOARDING retention
+        // period. Without this, the 1-hour resolveDek cache TTL would keep
+        // unwrapped DEKs available on hot pods for up to an hour post-
+        // transition.
+        scheduleWindDownCacheInvalidation(tenantId);
         return saved;
     }
 
@@ -491,7 +534,10 @@ public class TenantLifecycleService {
             auditDetails(actorUserId, justification, previous, extras),
             null));
 
-        scheduleStateCacheInvalidation(tenantId);
+        // Wind-down variant — same rationale as doOffboard. Both OFFBOARDING
+        // and ARCHIVED states open a decrypt window we want to close
+        // at the transition-event, not at the TTL expiry.
+        scheduleWindDownCacheInvalidation(tenantId);
         return saved;
     }
 

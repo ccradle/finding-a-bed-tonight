@@ -172,6 +172,21 @@ public class SecretEncryptionService {
      *         tenant but to a different {@link KeyPurpose}.
      */
     public String decryptForTenant(java.util.UUID tenantId, KeyPurpose purpose, String stored) {
+        if (purpose == KeyPurpose.JWT_SIGN) {
+            // Symmetric with encryptForTenant's JWT_SIGN guard. Warroom pass-3
+            // Marcus blocker: without this guard, a caller passing JWT_SIGN
+            // with a v1 envelope whose kid happens to live in kid_to_tenant_key
+            // would fall through to decryptV1LegacyHkdf, which calls
+            // purpose.deriveKey(keyDerivationService, tenantId) → routes to
+            // deriveJwtSigningKey (the HMAC signing key). Feeding an HMAC key
+            // into AES-GCM is a cross-primitive key-reuse vector; the GCM tag
+            // fails but timing/error channels could signal JWT-kid existence.
+            // Reject at the boundary.
+            throw new IllegalArgumentException(
+                    "KeyPurpose.JWT_SIGN is not a data-encryption purpose; "
+                    + "JWT signing uses JwtService + kid_to_tenant_key, not "
+                    + "SecretEncryptionService + tenant_dek.");
+        }
         byte[] decoded = java.util.Base64.getDecoder().decode(stored);
         if (!EncryptionEnvelope.isV1Envelope(decoded)) {
             // v0 fallback — Phase 0 single-platform-key envelope. Design D42
