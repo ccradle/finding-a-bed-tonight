@@ -99,7 +99,7 @@ class AuditEventG0RoundTripIntegrationTest extends BaseIntegrationTest {
     void t2_canonicalJsonDeterminism() throws Exception {
         // Same input produced twice. Jackson's default ObjectMapper config has
         // non-deterministic ordering for Map entries in some cases; LinkedHashMap
-        // + explicit insertion order in the record guarantees stability.
+        // + explicit insertion order in the record preserves stable output.
         //
         // If this test ever fails after a Jackson upgrade or config change,
         // Phase G-1's chain hash becomes unstable — an audit row hash computed
