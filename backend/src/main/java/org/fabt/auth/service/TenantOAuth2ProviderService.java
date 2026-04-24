@@ -154,7 +154,7 @@ public class TenantOAuth2ProviderService {
      * at one site while the others are hardened.
      */
     private TenantOAuth2Provider findByIdOrThrow(UUID id) {
-        return providerRepository.findByIdAndTenantId(id, TenantContext.getTenantId())
+        return providerRepository.findByIdAndActiveTenantId(id, TenantContext.getTenantId())
                 .orElseThrow(() -> new NoSuchElementException("OAuth2 provider not found: " + id));
     }
 

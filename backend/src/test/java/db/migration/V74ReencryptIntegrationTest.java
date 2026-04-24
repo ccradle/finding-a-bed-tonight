@@ -225,6 +225,14 @@ class V74ReencryptIntegrationTest extends BaseIntegrationTest {
     void t11_keyPurposeEnumCoverage() {
         String plaintext = "round-trip-" + UUID.randomUUID();
         for (KeyPurpose purpose : KeyPurpose.values()) {
+            if (purpose == KeyPurpose.JWT_SIGN) {
+                // Post-F-6.0: JWT_SIGN is not a data-encryption purpose. JWT
+                // signing keys live in kid_to_tenant_key + tenant_key_material
+                // and rotate via JwtService, not SecretEncryptionService.
+                // tenant_dek's CHECK constraint excludes it; encryptForTenant
+                // throws IllegalArgumentException if called with it.
+                continue;
+            }
             String ciphertext = encryptionService.encryptForTenant(tenantA, purpose, plaintext);
             assertTrue(isV1(ciphertext),
                     purpose + " encrypt must produce v1 envelope");

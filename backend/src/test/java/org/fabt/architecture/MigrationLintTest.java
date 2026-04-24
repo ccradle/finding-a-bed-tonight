@@ -56,8 +56,14 @@ class MigrationLintTest {
      * the {@code SECURITY DEFINER} attribute.
      */
     private static final List<String> SECURITY_DEFINER_ALLOWLIST = List.of(
-            // No entries as of v0.45.0. Add here with a comment:
-            // "VNN__migration_name.sql  // warroom ref: ..."
+            // V82 trigger function `tenant_dek_shred_guard()` — reads the session
+            // GUC `fabt.shred_in_progress` in a BEFORE DELETE trigger. Must be
+            // SECURITY DEFINER to read the GUC regardless of the invoking role's
+            // search_path (attacker could override). Body is 3 lines of pure SQL,
+            // no expansion surface. See:
+            //   openspec/changes/multi-tenant-production-readiness/design-f6-real-cryptoshred.md §3 Q-F6-6
+            //   warroom 2026-04-24 pass-2 (GUC-over-role resolution)
+            "V82__tenant_dek_schema.sql"
     );
 
     private static final Pattern SECURITY_DEFINER = Pattern.compile(

@@ -215,17 +215,23 @@ class PerTenantEncryptionIntegrationTest extends BaseIntegrationTest {
     // ------------------------------------------------------------------
 
     @Test
-    @DisplayName("T6 — encrypting under one purpose and decrypting under another fails on GCM auth tag")
+    @DisplayName("T6 — encrypting under one purpose and decrypting under another throws PurposeMismatchException")
     void purposeMismatchFailsCleanly() {
         String plaintext = "tag-protection-" + UUID.randomUUID();
         String stored = encryption.encryptForTenant(tenantA, KeyPurpose.TOTP, plaintext);
 
-        // Same tenant, same kid in the envelope, but different purpose -> different DEK
-        // -> GCM auth tag fails -> RuntimeException ("Failed to decrypt v1 ciphertext...")
-        RuntimeException ex = assertThrows(RuntimeException.class,
+        // Same tenant, envelope kid resolves to this tenant's TOTP DEK. Decrypting
+        // with WEBHOOK_SECRET would have used a different DEK under Option A — the
+        // refactored decryptForTenant catches this upstream of the GCM tag check
+        // and raises PurposeMismatchException with the expected vs actual purposes.
+        // Pre-F-6 this surfaced as a generic RuntimeException from GCM tag failure.
+        PurposeMismatchException ex = assertThrows(PurposeMismatchException.class,
                 () -> encryption.decryptForTenant(tenantA, KeyPurpose.WEBHOOK_SECRET, stored));
-        assertTrue(ex.getMessage().contains("Failed to decrypt"),
-                "must be a decrypt-side failure, was: " + ex.getMessage());
+        assertEquals(KeyPurpose.WEBHOOK_SECRET, ex.getExpectedPurpose(),
+                "expectedPurpose is what the caller asked for");
+        assertEquals(KeyPurpose.TOTP, ex.getActualPurpose(),
+                "actualPurpose is the tenant_dek row's recorded purpose");
+        assertEquals(tenantA, ex.getTenantId(), "tenantId carried for forensics");
     }
 
     // ------------------------------------------------------------------

@@ -63,6 +63,22 @@ public class SurgeEventRepository {
         return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
     }
 
+    /**
+     * Phase F §D3 active-state guard. Returns the surge event only if the owning
+     * tenant is ACTIVE; rows for non-ACTIVE tenants appear as empty (caller maps to
+     * 404 — no existence leak). Preferred over {@link #findByIdAndTenantId} for
+     * request-bound paths; the plain variant is for {@code @TenantInternal} callers.
+     */
+    public Optional<SurgeEvent> findByIdAndActiveTenantId(UUID id, UUID tenantId) {
+        List<SurgeEvent> results = jdbcTemplate.query(
+                "SELECT se.* FROM surge_event se "
+                + "INNER JOIN tenant t ON t.id = se.tenant_id "
+                + "WHERE se.id = ? AND se.tenant_id = ? AND t.state = 'ACTIVE'",
+                ROW_MAPPER, id, tenantId
+        );
+        return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
+    }
+
     public Optional<SurgeEvent> findActiveByTenantId(UUID tenantId) {
         List<SurgeEvent> results = jdbcTemplate.query(
                 "SELECT * FROM surge_event WHERE tenant_id = ? AND status = 'ACTIVE' LIMIT 1",

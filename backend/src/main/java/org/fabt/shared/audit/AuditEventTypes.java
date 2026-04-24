@@ -197,6 +197,99 @@ public final class AuditEventTypes {
      */
     public static final String CROSS_TENANT_POLICY_READ = "CROSS_TENANT_POLICY_READ";
 
+    // ─── Tenant lifecycle (Phase F, multi-tenant-production-readiness §D8) ───
+    //
+    // Every lifecycle audit row carries a details JSON with at minimum:
+    //   { actor_user_id, justification, previous_state, new_state }
+    // Phase G's platform_admin_access_log will read actor_user_id + justification
+    // directly; adopt the schema from F-1 so G3 has no retrofit (design §D8, §G).
+    //
+    // Persistence path: event-bus (PROPAGATION_REQUIRED) for create/suspend/
+    // unsuspend/offboard/archive — operator-initiated, safe to join caller's
+    // tx. The one exception is TENANT_HARD_DELETED which must be committed
+    // BEFORE the destructive tx (see Javadoc below) so failed-delete attempts
+    // still leave forensic breadcrumbs.
+
+    /**
+     * Emitted by {@code TenantLifecycleService.create} after a successful atomic
+     * bootstrap (tenant row + JWT gen-1 key + DEKs + empty audit_chain_head seed).
+     * Detail blob: {@code {actor_user_id, slug, name, data_residency_region}}.
+     */
+    public static final String TENANT_CREATED = "TENANT_CREATED";
+
+    /**
+     * Emitted by {@code TenantLifecycleService.suspend} after the 5-action quarantine
+     * (bump JWT gen, deactivate API keys, stop worker dispatch, flip state, audit).
+     * Detail blob: {@code {actor_user_id, justification, previous_state}}.
+     */
+    public static final String TENANT_SUSPENDED = "TENANT_SUSPENDED";
+
+    /**
+     * Emitted by {@code TenantLifecycleService.unsuspend} when a SUSPENDED tenant
+     * is restored to ACTIVE after incident resolution.
+     * Detail blob: {@code {actor_user_id, justification, suspend_audit_row_id}}.
+     */
+    public static final String TENANT_UNSUSPENDED = "TENANT_UNSUSPENDED";
+
+    /**
+     * Emitted by {@code TenantLifecycleService.offboard} when state transitions to
+     * OFFBOARDING. The export workflow runs as part of the same transition (F-5).
+     * Detail blob: {@code {actor_user_id, justification, previous_state, export_receipt_uri}}.
+     */
+    public static final String TENANT_OFFBOARDING_STARTED = "TENANT_OFFBOARDING_STARTED";
+
+    /**
+     * Emitted by {@code TenantLifecycleService.archive} after export-complete check.
+     * Starts the 30-day retention window before hard-delete is permitted.
+     * Detail blob: {@code {actor_user_id, justification, archived_at, export_receipt_uri}}.
+     */
+    public static final String TENANT_ARCHIVED = "TENANT_ARCHIVED";
+
+    // ─── Tenant lifecycle ATTEMPT REJECTIONS (Phase F slice F-3.6) ───
+    //
+    // Emitted when a lifecycle transition is rejected by the §D8 FSM — e.g. a
+    // platform admin attempts to suspend an already-SUSPENDED tenant. Without
+    // these rows, an attacker who can reach the admin endpoints could probe
+    // tenant ids with no forensic trail left on failure. Persisted via
+    // DetachedAuditPersister (REQUIRES_NEW) so the audit row survives the
+    // IllegalStateTransitionException that rolls back the caller's transaction.
+    // Marcus warroom F-2 HIGH + F-3.6 plan.
+    //
+    // Details schema mirrors the success-path audit rows plus a
+    // `rejection_reason` field carrying the exception message for triage.
+
+    /**
+     * Emitted by {@code TenantLifecycleService.suspend} when the §D8 FSM rejects the
+     * transition (caller attempted to suspend a non-ACTIVE tenant). Details include
+     * actor_user_id, justification, current_state, requested_state, rejection_reason.
+     */
+    public static final String TENANT_SUSPEND_REJECTED = "TENANT_SUSPEND_REJECTED";
+
+    /** {@code TenantLifecycleService.unsuspend} rejection (not SUSPENDED). */
+    public static final String TENANT_UNSUSPEND_REJECTED = "TENANT_UNSUSPEND_REJECTED";
+
+    /** {@code TenantLifecycleService.offboard} rejection (ARCHIVED/DELETED cannot offboard). */
+    public static final String TENANT_OFFBOARD_REJECTED = "TENANT_OFFBOARD_REJECTED";
+
+    /** {@code TenantLifecycleService.archive} rejection (not OFFBOARDING). */
+    public static final String TENANT_ARCHIVE_REJECTED = "TENANT_ARCHIVE_REJECTED";
+
+    /** {@code TenantLifecycleService.hardDelete} rejection (not ARCHIVED or retention not met). */
+    public static final String TENANT_HARD_DELETE_REJECTED = "TENANT_HARD_DELETE_REJECTED";
+
+    /**
+     * Emitted by {@code TenantLifecycleService.hardDelete} as the crypto-shred trigger.
+     *
+     * <p><b>Persisted BEFORE the destructive transaction</b> (separate tx + commit
+     * first, then the tenant + tenant_key_material + tenant_audit_chain_head
+     * DELETE cascade). Rationale: a failed hardDelete attempt leaves no row for
+     * a post-mortem to inspect if the audit INSERT is inside the destructive tx
+     * and both roll back together. Attempted-shred evidence survives.
+     *
+     * <p>Detail blob: {@code {actor_user_id, justification, archived_at, retention_days}}.</p>
+     */
+    public static final String TENANT_HARD_DELETED = "TENANT_HARD_DELETED";
+
     private AuditEventTypes() {
         // utility class — do not instantiate
     }

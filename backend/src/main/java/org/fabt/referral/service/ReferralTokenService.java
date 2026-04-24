@@ -348,7 +348,7 @@ public class ReferralTokenService {
      * site while the others are hardened.
      */
     private ReferralToken findByIdOrThrow(UUID tokenId) {
-        return repository.findByIdAndTenantId(tokenId, TenantContext.getTenantId())
+        return repository.findByIdAndActiveTenantId(tokenId, TenantContext.getTenantId())
                 .orElseThrow(() -> new NoSuchElementException("Referral token not found: " + tokenId));
     }
 
@@ -467,7 +467,7 @@ public class ReferralTokenService {
                 // read is OFF the hot path — only triggered on contention.
                 // Tenant-scoped per 8.5 / 8.6 — cross-tenant tokens return null
                 // → 404, consistent with the getById leak fix.
-                ReferralToken existing = repository.findByIdAndTenantId(tokenId, TenantContext.getTenantId()).orElse(null);
+                ReferralToken existing = repository.findByIdAndActiveTenantId(tokenId, TenantContext.getTenantId()).orElse(null);
                 if (existing == null) {
                     throw new NoSuchElementException("Referral token not found: " + tokenId);
                 }
@@ -518,7 +518,7 @@ public class ReferralTokenService {
         int updated = repository.tryRelease(tokenId, adminId, override);
         if (updated == 0) {
             // Tenant-scoped diagnostic — cross-tenant tokens appear as NOT_FOUND.
-            ReferralToken existing = repository.findByIdAndTenantId(tokenId, TenantContext.getTenantId()).orElse(null);
+            ReferralToken existing = repository.findByIdAndActiveTenantId(tokenId, TenantContext.getTenantId()).orElse(null);
             if (existing == null) {
                 throw new NoSuchElementException("Referral token not found: " + tokenId);
             }
@@ -534,7 +534,7 @@ public class ReferralTokenService {
             throw new AccessDeniedException("You do not hold the claim on this referral");
         }
 
-        ReferralToken token = repository.findByIdAndTenantId(tokenId, TenantContext.getTenantId()).orElse(null);
+        ReferralToken token = repository.findByIdAndActiveTenantId(tokenId, TenantContext.getTenantId()).orElse(null);
         UUID tenantId = token != null ? token.getTenantId() : TenantContext.getTenantId();
 
         publishAudit(adminId, tokenId, AuditEventTypes.DV_REFERRAL_RELEASED,

@@ -92,24 +92,86 @@ public class KeyDerivationService {
         return deriveKey(tenantId, "jwt-sign");
     }
 
-    /** Derives the per-tenant TOTP shared-secret encryption DEK (AES-256-GCM). */
+    /**
+     * Derives the per-tenant TOTP shared-secret encryption DEK.
+     *
+     * @deprecated since v0.51.0 — data encryption now uses random DEKs
+     * owned by {@link TenantDekService} to enable real crypto-shred per
+     * NIST SP 800-88 Rev 2. This deterministic-HKDF path is retained
+     * only for (a) the V74 legacy migration + (b) the
+     * {@code CryptoShredGapIntegrationTest} adversary simulation. Phase L
+     * cleanup removes it entirely. New data-encryption callers must go
+     * through {@code SecretEncryptionService.encryptForTenant}.
+     */
+    @Deprecated(since = "v0.51.0", forRemoval = true)
     public SecretKey deriveTotpKey(UUID tenantId) {
         return deriveKey(tenantId, "totp");
     }
 
-    /** Derives the per-tenant webhook-callback secret encryption DEK (AES-256-GCM). */
+    /**
+     * Derives the per-tenant webhook-callback secret encryption DEK.
+     *
+     * @deprecated since v0.51.0 — see {@link #deriveTotpKey} javadoc.
+     */
+    @Deprecated(since = "v0.51.0", forRemoval = true)
     public SecretKey deriveWebhookSecretKey(UUID tenantId) {
         return deriveKey(tenantId, "webhook-secret");
     }
 
-    /** Derives the per-tenant OAuth2 client-secret encryption DEK (AES-256-GCM). */
+    /**
+     * Derives the per-tenant OAuth2 client-secret encryption DEK.
+     *
+     * @deprecated since v0.51.0 — see {@link #deriveTotpKey} javadoc.
+     */
+    @Deprecated(since = "v0.51.0", forRemoval = true)
     public SecretKey deriveOauth2ClientSecretKey(UUID tenantId) {
         return deriveKey(tenantId, "oauth2-client-secret");
     }
 
-    /** Derives the per-tenant HMIS API-key encryption DEK (AES-256-GCM). */
+    /**
+     * Derives the per-tenant HMIS API-key encryption DEK.
+     *
+     * @deprecated since v0.51.0 — see {@link #deriveTotpKey} javadoc.
+     */
+    @Deprecated(since = "v0.51.0", forRemoval = true)
     public SecretKey deriveHmisApiKey(UUID tenantId) {
         return deriveKey(tenantId, "hmis-api-key");
+    }
+
+    /**
+     * Derives the per-tenant AES-KWP wrapping key used by
+     * {@link TenantDekService} to wrap / unwrap random per-tenant DEKs in
+     * the {@code tenant_dek} table. Per F-6.0 design (design-f6-real-
+     * cryptoshred §3 D61), this is the ONLY HKDF-derived key that survives
+     * Phase F — all other DEKs become random + wrapped + shreddable.
+     *
+     * <p><b>Package-private access.</b> The wrapping key is the single most
+     * privileged output of this class: anyone who can call this method and
+     * read a {@code wrapped_dek} row can recover the plaintext DEK. Access
+     * is package-private so the class remains extensible in the
+     * {@code shared.security} package while ArchUnit Family F rule 7.8h
+     * ({@code CryptoShredArchitectureTest}) pins direct callers to
+     * {@link TenantDekService} at build time.
+     *
+     * <p><b>Reflection is NOT caught by the 7.8h rule</b> (warroom pass-4
+     * docs fix, 2026-04-24). ArchUnit's {@code callMethod} inspects
+     * bytecode call-sites only; a reflective
+     * {@code Method.setAccessible(true)} + {@code invoke} compiles as a
+     * call to {@code java.lang.reflect.Method.invoke} in the caller's
+     * bytecode, not a direct call to this method. The pilot-scale
+     * threat model accepts this gap — FABT runs no third-party code in
+     * the backend JVM. Phase L hardening will add a separate rule that
+     * scans for {@code setAccessible(true)} targeting
+     * {@code KeyDerivationService.class.getDeclaredMethod(...)} if the
+     * deployment perimeter widens (e.g., to plugin-based integrations).
+     *
+     * <p><b>Why HKDF is safe here.</b> The wrapping key alone decrypts
+     * nothing; the shred surface is the {@code tenant_dek.wrapped_dek}
+     * column. An adversary who recomputes the wrapping key gains nothing
+     * without a wrapped-DEK row to unwrap. See §2 threat model.
+     */
+    SecretKey deriveKekWrappingKey(UUID tenantId) {
+        return deriveKey(tenantId, "kek-wrap");
     }
 
     /**

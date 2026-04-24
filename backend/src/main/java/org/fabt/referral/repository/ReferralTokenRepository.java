@@ -93,6 +93,22 @@ public class ReferralTokenRepository {
         return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
     }
 
+    /**
+     * Phase F §D3 active-state guard. Returns the referral token only if the owning
+     * tenant is ACTIVE; rows belonging to SUSPENDED/OFFBOARDING/ARCHIVED/DELETED
+     * tenants appear as empty (caller maps to 404 — no existence leak). Preferred
+     * over {@link #findByIdAndTenantId} for request-bound paths; system paths
+     * (expire tasklet, escalation batch) keep using the plain variant.
+     */
+    public Optional<ReferralToken> findByIdAndActiveTenantId(UUID id, UUID tenantId) {
+        List<ReferralToken> results = jdbcTemplate.query(
+                "SELECT rt.* FROM referral_token rt "
+                + "INNER JOIN tenant t ON t.id = rt.tenant_id "
+                + "WHERE rt.id = ? AND rt.tenant_id = ? AND t.state = 'ACTIVE'",
+                ROW_MAPPER, id, tenantId);
+        return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
+    }
+
     public List<ReferralToken> findPendingByShelterId(UUID shelterId) {
         return jdbcTemplate.query(
                 "SELECT * FROM referral_token WHERE shelter_id = ? AND status = 'PENDING' ORDER BY created_at",

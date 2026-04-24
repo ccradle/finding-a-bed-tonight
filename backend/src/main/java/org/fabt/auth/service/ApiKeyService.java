@@ -17,6 +17,7 @@ import org.fabt.shared.web.TenantContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.fabt.shared.security.TenantUnscoped;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,10 +27,12 @@ public class ApiKeyService {
 
     private static final Logger log = LoggerFactory.getLogger(ApiKeyService.class);
     private final ApiKeyRepository apiKeyRepository;
+    private final JdbcTemplate jdbc;
     private final SecureRandom secureRandom = new SecureRandom();
 
-    public ApiKeyService(ApiKeyRepository apiKeyRepository) {
+    public ApiKeyService(ApiKeyRepository apiKeyRepository, JdbcTemplate jdbc) {
         this.apiKeyRepository = apiKeyRepository;
+        this.jdbc = jdbc;
     }
 
     /**
@@ -123,6 +126,49 @@ public class ApiKeyService {
     }
 
     /**
+     * Bulk-deactivates every API key belonging to {@code tenantId} as part of
+     * a platform-admin-triggered tenant quarantine (Phase F suspend, §D11
+     * action 2 of 5). Clears {@code active} and both grace-period columns so
+     * neither the current key nor a recently-rotated key in its grace window
+     * can still authenticate.
+     *
+     * <p><b>Explicit tenantId parameter (NOT from TenantContext) is intentional.</b>
+     * This is a system-initiated bulk operation invoked from
+     * {@code TenantLifecycleService.suspend} — there is no request-bound
+     * TenantContext at the call site (the platform admin's tenant != the
+     * target tenant being suspended). Mirrors {@link org.fabt.shared.security.TenantKeyRotationService#bumpJwtKeyGeneration}'s
+     * signature convention. The F-3 ArchUnit Family D rule will apply
+     * {@code @TenantInternal} to this method to restrict callers; for F-2 the
+     * Javadoc is the enforcement contract.</p>
+     *
+     * @param tenantId the tenant whose keys to deactivate (must not be null)
+     * @return the number of rows updated (zero if the tenant has no keys)
+     */
+    @Transactional
+    public int deactivateAllForTenant(UUID tenantId) {
+        // api_key is not RLS-protected (verified: no policy on this table in
+        // V8, V68, V69) — direct UPDATE WHERE tenant_id=? is the idiomatic
+        // bulk path. No set_config needed.
+        //
+        // Deliberately NOT gated on `active = TRUE`. Matches the per-key
+        // deactivate() behavior which always NULLs both grace-period columns
+        // regardless of prior active state. Defense-in-depth: if
+        // findByOldKeyHashWithinGracePeriod ever loses its `active = true`
+        // clause, a deactivated key with a lingering old_key_hash + unexpired
+        // old_key_expires_at could re-authenticate. Warroom (Sam) F-2
+        // pre-commit 2026-04-23.
+        int affected = jdbc.update(
+            "UPDATE api_key SET active = FALSE, "
+            + "old_key_hash = NULL, old_key_expires_at = NULL "
+            + "WHERE tenant_id = ?",
+            tenantId);
+        if (affected > 0) {
+            log.info("Deactivated {} API keys for tenant {} (tenant quarantine)", affected, tenantId);
+        }
+        return affected;
+    }
+
+    /**
      * Deactivates an API key and clears any active grace-period hash so the
      * revoked key cannot authenticate via the {@code old_key_hash} path.
      *
@@ -150,7 +196,7 @@ public class ApiKeyService {
      * forgotten at one site while the others are hardened.
      */
     private ApiKey findByIdOrThrow(UUID keyId) {
-        return apiKeyRepository.findByIdAndTenantId(keyId, TenantContext.getTenantId())
+        return apiKeyRepository.findByIdAndActiveTenantId(keyId, TenantContext.getTenantId())
                 .orElseThrow(() -> new NoSuchElementException("API key not found: " + keyId));
     }
 

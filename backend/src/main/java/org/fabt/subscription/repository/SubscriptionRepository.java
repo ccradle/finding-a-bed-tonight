@@ -27,4 +27,17 @@ public interface SubscriptionRepository extends CrudRepository<Subscription, UUI
     @Query("SELECT * FROM subscription WHERE id = :id AND tenant_id = :tenantId")
     Optional<Subscription> findByIdAndTenantId(@Param("id") UUID id,
                                                 @Param("tenantId") UUID tenantId);
+
+    /**
+     * Phase F §D3 active-state guard. Returns the subscription only if the owning
+     * tenant is ACTIVE; rows for non-ACTIVE tenants appear as empty (caller maps to
+     * 404 — no existence leak). Preferred over {@link #findByIdAndTenantId} for
+     * request-bound paths; the plain variant is for {@code @TenantInternal}
+     * call sites (lifecycle service, batch sweeps).
+     */
+    @Query("SELECT s.* FROM subscription s "
+         + "INNER JOIN tenant t ON t.id = s.tenant_id "
+         + "WHERE s.id = :id AND s.tenant_id = :tenantId AND t.state = 'ACTIVE'")
+    Optional<Subscription> findByIdAndActiveTenantId(@Param("id") UUID id,
+                                                      @Param("tenantId") UUID tenantId);
 }

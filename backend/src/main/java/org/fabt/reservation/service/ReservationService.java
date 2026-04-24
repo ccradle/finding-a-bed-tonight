@@ -150,7 +150,7 @@ public class ReservationService implements HeldReservationCleaner {
     public Reservation confirmReservation(UUID reservationId, UUID userId) {
         UUID tenantId = TenantContext.getTenantId();
 
-        Reservation reservation = reservationRepository.findByIdAndTenantId(reservationId, tenantId)
+        Reservation reservation = reservationRepository.findByIdAndActiveTenantId(reservationId, tenantId)
                 .orElseThrow(() -> new NoSuchElementException("Reservation not found: " + reservationId));
 
         if (!reservation.isHeld()) {
@@ -228,7 +228,7 @@ public class ReservationService implements HeldReservationCleaner {
     public Reservation cancelReservation(UUID reservationId, UUID userId) {
         UUID tenantId = TenantContext.getTenantId();
 
-        Reservation reservation = reservationRepository.findByIdAndTenantId(reservationId, tenantId)
+        Reservation reservation = reservationRepository.findByIdAndActiveTenantId(reservationId, tenantId)
                 .orElseThrow(() -> new NoSuchElementException("Reservation not found: " + reservationId));
 
         if (!reservation.isHeld()) {
