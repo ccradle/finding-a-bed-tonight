@@ -3,6 +3,7 @@ package org.fabt.tenant.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
@@ -78,12 +79,21 @@ class TenantLifecycleServiceUnitTest {
     @Mock
     TenantOffboardExportService offboardExportService;
 
+    @Mock
+    org.fabt.shared.security.TenantDekService tenantDekService;
+
     private TenantLifecycleService newService() {
+        // F-6.0 task 7.8f: two new constructor params — TenantDekService (for
+        // hardDelete cache invalidation) and the retention-days config value.
+        // Zero-day retention in unit tests so hardDelete is exercisable without
+        // time-travel; prod default is 30 days.
         return new TenantLifecycleService(tenantRepository, tenantKeyRotationService,
                                           kidRegistryService,
                                           apiKeyService, eventPublisher, jdbc,
                                           tenantStateGuard, detachedAuditPersister,
-                                          offboardExportService);
+                                          offboardExportService,
+                                          tenantDekService,
+                                          0L);
     }
 
     /**
@@ -517,11 +527,25 @@ class TenantLifecycleServiceUnitTest {
     }
 
     @Test
-    void hardDelete_throwsUnsupportedOperation_deferredToF6() {
+    void hardDelete_fromActiveState_rejectsFsmAndEmitsAttemptAudit() {
+        // F-6.0 task 7.8f: hardDelete is now implemented. Unit-test coverage
+        // here proves the FSM rejection path (ACTIVE → DELETED is not allowed)
+        // emits a TENANT_HARD_DELETE_REJECTED audit row via the detached
+        // persister before propagating the IllegalStateTransitionException.
+        // End-to-end happy-path + retention gate + CASCADE behavior is pinned
+        // by TenantLifecycleHardDeleteIntegrationTest against a real DB.
+        Tenant active = newTenant(TenantState.ACTIVE);
+        when(tenantRepository.findById(active.getId())).thenReturn(Optional.of(active));
+
+        UUID actor = UUID.randomUUID();
         assertThatThrownBy(() ->
-                newService().hardDelete(UUID.randomUUID(), UUID.randomUUID(), "retention-complete"))
-            .isInstanceOf(UnsupportedOperationException.class)
-            .hasMessageContaining("F-6");
+                newService().hardDelete(active.getId(), actor, "skip-archive"))
+            .isInstanceOf(org.fabt.tenant.domain.IllegalStateTransitionException.class);
+
+        verify(detachedAuditPersister).persistDetached(
+                eq(active.getId()),
+                argThat(event -> org.fabt.shared.audit.AuditEventTypes.TENANT_HARD_DELETE_REJECTED
+                        .equals(event.action())));
     }
 
     // ─── Runtime assertion guarding set_config scope ─────────────────────────

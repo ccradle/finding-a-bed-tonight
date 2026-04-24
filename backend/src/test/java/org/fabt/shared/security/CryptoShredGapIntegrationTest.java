@@ -12,7 +12,6 @@ import javax.crypto.spec.GCMParameterSpec;
 
 import org.fabt.BaseIntegrationTest;
 import org.fabt.TestAuthHelper;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -20,68 +19,39 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * F-6 TDD ANCHOR — pins the crypto-shred gap.
+ * F-6 CRYPTO-SHRED ANCHOR — pins the crypto-shred property.
  *
- * <p><b>Why this test exists:</b> the Phase F §D11 design claims tenant hard-delete
- * provides "crypto-shredding" of all per-tenant secrets. Warroom 2026-04-24 found
- * that claim is false against the current derivation scheme:
+ * <p><b>History:</b> this test started life (commit {@code b5672da}) as a
+ * red-state TDD anchor pinning the gap in the Phase A HKDF-DEK derivation:
+ * deleting {@code tenant_key_material} + {@code kid_to_tenant_key} closed
+ * the happy-path decrypt but destroyed nothing the adversary needed. An
+ * attacker with {@code FABT_ENCRYPTION_KEY} and any pre-shred ciphertext
+ * could rederive the DEK via public HKDF and recover plaintext in ms.
  *
- * <ul>
- *   <li>{@link KeyDerivationService} computes DEKs as
- *       {@code HKDF-SHA256(master_KEK, tenantId_bytes, "fabt:v1:<tenantId>:<purpose>")}
- *       — a pure function with zero persisted state.</li>
- *   <li>The "crypto-shred" step as designed deletes {@code tenant_key_material} +
- *       {@code kid_to_tenant_key}. That closes the happy-path decrypt
- *       ({@link SecretEncryptionService#decryptForTenant} rejects unknown kids
- *       per C-A3-1) but deletes nothing that an adversary actually needs.</li>
- *   <li>An adversary with (a) the {@code FABT_ENCRYPTION_KEY} env value
- *       (pg_dump + leaked .env, insider-threat, or process-dump scenario) and
- *       (b) a copy of any pre-shred ciphertext can skip the envelope/kid
- *       layer entirely, rederive the DEK via public HKDF, and recover the
- *       plaintext in milliseconds. No registry row was needed.</li>
- * </ul>
+ * <p><b>Post-F-6.0:</b> with V82 ({@code tenant_dek}) + V83 (re-encrypt) +
+ * V84 (CASCADE chain) + the {@code SecretEncryptionService} refactor +
+ * {@code TenantLifecycleService.hardDelete} all shipped, the test now
+ * PINS the property instead of pinning the gap. Adversary's raw-HKDF
+ * derivation path produces a key that doesn't match the ciphertext's
+ * real (random) DEK; GCM auth tag fails; plaintext is unrecoverable.
  *
- * <p><b>What this test asserts:</b> the adversary must NOT be able to recover
- * the canary plaintext post-shred. This fails on current main because the
- * derivation is deterministic; it will pass once F-6.0 implementation lands
- * the per-tenant random DEK stored in {@code tenant_dek} + wrapped under a
- * master-KEK-derived wrapping key (Option A — see 2026-04-24 warroom
- * decision). At that point "delete the wrapped DEK row" actually destroys
- * the only copy of the DEK and this test flips green.
+ * <p><b>What this test guards against:</b> a regression that puts the
+ * data-encryption path back on deterministic HKDF derivation. If
+ * {@code encryptForTenant} ever routes through {@link KeyDerivationService}
+ * directly again (bypassing {@link TenantDekService}), the adversary's
+ * path would start recovering canaries and this assertion fires with the
+ * recovered plaintext in the failure message.
  *
- * <p><b>Why {@code @Disabled}:</b> we want the test committed on main to
- * document the gap (so any future reader of {@code shared/security} sees the
- * red-state anchor in the test tree), but enabled on main it would break CI.
- * Remove the annotation as part of the F-6.0 implementation commit that
- * lands the real shred; the assertion will flip green at the same moment.
- *
- * <p><b>Run locally:</b>
- * <pre>
- *   mvn -q test -Dtest=CryptoShredGapIntegrationTest -DfailIfNoTests=false \
- *       -pl backend -Dsurefire.skipAfterFailureCount=0 -Djunit.jupiter.conditions.deactivate=*
- * </pre>
- * The {@code conditions.deactivate=*} flag ignores the {@code @Disabled}
- * annotation so the anchor actually runs. Confirm the "CRYPTO-SHRED GAP"
- * assertion fires with the adversary-recovered canary in the failure message.
+ * <p>See {@code openspec/changes/multi-tenant-production-readiness/design-f6-real-cryptoshred.md}
+ * §2 (threat model) + §11.1 (test strategy).
  */
-@Disabled("""
-    F-6 TDD anchor — fails on main by design.
-    Removing this annotation is the last step of the F-6.0 implementation commit
-    that introduces per-tenant random DEKs stored in `tenant_dek`. At that point
-    the adversary's direct-HKDF path no longer recovers plaintext and the
-    assertion flips green. Keep this test disabled on main until then so CI
-    stays healthy; enable it locally with
-    -Djunit.jupiter.conditions.deactivate=* to verify the gap exists.
-    Verified red-state 2026-04-24 — assertion fires with recovered canary in
-    the failure message. See openspec/changes/multi-tenant-production-readiness
-    §D11, warroom 2026-04-24.
-    """)
 class CryptoShredGapIntegrationTest extends BaseIntegrationTest {
 
     @Autowired private TestAuthHelper authHelper;
     @Autowired private SecretEncryptionService encryption;
     @Autowired private KeyDerivationService keyDerivation;
     @Autowired private KidRegistryService kidRegistry;
+    @Autowired private TenantDekService tenantDekService;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private PlatformTransactionManager transactionManager;
 
@@ -106,30 +76,40 @@ class CryptoShredGapIntegrationTest extends BaseIntegrationTest {
             .isEqualTo(canary);
 
         // ──────────────────────────────────────────────────────────────────
-        // 2. Simulate the §D11 crypto-shred as designed today: drop every
-        //    registry row that ties kids to this tenant and evict the caches
-        //    that held the resolution. This is the exact set of writes
-        //    TenantLifecycleService.hardDelete will perform per the current
-        //    design draft.
+        // 2. Simulate the post-F-6.0 crypto-shred: destroy everything
+        //    TenantLifecycleService.hardDelete destroys. Under Option A
+        //    (V82+V83+V84) the shred surface is tenant_dek — the random
+        //    per-tenant DEK wrapped under an HKDF-derived key lives there
+        //    and nowhere else. Deleting the row destroys the only copy of
+        //    the DEK. The pre-F-6 registry rows (kid_to_tenant_key,
+        //    tenant_key_material) are also cleared to mirror the full
+        //    CASCADE chain a real `DELETE FROM tenant` would fire.
         // ──────────────────────────────────────────────────────────────────
         UUID kidBeforeShred = kidRegistry.findOrCreateActiveKid(tenantId);
 
-        // RLS note: tenant_key_material + kid_to_tenant_key carry V68 row-level
-        // security. A bare DELETE from an unbound connection affects 0 rows —
-        // the RLS policies filter them out before the command runs. Bind
-        // app.tenant_id in a short tx so the DELETE matches what a privileged
-        // hardDelete() would do (the real service will use DB-owner
-        // credentials, but same net effect: rows must actually go away, not
-        // be silently hidden).
+        // RLS + trigger guard: tenant_dek has both the V68-style RESTRICTIVE
+        // DELETE policy (requires app.tenant_id = tenant_id) AND a BEFORE
+        // DELETE trigger that requires fabt.shred_in_progress = tenant_id.
+        // Bind both GUCs in the same tx so the DELETE matches the exact
+        // posture hardDelete's CASCADE path provides.
         TransactionTemplate shredTx = new TransactionTemplate(transactionManager);
         shredTx.executeWithoutResult(status -> {
             jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
                 String.class, tenantId.toString());
+            jdbc.queryForObject("SELECT set_config('fabt.shred_in_progress', ?, true)",
+                String.class, tenantId.toString());
+            // Option A's shred surface — this is what carries the crypto-shred
+            // guarantee. Deleting these rows renders the wrapped DEKs
+            // unrecoverable.
+            jdbc.update("DELETE FROM tenant_dek WHERE tenant_id = ?", tenantId);
+            // Legacy registry rows — no longer hold data-encryption keys
+            // but still part of the CASCADE chain real hardDelete fires.
             jdbc.update("DELETE FROM kid_to_tenant_key WHERE tenant_id = ?", tenantId);
             jdbc.update("DELETE FROM tenant_key_material WHERE tenant_id = ?", tenantId);
         });
         kidRegistry.invalidateTenantActiveKid(tenantId);
         kidRegistry.invalidateKidResolution(kidBeforeShred);
+        tenantDekService.invalidateTenantDeks(tenantId);
 
         // ──────────────────────────────────────────────────────────────────
         // 3. Happy-path decrypt is blocked — envelope check rejects the
@@ -157,32 +137,40 @@ class CryptoShredGapIntegrationTest extends BaseIntegrationTest {
         //      - public (envelope wire format, purpose string)
         //      - in the backup (tenantId, ciphertext bytes)
         //      - on the running host (master KEK)
-        //    None of it is in tenant_key_material or kid_to_tenant_key.
-        //    Deleting those rows therefore shreds nothing.
+        //    Under Option A, the DEK lives only in tenant_dek (now deleted)
+        //    AND was random (not HKDF-derived). The adversary's HKDF-derive
+        //    path recomputes a DIFFERENT key than the ciphertext was
+        //    encrypted under — the GCM auth tag fails.
         // ──────────────────────────────────────────────────────────────────
-        String adversaryRecovered = adversaryDirectHkdfDecrypt(tenantId, ciphertext);
+        String adversaryRecovered;
+        try {
+            adversaryRecovered = adversaryDirectHkdfDecrypt(tenantId, ciphertext);
+        } catch (Exception tagFailure) {
+            // Under Option A the GCM tag check fails when the adversary's
+            // HKDF-derived key is applied to a ciphertext that was encrypted
+            // under a DIFFERENT (random) DEK. That IS the crypto-shred
+            // guarantee we want. Represent as a sentinel so the assertion
+            // below still uses the same shape (positive form: NOT the
+            // canary), and the failure message stays informative if
+            // something regresses.
+            adversaryRecovered = "(unrecoverable: " + tagFailure.getClass().getSimpleName() + ")";
+        }
 
-        // THE FAILING ASSERTION — the crypto-shred claim's core invariant.
+        // THE ANCHOR ASSERTION — the crypto-shred claim's core invariant.
         //
-        // On current main: `adversaryRecovered` equals the canary → this
-        // assertion FAILS → the test body proves the gap with a concrete
-        // recovered string in the failure message.
-        //
-        // After F-6.0 Option A: the adversary's raw-HKDF path yields a
-        // key that doesn't match the ciphertext's real DEK (which now
-        // lives only in tenant_dek, wrapped, and was deleted during
-        // shred). The GCM auth tag fails, adversaryDirectHkdfDecrypt
-        // throws, the assertThatThrownBy variant would catch it — but
-        // to preserve the narrative symmetry, we assert the positive
-        // form: plaintext is not recoverable, regardless of whether
-        // that's via tag failure or any other mechanism.
+        // Pre-Option A: adversaryRecovered == canary (gap). Now that V82 +
+        // V83 + V84 + TenantDekService are live, the shred actually destroys
+        // the DEK material and the adversary's HKDF-derive path hits a
+        // ciphertext it cannot decrypt.
         assertThat(adversaryRecovered)
             .as("""
-                CRYPTO-SHRED GAP: adversary recovered `%s` post-shred.
-                Current derivation is a pure function of master_KEK + tenantId
-                + purpose — none of which was destroyed by deleting
-                tenant_key_material + kid_to_tenant_key. See F-6.0 warroom
-                2026-04-24 for the per-tenant-random-DEK (Option A) fix.
+                CRYPTO-SHRED ANCHOR: adversary recovered `%s` post-shred.
+                Under Option A the data-encryption DEK was random (not HKDF),
+                lived only in tenant_dek, and was destroyed by the simulated
+                shred. If this assertion fails the recovered canary is the
+                regression signal — the gap has reopened. See
+                openspec/changes/multi-tenant-production-readiness/design-f6-real-cryptoshred.md
+                §2 threat model + §11.1 test strategy.
                 """.formatted(canary))
             .isNotEqualTo(canary);
     }

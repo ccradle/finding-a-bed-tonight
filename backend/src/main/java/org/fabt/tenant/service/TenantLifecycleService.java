@@ -6,17 +6,23 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
 
+import java.time.temporal.ChronoUnit;
+import java.util.HexFormat;
+
 import org.fabt.auth.service.ApiKeyService;
 import org.fabt.shared.audit.AuditEventRecord;
 import org.fabt.shared.audit.AuditEventTypes;
 import org.fabt.shared.audit.DetachedAuditPersister;
 import org.fabt.shared.config.JsonString;
 import org.fabt.shared.security.KidRegistryService;
+import org.fabt.shared.security.TenantDekService;
 import org.fabt.shared.security.TenantKeyRotationService;
+import org.fabt.shared.web.TenantContext;
 import org.fabt.tenant.domain.IllegalStateTransitionException;
 import org.fabt.tenant.domain.Tenant;
 import org.fabt.tenant.domain.TenantState;
 import org.fabt.tenant.repository.TenantRepository;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -62,6 +68,14 @@ public class TenantLifecycleService {
     private final TenantStateGuard tenantStateGuard;
     private final DetachedAuditPersister detachedAuditPersister;
     private final TenantOffboardExportService offboardExportService;
+    private final TenantDekService tenantDekService;
+
+    /**
+     * 30-day retention window before ARCHIVED → DELETED is permitted, per V81
+     * column comment + design §D11 + GDPR Art. 17 industry practice. Config-
+     * overridable for test harnesses that need instant shred verification.
+     */
+    private final long hardDeleteRetentionDays;
 
     public TenantLifecycleService(TenantRepository tenantRepository,
                                    TenantKeyRotationService tenantKeyRotationService,
@@ -71,7 +85,10 @@ public class TenantLifecycleService {
                                    JdbcTemplate jdbc,
                                    TenantStateGuard tenantStateGuard,
                                    DetachedAuditPersister detachedAuditPersister,
-                                   TenantOffboardExportService offboardExportService) {
+                                   TenantOffboardExportService offboardExportService,
+                                   TenantDekService tenantDekService,
+                                   @Value("${fabt.tenant.hard-delete.retention-days:30}")
+                                   long hardDeleteRetentionDays) {
         this.tenantRepository = tenantRepository;
         this.tenantKeyRotationService = tenantKeyRotationService;
         this.kidRegistryService = kidRegistryService;
@@ -81,6 +98,8 @@ public class TenantLifecycleService {
         this.tenantStateGuard = tenantStateGuard;
         this.detachedAuditPersister = detachedAuditPersister;
         this.offboardExportService = offboardExportService;
+        this.tenantDekService = tenantDekService;
+        this.hardDeleteRetentionDays = hardDeleteRetentionDays;
     }
 
     /**
@@ -477,20 +496,210 @@ public class TenantLifecycleService {
     }
 
     /**
-     * Crypto-shred: ARCHIVED → DELETED with the key-material, audit-chain-head, and
-     * tenant row DELETE cascade (design §D11). Implementation deferred to slice F-6,
-     * which (a) gates on {@code archived_at < NOW() - 30d}, (b) writes TENANT_HARD_DELETED
-     * audit row in a separate committed tx BEFORE the destructive tx, (c) deletes in the
-     * order {@code tenant_key_material → tenant_audit_chain_head → tenant} per §D11.
+     * Crypto-shred: ARCHIVED → DELETED. Fires a single {@code DELETE FROM tenant}
+     * that triggers the CASCADE chain across 22 child FKs (18 from V84 + 4 from
+     * V61/V80/V82), destroying every per-tenant row including the
+     * {@code tenant_dek} rows that hold the wrapped DEKs for this tenant's
+     * data encryption. Post-commit, the DEK material exists nowhere — not in
+     * the DB, not in the app caches — which is what makes the §D11 crypto-shred
+     * claim true (TDD anchor {@code CryptoShredGapIntegrationTest} flips from
+     * @Disabled+red to @Enabled+green with this slice).
      *
-     * <p>Not {@code @Transactional} yet — F-6's two-tx pattern (audit-commit first,
-     * destructive-tx second) is NOT a single {@code @Transactional} wrap anyway. The
-     * annotation arrives on a private helper in F-6, not here.</p>
+     * <h3>Preconditions</h3>
+     * <ol>
+     *   <li>State must currently be ARCHIVED (FSM §D8).</li>
+     *   <li>{@code archived_at} must be non-null (data integrity — ARCHIVED
+     *       without a timestamp is a V81-contract violation).</li>
+     *   <li>{@code archived_at + hardDeleteRetentionDays} must be in the past.
+     *       Retention window starts the day archive() fires.</li>
+     * </ol>
+     *
+     * <h3>Sequence</h3>
+     * <ol>
+     *   <li>Capture {@code tenant_audit_chain_head.last_hash} BEFORE the
+     *       CASCADE destroys the row (warroom pass-2 Riley fix — auditors
+     *       need the terminal hash to prove the chain ended cleanly).</li>
+     *   <li>Bind {@code fabt.shred_in_progress} GUC to this tenantId — the
+     *       V82 trigger guard on tenant_dek DELETE requires it, so the FK
+     *       cascade to tenant_dek succeeds only on this shred path. ArchUnit
+     *       Family F rule 7.8j pins this GUC-write to this method only.</li>
+     *   <li>{@code DELETE FROM tenant WHERE id = ?} — the single statement
+     *       that fires the entire CASCADE chain. Must affect exactly 1 row;
+     *       otherwise something is badly wrong and we fail loud.</li>
+     *   <li>After-commit hook: invalidate TenantDekService + TenantStateGuard
+     *       caches, and write the platform-owned {@code TENANT_HARD_DELETED}
+     *       tombstone to {@code audit_events} with NULL-referencing tenantId
+     *       (audit_events has no FK to tenant per V57 / Q-F6-5) + chain hash
+     *       embedded. Fires only on successful commit — rollback scenario
+     *       leaves everything consistent.</li>
+     * </ol>
+     *
+     * <p>Throws {@link IllegalStateTransitionException} if state != ARCHIVED.
+     * Throws {@link IllegalStateException} if archived_at is null or the
+     * retention window hasn't elapsed. FSM rejections emit a
+     * {@code TENANT_HARD_DELETE_REJECTED} attempt-audit via the detached
+     * persister before propagating.
      */
+    @Transactional
     public void hardDelete(UUID tenantId, UUID actorUserId, String justification) {
-        throw new UnsupportedOperationException(
-            "TenantLifecycleService.hardDelete is implemented in slice F-6 with full "
-            + "crypto-shred cascade and audit-before-destructive-tx ordering");
+        wrapAttemptAudit(tenantId, actorUserId, justification,
+            AuditEventTypes.TENANT_HARD_DELETE_REJECTED,
+            () -> {
+                doHardDelete(tenantId, actorUserId, justification);
+                return null;
+            });
+    }
+
+    private void doHardDelete(UUID tenantId, UUID actorUserId, String justification) {
+        Tenant tenant = tenantRepository.findById(tenantId)
+            .orElseThrow(() -> new NoSuchElementException("tenant not found: " + tenantId));
+        TenantState previous = tenant.getState();
+        TenantState.assertTransition(previous, TenantState.DELETED);  // ARCHIVED → DELETED only
+
+        // Data-integrity check: ARCHIVED state implies archived_at stamped. If
+        // someone manually flipped state without stamping the timestamp, fail
+        // loud rather than shred with an unknown retention baseline.
+        Instant archivedAt = tenant.getArchivedAt();
+        if (archivedAt == null) {
+            throw new IllegalStateException(
+                "Tenant " + tenantId + " cannot be hard-deleted: state is ARCHIVED but "
+                + "archived_at is NULL — archive() must have stamped a timestamp. Data corruption?");
+        }
+
+        // Retention window gate (V81 column comment + §D11 + GDPR Art. 17
+        // industry practice). Configurable for tests; prod defaults to 30 days.
+        Instant shredEligibleAt = archivedAt.plus(hardDeleteRetentionDays, ChronoUnit.DAYS);
+        Instant now = Instant.now();
+        if (now.isBefore(shredEligibleAt)) {
+            throw new IllegalStateException(String.format(
+                "Tenant %s cannot be hard-deleted: archived_at=%s + %d-day retention = %s, "
+                + "eligible in %d seconds (now=%s)",
+                tenantId, archivedAt, hardDeleteRetentionDays, shredEligibleAt,
+                shredEligibleAt.getEpochSecond() - now.getEpochSecond(), now));
+        }
+
+        // Capture the audit chain hash BEFORE the CASCADE destroys it.
+        // Warroom pass-2 Riley: auditors need the terminal hash to prove the
+        // chain ended cleanly at a specific Merkle root rather than "vanished."
+        String lastChainHash = captureLastAuditChainHash(tenantId);
+
+        // Bind the shred-guard GUC. V82's BEFORE DELETE trigger on tenant_dek
+        // raises unless this GUC matches OLD.tenant_id. Setting it here unlocks
+        // the tenant_dek rows for the CASCADE fire. Parameterized — never
+        // concatenate the tenant ID into the SQL (warroom pass-2 Marcus).
+        // ArchUnit rule 7.8j will pin this call site to this method only.
+        jdbc.queryForObject("SELECT set_config('fabt.shred_in_progress', ?, true)",
+            String.class, tenantId.toString());
+
+        // Bind app.tenant_id too, for RLS policies on any child table that
+        // checks current_setting before CASCADE fires (audit_events is the
+        // only one that might want to read this — the tombstone is written
+        // AFTER_COMMIT with SYSTEM_TENANT_ID, but belt-and-braces).
+        bindTenantContextForAudit(tenantId);
+
+        // THE single DELETE that performs the shred. The CASCADE chain
+        // unwinds 22 FKs (18 V84 + 4 V61/V80/V82), taking the tenant_dek
+        // rows with them. After this statement commits, the wrapped DEKs
+        // for this tenant exist nowhere — the crypto-shred is complete.
+        int rows = jdbc.update("DELETE FROM tenant WHERE id = ?", tenantId);
+        if (rows != 1) {
+            throw new IllegalStateException(
+                "hardDelete expected DELETE FROM tenant to affect 1 row, got "
+                + rows + " for tenantId=" + tenantId);
+        }
+
+        // Schedule tombstone + cache invalidation for AFTER_COMMIT. Tombstone
+        // fires ONLY on successful commit; on rollback the tenant row still
+        // exists and no "deleted" claim is persisted.
+        scheduleHardDeleteAfterCommit(tenantId, previous, actorUserId,
+            justification, lastChainHash);
+    }
+
+    /**
+     * Reads {@code tenant_audit_chain_head.last_hash} for the given tenant
+     * before the CASCADE destroys it. Returns a lowercase hex string, or
+     * null if the tenant has no chain head (created but never audited —
+     * unusual but possible).
+     *
+     * <p>Best-effort: if the query throws (e.g., tx is already poisoned),
+     * logs a warning and returns a sentinel string. The tombstone still
+     * writes; we just lose one field of forensic context.
+     */
+    private String captureLastAuditChainHash(UUID tenantId) {
+        try {
+            byte[] hash = jdbc.query(
+                "SELECT last_hash FROM tenant_audit_chain_head WHERE tenant_id = ?",
+                rs -> rs.next() ? rs.getBytes(1) : null,
+                tenantId);
+            return hash != null ? HexFormat.of().formatHex(hash) : null;
+        } catch (Exception e) {
+            // Non-fatal — forensic metadata only. Tombstone records the failure
+            // so an operator can investigate if the field is missing.
+            return "(capture-failed: " + e.getClass().getSimpleName() + ")";
+        }
+    }
+
+    /**
+     * Registers an after-commit hook that (a) invalidates both
+     * {@link TenantDekService} and {@link TenantStateGuard} caches, and
+     * (b) writes the platform-owned {@code TENANT_HARD_DELETED} tombstone.
+     *
+     * <p>Fires only on successful commit (per
+     * {@link TransactionSynchronization#afterCommit()} contract). If the
+     * outer tx rolls back — because the DELETE failed or a CASCADE constraint
+     * violation surfaced — neither caches get evicted nor tombstones get
+     * written; the cache stays consistent with the still-present DB state.
+     *
+     * <p>Tombstone writes via {@link DetachedAuditPersister} (REQUIRES_NEW)
+     * under {@code SYSTEM_TENANT_ID} — {@code audit_events} has no FK to
+     * tenant per V57 / Q-F6-5, so the platform-owned row survives the shred
+     * and gives compliance auditors a "tenant X deleted on Y by Z" record.
+     * Details JSON embeds the terminal chain hash captured pre-CASCADE.
+     */
+    private void scheduleHardDeleteAfterCommit(UUID tenantId, TenantState previous,
+                                                UUID actorUserId, String justification,
+                                                String lastChainHash) {
+        Runnable afterCommit = () -> {
+            // 1. Cache invalidation — evicts per-tenant active-DEK cache +
+            //    per-kid resolution cache, plus the TenantStateGuard cache.
+            //    Idempotent (safe to run even when caches are empty).
+            tenantDekService.invalidateTenantDeks(tenantId);
+            tenantStateGuard.invalidate(tenantId);
+
+            // 2. Platform tombstone. SYSTEM_TENANT_ID scope matches V74's
+            //    pattern for migration-origin audits. The deleted tenant's
+            //    UUID lives in the details JSONB.
+            Map<String, Object> tombstoneDetails = new LinkedHashMap<>();
+            tombstoneDetails.put("deleted_tenant_id", tenantId.toString());
+            tombstoneDetails.put("actor_user_id", actorUserId == null ? null : actorUserId.toString());
+            tombstoneDetails.put("justification", justification);
+            tombstoneDetails.put("deleted_at", Instant.now().toString());
+            tombstoneDetails.put("previous_state", previous.name());
+            tombstoneDetails.put("last_audit_chain_hash",
+                lastChainHash != null ? lastChainHash : "(no chain)");
+            detachedAuditPersister.persistDetached(
+                TenantContext.SYSTEM_TENANT_ID,
+                new AuditEventRecord(actorUserId, null,
+                    AuditEventTypes.TENANT_HARD_DELETED,
+                    tombstoneDetails, null));
+        };
+
+        if (TransactionSynchronizationManager.isActualTransactionActive()
+            && TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(
+                new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        afterCommit.run();
+                    }
+                });
+        } else {
+            // Defensive fallback — all callers are @Transactional so this is
+            // unreachable in practice. Running synchronously keeps unit tests
+            // without a real tx green; if a future refactor drops the
+            // @Transactional, neither cache nor tombstone is lost.
+            afterCommit.run();
+        }
     }
 
     /**
