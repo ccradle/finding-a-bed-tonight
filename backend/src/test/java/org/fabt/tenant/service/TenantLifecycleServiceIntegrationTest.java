@@ -95,15 +95,19 @@ class TenantLifecycleServiceIntegrationTest extends BaseIntegrationTest {
         // JWT gen unchanged — no second bump
         assertThat(queryJwtGen(tenantId)).isEqualTo(genAfterFirst);
 
-        // And no audit trail for the failed attempt (F-2 scope). This pins the
-        // current "silent failure" contract explicitly. The forensic gap — an
-        // attacker hammering suspend leaves no trail — is tracked for F-3 in
-        // project_tenant_lifecycle_attempt_audit_gap.md; that slice will add a
-        // TENANT_SUSPEND_ATTEMPT_REJECTED row via REQUIRES_NEW, at which point
-        // THIS assertion flips to expect one row and the test doc-comment updates.
+        // No success-path audit for the failed attempt — no state flip, no JWT
+        // bump, no API-key churn.
         List<String> attemptAudit = queryAuditActionsForTenant(tenantId, secondActor,
             List.of("TENANT_SUSPENDED", "JWT_KEY_GENERATION_BUMPED"));
         assertThat(attemptAudit).isEmpty();
+
+        // F-3.6 attempt-audit: the rejected suspend attempt DOES emit
+        // TENANT_SUSPEND_REJECTED via DetachedAuditPersister (REQUIRES_NEW) so
+        // the forensic trail survives the caller-tx rollback. This closes the
+        // Marcus F-2 HIGH gap.
+        List<String> rejectionAudit = queryAuditActionsForTenant(tenantId, secondActor,
+            List.of("TENANT_SUSPEND_REJECTED"));
+        assertThat(rejectionAudit).containsExactly("TENANT_SUSPEND_REJECTED");
     }
 
     @Test

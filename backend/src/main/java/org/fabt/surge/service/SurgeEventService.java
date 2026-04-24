@@ -13,6 +13,7 @@ import org.fabt.availability.repository.BedAvailabilityRepository;
 import org.fabt.observability.ObservabilityMetrics;
 import org.fabt.shared.event.DomainEvent;
 import org.fabt.shared.event.EventBus;
+import org.fabt.shared.security.TenantInternal;
 import org.fabt.shared.web.TenantContext;
 import org.fabt.shelter.service.ShelterService;
 import org.fabt.surge.domain.SurgeEvent;
@@ -110,6 +111,11 @@ public class SurgeEventService {
         return event;
     }
 
+    @TenantInternal("batch-scheduler path; passes null tenantId to findByIdAndTenantId "
+            + "which never matches (tenant_id NOT NULL), so the event-publish block below "
+            + "never fires — a latent bug predating F-3 that needs its own refactor to bind "
+            + "tenant context from the surge row. Intentionally NOT swapped to the ACTIVE "
+            + "variant by F-3; tracked in project_f3_part2_resume_point.md.")
     @Transactional
     public void expireSurge(UUID surgeEventId) {
         repository.updateStatus(surgeEventId, SurgeEventStatus.EXPIRED, null);

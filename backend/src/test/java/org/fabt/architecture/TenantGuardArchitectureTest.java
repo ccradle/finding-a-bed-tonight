@@ -26,6 +26,7 @@ import org.fabt.notification.repository.EscalationPolicyRepository;
 import org.fabt.notification.repository.NotificationRepository;
 import org.fabt.referral.repository.ReferralTokenRepository;
 import org.fabt.reservation.repository.ReservationRepository;
+import org.fabt.shared.security.TenantInternal;
 import org.fabt.shared.security.TenantUnscoped;
 import org.fabt.shelter.repository.ShelterConstraintsRepository;
 import org.fabt.shelter.repository.ShelterRepository;
@@ -180,6 +181,45 @@ class TenantGuardArchitectureTest {
                             + "exceptions (warroom 2026-04-15). See design D11.");
 
     // ------------------------------------------------------------------
+    // Family D — tenant-state guard (F-3)
+    // ------------------------------------------------------------------
+    //
+    // Phase F slice F-3 gates request-bound reads behind tenant.state='ACTIVE'.
+    // Six Tier-1 repositories gained a findByIdAndActiveTenantId(id, tenantId)
+    // variant that INNER JOINs to tenant WHERE state='ACTIVE'. Request-bound
+    // callers MUST use that variant; the plain findByIdAndTenantId is reserved
+    // for @TenantInternal call sites (lifecycle service, batch sweeps,
+    // platform-admin cross-tenant operations where the target is intentionally
+    // non-ACTIVE — e.g. offboard export reading an OFFBOARDING tenant's data).
+    //
+    // This rule catches accidental regressions where a new service/controller
+    // method calls the plain variant without the escape hatch annotation.
+    // Design-f §F-3 + warroom Marcus pre-F-3 commit review.
+
+    private static final Set<String> F3_TIER1_REPO_NAMES = Set.of(
+            ApiKeyRepository.class.getName(),
+            TenantOAuth2ProviderRepository.class.getName(),
+            SubscriptionRepository.class.getName(),
+            ReferralTokenRepository.class.getName(),
+            ReservationRepository.class.getName(),
+            SurgeEventRepository.class.getName()
+    );
+
+    @ArchTest
+    static final ArchRule no_plain_findByIdAndTenantId_on_tier1_repos =
+            methods()
+                    .that().areDeclaredInClassesThat().resideInAnyPackage("..service..", "..api..")
+                    .and().areNotAnnotatedWith(TenantInternal.class)
+                    .and().areNotAnnotatedWith(TenantUnscoped.class)
+                    .should(notCallPlainFindByIdAndTenantIdOnTier1Repo())
+                    .as("Service/controller methods calling tenant-owned Tier-1 repos must use "
+                            + "findByIdAndActiveTenantId (F-3 §D3 tenant-state guard). To call the "
+                            + "plain findByIdAndTenantId, annotate the method with "
+                            + "@TenantInternal(\"justification\") — used for lifecycle transitions, "
+                            + "batch sweeps, and platform-admin cross-tenant ops where the target "
+                            + "tenant is intentionally non-ACTIVE.");
+
+    // ------------------------------------------------------------------
     // Caller-scoping rules (D7)
     // ------------------------------------------------------------------
 
@@ -325,5 +365,29 @@ class TenantGuardArchitectureTest {
 
     private static boolean isTenantOwnedRepo(JavaClass cls) {
         return TENANT_OWNED_REPO_NAMES.stream().anyMatch(cls::isAssignableTo);
+    }
+
+    private static boolean isF3Tier1Repo(JavaClass cls) {
+        return F3_TIER1_REPO_NAMES.stream().anyMatch(cls::isAssignableTo);
+    }
+
+    private static ArchCondition<JavaMethod> notCallPlainFindByIdAndTenantIdOnTier1Repo() {
+        return new ArchCondition<>(
+                "not call findByIdAndTenantId on F-3 Tier-1 repos without @TenantInternal") {
+            @Override
+            public void check(JavaMethod method, ConditionEvents events) {
+                for (JavaMethodCall call : method.getMethodCallsFromSelf()) {
+                    if (!"findByIdAndTenantId".equals(call.getName())) continue;
+                    JavaClass owner = call.getTargetOwner();
+                    if (!isF3Tier1Repo(owner)) continue;
+                    events.add(SimpleConditionEvent.violated(method,
+                            method.getFullName() + " calls plain findByIdAndTenantId on F-3 Tier-1 "
+                                    + owner.getSimpleName() + " at " + call.getSourceCodeLocation()
+                                    + " — swap to findByIdAndActiveTenantId OR annotate the method "
+                                    + "with @TenantInternal(\"reason\") if the call intentionally "
+                                    + "needs to read across non-ACTIVE tenant states."));
+                }
+            }
+        };
     }
 }

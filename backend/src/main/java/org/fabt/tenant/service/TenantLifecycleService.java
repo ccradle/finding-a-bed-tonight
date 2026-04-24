@@ -8,7 +8,9 @@ import java.util.UUID;
 import org.fabt.auth.service.ApiKeyService;
 import org.fabt.shared.audit.AuditEventRecord;
 import org.fabt.shared.audit.AuditEventTypes;
+import org.fabt.shared.audit.DetachedAuditPersister;
 import org.fabt.shared.security.TenantKeyRotationService;
+import org.fabt.tenant.domain.IllegalStateTransitionException;
 import org.fabt.tenant.domain.Tenant;
 import org.fabt.tenant.domain.TenantState;
 import org.fabt.tenant.repository.TenantRepository;
@@ -54,19 +56,52 @@ public class TenantLifecycleService {
     private final ApplicationEventPublisher eventPublisher;
     private final JdbcTemplate jdbc;
     private final TenantStateGuard tenantStateGuard;
+    private final DetachedAuditPersister detachedAuditPersister;
 
     public TenantLifecycleService(TenantRepository tenantRepository,
                                    TenantKeyRotationService tenantKeyRotationService,
                                    ApiKeyService apiKeyService,
                                    ApplicationEventPublisher eventPublisher,
                                    JdbcTemplate jdbc,
-                                   TenantStateGuard tenantStateGuard) {
+                                   TenantStateGuard tenantStateGuard,
+                                   DetachedAuditPersister detachedAuditPersister) {
         this.tenantRepository = tenantRepository;
         this.tenantKeyRotationService = tenantKeyRotationService;
         this.apiKeyService = apiKeyService;
         this.eventPublisher = eventPublisher;
         this.jdbc = jdbc;
         this.tenantStateGuard = tenantStateGuard;
+        this.detachedAuditPersister = detachedAuditPersister;
+    }
+
+    /**
+     * Helper to wrap a transition attempt in the Family-D attempt-audit pattern: if
+     * the §D8 FSM rejects, persist a {@code *_REJECTED} audit row via the detached
+     * persister (REQUIRES_NEW) BEFORE re-throwing. The detached persister swallows
+     * its own errors so a failing audit row doesn't mask the original
+     * {@link IllegalStateTransitionException}.
+     *
+     * <p>Why REQUIRES_NEW: the outer {@code @Transactional} on the calling method
+     * will roll back when the FSM exception propagates out. If we persisted the
+     * audit row in the outer tx, it would roll back too — losing the forensic
+     * evidence. Marcus warroom F-2 HIGH pattern, formalised in F-3.6.</p>
+     */
+    private <T> T wrapAttemptAudit(UUID tenantId, UUID actorUserId, String justification,
+                                    String rejectedAction,
+                                    java.util.function.Supplier<T> action) {
+        try {
+            return action.get();
+        } catch (IllegalStateTransitionException rejected) {
+            Map<String, Object> details = new LinkedHashMap<>();
+            details.put("actor_user_id", actorUserId == null ? null : actorUserId.toString());
+            details.put("justification", justification);
+            details.put("current_state", rejected.from() == null ? null : rejected.from().name());
+            details.put("requested_state", rejected.to() == null ? null : rejected.to().name());
+            details.put("rejection_reason", rejected.getMessage());
+            detachedAuditPersister.persistDetached(tenantId,
+                new AuditEventRecord(actorUserId, null, rejectedAction, details, null));
+            throw rejected;
+        }
     }
 
     /**
@@ -170,6 +205,12 @@ public class TenantLifecycleService {
      */
     @Transactional
     public Tenant suspend(UUID tenantId, UUID actorUserId, String justification) {
+        return wrapAttemptAudit(tenantId, actorUserId, justification,
+            AuditEventTypes.TENANT_SUSPEND_REJECTED,
+            () -> doSuspend(tenantId, actorUserId, justification));
+    }
+
+    private Tenant doSuspend(UUID tenantId, UUID actorUserId, String justification) {
         Tenant tenant = tenantRepository.findById(tenantId)
             .orElseThrow(() -> new NoSuchElementException("tenant not found: " + tenantId));
         TenantState previous = tenant.getState();
@@ -219,6 +260,12 @@ public class TenantLifecycleService {
      */
     @Transactional
     public Tenant unsuspend(UUID tenantId, UUID actorUserId, String justification) {
+        return wrapAttemptAudit(tenantId, actorUserId, justification,
+            AuditEventTypes.TENANT_UNSUSPEND_REJECTED,
+            () -> doUnsuspend(tenantId, actorUserId, justification));
+    }
+
+    private Tenant doUnsuspend(UUID tenantId, UUID actorUserId, String justification) {
         Tenant tenant = tenantRepository.findById(tenantId)
             .orElseThrow(() -> new NoSuchElementException("tenant not found: " + tenantId));
         TenantState previous = tenant.getState();
@@ -248,7 +295,9 @@ public class TenantLifecycleService {
      */
     @Transactional
     public Tenant offboard(UUID tenantId, UUID actorUserId, String justification) {
-        return transitionTo(tenantId, TenantState.OFFBOARDING);
+        return wrapAttemptAudit(tenantId, actorUserId, justification,
+            AuditEventTypes.TENANT_OFFBOARD_REJECTED,
+            () -> transitionTo(tenantId, TenantState.OFFBOARDING));
     }
 
     /**
@@ -258,7 +307,9 @@ public class TenantLifecycleService {
      */
     @Transactional
     public Tenant archive(UUID tenantId, UUID actorUserId, String justification) {
-        return transitionTo(tenantId, TenantState.ARCHIVED);
+        return wrapAttemptAudit(tenantId, actorUserId, justification,
+            AuditEventTypes.TENANT_ARCHIVE_REJECTED,
+            () -> transitionTo(tenantId, TenantState.ARCHIVED));
     }
 
     /**

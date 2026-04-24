@@ -18,6 +18,7 @@ import java.util.UUID;
 import org.fabt.auth.service.ApiKeyService;
 import org.fabt.shared.audit.AuditEventRecord;
 import org.fabt.shared.audit.AuditEventTypes;
+import org.fabt.shared.audit.DetachedAuditPersister;
 import org.fabt.shared.security.TenantKeyRotationService;
 import org.fabt.tenant.service.TenantStateGuard;
 import org.fabt.tenant.domain.IllegalStateTransitionException;
@@ -66,10 +67,13 @@ class TenantLifecycleServiceUnitTest {
     @Mock
     TenantStateGuard tenantStateGuard;
 
+    @Mock
+    DetachedAuditPersister detachedAuditPersister;
+
     private TenantLifecycleService newService() {
         return new TenantLifecycleService(tenantRepository, tenantKeyRotationService,
                                           apiKeyService, eventPublisher, jdbc,
-                                          tenantStateGuard);
+                                          tenantStateGuard, detachedAuditPersister);
     }
 
     /**
@@ -121,46 +125,72 @@ class TenantLifecycleServiceUnitTest {
     // ─── Failure branch 2: forbidden transition ─────────────────────────────
 
     @Test
-    void unsuspend_activeTenant_throwsIllegalStateTransition_noSave() {
-        // ACTIVE -> ACTIVE is a self-transition, disallowed by §D8
+    void unsuspend_activeTenant_throwsIllegalStateTransition_persistsRejectedAuditBeforeRethrow() {
+        // ACTIVE -> ACTIVE is a self-transition, disallowed by §D8.
+        // F-3.6: the rejected attempt persists TENANT_UNSUSPEND_REJECTED via
+        // DetachedAuditPersister (REQUIRES_NEW) BEFORE the exception propagates.
         Tenant active = newTenant(TenantState.ACTIVE);
         when(tenantRepository.findById(active.getId())).thenReturn(Optional.of(active));
+        UUID actor = UUID.randomUUID();
 
-        assertThatThrownBy(() -> newService().unsuspend(active.getId(), UUID.randomUUID(), "op"))
+        assertThatThrownBy(() -> newService().unsuspend(active.getId(), actor, "op"))
             .isInstanceOf(IllegalStateTransitionException.class);
 
         verify(tenantRepository, never()).save(any());
+
+        ArgumentCaptor<AuditEventRecord> captor = ArgumentCaptor.forClass(AuditEventRecord.class);
+        verify(detachedAuditPersister, times(1)).persistDetached(eq(active.getId()), captor.capture());
+        AuditEventRecord rejection = captor.getValue();
+        assertThat(rejection.action()).isEqualTo(AuditEventTypes.TENANT_UNSUSPEND_REJECTED);
+        assertThat(rejection.actorUserId()).isEqualTo(actor);
     }
 
     @Test
-    void suspend_archivedTenant_throwsBeforeAnySideEffects() {
+    void suspend_archivedTenant_throwsBeforeAnySideEffects_persistsRejectedAudit() {
         // ARCHIVED -> SUSPENDED is not a permitted §D8 transition. Critical
         // safety property: the FSM assertion must fail BEFORE we invalidate
         // JWT keys or deactivate API keys — otherwise a stray operator click
         // on a SUSPEND button for an already-archived tenant would destroy
         // evidence that belongs in the export bundle.
+        //
+        // F-3.6: the rejected attempt still persists TENANT_SUSPEND_REJECTED
+        // via DetachedAuditPersister so forensic trail survives.
         Tenant archived = newTenant(TenantState.ARCHIVED);
         when(tenantRepository.findById(archived.getId())).thenReturn(Optional.of(archived));
+        UUID actor = UUID.randomUUID();
 
-        assertThatThrownBy(() -> newService().suspend(archived.getId(), UUID.randomUUID(), "op"))
+        assertThatThrownBy(() -> newService().suspend(archived.getId(), actor, "op"))
             .isInstanceOf(IllegalStateTransitionException.class);
 
         verify(tenantRepository, never()).save(any());
         verify(tenantKeyRotationService, never()).bumpJwtKeyGeneration(any(), any());
         verify(apiKeyService, never()).deactivateAllForTenant(any());
         verify(eventPublisher, never()).publishEvent(any());
+
+        ArgumentCaptor<AuditEventRecord> captor = ArgumentCaptor.forClass(AuditEventRecord.class);
+        verify(detachedAuditPersister, times(1)).persistDetached(eq(archived.getId()), captor.capture());
+        AuditEventRecord rejection = captor.getValue();
+        assertThat(rejection.action()).isEqualTo(AuditEventTypes.TENANT_SUSPEND_REJECTED);
+        assertThat(rejection.actorUserId()).isEqualTo(actor);
     }
 
     @Test
-    void archive_activeTenant_throwsIllegalStateTransition_noSave() {
-        // ACTIVE -> ARCHIVED must go through OFFBOARDING first per §D8
+    void archive_activeTenant_throwsIllegalStateTransition_persistsRejectedAudit() {
+        // ACTIVE -> ARCHIVED must go through OFFBOARDING first per §D8.
+        // F-3.6: rejected archive attempts persist TENANT_ARCHIVE_REJECTED.
         Tenant active = newTenant(TenantState.ACTIVE);
         when(tenantRepository.findById(active.getId())).thenReturn(Optional.of(active));
+        UUID actor = UUID.randomUUID();
 
-        assertThatThrownBy(() -> newService().archive(active.getId(), UUID.randomUUID(), "op"))
+        assertThatThrownBy(() -> newService().archive(active.getId(), actor, "op"))
             .isInstanceOf(IllegalStateTransitionException.class);
 
         verify(tenantRepository, never()).save(any());
+
+        ArgumentCaptor<AuditEventRecord> captor = ArgumentCaptor.forClass(AuditEventRecord.class);
+        verify(detachedAuditPersister, times(1)).persistDetached(eq(active.getId()), captor.capture());
+        assertThat(captor.getValue().action())
+            .isEqualTo(AuditEventTypes.TENANT_ARCHIVE_REJECTED);
     }
 
     // ─── Happy path: load → assert → flip → save ────────────────────────────

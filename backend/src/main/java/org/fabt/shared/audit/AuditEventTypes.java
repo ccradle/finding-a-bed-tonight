@@ -245,6 +245,38 @@ public final class AuditEventTypes {
      */
     public static final String TENANT_ARCHIVED = "TENANT_ARCHIVED";
 
+    // ─── Tenant lifecycle ATTEMPT REJECTIONS (Phase F slice F-3.6) ───
+    //
+    // Emitted when a lifecycle transition is rejected by the §D8 FSM — e.g. a
+    // platform admin attempts to suspend an already-SUSPENDED tenant. Without
+    // these rows, an attacker who can reach the admin endpoints could probe
+    // tenant ids with no forensic trail left on failure. Persisted via
+    // DetachedAuditPersister (REQUIRES_NEW) so the audit row survives the
+    // IllegalStateTransitionException that rolls back the caller's transaction.
+    // Marcus warroom F-2 HIGH + F-3.6 plan.
+    //
+    // Details schema mirrors the success-path audit rows plus a
+    // `rejection_reason` field carrying the exception message for triage.
+
+    /**
+     * Emitted by {@code TenantLifecycleService.suspend} when the §D8 FSM rejects the
+     * transition (caller attempted to suspend a non-ACTIVE tenant). Details include
+     * actor_user_id, justification, current_state, requested_state, rejection_reason.
+     */
+    public static final String TENANT_SUSPEND_REJECTED = "TENANT_SUSPEND_REJECTED";
+
+    /** {@code TenantLifecycleService.unsuspend} rejection (not SUSPENDED). */
+    public static final String TENANT_UNSUSPEND_REJECTED = "TENANT_UNSUSPEND_REJECTED";
+
+    /** {@code TenantLifecycleService.offboard} rejection (ARCHIVED/DELETED cannot offboard). */
+    public static final String TENANT_OFFBOARD_REJECTED = "TENANT_OFFBOARD_REJECTED";
+
+    /** {@code TenantLifecycleService.archive} rejection (not OFFBOARDING). */
+    public static final String TENANT_ARCHIVE_REJECTED = "TENANT_ARCHIVE_REJECTED";
+
+    /** {@code TenantLifecycleService.hardDelete} rejection (not ARCHIVED or retention not met). */
+    public static final String TENANT_HARD_DELETE_REJECTED = "TENANT_HARD_DELETE_REJECTED";
+
     /**
      * Emitted by {@code TenantLifecycleService.hardDelete} as the crypto-shred trigger.
      *
