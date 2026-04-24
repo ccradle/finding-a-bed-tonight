@@ -75,11 +75,15 @@ class TenantLifecycleServiceUnitTest {
     @Mock
     org.fabt.shared.security.KidRegistryService kidRegistryService;
 
+    @Mock
+    TenantOffboardExportService offboardExportService;
+
     private TenantLifecycleService newService() {
         return new TenantLifecycleService(tenantRepository, tenantKeyRotationService,
                                           kidRegistryService,
                                           apiKeyService, eventPublisher, jdbc,
-                                          tenantStateGuard, detachedAuditPersister);
+                                          tenantStateGuard, detachedAuditPersister,
+                                          offboardExportService);
     }
 
     /**
@@ -298,29 +302,106 @@ class TenantLifecycleServiceUnitTest {
     }
 
     @Test
-    void offboard_fromActiveOrSuspended_flipsToOffboarding() {
+    void offboard_fromActiveOrSuspended_exportsThenFlipsThenAuditsWithReceiptUri() {
         for (TenantState start : new TenantState[]{TenantState.ACTIVE, TenantState.SUSPENDED}) {
+            // Fresh mocks per iteration — avoid stale argument captor state.
+            org.mockito.Mockito.reset(offboardExportService, eventPublisher, tenantRepository);
             Tenant t = newTenant(start);
+            String fakeReceiptUri = "/var/fabt/exports/" + t.getId() + "/20260424-010203.json";
             when(tenantRepository.findById(t.getId())).thenReturn(Optional.of(t));
             when(tenantRepository.save(any(Tenant.class))).thenAnswer(inv -> inv.getArgument(0));
+            when(offboardExportService.exportTenant(t.getId())).thenReturn(fakeReceiptUri);
 
             Tenant result = newService().offboard(t.getId(), UUID.randomUUID(), "tenant-request");
 
             assertThat(result.getState())
                 .as("offboard from %s", start)
                 .isEqualTo(TenantState.OFFBOARDING);
+            assertThat(result.getOffboardExportReceiptUri())
+                .as("receipt URI stored on tenant row")
+                .isEqualTo(fakeReceiptUri);
+            verify(offboardExportService, times(1)).exportTenant(t.getId());
+
+            AuditEventRecord audit = captureAuditEvent();
+            assertThat(audit.action()).isEqualTo(AuditEventTypes.TENANT_OFFBOARDING_STARTED);
+            @SuppressWarnings("unchecked")
+            Map<String, Object> details = (Map<String, Object>) audit.details();
+            assertThat(details)
+                .containsEntry("previous_state", start.name())
+                .containsEntry("export_receipt_uri", fakeReceiptUri);
         }
     }
 
     @Test
-    void archive_fromOffboarding_flipsToArchived() {
+    void offboard_exportFails_propagatesWithoutStateFlip() {
+        // Export failure → outer @Transactional rolls back. We can't test the
+        // rollback mechanics in a unit context, but we CAN verify that the
+        // exception propagates unchanged AND that save() was never called
+        // (i.e. state flip never attempted).
+        Tenant t = newTenant(TenantState.ACTIVE);
+        when(tenantRepository.findById(t.getId())).thenReturn(Optional.of(t));
+        when(offboardExportService.exportTenant(t.getId()))
+            .thenThrow(new java.io.UncheckedIOException(
+                "Disk full",
+                new java.io.IOException("ENOSPC")));
+
+        assertThatThrownBy(() -> newService().offboard(t.getId(), UUID.randomUUID(), "drill"))
+            .isInstanceOf(java.io.UncheckedIOException.class)
+            .hasMessageContaining("Disk full");
+
+        verify(tenantRepository, never()).save(any());
+        verify(eventPublisher, never()).publishEvent(any());
+    }
+
+    @Test
+    void archive_withExportReceipt_flipsToArchivedAndStampsArchivedAt() {
         Tenant t = newTenant(TenantState.OFFBOARDING);
+        t.setOffboardExportReceiptUri("/var/fabt/exports/" + t.getId() + "/20260424-010203.json");
         when(tenantRepository.findById(t.getId())).thenReturn(Optional.of(t));
         when(tenantRepository.save(any(Tenant.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        Tenant result = newService().archive(t.getId(), UUID.randomUUID(), "export-complete");
+        Tenant result = newService().archive(t.getId(), UUID.randomUUID(), "retention-start");
 
         assertThat(result.getState()).isEqualTo(TenantState.ARCHIVED);
+        assertThat(result.getArchivedAt())
+            .as("archived_at stamp starts the 30-day retention window")
+            .isNotNull();
+
+        AuditEventRecord audit = captureAuditEvent();
+        assertThat(audit.action()).isEqualTo(AuditEventTypes.TENANT_ARCHIVED);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> details = (Map<String, Object>) audit.details();
+        assertThat(details)
+            .containsKey("archived_at")
+            .containsEntry("previous_state", "OFFBOARDING");
+    }
+
+    @Test
+    void archive_withoutExportReceipt_throwsBeforeStateFlip() {
+        // GDPR Art. 20 sequencing guard: archive() must refuse if offboard() never
+        // ran (receipt URI is null). The §D8 FSM allows OFFBOARDING -> ARCHIVED,
+        // but this is a stronger contract on top.
+        Tenant t = newTenant(TenantState.OFFBOARDING);
+        t.setOffboardExportReceiptUri(null);
+        when(tenantRepository.findById(t.getId())).thenReturn(Optional.of(t));
+
+        assertThatThrownBy(() -> newService().archive(t.getId(), UUID.randomUUID(), "drill"))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("cannot be archived without an offboard export receipt");
+
+        verify(tenantRepository, never()).save(any());
+        verify(eventPublisher, never()).publishEvent(any());
+    }
+
+    @Test
+    void archive_withBlankExportReceipt_throwsLikeNull() {
+        Tenant t = newTenant(TenantState.OFFBOARDING);
+        t.setOffboardExportReceiptUri("   ");  // whitespace — isBlank() guard catches
+        when(tenantRepository.findById(t.getId())).thenReturn(Optional.of(t));
+
+        assertThatThrownBy(() -> newService().archive(t.getId(), UUID.randomUUID(), "drill"))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("export receipt");
     }
 
     // ─── Stub methods (F-1 scope: create + hardDelete intentionally deferred) ─

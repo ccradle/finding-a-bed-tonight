@@ -26,6 +26,21 @@ public class Tenant {
      */
     private TenantState state = TenantState.ACTIVE;
 
+    /**
+     * Set by {@code TenantLifecycleService.offboard} (Phase F slice F-5) with the
+     * filesystem path (v0.51.0) or S3 URI (Phase H) where the GDPR Art. 20
+     * data-portability export landed. NULL for ACTIVE / SUSPENDED tenants;
+     * required non-null before {@code archive()} may transition to ARCHIVED.
+     */
+    private String offboardExportReceiptUri;
+
+    /**
+     * Stamped when {@code archive()} transitions state to ARCHIVED. Starts the
+     * 30-day retention window that {@code hardDelete()} (F-6) gates on. NULL for
+     * non-ARCHIVED tenants.
+     */
+    private Instant archivedAt;
+
     public Tenant() {
     }
 
@@ -92,5 +107,21 @@ public class Tenant {
 
     public void setState(TenantState state) {
         this.state = state;
+    }
+
+    public String getOffboardExportReceiptUri() {
+        return offboardExportReceiptUri;
+    }
+
+    public void setOffboardExportReceiptUri(String offboardExportReceiptUri) {
+        this.offboardExportReceiptUri = offboardExportReceiptUri;
+    }
+
+    public Instant getArchivedAt() {
+        return archivedAt;
+    }
+
+    public void setArchivedAt(Instant archivedAt) {
+        this.archivedAt = archivedAt;
     }
 }

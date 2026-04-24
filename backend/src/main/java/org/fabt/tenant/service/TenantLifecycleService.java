@@ -61,6 +61,7 @@ public class TenantLifecycleService {
     private final JdbcTemplate jdbc;
     private final TenantStateGuard tenantStateGuard;
     private final DetachedAuditPersister detachedAuditPersister;
+    private final TenantOffboardExportService offboardExportService;
 
     public TenantLifecycleService(TenantRepository tenantRepository,
                                    TenantKeyRotationService tenantKeyRotationService,
@@ -69,7 +70,8 @@ public class TenantLifecycleService {
                                    ApplicationEventPublisher eventPublisher,
                                    JdbcTemplate jdbc,
                                    TenantStateGuard tenantStateGuard,
-                                   DetachedAuditPersister detachedAuditPersister) {
+                                   DetachedAuditPersister detachedAuditPersister,
+                                   TenantOffboardExportService offboardExportService) {
         this.tenantRepository = tenantRepository;
         this.tenantKeyRotationService = tenantKeyRotationService;
         this.kidRegistryService = kidRegistryService;
@@ -78,6 +80,7 @@ public class TenantLifecycleService {
         this.jdbc = jdbc;
         this.tenantStateGuard = tenantStateGuard;
         this.detachedAuditPersister = detachedAuditPersister;
+        this.offboardExportService = offboardExportService;
     }
 
     /**
@@ -376,27 +379,101 @@ public class TenantLifecycleService {
     }
 
     /**
-     * Transition {ACTIVE, SUSPENDED} → OFFBOARDING. Slice F-5 wires the export workflow
-     * (schema'd JSON dump written to a GDPR Art. 20 delivery location) and stores the
-     * export receipt URI on the tenant row.
+     * Transition {ACTIVE, SUSPENDED} → OFFBOARDING. Triggers the GDPR Art. 20 export
+     * via {@link TenantOffboardExportService}, stores the resulting receipt URI on
+     * the tenant row, and emits {@link AuditEventTypes#TENANT_OFFBOARDING_STARTED}.
+     *
+     * <p>Ordering inside the single {@code @Transactional}: load + assert → bind
+     * GUC for audit → generate export (joins the tx, consistent snapshot) → flip
+     * state + store receipt URI → save → audit → after-commit cache invalidation.
+     * If any step throws, everything rolls back — no half-offboarded tenant with
+     * receipt URI but ACTIVE state, and the {@code .partial} export file is
+     * cleaned up by the exporter's own finally block.</p>
      */
     @Transactional
     public Tenant offboard(UUID tenantId, UUID actorUserId, String justification) {
         return wrapAttemptAudit(tenantId, actorUserId, justification,
             AuditEventTypes.TENANT_OFFBOARD_REJECTED,
-            () -> transitionTo(tenantId, TenantState.OFFBOARDING));
+            () -> doOffboard(tenantId, actorUserId, justification));
+    }
+
+    private Tenant doOffboard(UUID tenantId, UUID actorUserId, String justification) {
+        Tenant tenant = tenantRepository.findById(tenantId)
+            .orElseThrow(() -> new NoSuchElementException("tenant not found: " + tenantId));
+        TenantState previous = tenant.getState();
+        TenantState.assertTransition(previous, TenantState.OFFBOARDING);
+
+        bindTenantContextForAudit(tenantId);
+
+        // Export BEFORE flipping state so the export still sees the consistent
+        // pre-offboarding view. Joins the outer tx.
+        String exportUri = offboardExportService.exportTenant(tenantId);
+
+        tenant.setState(TenantState.OFFBOARDING);
+        tenant.setOffboardExportReceiptUri(exportUri);
+        tenant.setUpdatedAt(java.time.Instant.now());
+        Tenant saved = tenantRepository.save(tenant);
+
+        Map<String, Object> extras = new LinkedHashMap<>();
+        extras.put("export_receipt_uri", exportUri);
+        eventPublisher.publishEvent(new AuditEventRecord(
+            actorUserId, null, AuditEventTypes.TENANT_OFFBOARDING_STARTED,
+            auditDetails(actorUserId, justification, previous, extras),
+            null));
+
+        scheduleStateCacheInvalidation(tenantId);
+        return saved;
     }
 
     /**
-     * Transition OFFBOARDING → ARCHIVED. Slice F-5 adds the {@code archived_at}
-     * timestamp write and requires a non-null {@code offboard_export_receipt_uri}
-     * before permitting the transition.
+     * Transition OFFBOARDING → ARCHIVED. Requires that {@code offboard()} has
+     * already run and stored a non-null {@code offboard_export_receipt_uri};
+     * enforces GDPR Art. 20 sequencing — no archive without export. Stamps
+     * {@code archived_at} with the current timestamp to start the 30-day retention
+     * window that {@code hardDelete()} (F-6) checks.
      */
     @Transactional
     public Tenant archive(UUID tenantId, UUID actorUserId, String justification) {
         return wrapAttemptAudit(tenantId, actorUserId, justification,
             AuditEventTypes.TENANT_ARCHIVE_REJECTED,
-            () -> transitionTo(tenantId, TenantState.ARCHIVED));
+            () -> doArchive(tenantId, actorUserId, justification));
+    }
+
+    private Tenant doArchive(UUID tenantId, UUID actorUserId, String justification) {
+        Tenant tenant = tenantRepository.findById(tenantId)
+            .orElseThrow(() -> new NoSuchElementException("tenant not found: " + tenantId));
+        TenantState previous = tenant.getState();
+        TenantState.assertTransition(previous, TenantState.ARCHIVED);
+
+        // Gate: must have an export receipt. A tenant that somehow reached
+        // OFFBOARDING without a receipt (future code path that bypasses offboard
+        // service) cannot proceed to ARCHIVED — §D8 FSM allows OFFBOARDING →
+        // ARCHIVED but the GDPR-Art-20 contract adds this receipt check.
+        if (tenant.getOffboardExportReceiptUri() == null
+                || tenant.getOffboardExportReceiptUri().isBlank()) {
+            throw new IllegalStateException(
+                "Tenant " + tenantId + " cannot be archived without an offboard "
+                + "export receipt — run offboard() first");
+        }
+
+        bindTenantContextForAudit(tenantId);
+
+        java.time.Instant archivedAt = java.time.Instant.now();
+        tenant.setState(TenantState.ARCHIVED);
+        tenant.setArchivedAt(archivedAt);
+        tenant.setUpdatedAt(archivedAt);
+        Tenant saved = tenantRepository.save(tenant);
+
+        Map<String, Object> extras = new LinkedHashMap<>();
+        extras.put("archived_at", archivedAt.toString());
+        extras.put("export_receipt_uri", tenant.getOffboardExportReceiptUri());
+        eventPublisher.publishEvent(new AuditEventRecord(
+            actorUserId, null, AuditEventTypes.TENANT_ARCHIVED,
+            auditDetails(actorUserId, justification, previous, extras),
+            null));
+
+        scheduleStateCacheInvalidation(tenantId);
+        return saved;
     }
 
     /**
