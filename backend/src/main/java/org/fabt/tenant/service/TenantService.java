@@ -32,6 +32,24 @@ public class TenantService {
         this.objectMapper = objectMapper;
     }
 
+    /**
+     * Legacy tenant-create path. Inserts the {@code tenant} row only; relies on
+     * lazy-at-first-login bootstrap in {@code KidRegistryService.findOrCreateActiveKid}
+     * to populate {@code tenant_key_material} and register the initial kid, and does
+     * NOT seed the {@code tenant_audit_chain_head} row that Phase G's hash-chain
+     * writer will need.
+     *
+     * @deprecated since Phase F slice F-4 (v0.51.0). Prefer
+     *     {@code TenantLifecycleService.create(name, slug, actorUserId)} which
+     *     performs the full atomic bootstrap in one {@code @Transactional} — eager
+     *     key material, audit_chain_head seed, {@code TENANT_CREATED} audit emit.
+     *     {@link org.fabt.tenant.api.TenantController#create} delegates to the
+     *     lifecycle service when the {@code fabt.tenant.lifecycle.enabled} feature
+     *     flag is on and falls back here when it is off. This method stays
+     *     available for the legacy path until the flag is removed (planned for
+     *     F-6 / v0.51.0 tag).
+     */
+    @Deprecated(since = "0.51.0")
     @Transactional
     public Tenant create(String name, String slug) {
         if (tenantRepository.existsBySlug(slug)) {

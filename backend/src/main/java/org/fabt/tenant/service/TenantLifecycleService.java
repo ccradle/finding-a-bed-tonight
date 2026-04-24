@@ -1,5 +1,6 @@
 package org.fabt.tenant.service;
 
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -9,6 +10,8 @@ import org.fabt.auth.service.ApiKeyService;
 import org.fabt.shared.audit.AuditEventRecord;
 import org.fabt.shared.audit.AuditEventTypes;
 import org.fabt.shared.audit.DetachedAuditPersister;
+import org.fabt.shared.config.JsonString;
+import org.fabt.shared.security.KidRegistryService;
 import org.fabt.shared.security.TenantKeyRotationService;
 import org.fabt.tenant.domain.IllegalStateTransitionException;
 import org.fabt.tenant.domain.Tenant;
@@ -52,6 +55,7 @@ public class TenantLifecycleService {
 
     private final TenantRepository tenantRepository;
     private final TenantKeyRotationService tenantKeyRotationService;
+    private final KidRegistryService kidRegistryService;
     private final ApiKeyService apiKeyService;
     private final ApplicationEventPublisher eventPublisher;
     private final JdbcTemplate jdbc;
@@ -60,6 +64,7 @@ public class TenantLifecycleService {
 
     public TenantLifecycleService(TenantRepository tenantRepository,
                                    TenantKeyRotationService tenantKeyRotationService,
+                                   KidRegistryService kidRegistryService,
                                    ApiKeyService apiKeyService,
                                    ApplicationEventPublisher eventPublisher,
                                    JdbcTemplate jdbc,
@@ -67,6 +72,7 @@ public class TenantLifecycleService {
                                    DetachedAuditPersister detachedAuditPersister) {
         this.tenantRepository = tenantRepository;
         this.tenantKeyRotationService = tenantKeyRotationService;
+        this.kidRegistryService = kidRegistryService;
         this.apiKeyService = apiKeyService;
         this.eventPublisher = eventPublisher;
         this.jdbc = jdbc;
@@ -158,19 +164,100 @@ public class TenantLifecycleService {
     }
 
     /**
-     * Atomic tenant-create bootstrap (NEW → ACTIVE). Implementation deferred to slice F-4
-     * (derives JWT gen-1 key, derives DEKs, seeds audit_chain_head, verifies RLS canary).
-     * Callers must continue to use {@link TenantService#create(String, String)} until
-     * F-4 lands and the switch is made with a {@code @Deprecated} redirect.
+     * Atomic tenant-create bootstrap (NEW → ACTIVE) — the F-4 eager replacement for
+     * {@code TenantService.create}'s lazy-bootstrap path.
      *
-     * <p>Not {@code @Transactional} yet — F-4 adds the annotation when real bodies land,
-     * avoiding the wasted tx open-then-rollback cycle that a stub throw would otherwise
-     * incur.</p>
+     * <p>Ordered operations, all joined to the outer {@code @Transactional} (REQUIRED)
+     * so any failure rolls every side effect back together:</p>
+     * <ol>
+     *   <li>Fast slug uniqueness check via {@code existsBySlug}; DB UNIQUE constraint
+     *       is the authoritative gate but catching early lets us return a clean
+     *       {@link IllegalStateException} before spending key-derivation work.</li>
+     *   <li>INSERT tenant row with state=ACTIVE (Spring Data JDBC null-id → INSERT;
+     *       DB fills {@code gen_random_uuid()}). Default config is the empty JsonString;
+     *       typed-config population is a {@link TenantService#updateConfig} concern
+     *       that remains unchanged.</li>
+     *   <li>Bootstrap JWT key material via
+     *       {@link KidRegistryService#findOrCreateActiveKid(UUID)} — inserts gen-1 row
+     *       in {@code tenant_key_material}, registers a fresh kid in
+     *       {@code kid_to_tenant_key}, binds {@code app.tenant_id} for the tx. This
+     *       replaces the lazy-at-first-login bootstrap so the tenant is immediately
+     *       crypto-ready.</li>
+     *   <li>Seed the {@code tenant_audit_chain_head} pointer for Phase G-1's
+     *       hash-chain writer. Empty-hash sentinel (32 zero bytes) — idempotent via
+     *       ON CONFLICT in case the V80 migration backfill already seeded the row for
+     *       a tenant that pre-existed under the legacy path.</li>
+     *   <li>Emit {@link AuditEventTypes#TENANT_CREATED} audit. The GUC bound by step 3
+     *       scopes this audit row to the new tenant's id via D55 path 2.</li>
+     * </ol>
+     *
+     * <p>Failure-injection: any exception in steps 2–5 rolls back the whole tx — no
+     * half-created tenant with crypto but no audit, no ghost audit_chain_head without
+     * a tenant, no orphan key material. Idempotency: duplicate slug →
+     * {@link IllegalStateException} surfaced as 409 by the shared exception
+     * handler.</p>
+     *
+     * @param name          human-readable tenant name
+     * @param slug          URL slug (globally unique, enforced by DB UNIQUE constraint)
+     * @param actorUserId   platform admin performing the create; may be null for
+     *                      system-initiated creates (seed migrations, bootstrap jobs)
+     * @return the newly created tenant aggregate with its database-generated id
      */
+    @Transactional
     public Tenant create(String name, String slug, UUID actorUserId) {
-        throw new UnsupportedOperationException(
-            "TenantLifecycleService.create is implemented in slice F-4; "
-            + "use TenantService.create until then");
+        if (tenantRepository.existsBySlug(slug)) {
+            throw new IllegalStateException("Tenant with slug '" + slug + "' already exists");
+        }
+
+        // Step 1: tenant row.
+        Tenant tenant = new Tenant();
+        tenant.setName(name);
+        tenant.setSlug(slug);
+        tenant.setConfig(JsonString.empty());
+        tenant.setState(TenantState.ACTIVE);
+        Instant now = Instant.now();
+        tenant.setCreatedAt(now);
+        tenant.setUpdatedAt(now);
+        Tenant saved = tenantRepository.save(tenant);
+        UUID tenantId = saved.getId();
+
+        // Step 2: eager JWT key material bootstrap. findOrCreateActiveKid sets
+        // set_config('app.tenant_id', ...) internally AND inserts the gen-1 row +
+        // kid idempotently, so this is safe even if the tenant already had a
+        // lazy-bootstrap race in flight (impossible for a just-created row, but
+        // defense-in-depth).
+        kidRegistryService.findOrCreateActiveKid(tenantId);
+
+        // Step 3: seed the hash-chain head row. ON CONFLICT DO NOTHING because
+        // V80's migration backfill may have already created it if this tenant id
+        // somehow collides with an existing row (paranoid — gen_random_uuid
+        // collision is 2^-122, but makes the operation strictly idempotent).
+        jdbc.update(
+            "INSERT INTO tenant_audit_chain_head (tenant_id, last_hash, last_row_id) "
+            + "VALUES (?, "
+            + "        decode('0000000000000000000000000000000000000000000000000000000000000000', 'hex'), "
+            + "        NULL) "
+            + "ON CONFLICT (tenant_id) DO NOTHING",
+            tenantId);
+
+        // Step 4: audit. The GUC set by findOrCreateActiveKid (step 2) carries
+        // through the remainder of the tx, so D55 path 2 lands this row under
+        // the new tenant's id.
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("actor_user_id", actorUserId == null ? null : actorUserId.toString());
+        details.put("slug", slug);
+        details.put("name", name);
+        eventPublisher.publishEvent(new AuditEventRecord(
+            actorUserId, null, AuditEventTypes.TENANT_CREATED, details, null));
+
+        // No state-cache invalidation needed: the tenant was just created as
+        // ACTIVE, and TenantStateGuard's cache is lazy — the first requireActive
+        // call for this id will populate it correctly. But invalidate anyway to
+        // clear any stale NOT_FOUND sentinel a previous test run may have cached
+        // (hardens test isolation when the Spring singleton survives).
+        scheduleStateCacheInvalidation(tenantId);
+
+        return saved;
     }
 
     /**

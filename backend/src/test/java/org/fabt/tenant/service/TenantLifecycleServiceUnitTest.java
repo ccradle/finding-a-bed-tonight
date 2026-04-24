@@ -3,7 +3,9 @@ package org.fabt.tenant.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -70,8 +72,12 @@ class TenantLifecycleServiceUnitTest {
     @Mock
     DetachedAuditPersister detachedAuditPersister;
 
+    @Mock
+    org.fabt.shared.security.KidRegistryService kidRegistryService;
+
     private TenantLifecycleService newService() {
         return new TenantLifecycleService(tenantRepository, tenantKeyRotationService,
+                                          kidRegistryService,
                                           apiKeyService, eventPublisher, jdbc,
                                           tenantStateGuard, detachedAuditPersister);
     }
@@ -319,12 +325,114 @@ class TenantLifecycleServiceUnitTest {
 
     // ─── Stub methods (F-1 scope: create + hardDelete intentionally deferred) ─
 
+    // ─── F-4 create bootstrap ────────────────────────────────────────────────
+
     @Test
-    void create_throwsUnsupportedOperation_deferredToF4() {
+    void create_happyPath_savesTenantBootstrapsKeyMaterialSeedsChainHeadEmitsAudit() {
+        UUID generatedId = UUID.randomUUID();
+        UUID actor = UUID.randomUUID();
+        when(tenantRepository.existsBySlug("demo-slug")).thenReturn(false);
+        when(tenantRepository.save(any(Tenant.class))).thenAnswer(inv -> {
+            Tenant t = inv.getArgument(0);
+            t.setId(generatedId);
+            return t;
+        });
+
+        Tenant result = newService().create("Demo CoC", "demo-slug", actor);
+
+        assertThat(result.getId()).isEqualTo(generatedId);
+        assertThat(result.getState()).isEqualTo(TenantState.ACTIVE);
+        assertThat(result.getSlug()).isEqualTo("demo-slug");
+        assertThat(result.getName()).isEqualTo("Demo CoC");
+
+        // Step ordering assertions — save BEFORE key material bootstrap BEFORE
+        // audit_chain_head seed BEFORE audit emit. If any of these are swapped,
+        // the tx boundary and the D55 tenant-id binding break.
+        verify(tenantRepository, times(1)).existsBySlug("demo-slug");
+        verify(tenantRepository, times(1)).save(any(Tenant.class));
+        verify(kidRegistryService, times(1)).findOrCreateActiveKid(generatedId);
+        verify(jdbc, times(1)).update(contains("tenant_audit_chain_head"), eq(generatedId));
+
+        AuditEventRecord audit = captureAuditEvent();
+        assertThat(audit.action()).isEqualTo(AuditEventTypes.TENANT_CREATED);
+        assertThat(audit.actorUserId()).isEqualTo(actor);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> details = (Map<String, Object>) audit.details();
+        assertThat(details)
+            .containsEntry("slug", "demo-slug")
+            .containsEntry("name", "Demo CoC")
+            .containsEntry("actor_user_id", actor.toString());
+    }
+
+    @Test
+    void create_duplicateSlug_throwsBeforeAnySideEffects() {
+        // Idempotency-as-409 contract: second create with a taken slug must throw
+        // without spending any key-derivation, audit, or chain-head work. Spring's
+        // @Transactional rolls back on the exception, so downstream state is
+        // untouched regardless — but the explicit existsBySlug fast-path avoids
+        // the expensive work entirely.
+        when(tenantRepository.existsBySlug("taken-slug")).thenReturn(true);
+
         assertThatThrownBy(() ->
-                newService().create("Demo", "demo-slug", UUID.randomUUID()))
-            .isInstanceOf(UnsupportedOperationException.class)
-            .hasMessageContaining("F-4");
+                newService().create("Second", "taken-slug", UUID.randomUUID()))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("taken-slug");
+
+        verify(tenantRepository, never()).save(any());
+        verify(kidRegistryService, never()).findOrCreateActiveKid(any());
+        verify(jdbc, never()).update(contains("tenant_audit_chain_head"), any(Object.class));
+        verify(eventPublisher, never()).publishEvent(any());
+    }
+
+    @Test
+    void create_nullActorUserId_acceptedForSystemInitiatedBootstraps() {
+        // create(name, slug, null) is valid — used by seed migrations and
+        // platform bootstrap scripts that have no human actor. The audit row's
+        // actor_user_id field is null; details map renders "actor_user_id" as
+        // JSON null for Phase G consumers.
+        UUID generatedId = UUID.randomUUID();
+        when(tenantRepository.existsBySlug(any())).thenReturn(false);
+        when(tenantRepository.save(any(Tenant.class))).thenAnswer(inv -> {
+            Tenant t = inv.getArgument(0);
+            t.setId(generatedId);
+            return t;
+        });
+
+        Tenant result = newService().create("Sys", "sys-seed", null);
+
+        assertThat(result.getId()).isEqualTo(generatedId);
+        AuditEventRecord audit = captureAuditEvent();
+        assertThat(audit.actorUserId()).isNull();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> details = (Map<String, Object>) audit.details();
+        assertThat(details).containsEntry("actor_user_id", null);
+    }
+
+    @Test
+    void create_keyMaterialBootstrapFails_propagates_noAuditEmitted() {
+        // Failure-injection: if findOrCreateActiveKid throws (e.g. DB contention,
+        // RLS rejection, KEK unavailable), the tx rolls back and no audit row
+        // lands. The outer @Transactional handles rollback; this test pins the
+        // propagation shape.
+        UUID generatedId = UUID.randomUUID();
+        when(tenantRepository.existsBySlug(any())).thenReturn(false);
+        when(tenantRepository.save(any(Tenant.class))).thenAnswer(inv -> {
+            Tenant t = inv.getArgument(0);
+            t.setId(generatedId);
+            return t;
+        });
+        doThrow(new IllegalStateException("KEK unavailable"))
+            .when(kidRegistryService).findOrCreateActiveKid(generatedId);
+
+        assertThatThrownBy(() -> newService().create("Fail", "fail-slug", UUID.randomUUID()))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("KEK unavailable");
+
+        // Audit must NOT fire — the tx will roll back, but we also want the
+        // explicit "not published" contract so a future refactor can't silently
+        // emit an audit row before the failing step.
+        verify(eventPublisher, never()).publishEvent(any());
+        verify(jdbc, never()).update(contains("tenant_audit_chain_head"), any(Object.class));
     }
 
     @Test

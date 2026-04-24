@@ -12,9 +12,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.fabt.observability.ObservabilityConfigService;
 import org.fabt.observability.ObservabilityConfigService.ObservabilityConfig;
+import org.fabt.shared.web.TenantContext;
 import org.fabt.shared.web.TenantPathGuard;
 import org.fabt.tenant.domain.Tenant;
+import org.fabt.tenant.service.TenantLifecycleService;
 import org.fabt.tenant.service.TenantService;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -37,11 +40,22 @@ public class TenantController {
 
     private final TenantService tenantService;
     private final ObservabilityConfigService observabilityConfigService;
+    /**
+     * Optional — the F-4 atomic-create path. Present when
+     * {@code fabt.tenant.lifecycle.enabled=true}, absent otherwise. When present,
+     * {@link #create} delegates here for the full bootstrap (audit_chain_head seed,
+     * eager JWT key material, TENANT_CREATED audit). When absent, falls back to the
+     * legacy {@link TenantService#create} path which relies on lazy-at-first-login
+     * key material bootstrap.
+     */
+    private final ObjectProvider<TenantLifecycleService> tenantLifecycleServiceProvider;
 
     public TenantController(TenantService tenantService,
-                            ObservabilityConfigService observabilityConfigService) {
+                            ObservabilityConfigService observabilityConfigService,
+                            ObjectProvider<TenantLifecycleService> tenantLifecycleServiceProvider) {
         this.tenantService = tenantService;
         this.observabilityConfigService = observabilityConfigService;
+        this.tenantLifecycleServiceProvider = tenantLifecycleServiceProvider;
     }
 
     @Operation(
@@ -55,7 +69,19 @@ public class TenantController {
     )
     @PostMapping
     public ResponseEntity<TenantResponse> create(@Valid @RequestBody CreateTenantRequest request) {
-        Tenant tenant = tenantService.create(request.name(), request.slug());
+        // F-4: prefer the lifecycle service's atomic bootstrap when the feature
+        // flag is on (TenantLifecycleService bean exists). Falls back to the
+        // legacy TenantService.create path when the bean is absent — that path
+        // relies on lazy-at-first-login JWT key material bootstrap and does NOT
+        // seed the audit_chain_head row, but remains correct for backwards
+        // compatibility while the flag rolls out.
+        TenantLifecycleService lifecycle = tenantLifecycleServiceProvider.getIfAvailable();
+        Tenant tenant;
+        if (lifecycle != null) {
+            tenant = lifecycle.create(request.name(), request.slug(), TenantContext.getUserId());
+        } else {
+            tenant = tenantService.create(request.name(), request.slug());
+        }
         return ResponseEntity.status(HttpStatus.CREATED).body(TenantResponse.from(tenant));
     }
 
