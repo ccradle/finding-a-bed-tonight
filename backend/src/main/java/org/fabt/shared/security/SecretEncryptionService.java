@@ -65,6 +65,7 @@ public class SecretEncryptionService {
     private final MasterKekProvider masterKekProvider;
     private final KeyDerivationService keyDerivationService;
     private final KidRegistryService kidRegistryService;
+    private final TenantDekService tenantDekService;
     private final MeterRegistry meterRegistry;
     private final ApplicationEventPublisher eventPublisher;
 
@@ -92,11 +93,13 @@ public class SecretEncryptionService {
             MasterKekProvider masterKekProvider,
             KeyDerivationService keyDerivationService,
             KidRegistryService kidRegistryService,
+            TenantDekService tenantDekService,
             ObjectProvider<MeterRegistry> meterRegistryProvider,
             ObjectProvider<ApplicationEventPublisher> eventPublisherProvider) {
         this.masterKekProvider = masterKekProvider;
         this.keyDerivationService = keyDerivationService;
         this.kidRegistryService = kidRegistryService;
+        this.tenantDekService = tenantDekService;
         this.secretKey = masterKekProvider.getPlatformKey();
         this.configured = true;
         this.meterRegistry = meterRegistryProvider.getIfAvailable();
@@ -108,26 +111,43 @@ public class SecretEncryptionService {
     // ------------------------------------------------------------------
 
     /**
-     * Encrypts {@code plaintext} for storage under the per-tenant DEK
-     * derived for {@code (tenantId, purpose)}. Wraps the result in a v1
-     * {@link EncryptionEnvelope} carrying the kid registered for the
-     * tenant's active generation.
+     * Encrypts {@code plaintext} for storage under the per-tenant random
+     * DEK owned by {@link TenantDekService} for {@code (tenantId, purpose)}.
+     * Wraps the result in a v1 {@link EncryptionEnvelope} carrying the kid
+     * minted when the DEK was first generated.
      *
-     * <p>Lazy bootstrap: the first encrypt for a tenant creates its
-     * {@code tenant_key_material} active generation + kid via
-     * {@link KidRegistryService#findOrCreateActiveKid(java.util.UUID)}.
-     * Subsequent encrypts reuse the same kid until rotation.
+     * <p><b>F-6.0 refactor (2026-04-24):</b> was HKDF-derived DEK +
+     * {@link KidRegistryService} kid. Now random DEK +
+     * {@link TenantDekService} kid, enabling real crypto-shred: deleting
+     * the {@code tenant_dek} row destroys the only copy of the DEK, which
+     * is what the TDD anchor {@code CryptoShredGapIntegrationTest} tests.
+     *
+     * <p>Lazy bootstrap: the first encrypt for a {@code (tenant, purpose)}
+     * pair creates the {@code tenant_dek} row + generates the random DEK
+     * + wraps under the HKDF-derived wrapping key. Subsequent encrypts
+     * reuse the same kid + DEK until rotation.
      */
     public String encryptForTenant(java.util.UUID tenantId, KeyPurpose purpose, String plaintext) {
-        java.util.UUID kid = kidRegistryService.findOrCreateActiveKid(tenantId);
-        SecretKey dek = purpose.deriveKey(keyDerivationService, tenantId);
+        if (purpose == KeyPurpose.JWT_SIGN) {
+            // JWT signing keys have their own lifecycle (kid_to_tenant_key +
+            // tenant_key_material, Phase A3). They are deliberately NOT in
+            // tenant_dek's purpose CHECK constraint — data encryption and
+            // JWT signing are separate concerns with different rotation,
+            // audit, and shred semantics. A caller reaching here with
+            // JWT_SIGN is a programming bug, not an attack surface.
+            throw new IllegalArgumentException(
+                    "KeyPurpose.JWT_SIGN is not a data-encryption purpose; "
+                    + "JWT signing uses JwtService + kid_to_tenant_key, not "
+                    + "SecretEncryptionService + tenant_dek.");
+        }
+        TenantDekService.ActiveDek active = tenantDekService.getOrCreateActiveDek(tenantId, purpose);
         try {
             byte[] iv = new byte[GCM_IV_LENGTH];
             secureRandom.nextBytes(iv);
             Cipher cipher = Cipher.getInstance(ALGORITHM);
-            cipher.init(Cipher.ENCRYPT_MODE, dek, new GCMParameterSpec(GCM_TAG_LENGTH, iv));
+            cipher.init(Cipher.ENCRYPT_MODE, active.dek(), new GCMParameterSpec(GCM_TAG_LENGTH, iv));
             byte[] ciphertextWithTag = cipher.doFinal(plaintext.getBytes(StandardCharsets.UTF_8));
-            return new EncryptionEnvelope(kid, iv, ciphertextWithTag).encode();
+            return new EncryptionEnvelope(active.kid(), iv, ciphertextWithTag).encode();
         } catch (Exception e) {
             throw new RuntimeException("Failed to encrypt secret for tenant " + tenantId, e);
         }
@@ -137,8 +157,19 @@ public class SecretEncryptionService {
      * Decrypts a stored ciphertext for the given tenant + purpose. Routes
      * to the v0 legacy path if the bytes don't carry the v1 magic.
      *
+     * <p><b>F-6.0 refactor (2026-04-24):</b> resolves kids via
+     * {@link TenantDekService} ({@code tenant_dek} table) instead of
+     * {@link KidRegistryService} ({@code kid_to_tenant_key} table — now
+     * JWT-only). Adds an explicit {@link PurposeMismatchException} for
+     * when the caller's {@link KeyPurpose} disagrees with the row's
+     * recorded purpose, instead of relying on the GCM auth-tag failure.
+     *
      * @throws CrossTenantCiphertextException if the kid resolves to a
-     *         different tenant than {@code tenantId}
+     *         different tenant than {@code tenantId}, or if the kid is
+     *         unregistered (sentinel {@link #UNKNOWN_KID_SENTINEL_TENANT}
+     *         per C-A3-1).
+     * @throws PurposeMismatchException if the kid resolves to the caller's
+     *         tenant but to a different {@link KeyPurpose}.
      */
     public String decryptForTenant(java.util.UUID tenantId, KeyPurpose purpose, String stored) {
         byte[] decoded = java.util.Base64.getDecoder().decode(stored);
@@ -153,22 +184,81 @@ public class SecretEncryptionService {
             return CiphertextV0Decoder.decrypt(masterKekProvider.getPlatformKey(), stored);
         }
         EncryptionEnvelope envelope = EncryptionEnvelope.decode(stored);
-        KidRegistryService.KidResolution resolved;
+        TenantDekService.ResolvedDek resolved;
         try {
-            resolved = kidRegistryService.resolveKid(envelope.kid());
-        } catch (java.util.NoSuchElementException unknownKid) {
-            // C-A3-1: an unregistered kid is presented as cross-tenant rejection
-            // (same 403 response, same audit action) so an attacker cannot
-            // distinguish "kid doesn't exist anywhere" (would be 404) from
-            // "kid exists for a different tenant" (403). The sentinel
-            // actualTenantId in the audit JSONB discriminates the two cases
-            // for incident responders without leaking to the client.
-            throw new CrossTenantCiphertextException(
-                    envelope.kid(), tenantId, UNKNOWN_KID_SENTINEL_TENANT);
+            resolved = tenantDekService.resolveDek(envelope.kid());
+        } catch (java.util.NoSuchElementException notInTenantDek) {
+            // Transitional fallback: the kid might belong to a legacy v1
+            // envelope produced by V74 (the old HKDF-DEK path), which
+            // registered kids in kid_to_tenant_key rather than tenant_dek.
+            // V83 re-encrypts these legacy envelopes under fresh tenant_dek
+            // DEKs, after which this fallback path becomes unreachable
+            // for conforming deployments. Kept as defense-in-depth + smooth
+            // deployment during the V82→V83 window where a pod may see a
+            // mix of old and new formats. Phase L (task 7.8h ArchUnit
+            // removal) retires this path entirely.
+            return decryptV1LegacyHkdf(tenantId, purpose, envelope);
         }
         if (!resolved.tenantId().equals(tenantId)) {
             throw new CrossTenantCiphertextException(envelope.kid(), tenantId, resolved.tenantId());
         }
+        if (resolved.purpose() != purpose) {
+            // F-6.0 explicit purpose-mismatch per warroom pass-2 Alex minor
+            // fix. Upstream of the GCM tag check so the type of the failure
+            // (programming bug vs forged ciphertext) is captured. The GCM
+            // tag would also catch this (different DEK under Option A → wrong
+            // tag) — we check explicitly so callers can distinguish.
+            throw new PurposeMismatchException(
+                    envelope.kid(), tenantId, purpose, resolved.purpose());
+        }
+        try {
+            Cipher cipher = Cipher.getInstance(ALGORITHM);
+            cipher.init(Cipher.DECRYPT_MODE, resolved.dek(), new GCMParameterSpec(GCM_TAG_LENGTH, envelope.iv()));
+            byte[] plaintext = cipher.doFinal(envelope.ciphertextWithTag());
+            return new String(plaintext, StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to decrypt v1 ciphertext for tenant " + tenantId, e);
+        }
+    }
+
+    /**
+     * Transitional legacy decrypt for v1 envelopes whose kid lives in
+     * {@code kid_to_tenant_key} rather than {@code tenant_dek} — i.e.,
+     * envelopes produced by V74 under the HKDF-DEK scheme before the F-6.0
+     * refactor. Falls through to {@link CrossTenantCiphertextException}
+     * with the unknown-kid sentinel per C-A3-1 if the kid is unknown to
+     * both registries.
+     *
+     * <p>Post-V83, this path is exercised only for stale/cached envelopes
+     * held outside the DB (request-time replay, bug-reported historical
+     * values). The counter {@code secret.decrypt.v1.legacy_hkdf} emitted
+     * below tracks residual calls; an extended flatline is the signal to
+     * retire this method in Phase L.
+     */
+    private String decryptV1LegacyHkdf(java.util.UUID tenantId, KeyPurpose purpose,
+                                        EncryptionEnvelope envelope) {
+        KidRegistryService.KidResolution legacy;
+        try {
+            legacy = kidRegistryService.resolveKid(envelope.kid());
+        } catch (java.util.NoSuchElementException unknown) {
+            throw new CrossTenantCiphertextException(
+                    envelope.kid(), tenantId, UNKNOWN_KID_SENTINEL_TENANT);
+        }
+        if (!legacy.tenantId().equals(tenantId)) {
+            throw new CrossTenantCiphertextException(
+                    envelope.kid(), tenantId, legacy.tenantId());
+        }
+        if (meterRegistry != null) {
+            Counter.builder("secret.decrypt.v1.legacy_hkdf")
+                    .description("v1 envelopes decrypted via the legacy HKDF-DEK path "
+                            + "(kid in kid_to_tenant_key, not tenant_dek). "
+                            + "Post-V83 should trend to zero; extended flatline = "
+                            + "safe to remove the compat shim in Phase L.")
+                    .tag("purpose", purpose.name())
+                    .register(meterRegistry)
+                    .increment();
+        }
+        @SuppressWarnings("removal")
         SecretKey dek = purpose.deriveKey(keyDerivationService, tenantId);
         try {
             Cipher cipher = Cipher.getInstance(ALGORITHM);
@@ -176,7 +266,8 @@ public class SecretEncryptionService {
             byte[] plaintext = cipher.doFinal(envelope.ciphertextWithTag());
             return new String(plaintext, StandardCharsets.UTF_8);
         } catch (Exception e) {
-            throw new RuntimeException("Failed to decrypt v1 ciphertext for tenant " + tenantId, e);
+            throw new RuntimeException(
+                    "Failed to decrypt v1 ciphertext (legacy HKDF path) for tenant " + tenantId, e);
         }
     }
 

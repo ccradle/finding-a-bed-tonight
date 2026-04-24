@@ -92,22 +92,48 @@ public class KeyDerivationService {
         return deriveKey(tenantId, "jwt-sign");
     }
 
-    /** Derives the per-tenant TOTP shared-secret encryption DEK (AES-256-GCM). */
+    /**
+     * Derives the per-tenant TOTP shared-secret encryption DEK.
+     *
+     * @deprecated since v0.51.0 — data encryption now uses random DEKs
+     * owned by {@link TenantDekService} to enable real crypto-shred per
+     * NIST SP 800-88 Rev 2. This deterministic-HKDF path is retained
+     * only for (a) the V74 legacy migration + (b) the
+     * {@code CryptoShredGapIntegrationTest} adversary simulation. Phase L
+     * cleanup removes it entirely. New data-encryption callers must go
+     * through {@code SecretEncryptionService.encryptForTenant}.
+     */
+    @Deprecated(since = "v0.51.0", forRemoval = true)
     public SecretKey deriveTotpKey(UUID tenantId) {
         return deriveKey(tenantId, "totp");
     }
 
-    /** Derives the per-tenant webhook-callback secret encryption DEK (AES-256-GCM). */
+    /**
+     * Derives the per-tenant webhook-callback secret encryption DEK.
+     *
+     * @deprecated since v0.51.0 — see {@link #deriveTotpKey} javadoc.
+     */
+    @Deprecated(since = "v0.51.0", forRemoval = true)
     public SecretKey deriveWebhookSecretKey(UUID tenantId) {
         return deriveKey(tenantId, "webhook-secret");
     }
 
-    /** Derives the per-tenant OAuth2 client-secret encryption DEK (AES-256-GCM). */
+    /**
+     * Derives the per-tenant OAuth2 client-secret encryption DEK.
+     *
+     * @deprecated since v0.51.0 — see {@link #deriveTotpKey} javadoc.
+     */
+    @Deprecated(since = "v0.51.0", forRemoval = true)
     public SecretKey deriveOauth2ClientSecretKey(UUID tenantId) {
         return deriveKey(tenantId, "oauth2-client-secret");
     }
 
-    /** Derives the per-tenant HMIS API-key encryption DEK (AES-256-GCM). */
+    /**
+     * Derives the per-tenant HMIS API-key encryption DEK.
+     *
+     * @deprecated since v0.51.0 — see {@link #deriveTotpKey} javadoc.
+     */
+    @Deprecated(since = "v0.51.0", forRemoval = true)
     public SecretKey deriveHmisApiKey(UUID tenantId) {
         return deriveKey(tenantId, "hmis-api-key");
     }
