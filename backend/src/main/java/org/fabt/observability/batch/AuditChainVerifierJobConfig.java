@@ -36,6 +36,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.event.EventListener;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Phase G slice G-2 — Spring Batch job that re-verifies every tenant's audit
@@ -127,17 +129,20 @@ public class AuditChainVerifierJobConfig {
     private final AuditChainHasher chainHasher;
     private final BatchJobScheduler batchJobScheduler;
     private final MeterRegistry meterRegistry;
+    private final TransactionTemplate perTenantTx;
 
     public AuditChainVerifierJobConfig(JobRepository jobRepository,
                                        JdbcTemplate jdbc,
                                        AuditChainHasher chainHasher,
                                        BatchJobScheduler batchJobScheduler,
-                                       ObjectProvider<MeterRegistry> meterRegistryProvider) {
+                                       ObjectProvider<MeterRegistry> meterRegistryProvider,
+                                       PlatformTransactionManager transactionManager) {
         this.jobRepository = jobRepository;
         this.jdbc = jdbc;
         this.chainHasher = chainHasher;
         this.batchJobScheduler = batchJobScheduler;
         this.meterRegistry = meterRegistryProvider.getIfAvailable();
+        this.perTenantTx = new TransactionTemplate(transactionManager);
     }
 
     @Bean
@@ -176,8 +181,16 @@ public class AuditChainVerifierJobConfig {
 
             for (UUID tenantId : tenantIds) {
                 try {
+                    // Run per-tenant verification inside a TransactionTemplate
+                    // so set_config(app.tenant_id, ?, is_local=true) persists
+                    // across every SELECT within the same connection/tx.
+                    // Without this wrapper, each JdbcTemplate call auto-commits
+                    // and loses the GUC binding, leaving Phase B FORCE RLS on
+                    // audit_events to return zero rows. TenantContext binds
+                    // OUTSIDE the tx boundary per the B11 ordering rule
+                    // (feedback_transactional_rls_scoped_value_ordering).
                     VerifyResult result = TenantContext.callWithContext(tenantId, false, () ->
-                            verifyTenantChain(tenantId));
+                            perTenantTx.execute(status -> verifyTenantChain(tenantId)));
                     tenantsVerified++;
                     totalRows += result.rowsVerified();
                     totalDrift += result.driftCount();
@@ -249,6 +262,16 @@ public class AuditChainVerifierJobConfig {
      * gives O(1) memory per batch regardless of total per-tenant row count.
      */
     private VerifyResult verifyTenantChain(UUID tenantId) {
+        // Explicit set_config('app.tenant_id', ...) matching the pattern
+        // AuditEventPersister uses: Phase B FORCE RLS on audit_events requires
+        // this GUC to be bound on the connection. TenantContext.callWithContext
+        // binds the ScopedValue, but RlsAwareDataSource's automatic GUC binding
+        // fires reliably only at new-connection-acquisition, not on pooled
+        // reuse inside a non-transactional JdbcTemplate chain. Explicit
+        // set_config is belt-and-braces + matches the writer path.
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                String.class, tenantId.toString());
+
         int drift = 0;
         int totalRows = 0;
         byte[] previousRowHash = null;
