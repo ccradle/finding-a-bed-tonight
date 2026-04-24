@@ -10,7 +10,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import org.fabt.BaseIntegrationTest;
-import org.fabt.shared.audit.AuditEventTypes;
+import org.fabt.shared.audit.AuditEventType;
 import org.fabt.shared.security.KeyPurpose;
 import org.fabt.shared.security.SecretEncryptionService;
 import org.fabt.shared.security.TenantDekService;
@@ -184,7 +184,7 @@ class TenantLifecycleHardDeleteIntegrationTest extends BaseIntegrationTest {
         // Attempt-audit: a TENANT_HARD_DELETE_REJECTED row must be present
         // (detached persister survives the outer rollback).
         long rejectedCount = countAuditRowsForActor(
-            AuditEventTypes.TENANT_HARD_DELETE_REJECTED, actor, tenantId);
+            AuditEventType.TENANT_HARD_DELETE_REJECTED.name(), actor, tenantId);
         assertThat(rejectedCount)
             .as("FSM rejection must emit attempt-audit via REQUIRES_NEW detached persister")
             .isEqualTo(1L);
@@ -278,7 +278,7 @@ class TenantLifecycleHardDeleteIntegrationTest extends BaseIntegrationTest {
                 + "  AND details ->> 'deleted_tenant_id' = ? "
                 + "  AND tenant_id = ?",
                 Long.class,
-                AuditEventTypes.TENANT_HARD_DELETED,
+                AuditEventType.TENANT_HARD_DELETED.name(),
                 deletedTenantId.toString(),
                 TenantContext.SYSTEM_TENANT_ID);
             return c == null ? 0L : c;
@@ -292,7 +292,7 @@ class TenantLifecycleHardDeleteIntegrationTest extends BaseIntegrationTest {
                 + "WHERE action = ? "
                 + "  AND details ->> 'deleted_tenant_id' = ? "
                 + "  AND tenant_id = ?",
-                AuditEventTypes.TENANT_HARD_DELETED,
+                AuditEventType.TENANT_HARD_DELETED.name(),
                 deletedTenantId.toString(),
                 TenantContext.SYSTEM_TENANT_ID));
     }

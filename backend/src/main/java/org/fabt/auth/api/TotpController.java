@@ -14,6 +14,7 @@ import org.fabt.auth.repository.UserRepository;
 import org.fabt.auth.service.TotpService;
 import org.fabt.auth.service.UserService;
 import org.fabt.shared.audit.AuditEventRecord;
+import org.fabt.shared.audit.AuditEventType;
 import org.fabt.shared.web.TenantContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -139,7 +140,7 @@ public class TotpController {
         userRepository.save(user);
 
         log.warn("TOTP enabled for user {} (tenant {}) — 2FA now active", userId, user.getTenantId());
-        eventPublisher.publishEvent(new AuditEventRecord(userId, userId, "TOTP_ENABLED", null, null));
+        eventPublisher.publishEvent(new AuditEventRecord(userId, userId, AuditEventType.TOTP_ENABLED, null, null));
 
         return ResponseEntity.ok(Map.of(
                 "enabled", true,
@@ -171,7 +172,7 @@ public class TotpController {
         userRepository.save(user);
 
         log.warn("Backup codes regenerated for user {} (self-service)", userId);
-        eventPublisher.publishEvent(new AuditEventRecord(userId, userId, "BACKUP_CODES_REGENERATED", null, null));
+        eventPublisher.publishEvent(new AuditEventRecord(userId, userId, AuditEventType.BACKUP_CODES_REGENERATED, null, null));
 
         return ResponseEntity.ok(Map.of("backupCodes", backupCodes.plaintext()));
     }
@@ -200,7 +201,7 @@ public class TotpController {
         userRepository.save(user);
 
         log.warn("TOTP disabled for user {} by admin (tenant {})", id, user.getTenantId());
-        eventPublisher.publishEvent(new AuditEventRecord(null, id, "TOTP_DISABLED_BY_ADMIN", null, null));
+        eventPublisher.publishEvent(new AuditEventRecord(null, id, AuditEventType.TOTP_DISABLED_BY_ADMIN, null, null));
 
         return ResponseEntity.ok(Map.of("message", "Sign-in verification disabled."));
     }
@@ -234,7 +235,7 @@ public class TotpController {
         userRepository.save(user);
 
         log.warn("Backup codes regenerated for user {} by admin", id);
-        eventPublisher.publishEvent(new AuditEventRecord(null, id, "BACKUP_CODES_REGENERATED_BY_ADMIN", null, null));
+        eventPublisher.publishEvent(new AuditEventRecord(null, id, AuditEventType.BACKUP_CODES_REGENERATED_BY_ADMIN, null, null));
 
         return ResponseEntity.ok(Map.of("backupCodes", backupCodes.plaintext()));
     }

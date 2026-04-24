@@ -103,6 +103,27 @@ The rule does NOT cover every repository — non-tenant-owned repositories (e.g.
 
 ---
 
+## Publishing audit events
+
+FABT emits audit rows via `org.fabt.shared.audit.AuditEventRecord` published on the Spring `ApplicationEventPublisher`. `AuditEventService` consumes the events synchronously and delegates persistence to `AuditEventPersister` (`PROPAGATION_REQUIRED`) or, for security-evidence paths, to `DetachedAuditPersister` (`PROPAGATION_REQUIRES_NEW`).
+
+**Use a typed `AuditEventType` enum case, never a bare string**:
+
+```java
+eventPublisher.publishEvent(new AuditEventRecord(
+        actorUserId, targetUserId, AuditEventType.ROLE_CHANGED, details, ipAddress));
+```
+
+Slice G-0 (issue #98) typed the `action` field from `String` to `AuditEventType` as Phase G preflight — once the Phase G audit chain hashes `canonical_json(row)`, the serialised `action` form becomes permanent hash input. Typo at the Java layer is now compile-impossible; wire-name stability is pinned by `AuditEventTypeTest`.
+
+**Adding a new case**: add the enum case in `AuditEventType.java` with a Javadoc block describing the emitter, the details JSON payload, and actor/target convention. `AuditEventTypeTest`'s `@EnumSource` exhaustiveness check + the per-family pin tests cover contract stability automatically.
+
+**Test-only rows**: use `AuditEventType.TEST_PROBE` for synthetic audit rows fabricated by tests exercising audit plumbing (RLS binding, orphan-path fallback, counter deltas). Pair with a UUID probe token in the details payload for row isolation. Never reuse a business case like `BED_HOLDS_RECONCILED` for test rows — it pollutes operator-facing counters + audit-trail semantics.
+
+**Wire-name stability is a hard contract**. The `.name()` of each enum case is what's stored in `audit_events.action`, what external compliance queries filter on, and what Phase G chain hashing ingests. Renaming a case requires a data migration of historical rows and any external system consuming them.
+
+---
+
 ## MCP-Ready API Design
 
 The REST API is designed for future AI agent consumption via the Model Context Protocol (MCP). Six design requirements (REQ-MCP-1 through REQ-MCP-6) are satisfied in Phase 1:

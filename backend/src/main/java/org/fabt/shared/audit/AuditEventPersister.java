@@ -85,7 +85,7 @@ class AuditEventPersister {
                 tenantId,
                 event.actorUserId(),
                 event.targetUserId(),
-                event.action(),
+                event.action() == null ? null : event.action().name(),
                 details,
                 event.ipAddress());
         repository.save(entity);

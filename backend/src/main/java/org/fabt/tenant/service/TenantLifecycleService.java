@@ -13,7 +13,7 @@ import org.fabt.auth.service.ApiKeyService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.fabt.shared.audit.AuditEventRecord;
-import org.fabt.shared.audit.AuditEventTypes;
+import org.fabt.shared.audit.AuditEventType;
 import org.fabt.shared.audit.DetachedAuditPersister;
 import org.fabt.shared.config.JsonString;
 import org.fabt.shared.security.KidRegistryService;
@@ -137,7 +137,7 @@ public class TenantLifecycleService {
      * evidence. Marcus warroom F-2 HIGH pattern, formalised in F-3.6.</p>
      */
     private <T> T wrapAttemptAudit(UUID tenantId, UUID actorUserId, String justification,
-                                    String rejectedAction,
+                                    AuditEventType rejectedAction,
                                     java.util.function.Supplier<T> action) {
         try {
             return action.get();
@@ -268,7 +268,7 @@ public class TenantLifecycleService {
      *       hash-chain writer. Empty-hash sentinel (32 zero bytes) — idempotent via
      *       ON CONFLICT in case the V80 migration backfill already seeded the row for
      *       a tenant that pre-existed under the legacy path.</li>
-     *   <li>Emit {@link AuditEventTypes#TENANT_CREATED} audit. The GUC bound by step 3
+     *   <li>Emit {@link AuditEventType#TENANT_CREATED} audit. The GUC bound by step 3
      *       scopes this audit row to the new tenant's id via D55 path 2.</li>
      * </ol>
      *
@@ -329,7 +329,7 @@ public class TenantLifecycleService {
         details.put("slug", slug);
         details.put("name", name);
         eventPublisher.publishEvent(new AuditEventRecord(
-            actorUserId, null, AuditEventTypes.TENANT_CREATED, details, null));
+            actorUserId, null, AuditEventType.TENANT_CREATED, details, null));
 
         // No state-cache invalidation needed: the tenant was just created as
         // ACTIVE, and TenantStateGuard's cache is lazy — the first requireActive
@@ -360,7 +360,7 @@ public class TenantLifecycleService {
      *       auto-reactivated on {@link #unsuspend}: operator re-issues keys after
      *       incident review (post-compromise hygiene).</li>
      *   <li>Flip state to SUSPENDED + save.</li>
-     *   <li>Emit {@link AuditEventTypes#TENANT_SUSPENDED} — details capture
+     *   <li>Emit {@link AuditEventType#TENANT_SUSPENDED} — details capture
      *       actor, justification, previous state, and counts returned by steps 2–3
      *       for forensic join with the {@code JWT_KEY_GENERATION_BUMPED} row.</li>
      * </ol>
@@ -374,7 +374,7 @@ public class TenantLifecycleService {
     @Transactional
     public Tenant suspend(UUID tenantId, UUID actorUserId, String justification) {
         return wrapAttemptAudit(tenantId, actorUserId, justification,
-            AuditEventTypes.TENANT_SUSPEND_REJECTED,
+            AuditEventType.TENANT_SUSPEND_REJECTED,
             () -> doSuspend(tenantId, actorUserId, justification));
     }
 
@@ -400,7 +400,7 @@ public class TenantLifecycleService {
         Tenant saved = tenantRepository.save(tenant);
 
         eventPublisher.publishEvent(new AuditEventRecord(
-            actorUserId, null, AuditEventTypes.TENANT_SUSPENDED,
+            actorUserId, null, AuditEventType.TENANT_SUSPENDED,
             auditDetails(actorUserId, justification, previous, Map.of(
                 "revokedKidCount", rotation.revokedKidCount(),
                 "deactivatedApiKeys", deactivatedKeys)),
@@ -429,7 +429,7 @@ public class TenantLifecycleService {
     @Transactional
     public Tenant unsuspend(UUID tenantId, UUID actorUserId, String justification) {
         return wrapAttemptAudit(tenantId, actorUserId, justification,
-            AuditEventTypes.TENANT_UNSUSPEND_REJECTED,
+            AuditEventType.TENANT_UNSUSPEND_REJECTED,
             () -> doUnsuspend(tenantId, actorUserId, justification));
     }
 
@@ -448,7 +448,7 @@ public class TenantLifecycleService {
         Tenant saved = tenantRepository.save(tenant);
 
         eventPublisher.publishEvent(new AuditEventRecord(
-            actorUserId, null, AuditEventTypes.TENANT_UNSUSPENDED,
+            actorUserId, null, AuditEventType.TENANT_UNSUSPENDED,
             auditDetails(actorUserId, justification, previous, Map.of()),
             null));
 
@@ -459,7 +459,7 @@ public class TenantLifecycleService {
     /**
      * Transition {ACTIVE, SUSPENDED} → OFFBOARDING. Triggers the GDPR Art. 20 export
      * via {@link TenantOffboardExportService}, stores the resulting receipt URI on
-     * the tenant row, and emits {@link AuditEventTypes#TENANT_OFFBOARDING_STARTED}.
+     * the tenant row, and emits {@link AuditEventType#TENANT_OFFBOARDING_STARTED}.
      *
      * <p>Ordering inside the single {@code @Transactional}: load + assert → bind
      * GUC for audit → generate export (joins the tx, consistent snapshot) → flip
@@ -471,7 +471,7 @@ public class TenantLifecycleService {
     @Transactional
     public Tenant offboard(UUID tenantId, UUID actorUserId, String justification) {
         return wrapAttemptAudit(tenantId, actorUserId, justification,
-            AuditEventTypes.TENANT_OFFBOARD_REJECTED,
+            AuditEventType.TENANT_OFFBOARD_REJECTED,
             () -> doOffboard(tenantId, actorUserId, justification));
     }
 
@@ -495,7 +495,7 @@ public class TenantLifecycleService {
         Map<String, Object> extras = new LinkedHashMap<>();
         extras.put("export_receipt_uri", exportUri);
         eventPublisher.publishEvent(new AuditEventRecord(
-            actorUserId, null, AuditEventTypes.TENANT_OFFBOARDING_STARTED,
+            actorUserId, null, AuditEventType.TENANT_OFFBOARDING_STARTED,
             auditDetails(actorUserId, justification, previous, extras),
             null));
 
@@ -519,7 +519,7 @@ public class TenantLifecycleService {
     @Transactional
     public Tenant archive(UUID tenantId, UUID actorUserId, String justification) {
         return wrapAttemptAudit(tenantId, actorUserId, justification,
-            AuditEventTypes.TENANT_ARCHIVE_REJECTED,
+            AuditEventType.TENANT_ARCHIVE_REJECTED,
             () -> doArchive(tenantId, actorUserId, justification));
     }
 
@@ -552,7 +552,7 @@ public class TenantLifecycleService {
         extras.put("archived_at", archivedAt.toString());
         extras.put("export_receipt_uri", tenant.getOffboardExportReceiptUri());
         eventPublisher.publishEvent(new AuditEventRecord(
-            actorUserId, null, AuditEventTypes.TENANT_ARCHIVED,
+            actorUserId, null, AuditEventType.TENANT_ARCHIVED,
             auditDetails(actorUserId, justification, previous, extras),
             null));
 
@@ -611,7 +611,7 @@ public class TenantLifecycleService {
     @Transactional
     public void hardDelete(UUID tenantId, UUID actorUserId, String justification) {
         wrapAttemptAudit(tenantId, actorUserId, justification,
-            AuditEventTypes.TENANT_HARD_DELETE_REJECTED,
+            AuditEventType.TENANT_HARD_DELETE_REJECTED,
             () -> {
                 doHardDelete(tenantId, actorUserId, justification);
                 return null;
@@ -748,7 +748,7 @@ public class TenantLifecycleService {
             detachedAuditPersister.persistDetached(
                 TenantContext.SYSTEM_TENANT_ID,
                 new AuditEventRecord(actorUserId, null,
-                    AuditEventTypes.TENANT_HARD_DELETED,
+                    AuditEventType.TENANT_HARD_DELETED,
                     tombstoneDetails, null));
         };
 
@@ -793,7 +793,7 @@ public class TenantLifecycleService {
     /**
      * Builds the audit-event details JSON skeleton shared by every Phase F lifecycle
      * event. The schema is pinned in
-     * {@link AuditEventTypes#TENANT_SUSPENDED} (and peers): Phase G's
+     * {@link AuditEventType#TENANT_SUSPENDED} (and peers): Phase G's
      * {@code platform_admin_access_log} reads {@code actor_user_id} and
      * {@code justification} directly, so we commit to those field names now.
      *

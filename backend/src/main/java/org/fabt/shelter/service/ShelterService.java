@@ -32,7 +32,7 @@ import org.fabt.shelter.domain.ShelterConstraints;
 import org.fabt.shelter.repository.ShelterConstraintsRepository;
 import org.fabt.shelter.repository.ShelterRepository;
 import org.fabt.shared.audit.AuditEventRecord;
-import org.fabt.shared.audit.AuditEventTypes;
+import org.fabt.shared.audit.AuditEventType;
 import org.fabt.shared.cache.CacheNames;
 import org.fabt.shared.cache.TenantScopedCacheService;
 import org.fabt.shelter.api.CreateShelterRequest;
@@ -290,7 +290,7 @@ public class ShelterService {
         // Audit: DV flag changes (T-3 — elevated visibility)
         if (dvFlagChanged && actorUserId != null) {
             eventPublisher.publishEvent(new AuditEventRecord(
-                    actorUserId, null, "SHELTER_DV_FLAG_CHANGED",
+                    actorUserId, null, AuditEventType.SHELTER_DV_FLAG_CHANGED,
                     java.util.Map.of("shelterId", saved.getId(), "shelterName", saved.getName(),
                             "oldValue", oldDvFlag, "newValue", String.valueOf(saved.isDvShelter())),
                     null));
@@ -299,7 +299,7 @@ public class ShelterService {
         // Audit: DV shelter address changes (T-2 — old/new values)
         if (addressChanged && actorUserId != null) {
             eventPublisher.publishEvent(new AuditEventRecord(
-                    actorUserId, null, "DV_SHELTER_ADDRESS_CHANGED",
+                    actorUserId, null, AuditEventType.DV_SHELTER_ADDRESS_CHANGED,
                     java.util.Map.of("shelterId", saved.getId(), "shelterName", saved.getName(),
                             "oldAddress", oldAddress, "newAddress", formatAddress(saved)),
                     null));
@@ -460,7 +460,7 @@ public class ShelterService {
 
         // Publish audit event
         eventPublisher.publishEvent(new AuditEventRecord(
-                actorUserId, null, AuditEventTypes.SHELTER_DEACTIVATED,
+                actorUserId, null, AuditEventType.SHELTER_DEACTIVATED,
                 Map.of("shelterId", shelterId, "shelterName", shelter.getName(),
                         "deactivationReason", reason.name(),
                         "cancelledHolds", cancelledHolds),
@@ -553,7 +553,7 @@ public class ShelterService {
 
         // Publish audit event (include previous reason for audit trail)
         eventPublisher.publishEvent(new AuditEventRecord(
-                actorUserId, null, AuditEventTypes.SHELTER_REACTIVATED,
+                actorUserId, null, AuditEventType.SHELTER_REACTIVATED,
                 Map.of("shelterId", shelterId, "shelterName", shelter.getName(),
                         "previousDeactivationReason", previousReason != null ? previousReason : "unknown"),
                 null));

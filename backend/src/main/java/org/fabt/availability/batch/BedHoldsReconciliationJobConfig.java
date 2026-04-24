@@ -12,7 +12,7 @@ import org.fabt.availability.repository.BedAvailabilityRepository.DriftRow;
 import org.fabt.observability.ObservabilityMetrics;
 import org.fabt.reservation.service.ReservationService;
 import org.fabt.shared.audit.AuditEventEntity;
-import org.fabt.shared.audit.AuditEventTypes;
+import org.fabt.shared.audit.AuditEventType;
 import org.fabt.shared.audit.repository.AuditEventRepository;
 import org.fabt.shared.config.JsonString;
 import org.fabt.shared.web.TenantContext;
@@ -46,7 +46,7 @@ import org.springframework.transaction.PlatformTransactionManager;
  * reservation table, and writes corrective snapshots through the canonical
  * single-write-path method ({@link ReservationService#recomputeBedsOnHold}).
  * Each correction also writes one audit row tagged
- * {@link AuditEventTypes#BED_HOLDS_RECONCILED}.</p>
+ * {@link AuditEventType#BED_HOLDS_RECONCILED}.</p>
  *
  * <p>The job is registered with {@code dvAccess=true} via
  * {@link BatchJobScheduler#registerJob(String, Job, String, boolean)} so that
@@ -218,7 +218,7 @@ public class BedHoldsReconciliationJobConfig {
                     tenantId,                            // per-row tenant attribution (D55)
                     null,                                // actor user id (system-run batch)
                     null,                                // target user id
-                    AuditEventTypes.BED_HOLDS_RECONCILED,
+                    AuditEventType.BED_HOLDS_RECONCILED.name(),
                     detailsJson,
                     null                                 // ip address
             );

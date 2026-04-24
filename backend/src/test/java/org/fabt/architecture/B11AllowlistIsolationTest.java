@@ -7,6 +7,7 @@ import java.util.concurrent.Executors;
 import org.fabt.BaseIntegrationTest;
 import org.fabt.TestAuthHelper;
 import org.fabt.shared.audit.AuditEventRecord;
+import org.fabt.shared.audit.AuditEventType;
 import org.fabt.shared.web.TenantContext;
 import org.fabt.testsupport.WithTenantContext;
 import org.junit.jupiter.api.DisplayName;
@@ -119,10 +120,14 @@ class B11AllowlistIsolationTest extends BaseIntegrationTest {
         authHelper.setupTestTenant();
         UUID innerTenant = authHelper.getTestTenantId();
 
-        // Unique action string so we can find exactly this row in audit_events.
-        // ACTION_TAG_PATTERN requires ^[A-Z0-9_]{1,64}$ — uppercase + underscore.
-        String uniqueAction = "B11_TEST_"
-                + UUID.randomUUID().toString().replace("-", "_").toUpperCase();
+        // TEST_PROBE is the dedicated sentinel enum case for audit-infrastructure
+        // tests (see AuditEventType.TEST_PROBE Javadoc). Pair with a UUID probe
+        // token in details for row isolation. Using a business case like
+        // BED_HOLDS_RECONCILED here would pollute (a) the audit trail's
+        // business meaning, (b) the fabt.audit.* counter tag cardinality
+        // operators alert on, and (c) future compliance queries.
+        AuditEventType probeAction = AuditEventType.TEST_PROBE;
+        String probeToken = "B11_TEST_" + UUID.randomUUID();
 
         // Simulate the ReservationService.expireReservation shape: outer
         // @Transactional runs with no outer TenantContext (scheduler thread),
@@ -137,22 +142,23 @@ class B11AllowlistIsolationTest extends BaseIntegrationTest {
         transactionTemplate.executeWithoutResult(status -> {
             TenantContext.runWithContext(innerTenant, false, () -> {
                 eventPublisher.publishEvent(new AuditEventRecord(
-                        null,         // actor user id
-                        null,         // target user id
-                        uniqueAction, // action (ACTION_TAG_PATTERN: ^[A-Z0-9_]{1,64}$)
-                        null,         // details
-                        null          // ip address
+                        null,             // actor user id
+                        null,             // target user id
+                        probeAction,      // action — typed enum case
+                        Map.of("probe_token", probeToken), // unique marker for DB-filter isolation
+                        null              // ip address
                 ));
             });
         });
 
         // Read the audit row — audit_events has FOR ALL RLS policy so read
         // must be inside a matching tenant binding or the row is filtered.
+        // Filter by details->>'probe_token' so we find exactly this row.
         Map<String, Object> row = WithTenantContext.readAs(innerTenant, () ->
                 jdbcTemplate.queryForMap(
                         "SELECT tenant_id::text AS tenant_id_text, action FROM audit_events "
-                                + "WHERE action = ?",
-                        uniqueAction));
+                                + "WHERE action = ? AND details ->> 'probe_token' = ?",
+                        probeAction.name(), probeToken));
 
         assertThat(row)
                 .as("Audit row must exist under innerTenant — if the persister's "

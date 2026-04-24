@@ -5,7 +5,7 @@ import java.util.UUID;
 import java.util.stream.Stream;
 
 import org.fabt.BaseIntegrationTest;
-import org.fabt.shared.audit.AuditEventTypes;
+import org.fabt.shared.audit.AuditEventType;
 import org.fabt.shared.cache.CacheNames;
 import org.fabt.shared.cache.CacheService;
 import org.fabt.shared.cache.TenantScopedCacheService;
@@ -151,6 +151,6 @@ class Tenant4bMigrationCrossTenantAttackTest extends BaseIntegrationTest {
                 jdbc.queryForObject(
                         "SELECT COUNT(*) FROM audit_events WHERE action = ?",
                         Long.class,
-                        AuditEventTypes.CROSS_TENANT_CACHE_READ));
+                        AuditEventType.CROSS_TENANT_CACHE_READ.name()));
     }
 }

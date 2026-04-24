@@ -11,7 +11,7 @@ import java.util.UUID;
 import org.fabt.BaseIntegrationTest;
 import org.fabt.auth.domain.ApiKey;
 import org.fabt.auth.repository.ApiKeyRepository;
-import org.fabt.shared.audit.AuditEventTypes;
+import org.fabt.shared.audit.AuditEventType;
 import org.fabt.shared.config.JsonString;
 import org.fabt.shared.security.KidRegistryService;
 import org.fabt.tenant.domain.IllegalStateTransitionException;

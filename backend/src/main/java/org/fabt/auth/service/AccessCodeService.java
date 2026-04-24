@@ -6,6 +6,7 @@ import java.util.UUID;
 import org.fabt.auth.domain.User;
 import org.fabt.auth.repository.UserRepository;
 import org.fabt.shared.audit.AuditEventRecord;
+import org.fabt.shared.audit.AuditEventType;
 import org.fabt.shared.security.TenantUnscopedQuery;
 import org.fabt.tenant.service.TenantService;
 import org.slf4j.Logger;
@@ -76,7 +77,7 @@ public class AccessCodeService {
         );
 
         log.warn("Access code generated for user {} by admin {} (expires {})", targetUserId, adminUserId, expiresAt);
-        eventPublisher.publishEvent(new AuditEventRecord(adminUserId, targetUserId, "ACCESS_CODE_GENERATED", null, null));
+        eventPublisher.publishEvent(new AuditEventRecord(adminUserId, targetUserId, AuditEventType.ACCESS_CODE_GENERATED, null, null));
 
         return plainCode;
     }

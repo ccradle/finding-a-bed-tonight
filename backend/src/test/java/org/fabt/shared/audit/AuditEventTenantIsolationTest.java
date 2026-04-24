@@ -65,12 +65,16 @@ class AuditEventTenantIsolationTest extends BaseIntegrationTest {
         // TenantContext).
         UUID tenantBActor = UUID.randomUUID();
         TenantContext.runWithContext(tenantB.getId(), false, () -> {
+            // TEST_PROBE sentinel for all three — this test's assertion counts
+            // by target_user_id + tenant_id, not by action. Real business cases
+            // would misrepresent the audit trail (no role/DV/reactivation
+            // actually happened) and pollute operator-facing counters.
             eventPublisher.publishEvent(new AuditEventRecord(
-                    tenantBActor, tenantBUser.getId(), "ROLE_CHANGED", null, "10.0.0.1"));
+                    tenantBActor, tenantBUser.getId(), AuditEventType.TEST_PROBE, null, "10.0.0.1"));
             eventPublisher.publishEvent(new AuditEventRecord(
-                    tenantBActor, tenantBUser.getId(), "DV_ACCESS_GRANTED", null, "10.0.0.1"));
+                    tenantBActor, tenantBUser.getId(), AuditEventType.TEST_PROBE, null, "10.0.0.1"));
             eventPublisher.publishEvent(new AuditEventRecord(
-                    tenantBActor, tenantBUser.getId(), "PASSWORD_RESET", null, "10.0.0.1"));
+                    tenantBActor, tenantBUser.getId(), AuditEventType.TEST_PROBE, null, "10.0.0.1"));
         });
 
         // Sanity: Tenant B's audit history is 3 rows, all carrying tenant_id=tenantB.
@@ -119,8 +123,10 @@ class AuditEventTenantIsolationTest extends BaseIntegrationTest {
         UUID orphanActor = UUID.randomUUID();
 
         // Fire outside any TenantContext.runWithContext scope.
+        // TEST_PROBE sentinel — see AuditEventType.TEST_PROBE Javadoc. Real
+        // business cases would pollute Prometheus counters + audit-trail meaning.
         eventPublisher.publishEvent(new AuditEventRecord(
-                orphanActor, orphanTarget, "ORPHAN_AUDIT_TEST", null, null));
+                orphanActor, orphanTarget, AuditEventType.TEST_PROBE, null, null));
 
         // Verify row persisted under SYSTEM_TENANT_ID. Read under the SYSTEM
         // sentinel context so FORCE RLS doesn't filter it.

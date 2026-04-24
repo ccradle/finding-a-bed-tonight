@@ -16,6 +16,7 @@ import org.fabt.auth.repository.UserRepository;
 import org.fabt.notification.service.NotificationService;
 import org.fabt.shared.audit.AuditDetails;
 import org.fabt.shared.audit.AuditEventRecord;
+import org.fabt.shared.audit.AuditEventType;
 import org.fabt.shared.web.TenantContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -223,7 +224,7 @@ public class UserService {
             user.setRoles(request.roles());
             user.setTokenVersion(user.getTokenVersion() + 1);
             tokenInvalidated = true;
-            publishAuditEvent(actorUserId, id, "ROLE_CHANGED",
+            publishAuditEvent(actorUserId, id, AuditEventType.ROLE_CHANGED,
                     new AuditDetails(oldRoles, request.roles()), ipAddress);
             log.info("User {} roles changed from {} to {} by {}", id,
                     Arrays.toString(oldRoles), Arrays.toString(request.roles()), actorUserId);
@@ -232,7 +233,7 @@ public class UserService {
             user.setDvAccess(request.dvAccess());
             user.setTokenVersion(user.getTokenVersion() + 1);
             tokenInvalidated = true;
-            publishAuditEvent(actorUserId, id, "DV_ACCESS_CHANGED",
+            publishAuditEvent(actorUserId, id, AuditEventType.DV_ACCESS_CHANGED,
                     new AuditDetails(oldDvAccess, request.dvAccess()), ipAddress);
             log.info("User {} dvAccess changed from {} to {} by {}", id,
                     oldDvAccess, request.dvAccess(), actorUserId);
@@ -266,7 +267,7 @@ public class UserService {
         // Disconnect SSE stream if connected
         notificationService.completeEmitter(id);
 
-        publishAuditEvent(actorUserId, id, "USER_DEACTIVATED", null, ipAddress);
+        publishAuditEvent(actorUserId, id, AuditEventType.USER_DEACTIVATED, null, ipAddress);
         log.info("User {} deactivated by {}", id, actorUserId);
 
         return saved;
@@ -286,7 +287,7 @@ public class UserService {
 
         User saved = userRepository.save(user);
 
-        publishAuditEvent(actorUserId, id, "USER_REACTIVATED", null, ipAddress);
+        publishAuditEvent(actorUserId, id, AuditEventType.USER_REACTIVATED, null, ipAddress);
         log.info("User {} reactivated by {}", id, actorUserId);
 
         return saved;
@@ -310,7 +311,7 @@ public class UserService {
         return userRepository.findActiveByTenantIdAndRole(tenantId, role);
     }
 
-    private void publishAuditEvent(UUID actorUserId, UUID targetUserId, String action,
+    private void publishAuditEvent(UUID actorUserId, UUID targetUserId, AuditEventType action,
                                     Object details, String ipAddress) {
         eventPublisher.publishEvent(new AuditEventRecord(
                 actorUserId, targetUserId, action, details, ipAddress));

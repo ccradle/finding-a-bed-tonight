@@ -1,5 +1,6 @@
 package org.fabt.shared.audit;
 
+import java.util.Map;
 import java.util.UUID;
 
 import io.micrometer.core.instrument.MeterRegistry;
@@ -53,8 +54,12 @@ class AuditEventPhaseBRegressionTest extends BaseIntegrationTest {
     @DisplayName("Orphan audit (no TenantContext, no outer tx) persists under SYSTEM_TENANT_ID "
             + "— Bug A+D regression guard")
     void orphanAuditWithoutOuterTx_persistsUnderSystemSentinel() {
-        // Unique action so we can assert on the fresh row only.
-        String action = "PB_ORPHAN_" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+        // TEST_PROBE is the dedicated sentinel enum case for audit-infrastructure
+        // tests (see AuditEventType.TEST_PROBE Javadoc). Pair with a UUID probe
+        // token in details for row isolation. Business cases must not be used
+        // here — counter tag pollution + audit-trail semantic drift.
+        AuditEventType action = AuditEventType.TEST_PROBE;
+        String probeToken = "PB_ORPHAN_" + UUID.randomUUID();
         UUID target = UUID.randomUUID();
 
         // Publish outside any TenantContext + outside any @Transactional.
@@ -63,21 +68,22 @@ class AuditEventPhaseBRegressionTest extends BaseIntegrationTest {
         // inert → set_config(is_local=true) on autoCommit=true dies → INSERT
         // rejected with PSQL 42501 → swallowed → row missing.
         eventPublisher.publishEvent(new AuditEventRecord(
-                null, target, action, null, null));
+                null, target, action, Map.of("probe_token", probeToken), null));
 
         // Row MUST land. Use SYSTEM context to read (FORCE RLS filters otherwise).
         Integer count = WithTenantContext.readAsSystem(() ->
             jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM audit_events "
-                + "WHERE action = ? AND tenant_id = ?::uuid",
-                Integer.class, action, TenantContext.SYSTEM_TENANT_ID));
+                + "WHERE action = ? AND tenant_id = ?::uuid "
+                + "  AND details ->> 'probe_token' = ?",
+                Integer.class, action.name(), TenantContext.SYSTEM_TENANT_ID, probeToken));
         assertThat(count)
                 .as("Orphan audit must land with tenant_id=SYSTEM_TENANT_ID (D55); "
                     + "if 0, the proxy-bypass regression is back")
                 .isEqualTo(1);
 
         // No cleanup — Phase B V70 REVOKEd DELETE on audit_events (append-only
-        // audit posture per G2). Action name is UUID-unique per test run, so
+        // audit posture per G2). Probe token is UUID-unique per test run, so
         // no contamination between runs. Testcontainers starts fresh anyway.
     }
 
@@ -85,13 +91,15 @@ class AuditEventPhaseBRegressionTest extends BaseIntegrationTest {
     @DisplayName("Orphan audit increments fabt.audit.system_insert.count counter "
             + "— D62 observability regression guard")
     void orphanAudit_incrementsSystemInsertCounter() {
-        String action = "PB_COUNTER_" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
-        double before = counterValue(action);
+        // TEST_PROBE sentinel — counter delta works cleanly without polluting
+        // any business case's counter tag that operators alert on.
+        AuditEventType action = AuditEventType.TEST_PROBE;
+        double before = counterValue(action.name());
 
         eventPublisher.publishEvent(new AuditEventRecord(
                 null, UUID.randomUUID(), action, null, null));
 
-        double after = counterValue(action);
+        double after = counterValue(action.name());
         assertThat(after - before)
                 .as("Every SYSTEM_TENANT_ID fallback must increment fabt.audit.system_insert.count "
                     + "tagged by action — if this regresses, Prometheus alerts on "

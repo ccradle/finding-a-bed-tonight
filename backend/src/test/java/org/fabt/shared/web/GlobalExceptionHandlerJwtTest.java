@@ -6,6 +6,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.fabt.shared.audit.AuditEventRecord;
+import org.fabt.shared.audit.AuditEventType;
 import org.fabt.shared.security.CrossTenantJwtException;
 import org.fabt.shared.security.RevokedJwtException;
 import org.junit.jupiter.api.DisplayName;
@@ -78,7 +79,7 @@ class GlobalExceptionHandlerJwtTest {
         assertNotNull(event, "publisher must have received an event");
         assertTrue(event instanceof AuditEventRecord);
         AuditEventRecord record = (AuditEventRecord) event;
-        assertEquals("CROSS_TENANT_JWT_REJECTED", record.action());
+        assertEquals(AuditEventType.CROSS_TENANT_JWT_REJECTED, record.action());
         assertNull(record.targetUserId(), "no targetUserId — target is a token, not a user");
     }
 

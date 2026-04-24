@@ -11,7 +11,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.fabt.notification.domain.EscalationPolicy;
 import org.fabt.notification.repository.EscalationPolicyRepository;
 import org.fabt.shared.audit.AuditEventRecord;
-import org.fabt.shared.audit.AuditEventTypes;
+import org.fabt.shared.audit.AuditEventType;
 import org.fabt.shared.audit.DetachedAuditPersister;
 import org.fabt.shared.web.TenantContext;
 import org.junit.jupiter.api.BeforeEach;
@@ -345,7 +345,7 @@ class EscalationPolicyServiceTest {
             // DetachedAuditPersister invoked with CROSS_TENANT_POLICY_READ for TENANT_B.
             ArgumentCaptor<AuditEventRecord> captor = ArgumentCaptor.forClass(AuditEventRecord.class);
             verify(detachedAuditPersister).persistDetached(eq(TENANT_B), captor.capture());
-            assertThat(captor.getValue().action()).isEqualTo(AuditEventTypes.CROSS_TENANT_POLICY_READ);
+            assertThat(captor.getValue().action()).isEqualTo(AuditEventType.CROSS_TENANT_POLICY_READ);
 
             // cross_tenant_reject counter incremented for TENANT_B.
             double rejectCount = meterRegistry.counter("fabt.cache.get",

@@ -6,7 +6,7 @@ import java.util.UUID;
 
 import org.fabt.BaseIntegrationTest;
 import org.fabt.shared.audit.AuditEventEntity;
-import org.fabt.shared.audit.AuditEventTypes;
+import org.fabt.shared.audit.AuditEventType;
 import org.fabt.shared.audit.repository.AuditEventRepository;
 import org.fabt.shared.web.TenantContext;
 import org.junit.jupiter.api.DisplayName;
@@ -107,7 +107,7 @@ class TenantScopedCacheAuditRollbackIntegrationTest extends BaseIntegrationTest 
                 () -> findCrossTenantAuditsForTenant(TENANT_B));
         assertThat(rows).isNotEmpty();
         AuditEventEntity latest = rows.get(rows.size() - 1);
-        assertThat(latest.getAction()).isEqualTo(AuditEventTypes.CROSS_TENANT_CACHE_READ);
+        assertThat(latest.getAction()).isEqualTo(AuditEventType.CROSS_TENANT_CACHE_READ.name());
         assertThat(latest.getTenantId()).isEqualTo(TENANT_B);
     }
 
@@ -122,7 +122,7 @@ class TenantScopedCacheAuditRollbackIntegrationTest extends BaseIntegrationTest 
             Long count = jdbc.queryForObject(
                     "SELECT COUNT(*) FROM audit_events WHERE action = ? AND tenant_id = ?",
                     Long.class,
-                    AuditEventTypes.CROSS_TENANT_CACHE_READ,
+                    AuditEventType.CROSS_TENANT_CACHE_READ.name(),
                     tenantId);
             return count != null ? count : 0L;
         });
@@ -141,6 +141,6 @@ class TenantScopedCacheAuditRollbackIntegrationTest extends BaseIntegrationTest 
                     e.setAction(rs.getString("action"));
                     return e;
                 },
-                tenantId, AuditEventTypes.CROSS_TENANT_CACHE_READ);
+                tenantId, AuditEventType.CROSS_TENANT_CACHE_READ.name());
     }
 }
