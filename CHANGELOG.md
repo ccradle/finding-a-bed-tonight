@@ -5,6 +5,134 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.51.0] — Phase F F-6: real crypto-shred via per-tenant wrapped DEKs
+
+**Backend-code release.** First since v0.49 (v0.50 was ops-tier). Backend
+JAR bumped `0.49.0 → 0.51.0`. Flyway HWM advances V78 → V84. Frontend,
+nginx, alertmanager, prometheus images all unchanged.
+
+**Operator action required before deploy:** `pg_dump` backup to
+`~/fabt-backups/` — V82/V83/V84 are irreversible without `pg_restore`.
+Deploy runbook: `docs/oracle-update-notes-v0.51.0.md`.
+
+### Added
+
+- **Real crypto-shred for per-tenant data (`TenantLifecycleService.hardDelete`).**
+  Phase F slice F-6 converts the `§D11` crypto-shred claim from a design
+  statement into a verifiable cryptographic property. Per-tenant data-
+  encryption DEKs are now random (not HKDF-derived), wrapped via AES-KWP
+  per RFC 5649 under a master-KEK-derived wrapping key, and stored in a
+  new `tenant_dek` table. `hardDelete` fires a single `DELETE FROM tenant`
+  that unwinds 22 `ON DELETE CASCADE` FKs including `tenant_dek`; post-
+  commit, the wrapped DEKs exist nowhere in the live database or in any
+  application cache. A TDD anchor test
+  (`CryptoShredGapIntegrationTest`) asserts an adversary with the master
+  KEK and a pre-shred ciphertext cannot recover plaintext after the
+  shred. Designed to support NIST SP 800-88 Rev 2 §2.5 "Cryptographic
+  Erase" as the operational-data destruction mechanism. Not a compliance
+  certification; backup/PITR retention and master KEK posture remain
+  separate controls documented in `docs/security/crypto-shred-runbook.md`.
+
+- **V79–V84 Flyway migrations.**
+  - V79 converts `tenant.state` from a native Postgres enum to
+    `VARCHAR(32) + CHECK`. Spring Data JDBC simple-type handling is
+    cleaner without the custom enum converter.
+  - V80 creates `tenant_audit_chain_head` with `ON DELETE CASCADE` +
+    backfills existing tenants with a 32-byte zero-hash sentinel.
+  - V81 adds `offboard_export_receipt_uri` + `archived_at` columns to
+    `tenant`. Starts the 30-day retention clock on archive.
+  - V82 creates `tenant_dek` with FORCE RLS + PERMISSIVE+RESTRICTIVE
+    policy pair (V68 shape) + a SECURITY DEFINER `BEFORE DELETE`
+    trigger guard that raises unless `fabt.shred_in_progress` session
+    GUC matches the row's `tenant_id`.
+  - V83 Java migration re-encrypts the 4 V74-era ciphertext columns
+    (app_user.totp_secret_encrypted, subscription.callback_secret_hash,
+    tenant_oauth2_provider.client_secret_encrypted,
+    tenant.config→hmis_vendors[].api_key_encrypted) under fresh random
+    DEKs. Per-row tx with round-trip verify. Includes an integrated
+    rotation-readiness probe that exercises the atomic generation flip.
+  - V84 flips 18 child-table FKs to `ON DELETE CASCADE` via a
+    `DO $$` block using `NOT VALID` + `VALIDATE CONSTRAINT` to avoid
+    the full-table ACCESS EXCLUSIVE window a naive `ALTER TABLE` would
+    hold.
+
+- **Seven §11 test-strategy tests** pinning the crypto-shred property:
+  - `CryptoShredGapIntegrationTest` — adversary-vs-shred TDD anchor
+  - `NTenantCanaryShredTest` — 10-seed property-style 400-ciphertext
+    regression suite
+  - `RotationReadinessProbeTest` (via V83 IT) — atomic generation flip
+  - `TenantDekRlsTest` — 6-assertion PERMISSIVE+RESTRICTIVE RLS boundary
+  - `TenantChildCascadeAuditTest` — Flyway CI drift guard for the 22-FK
+    CASCADE invariant
+  - `V83MigrationIntegrationTest` — idempotency + completeness +
+    rotation probe
+  - `TenantDekShredGuardTest` — trigger positive + no-GUC + cross-tenant
+    GUC-poisoning paths
+
+- **ArchUnit Family F rules** (`CryptoShredArchitectureTest`):
+  - 7.8h: only `TenantDekService` may call
+    `KeyDerivationService.deriveKekWrappingKey`.
+  - 7.8j: only `TenantLifecycleService` and the V83 migration may
+    reference the `fabt.shred_in_progress` session GUC. Source-file
+    scan (comment-stripped) because ArchUnit cannot match against SQL
+    string contents inside a JDBC call.
+
+- **`PurposeMismatchException extends SecurityException`** — raised by
+  `SecretEncryptionService.decryptForTenant` when the caller's
+  `KeyPurpose` disagrees with the `tenant_dek` row's recorded purpose.
+  Explicit check upstream of the GCM-tag failure so incident responders
+  can distinguish "programming bug" from "forged ciphertext."
+
+- **Retention-days floor guard** on `TenantLifecycleService` — rejects
+  negative `fabt.tenant.hard-delete.retention-days`; logs WARN on zero
+  (valid only for test profiles). Prod default stays 30.
+
+- **Feature runbook:** `docs/security/crypto-shred-runbook.md` — operator
+  procedures, 5-query post-shred verification checklist, backup-hygiene
+  scope, V84 rollback template, known-edge-cases (pod-crash window,
+  PITR-into-shred-window).
+
+### Changed
+
+- **`SecretEncryptionService.encryptForTenant` / `decryptForTenant` now
+  route through `TenantDekService`** (the new service that owns
+  `tenant_dek`). Both methods reject `KeyPurpose.JWT_SIGN` at the boundary
+  — JWT signing has its own lifecycle in `kid_to_tenant_key` and is
+  deliberately excluded from `tenant_dek.purpose`'s `CHECK` constraint.
+  A bounded backward-compat shim in `decryptV1LegacyHkdf` continues to
+  decrypt pre-V83 v1-HKDF envelopes so nothing breaks during the V82
+  → V83 deploy window. Post-V83 (runs automatically on first backend
+  boot after the upgrade) the shim handles only legacy/cached values;
+  the `secret.decrypt.v1.legacy_hkdf` counter trends to zero. Phase L
+  retires the shim.
+
+- **Cache invalidation on `OFFBOARDING` and `ARCHIVED` transitions.**
+  `TenantLifecycleService.doOffboard` / `doArchive` now invalidate both
+  `TenantStateGuard` AND `TenantDekService` caches via a single after-
+  commit hook. Closes the hot-JVM decrypt window during retention that
+  the 1-hour `resolveDek` cache TTL would otherwise leave open.
+
+### Deprecated
+
+- `KeyDerivationService.deriveTotpKey`, `.deriveWebhookSecretKey`,
+  `.deriveOauth2ClientSecretKey`, `.deriveHmisApiKey` — marked
+  `@Deprecated(since="v0.51.0", forRemoval=true)`. Retained for the
+  backward-compat shim (reads pre-V83 envelopes) and the
+  `CryptoShredGapIntegrationTest` adversary simulation. Phase L removes
+  them entirely. `deriveJwtSigningKey` and the new private
+  `deriveKekWrappingKey` stay; JWT signing remains HKDF-derived.
+
+### Security
+
+- **CVE-adjacent:** the cross-primitive key-reuse vector through the
+  backward-compat shim (a caller passing `KeyPurpose.JWT_SIGN` + a v1
+  envelope whose kid lived in `kid_to_tenant_key`) is closed by the
+  symmetric `JWT_SIGN` guard added to `decryptForTenant` at method
+  entry. Discovered in warroom code-review pass-3 (2026-04-24) before
+  ship; no known exploitation.
+
+---
+
 ## [v0.50.0] — Ops hardening: Phase D nginx header stripping + deploy rehearsal harness
 
 **Operations-tier release.** No backend code change, no schema migrations.
