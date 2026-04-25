@@ -65,6 +65,18 @@ yarn-error.log*
 .env.*.local
 *.env
 .env.rehearsal
+
+# Cryptographic keys + secret material — never commit
+# Phase G-3 OCI service-principal private key + general crypto hygiene
+*.pem
+*.key
+*.p8
+*.p12
+*.pfx
+*.jks
+*-private-key*
+.fabt-oci-keys/
+oci-keys/
 # Rehearsal rendered config (contains stub credentials)
 .fabt-rehearsal/
 
