@@ -178,6 +178,23 @@ bucket4j:
             - capacity: 10
               time: 15
               unit: minutes
+    # Per-IP password-attempt throttle on platform-operator login. Tighter
+    # than tenant /login (5 vs 10) because PLATFORM_OPERATOR is the highest-
+    # value account class — Marcus's hard constraint per design Decision 5
+    # spec line 99 ("5 requests per 15-minute window") and warroom M2.
+    # Independent of the per-account MFA-failure lockout in V88; this throttle
+    # caps password-attempt brute force, the per-account counter caps MFA-code
+    # brute force.
+    - cache-name: rate-limit-platform-login
+      url: /api/v1/auth/platform/login
+      http-response-body: '{"error":"rate_limited","message":"Too many platform login attempts. Try again later.","status":429}'
+      http-content-type: application/json
+      rate-limits:
+        - cache-key: getRemoteAddr()
+          bandwidths:
+            - capacity: 5
+              time: 15
+              unit: minutes
     - cache-name: rate-limit-password-change
       url: /api/v1/auth/password
       http-response-body: '{"error":"rate_limited","message":"Too many password change attempts. Try again later.","status":429}'

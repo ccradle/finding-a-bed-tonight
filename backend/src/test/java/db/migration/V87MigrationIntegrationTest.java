@@ -69,7 +69,9 @@ class V87MigrationIntegrationTest extends BaseIntegrationTest {
                 " ORDER BY a.attnum",
                 String.class);
 
-        assertThat(columnNames).containsExactlyInAnyOrder(
+        // V87 introduced these 9 columns. V88 (G-4.2) adds lockout columns
+        // — assert "contains" so V88's additions don't break this V87 pin.
+        assertThat(columnNames).contains(
                 "id", "email", "password_hash", "mfa_secret",
                 "mfa_enabled", "account_locked", "created_at",
                 "last_login_at", "anonymized_at");
@@ -184,7 +186,10 @@ class V87MigrationIntegrationTest extends BaseIntegrationTest {
                 " ORDER BY proname",
                 String.class);
 
-        assertThat(functionNames).containsExactlyInAnyOrder(
+        // V87 introduced these 8 SECURITY DEFINER functions. V88 (G-4.2)
+        // adds 6 more for lockout / atomic MFA / TOTP replay. Assert
+        // "contains" so V88's additions don't break this V87 pin.
+        assertThat(functionNames).contains(
                 "platform_key_material_create_first_active",
                 "platform_user_backup_codes_for",
                 "platform_user_insert_backup_codes",
@@ -218,39 +223,31 @@ class V87MigrationIntegrationTest extends BaseIntegrationTest {
     @Test
     @DisplayName("partial UNIQUE index permits at most one active row in platform_key_material")
     void platformKeyMaterialOneActiveEnforced() {
-        // Use the SECURITY DEFINER helper to insert a first active row.
-        UUID firstId = UUID.randomUUID();
-        Boolean firstInserted = jdbc.queryForObject(
+        // Since G-4.2, PlatformKeyRotationService.@EventListener fires on
+        // app start and inserts the first active row via the bootstrap path.
+        // By the time this test runs, the active row is already present.
+        // The function's "refuse if active row exists" branch is what we
+        // can still exercise — the original "first call succeeds" assertion
+        // is now covered by PlatformKeyRotationService's own integration
+        // (visible via PLATFORM_KEY_BOOTSTRAPPED log line + non-empty
+        // SELECT below).
+
+        Long activeRowCount = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM platform_key_material WHERE active = true",
+                Long.class);
+        assertThat(activeRowCount)
+                .as("PlatformKeyRotationService bootstrap on app start should leave one active row")
+                .isEqualTo(1L);
+
+        UUID secondId = UUID.randomUUID();
+        Boolean secondInserted = jdbc.queryForObject(
                 "SELECT platform_key_material_create_first_active(?::uuid, ?, ?::bytea)",
                 Boolean.class,
-                firstId, "test-kid-" + firstId, "deadbeef".getBytes());
+                secondId, "test-kid-" + secondId, "deadbeef".getBytes());
 
-        try {
-            assertThat(firstInserted)
-                    .as("first call should succeed (no prior active row)")
-                    .isTrue();
-
-            // Second call must NOT insert because one active row already exists.
-            // Function's IF EXISTS guard returns false rather than raising.
-            UUID secondId = UUID.randomUUID();
-            Boolean secondInserted = jdbc.queryForObject(
-                    "SELECT platform_key_material_create_first_active(?::uuid, ?, ?::bytea)",
-                    Boolean.class,
-                    secondId, "test-kid-" + secondId, "deadbeef".getBytes());
-
-            assertThat(secondInserted)
-                    .as("second call must return false because an active row already exists")
-                    .isFalse();
-        } finally {
-            // Cleanup so other tests / re-runs aren't impacted. We have SELECT but
-            // not DELETE on platform_key_material — execute via a one-shot ALTER
-            // / RAW DELETE through a temporarily-elevated connection. For test
-            // isolation, this requires test-only superuser access. Since
-            // BaseIntegrationTest's JdbcTemplate is fabt_app, we cannot DELETE.
-            // Acceptable: the row stays in the test DB; subsequent test runs
-            // on the same Spring context still pass because the function returns
-            // false and no constraint is violated.
-        }
+        assertThat(secondInserted)
+                .as("function must return false because an active row already exists")
+                .isFalse();
     }
 
     // ------------------------------------------------------------------
