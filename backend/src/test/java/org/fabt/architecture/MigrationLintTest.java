@@ -63,7 +63,26 @@ class MigrationLintTest {
             // no expansion surface. See:
             //   openspec/changes/multi-tenant-production-readiness/design-f6-real-cryptoshred.md §3 Q-F6-6
             //   warroom 2026-04-24 pass-2 (GUC-over-role resolution)
-            "V82__tenant_dek_schema.sql"
+            "V82__tenant_dek_schema.sql",
+
+            // V87 — 8 SECURITY DEFINER functions wrapping access to the
+            // platform_user / platform_user_backup_code / platform_key_material
+            // tables. The Phase B owner-bypass concern does NOT apply to these
+            // tables because they have NO tenant_id column — there is no
+            // RLS-protected tenant scope to bypass. The platform_user table
+            // belongs to a separate identity surface (PLATFORM_OPERATOR) with
+            // its own auth flow (iss=fabt-platform JWTs). REVOKE ALL on direct
+            // table access from fabt_app + access via these SECURITY DEFINER
+            // functions matches the Phase G-1 tenant_audit_chain_head pattern.
+            // Function bodies are short, single-purpose, with SET search_path =
+            // pg_catalog (anti-injection). Defensive ownership transfer to
+            // `fabt` via DO-block (no-op in test env where fabt role doesn't
+            // exist; transfers in prod). See:
+            //   openspec/changes/platform-admin-split-and-access-log/design.md
+            //     Decision 2 (separate platform_user table — no tenant_id, no RLS surface)
+            //     Decision 8 (REVOKE+SECURITY DEFINER mirrors Phase G-1 chain-head)
+            //   warroom synthesis 2026-04-25 (Elena: REVOKE + SECURITY DEFINER preferred over RLS for non-tenant-scoped tables)
+            "V87__platform_user_and_key_material.sql"
     );
 
     private static final Pattern SECURITY_DEFINER = Pattern.compile(
