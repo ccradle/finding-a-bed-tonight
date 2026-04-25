@@ -82,11 +82,17 @@ public class PlatformAdminLogger {
     private static final int REQUEST_BODY_EXCERPT_LIMIT = 2000;
 
     private final PlatformAdminAccessLogger writer;
+    private final PlatformActionStateCapture stateCapture;
+    private final tools.jackson.databind.ObjectMapper objectMapper;
     private final MeterRegistry meterRegistry;
 
     public PlatformAdminLogger(PlatformAdminAccessLogger writer,
+                                PlatformActionStateCapture stateCapture,
+                                tools.jackson.databind.ObjectMapper objectMapper,
                                 ObjectProvider<MeterRegistry> meterRegistryProvider) {
         this.writer = writer;
+        this.stateCapture = stateCapture;
+        this.objectMapper = objectMapper;
         this.meterRegistry = meterRegistryProvider.getIfAvailable();
     }
 
@@ -187,6 +193,12 @@ public class PlatformAdminLogger {
         UUID resourceId = resolveResourceId(pjp);
         String resource = resolveResourceName(annotation.emits());
 
+        // Drain captured before-state from the request-scoped bean.
+        // captureBefore() must be called by the controller pre-proceed
+        // for the field to land in PAL; null is fine when there's no
+        // meaningful state delta (e.g. read-only platform actions).
+        String beforeStateJson = serializeStateOrNull(stateCapture.getBeforeState());
+
         writer.writePlatformAction(
                 palId,
                 auditEventId,
@@ -199,6 +211,7 @@ public class PlatformAdminLogger {
                 requestMethod,
                 requestPath,
                 bodyExcerpt,
+                beforeStateJson,
                 ipAddress);
 
         emitMetric(annotation.emits(), "committed");
@@ -331,6 +344,35 @@ public class PlatformAdminLogger {
             return null;
         }
         return input.length() <= max ? input : input.substring(0, max);
+    }
+
+    /**
+     * Serializes a state map to a JSON string suitable for the {@code JSONB}
+     * column. Returns {@code null} for empty/missing input so the column
+     * stays NULL (the V89 size CHECK only applies to non-NULL values).
+     *
+     * <p>If serialization fails or the result exceeds the V89 size cap
+     * (64KB), returns {@code null} with a WARN log — better to drop the
+     * captured state than to fail the audit write entirely.
+     */
+    private String serializeStateOrNull(java.util.Map<String, Object> state) {
+        if (state == null || state.isEmpty()) {
+            return null;
+        }
+        try {
+            String json = objectMapper.writeValueAsString(state);
+            if (json.length() > 65000) {
+                log.warn("PlatformActionStateCapture state serialized to {} bytes — "
+                        + "above the V89 64KB CHECK; dropping to keep the audit write "
+                        + "successful.", json.length());
+                return null;
+            }
+            return json;
+        } catch (Exception e) {
+            log.warn("PlatformActionStateCapture state failed to serialize as JSON: {}",
+                    e.toString());
+            return null;
+        }
     }
 
     private void emitMetric(AuditEventType action, String outcome) {

@@ -89,15 +89,21 @@ public class PlatformAdminAccessLogger {
                                      String requestMethod,
                                      String requestPath,
                                      String requestBodyExcerpt,
+                                     String beforeStateJson,
                                      String ipAddress) {
         // 1. INSERT PAL — single table, raw JdbcTemplate.
+        // before_state is populated from PlatformActionStateCapture if the
+        // controller called captureBefore() before the action runs. Per F13,
+        // after_state is always NULL on v0.53 — Decision 11's pre-proceed
+        // commit timing + the V89 append-only trigger together mean post-
+        // action state can't reach this row.
         jdbc.update(
                 "INSERT INTO platform_admin_access_log ("
                         + "id, platform_user_id, action, resource, resource_id, "
                         + "justification, request_method, request_path, "
                         + "request_body_excerpt, before_state, after_state, "
                         + "audit_event_id) "
-                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)",
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, NULL, ?)",
                 palId,
                 platformUserId,
                 action.name(),
@@ -107,6 +113,7 @@ public class PlatformAdminAccessLogger {
                 requestMethod,
                 requestPath,
                 requestBodyExcerpt,
+                beforeStateJson,
                 auditEventId);
 
         // 2. INSERT AE via the pre-assigned-id audit subsystem path.
@@ -176,6 +183,7 @@ public class PlatformAdminAccessLogger {
                     "INTERNAL",
                     "/auth/platform/login/mfa-verify",
                     null,
+                    null,  // before_state — no meaningful pre-action state for an internal lockout
                     ipAddress);
         } catch (RuntimeException e) {
             // Per Marcus warroom synthesis: failure to audit a lockout is
