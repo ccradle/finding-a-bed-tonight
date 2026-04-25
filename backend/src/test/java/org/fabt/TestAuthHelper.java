@@ -63,8 +63,17 @@ public class TestAuthHelper {
 
     public User setupAdminUser() {
         ensureTenant();
+        // Post-V87 (Phase G-4 / issue #141 / platform-admin-split-and-access-log
+        // change): the V87 backfill grants COC_ADMIN to every PLATFORM_ADMIN-bearing
+        // app_user row at migration time. Test fixtures created at runtime
+        // (post-migration) must mirror that reality so the V87 backfill
+        // assertions remain truthful AND so test users can hit endpoints
+        // gated on COC_ADMIN once G-4.4 migrates them. PLATFORM_ADMIN is kept
+        // for backward-compat with any test still asserting on it; both
+        // coexist in the roles array. The cleanup release will drop
+        // PLATFORM_ADMIN entirely from this fixture.
         adminUser = findOrCreateUser(ADMIN_EMAIL, "Platform Admin",
-                new String[]{"PLATFORM_ADMIN"}, false);
+                new String[]{"PLATFORM_ADMIN", "COC_ADMIN"}, false);
         return adminUser;
     }
 
