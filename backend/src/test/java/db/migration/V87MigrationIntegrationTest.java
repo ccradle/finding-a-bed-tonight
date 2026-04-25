@@ -142,6 +142,14 @@ class V87MigrationIntegrationTest extends BaseIntegrationTest {
     @Test
     @DisplayName("bootstrap platform_user row exists at well-known 0fab UUID, locked, no creds")
     void bootstrapRowExists() {
+        // Reset to bootstrap state first — other test classes in the shared
+        // Spring context (V88, PlatformAuthIntegrationTest) mutate this row
+        // and may run BEFORE this test depending on Surefire's class order.
+        // The reset SECURITY DEFINER function exists in V88; V87 + V88 are
+        // both applied by the time any test runs.
+        jdbc.queryForObject("SELECT platform_user_reset_to_bootstrap(?::uuid)",
+                Boolean.class, BOOTSTRAP_PLATFORM_USER_ID);
+
         // fabt_app cannot SELECT platform_user directly (REVOKE ALL); use the
         // SECURITY DEFINER function platform_user_lookup_by_id instead.
         // Function returns a record (id, email, password_hash, mfa_secret, mfa_enabled, account_locked).

@@ -56,16 +56,13 @@ class V88MigrationIntegrationTest extends BaseIntegrationTest {
 
     @AfterEach
     void restoreBootstrapRow() {
-        // Restore bootstrap row to the V87-INSERTed shape so other tests +
-        // re-runs see a consistent fixture. fabt_app cannot UPDATE platform_user
-        // directly; we route the writes through SECURITY DEFINER functions.
-        // Note: jdbc.update on `SELECT void_func()` fails — PG-JDBC returns
-        // a result set (one NULL row) which executeUpdate rejects. We use
-        // queryForObject and discard the value.
-        jdbc.queryForObject("SELECT platform_user_clear_failures(?::uuid)",
-                Object.class, BOOTSTRAP_PLATFORM_USER_ID);
-        jdbc.queryForObject("SELECT platform_user_update_credentials(?::uuid, NULL, NULL, ?, ?)",
-                Object.class, BOOTSTRAP_PLATFORM_USER_ID, false, true);
+        // Single-call restore via the reset_to_bootstrap SECURITY DEFINER
+        // function — fully reverses every mutation any test in this class
+        // could have applied (creds, MFA, lockout fields, backup codes).
+        // Critical for shared-Spring-context test runs where V87 +
+        // PlatformAuthIntegrationTest assert against bootstrap state.
+        jdbc.queryForObject("SELECT platform_user_reset_to_bootstrap(?::uuid)",
+                Boolean.class, BOOTSTRAP_PLATFORM_USER_ID);
     }
 
     // ------------------------------------------------------------------
@@ -106,7 +103,7 @@ class V88MigrationIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("V88 adds 7 new SECURITY DEFINER functions, all EXECUTE-granted to fabt_app")
+    @DisplayName("V88 adds 8 new SECURITY DEFINER functions, all EXECUTE-granted to fabt_app")
     void securityDefinerFunctionsExist() {
         List<String> v88Functions = jdbc.queryForList(
                 "SELECT proname FROM pg_proc "
@@ -117,7 +114,8 @@ class V88MigrationIntegrationTest extends BaseIntegrationTest {
                         + "                  'platform_user_setup_mfa', "
                         + "                  'platform_user_record_totp_use', "
                         + "                  'platform_user_was_totp_recently_used', "
-                        + "                  'platform_user_set_email') "
+                        + "                  'platform_user_set_email', "
+                        + "                  'platform_user_reset_to_bootstrap') "
                         + " ORDER BY proname",
                 String.class);
 
@@ -128,7 +126,8 @@ class V88MigrationIntegrationTest extends BaseIntegrationTest {
                 "platform_user_setup_mfa",
                 "platform_user_record_totp_use",
                 "platform_user_was_totp_recently_used",
-                "platform_user_set_email");
+                "platform_user_set_email",
+                "platform_user_reset_to_bootstrap");
     }
 
     // ------------------------------------------------------------------

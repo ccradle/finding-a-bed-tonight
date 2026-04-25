@@ -239,6 +239,42 @@ $$;
 GRANT EXECUTE ON FUNCTION platform_user_record_totp_use(UUID, TEXT) TO fabt_app;
 
 
+-- Resets a platform_user row back to the V87 bootstrap state: NULL email +
+-- credentials + MFA, account_locked=true, all V88 fail-tracking fields cleared.
+-- Two callers:
+--   1. Phase H+ recovery flow per spec line 142-146 — when an operator is
+--      locked out and the recovery runbook is followed, another platform_user
+--      can reset their account to bootstrap state for re-activation.
+--   2. Test cleanup (V87/V88 IT, PlatformAuthIntegrationTest) — ensures
+--      shared-Spring-context test classes don't leak state to each other.
+-- Bootstrap row id is preserved (PRIMARY KEY); only mutable fields reset.
+CREATE OR REPLACE FUNCTION platform_user_reset_to_bootstrap(p_id UUID)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $$
+BEGIN
+    UPDATE public.platform_user
+       SET email                  = NULL,
+           password_hash          = NULL,
+           mfa_secret             = NULL,
+           mfa_enabled            = false,
+           account_locked         = true,
+           failed_mfa_attempts_at = '{}'::TIMESTAMPTZ[],
+           locked_out_at          = NULL,
+           last_totp_code         = NULL,
+           last_totp_used_at      = NULL
+     WHERE id = p_id AND anonymized_at IS NULL;
+    -- Cascade-delete backup codes (V87 FK declares ON DELETE CASCADE; we
+    -- DELETE explicitly here since UPDATE doesn't trigger the cascade).
+    DELETE FROM public.platform_user_backup_code WHERE platform_user_id = p_id;
+    RETURN FOUND;
+END;
+$$;
+GRANT EXECUTE ON FUNCTION platform_user_reset_to_bootstrap(UUID) TO fabt_app;
+
+
 -- Sets email on a platform_user row. Used by the bootstrap activation
 -- flow (operator runs the equivalent UPDATE via psql in production, but
 -- integration tests can't reach the table directly under fabt_app). Also
@@ -300,6 +336,7 @@ BEGIN
         ALTER FUNCTION platform_user_record_totp_use(UUID, TEXT) OWNER TO fabt;
         ALTER FUNCTION platform_user_was_totp_recently_used(UUID, TEXT, INT) OWNER TO fabt;
         ALTER FUNCTION platform_user_set_email(UUID, TEXT) OWNER TO fabt;
+        ALTER FUNCTION platform_user_reset_to_bootstrap(UUID) OWNER TO fabt;
     END IF;
 END
 $$;

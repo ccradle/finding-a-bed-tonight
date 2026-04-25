@@ -8,6 +8,7 @@ import org.fabt.Application;
 import org.fabt.BaseIntegrationTest;
 import org.fabt.auth.service.PasswordService;
 import org.fabt.auth.service.TotpService;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -63,28 +64,29 @@ class PlatformAuthIntegrationTest extends BaseIntegrationTest {
 
     @BeforeEach
     void restoreBootstrap() {
-        // Reset the bootstrap row to a known unactivated state, then
-        // activate to (email, password, unlocked, mfa_enabled=false).
+        // First fully reset the bootstrap row (clears creds, MFA, lockout
+        // fields, backup codes — drops any leftover state from a previous
+        // test in this class OR another platform-test class).
+        jdbc.queryForObject("SELECT platform_user_reset_to_bootstrap(?::uuid)",
+                Boolean.class, BOOTSTRAP_ID);
+        // Then activate to (email, password, unlocked, mfa_enabled=false)
+        // — the pre-state every test in this class assumes.
         jdbc.queryForObject(
-                "SELECT platform_user_update_credentials(?::uuid, ?, NULL, ?, ?)",
+                "SELECT platform_user_update_credentials(?::uuid, ?, NULL, NULL, ?)",
                 Object.class, BOOTSTRAP_ID,
                 passwordService.hash(OPERATOR_PASSWORD),
-                false,                      // mfa_enabled = false
                 false);                     // account_locked = false
         jdbc.queryForObject("SELECT platform_user_set_email(?::uuid, ?)",
                 Object.class, BOOTSTRAP_ID, OPERATOR_EMAIL);
-        jdbc.queryForObject("SELECT platform_user_clear_failures(?::uuid)",
-                Object.class, BOOTSTRAP_ID);
-        // Clear mfa_secret so each test starts from "never enrolled" state.
-        // updateCredentials uses COALESCE so it can't NULL a column; we go
-        // straight to the table via the only path that can — the test
-        // helper extends to set mfa_secret = NULL via a dedicated UPDATE
-        // through a SECURITY DEFINER call. updateCredentials with explicit
-        // empty-string would clobber to '', not NULL. For the test, we
-        // rely on the setup-MFA flow generating a fresh secret each time;
-        // the previous test's secret is overwritten on enroll.
-        // We DO need to clear mfa_enabled = false (handled above), and
-        // mfa_secret will get rewritten on the next setupMfa.
+    }
+
+    @AfterEach
+    void resetForNextSuite() {
+        // Fully reset on exit so V87/V88 schema-invariant tests in the
+        // shared Spring context see bootstrap state regardless of run
+        // order.
+        jdbc.queryForObject("SELECT platform_user_reset_to_bootstrap(?::uuid)",
+                Boolean.class, BOOTSTRAP_ID);
     }
 
     /**
