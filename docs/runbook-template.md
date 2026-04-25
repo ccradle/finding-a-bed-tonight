@@ -113,6 +113,7 @@ criterion — do not proceed if a gate fails.
 - [ ] **Container UID vs perms** — any config file bind-mounted into a container must be readable by the container's UID. Alertmanager runs as UID 65534 (`nobody`): needs `chmod 644`. Backend runs as UID 1000. (`project_live_deployment_status.md` v0.49 issue #2)
 - [ ] **pg_dump backup** — `docker exec finding-a-bed-tonight-postgres-1 pg_dump -U fabt -d fabt -Fc > ~/fabt-backups/fabt-pre-vX.Y.Z-$(date -u +%Y%m%d-%H%M%S).dump`
 - [ ] **CI green** — `gh run list --branch main --limit 3` — all runs green. (`feedback_release_after_scans.md`)
+- [ ] **Git tag + GitHub release published** — `git tag vX.Y.Z && git push origin vX.Y.Z`, then `gh release create vX.Y.Z --generate-notes` (or via the GitHub UI). Verify with `gh release view vX.Y.Z`. The deploy MUST checkout the tag, not main HEAD — `git pull origin main` couples the deployed commit to whatever happens to be on main when SSH runs, breaking the audit trail between the tag, the GitHub release page, and the running JAR. Tagging also satisfies the `rehearsal-green-within-72h` process gate in `deploy/release-gate-pins.txt`.
 - [ ] **SSH access confirmed** — open an SSH session to the VM before starting. Do not assume it will be reachable mid-deploy. (`feedback_no_ssh_tunnels.md`)
 - [ ] **Compose dry-render** — `docker compose -f docker-compose.yml -f ~/fabt-secrets/docker-compose.prod.yml ... config > /tmp/vX.Y.Z-config.rendered.yml` — inspect for expected changes; diff against prior render if available.
 
@@ -131,7 +132,21 @@ docker images | grep -E "fabt-(backend|frontend)"
 # Confirm: latest + vPREV-lastgood both present; IMAGE IDs will match (same image, two tags)
 ```
 
-### 2. [Release-specific steps]
+### 2. Checkout the release tag on the VM
+
+```bash
+cd ~/finding-a-bed-tonight
+git fetch origin --tags
+git checkout vX.Y.Z
+git log --oneline -1
+# Confirm: HEAD is the tagged commit (detached HEAD is expected and correct)
+```
+
+> **Do NOT `git pull origin main`.** The deployed commit must equal the tag for
+> audit traceability. Pulling main couples deploy to whatever SHA happens to be
+> on main when SSH runs, which can drift forward if PRs merge mid-deploy.
+
+### 3. [Release-specific steps]
 
 Use `feedback_prod_docker_build_pattern.md` for the canonical build sequence:
 1. `mvn clean package -DskipTests -q`

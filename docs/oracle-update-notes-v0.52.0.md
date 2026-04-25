@@ -81,7 +81,23 @@ gh run list --repo ccradle/finding-a-bed-tonight --branch main --limit 5 \
 
 Expected: most recent run on main shows `conclusion=success` for `Backend (Java 25 + Maven)`, `Legal Language Scan`, `Flyway HWM guard`, `pgaudit image tests`, `DV Access Control Canary`. E2E may show pass/skip — acceptable for a backend-only deploy.
 
-### G2. Flyway HWM verification
+### G2. Git tag + GitHub release published
+
+The deploy uses the tag, not main HEAD. Create and push the tag, then publish a GitHub release before any VM action.
+
+```bash
+# From the operator workstation, in the code repo
+git tag v0.52.0
+git push origin v0.52.0
+gh release create v0.52.0 --generate-notes --title "v0.52.0 — Phase G slices 0–3"
+gh release view v0.52.0
+```
+
+Expected: `gh release view v0.52.0` returns the release page with auto-generated notes. `git ls-remote --tags origin v0.52.0` returns the tag SHA matching the release-prep merge commit on main.
+
+> **Why this gate exists:** the deployed commit must equal the tag for audit traceability. `git pull origin main` couples deploy to whatever SHA happens to be on main when SSH runs, breaking the link between the tag, the release page, and the running JAR. Tagging also satisfies the `rehearsal-green-within-72h` process gate in `deploy/release-gate-pins.txt`.
+
+### G3. Flyway HWM verification
 
 Confirm production is currently at V84 (= post-v0.51.0):
 
@@ -94,7 +110,7 @@ docker exec -it fabt-postgres psql -U fabt -d fabt -c \
 
 If hwm < 84, this is not a v0.51.0-baseline VM — STOP and resolve before proceeding.
 
-### G3. OCI bucket sanity (the 14-day window check)
+### G4. OCI bucket sanity (the 14-day window check)
 
 ```bash
 # From operator workstation
@@ -103,7 +119,7 @@ oci os retention-rule list --namespace-name idtfwmx114rw --bucket-name fabt-audi
 
 Expected: one rule named `fabt-7yr-worm`, `time-rule-locked` set to `2026-05-09T02:16:17.000Z` (or thereabouts — the exact timestamp from rule creation).
 
-### G4. Private key on the VM
+### G5. Private key on the VM
 
 ```bash
 # On the VM
@@ -113,7 +129,7 @@ ls -la ~/fabt-secrets/oci/audit-anchor.pem
 
 If the file is absent, deploy the key per `docs/security/phase-g-anchor-operator-setup.md` step 3 BEFORE proceeding.
 
-### G5. Env vars staged in `~/fabt-secrets/.env.prod`
+### G6. Env vars staged in `~/fabt-secrets/.env.prod`
 
 The 9 new lines must be present (see `docs/security/phase-g-anchor-operator-setup.md` section 4).
 
@@ -125,7 +141,7 @@ grep -c "FABT_OCI_AUDIT_ANCHOR" ~/fabt-secrets/.env.prod
 
 If the count is anything else, fix the env file before deploy.
 
-### G6. New compose override file present
+### G7. New compose override file present
 
 ```bash
 # On the VM
@@ -135,7 +151,7 @@ ls -la ~/fabt-secrets/docker-compose.prod-v0.52-oci-anchor.yml
 
 If absent, the bind-mount won't happen and the backend will fail-fast at startup with "OCI private key not readable at configured path."
 
-### G7. pg_dump backup
+### G8. pg_dump backup
 
 V85 is a metadata-only ALTER but the backup hygiene rule applies:
 
@@ -156,15 +172,21 @@ docker tag fabt-backend:latest fabt-backend:v0.51.0
 docker images fabt-backend
 ```
 
-### 2. Pull latest main
+### 2. Checkout the v0.52.0 tag
 
 ```bash
 cd ~/finding-a-bed-tonight
-git fetch origin main
-git pull --ff-only origin main
-git log --oneline -5
-# Expected: top commit is the v0.52.0 release-prep merge
+git fetch origin --tags
+git checkout v0.52.0
+git log --oneline -1
+# Expected: HEAD now equals the release-prep merge commit (detached HEAD is correct)
+git describe --tags --exact-match
+# Expected: v0.52.0
 ```
+
+> **Do NOT `git pull origin main`.** The deployed commit must equal the tag for
+> audit traceability. Pulling main couples deploy to whatever SHA is on main
+> when SSH runs, which can drift forward if PRs merge mid-deploy.
 
 ### 3. Verify pom.xml version bump
 
@@ -220,7 +242,7 @@ If the container fails to come up healthy, check logs:
 docker logs fabt-backend --tail 100 2>&1 | grep -E "ERROR|FATAL|OCI audit-anchor"
 ```
 
-Common failure: `OCI private key not readable at configured path` — confirm the bind-mount fired (G4 + G6 above).
+Common failure: `OCI private key not readable at configured path` — confirm the bind-mount fired (G5 + G7 above).
 
 ### 7. Reload Prometheus to pick up the new rule file
 
@@ -286,12 +308,12 @@ docker exec fabt-postgres psql -U fabt -d fabt -c "
 ### Trigger the verifier on-demand and confirm zero drift
 
 ```bash
-COC_ADMIN_JWT="<paste a fresh PLATFORM_ADMIN JWT>"
-curl -X POST -H "Authorization: Bearer $COC_ADMIN_JWT" \
+PLATFORM_ADMIN_JWT="<paste a fresh PLATFORM_ADMIN JWT>"
+curl -X POST -H "Authorization: Bearer $PLATFORM_ADMIN_JWT" \
   https://findabed.org/api/v1/batch/jobs/auditChainVerifier/run
 
 # Wait ~5s, then check execution
-curl -H "Authorization: Bearer $COC_ADMIN_JWT" \
+curl -H "Authorization: Bearer $PLATFORM_ADMIN_JWT" \
   https://findabed.org/api/v1/batch/jobs/auditChainVerifier/executions | jq '.[0]'
 # Expected: status=COMPLETED, exitCode=COMPLETED
 ```
@@ -310,7 +332,7 @@ curl -sS http://localhost:9090/api/v1/query \
 curl -X POST -H "Authorization: Bearer $COC_ADMIN_JWT" \
   https://findabed.org/api/v1/batch/jobs/auditChainAnchor/run
 
-curl -H "Authorization: Bearer $COC_ADMIN_JWT" \
+curl -H "Authorization: Bearer $PLATFORM_ADMIN_JWT" \
   https://findabed.org/api/v1/batch/jobs/auditChainAnchor/executions | jq '.[0]'
 # Expected: status=COMPLETED
 ```
@@ -322,6 +344,68 @@ oci os object list --namespace-name idtfwmx114rw --bucket-name fabt-audit-anchor
   --prefix "audit-anchors/" --output table | tail -10
 # Expected: one object per active tenant with non-zero chain head
 ```
+
+### Anchor payload shape verification
+
+Pull one anchor object back and confirm the JSON envelope has the expected fields. Catches serialization regressions that would otherwise only surface during a real forensic retrieval.
+
+```bash
+# Pick the most recent object key from the previous list
+ANCHOR_KEY=$(oci os object list --namespace-name idtfwmx114rw \
+  --bucket-name fabt-audit-anchor --prefix "audit-anchors/" \
+  --output json | jq -r '.data[-1].name')
+
+oci os object get --namespace-name idtfwmx114rw --bucket-name fabt-audit-anchor \
+  --name "$ANCHOR_KEY" --file /tmp/anchor-verify.json
+
+jq 'keys_unsorted' /tmp/anchor-verify.json
+# Expected: ["tenant_id","last_hash_hex","last_row_id","anchored_at", ...]
+# At minimum: tenant_id, last_hash_hex, anchored_at must all be present and non-null
+
+jq '.last_hash_hex | length' /tmp/anchor-verify.json
+# Expected: 64 (32-byte SHA-256 rendered as hex)
+```
+
+### Anchor-vs-DB hash equality verification
+
+Compare the anchored hash against the live `tenant_audit_chain_head.last_hash` for that tenant. A mismatch means the anchor wrote stale data (serialization or timing bug); catching this in the lock-grace window is the only chance — once the rule locks, we cannot rewrite the bucket.
+
+```bash
+ANCHOR_TENANT=$(jq -r '.tenant_id' /tmp/anchor-verify.json)
+ANCHOR_HASH=$(jq -r '.last_hash_hex' /tmp/anchor-verify.json)
+
+# On the VM
+ssh <VM_USER>@<VM_IP> "docker exec fabt-postgres psql -U fabt -d fabt -tAc \
+  \"SELECT encode(last_hash, 'hex') FROM tenant_audit_chain_head WHERE tenant_id = '$ANCHOR_TENANT';\""
+# Expected: returns a hex string EQUAL to $ANCHOR_HASH
+
+# Note: if `auditChainVerifier` ran between anchor and this check, the DB head
+# may have advanced. Either re-trigger the anchor or accept that the anchor
+# represents an earlier-but-valid chain state — verify by checking that the
+# DB hash is downstream of the anchor hash, not divergent.
+```
+
+### WORM property verification (lock-grace-window only)
+
+The retention rule lock activates **2026-05-09 02:16 UTC**. Until then, this is the only chance to confirm the WORM posture actually holds — the IAM policy already blocks `OBJECT_DELETE` and `OBJECT_OVERWRITE` for the service principal, but the *retention rule itself* needs to be tested with a principal that DOES have those permissions (your admin OCI CLI session).
+
+```bash
+# From your admin OCI CLI session (NOT the service principal config) — attempt to delete
+oci os object delete --namespace-name idtfwmx114rw --bucket-name fabt-audit-anchor \
+  --name "$ANCHOR_KEY" --force 2>&1 | head -5
+# Expected: a retention-rule denial (HTTP 409 / RetentionRuleViolation), NOT an IAM denial.
+# If the delete SUCCEEDS, STOP — the retention rule is misconfigured and must be fixed
+# before lock activation. Re-run anchor job to replace any deleted object.
+
+# Attempt to overwrite (uploads a small dummy file under the same key)
+echo '{"tampered":true}' > /tmp/tamper.json
+oci os object put --namespace-name idtfwmx114rw --bucket-name fabt-audit-anchor \
+  --name "$ANCHOR_KEY" --file /tmp/tamper.json --force 2>&1 | head -5
+# Expected: a retention-rule denial. SUCCEEDS = misconfiguration; halt and fix.
+rm /tmp/tamper.json
+```
+
+> This gate is one-shot. After 2026-05-09 02:16 UTC, the rule is immutable for 7 years and we will not have another chance to verify the WORM property under controlled conditions.
 
 ### Playwright smoke (v0.50 lesson — correct invocation)
 
@@ -339,7 +423,7 @@ Test 13/14 flake = rate-limit, not a regression. Acceptable.
 | Failure mode | Rollback action |
 |---|---|
 | Backend fails to start (e.g., OCI key not readable) | Re-tag previous image: `docker tag fabt-backend:v0.51.0 fabt-backend:latest` then re-deploy step 5. Disable OCI by removing `FABT_OCI_AUDIT_ANCHOR_ENABLED=true` from `.env.prod`. |
-| V85 migration fails (extremely unlikely — metadata-only) | Restore from `~/fabt-backups/fabt-*.dump` via `pg_restore`. |
+| V85 migration fails (extremely unlikely — metadata-only) | Restore from `~/fabt-backups/fabt-*.dump` via `pg_restore`. If only the V85 ALTER landed and you need a quick reverse without a full restore: `docker exec fabt-postgres psql -U fabt -d fabt -c "ALTER TABLE audit_events DROP COLUMN row_hash, DROP COLUMN prev_hash; DELETE FROM flyway_schema_history WHERE version = '85';"` (only valid if no row has been written with non-null hashes — confirm with `SELECT COUNT(*) FROM audit_events WHERE row_hash IS NOT NULL;` first). |
 | Verifier fires false-positive drift | Disable just the auditChainVerifier job: `POST /api/v1/batch/jobs/auditChainVerifier/disable`. Investigate via verifier logs. The chain-hashing writer keeps running; verifier disable is operationally inert. |
 | OCI upload failures | Disable just the auditChainAnchor job (same endpoint pattern). Then debug the OCI service principal credentials per `docs/security/phase-g-anchor-operator-setup.md` section 7. |
 | Any unrecoverable issue | Roll the JAR + DB back to v0.51.0; re-tag; recreate. Note: V85 columns will be on the table but unused under the v0.51 JAR (the JAR doesn't reference them). Safe to leave. |
