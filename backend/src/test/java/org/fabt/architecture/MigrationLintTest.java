@@ -82,7 +82,28 @@ class MigrationLintTest {
             //     Decision 2 (separate platform_user table — no tenant_id, no RLS surface)
             //     Decision 8 (REVOKE+SECURITY DEFINER mirrors Phase G-1 chain-head)
             //   warroom synthesis 2026-04-25 (Elena: REVOKE + SECURITY DEFINER preferred over RLS for non-tenant-scoped tables)
-            "V87__platform_user_and_key_material.sql"
+            "V87__platform_user_and_key_material.sql",
+
+            // V88 — 8 SECURITY DEFINER functions wrapping per-account MFA-lockout
+            // state, atomic MFA enrollment, TOTP replay-protection, email
+            // mutation, and bootstrap-reset (recovery + test cleanup) on
+            // platform_user (G-4.2 / issue #141). The Phase B owner-bypass
+            // concern does NOT apply — same access-control mechanic as V87:
+            // platform_user has REVOKE ALL from fabt_app, the functions are
+            // the only write path. The platform_user table has no tenant_id
+            // column, so there is no RLS-protected tenant scope to bypass.
+            // Functions added: platform_user_record_failure, _clear_failures,
+            // _unlock_expired, _setup_mfa (atomic), _record_totp_use,
+            // _was_totp_recently_used, _set_email, _reset_to_bootstrap. Each
+            // is short, single-purpose, with
+            // SET search_path = pg_catalog (anti-injection). Defensive
+            // ownership transfer to `fabt` via DO-block (no-op in test env
+            // where fabt role doesn't exist; transfers in prod). See:
+            //   openspec/changes/platform-admin-split-and-access-log/design.md
+            //     Decision 8 (REVOKE+SECURITY DEFINER mirrors V87 / G-1 pattern)
+            //     Decision 5 (5-fail/15-min lockout, cron auto-unlock)
+            //   warroom 2026-04-25 (Marcus M1: TOTP replay; Alex A1: atomic MFA setup)
+            "V88__platform_user_lockout_columns.sql"
     );
 
     private static final Pattern SECURITY_DEFINER = Pattern.compile(

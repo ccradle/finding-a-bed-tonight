@@ -139,6 +139,34 @@ public class KeyDerivationService {
     }
 
     /**
+     * Derives 32 bytes of HKDF-SHA256 output for the platform JWT signing key
+     * (Phase G-4 / issue #141). Unlike per-tenant keys, platform keys are NOT
+     * derived on every request — they are derived once at first boot, stored
+     * in {@code platform_key_material.key_bytes}, and read back at request
+     * time. The derivation is parameterized on the row id so each rotation
+     * generation produces an independent key.
+     *
+     * <p>Per design Decision 3: "HKDF-derived from master KEK (NOT master KEK
+     * directly — same defense-in-depth pattern as per-tenant DEKs)." A reader
+     * of the table gets the derived bytes, never the master KEK, so a row
+     * leak does not collapse to a master-KEK leak.
+     *
+     * <p>Returns raw bytes (not a {@link SecretKey}) because the caller —
+     * {@code PlatformKeyRotationService} — needs to persist them via the
+     * {@code platform_key_material_create_first_active} SECURITY DEFINER
+     * function, which expects a {@code BYTEA} parameter.
+     */
+    public byte[] derivePlatformJwtKeyBytes(UUID keyId) {
+        if (keyId == null) {
+            throw new IllegalArgumentException("keyId must be non-null");
+        }
+        byte[] salt = uuidToBytes(keyId);
+        String context = "fabt:" + CONTEXT_VERSION + ":platform:jwt-sign:" + keyId;
+        byte[] info = context.getBytes(StandardCharsets.UTF_8);
+        return hkdfSha256(masterKekBytes, salt, info, DERIVED_KEY_LENGTH);
+    }
+
+    /**
      * Derives the per-tenant AES-KWP wrapping key used by
      * {@link TenantDekService} to wrap / unwrap random per-tenant DEKs in
      * the {@code tenant_dek} table. Per F-6.0 design (design-f6-real-
