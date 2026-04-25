@@ -39,6 +39,15 @@
             <artifactId>spring-boot-starter-security</artifactId>
         </dependency>
         <dependency>
+            <!-- Phase G-4.3: enables @Aspect / @Around / @PlatformAdminOnly AOP processing
+                 (PlatformAdminLogger). Without this starter, Spring Boot does NOT
+                 register AnnotationAwareAspectJAutoProxyCreator, the aspect's @Around
+                 cut-point is never woven, and platform-admin endpoints would silently
+                 commit no audit rows. -->
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aspectj</artifactId>
+        </dependency>
+        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-oauth2-client</artifactId>
         </dependency>

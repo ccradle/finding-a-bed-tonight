@@ -109,4 +109,65 @@ class AuditEventPersister {
 
         chainHasher.advanceChainHead(tenantId, entity.getId(), hashed);
     }
+
+    /**
+     * Phase G-4.3 entry point — persists an audit row with a CALLER-SUPPLIED
+     * UUID. Used by {@code PlatformAdminLogger} aspect (and the
+     * {@code logLockout} direct-write hook) so the audit row id can be
+     * pre-generated and embedded as the {@code audit_event_id} foreign-ish
+     * key in the companion {@code platform_admin_access_log} row inside the
+     * same transaction (Decision 11 — pre-generated UUIDs unblock the
+     * double-write ordering).
+     *
+     * <p>Bypasses Spring Data JDBC's {@code repository.save(entity)} —
+     * Spring Data JDBC interprets a non-null {@code @Id} as "this is an
+     * existing row, do an UPDATE" without an explicit {@code Persistable}
+     * implementation, which is the wrong semantics here. Raw
+     * {@link JdbcTemplate#update} produces an INSERT regardless of id
+     * presence.
+     *
+     * <p>{@link AuditChainHasher#computeHashes} + {@link AuditChainHasher#advanceChainHead}
+     * still run inside this transaction so platform-admin-emitted rows for
+     * tenant-scoped events (e.g. {@code PLATFORM_TENANT_SUSPENDED} with
+     * {@code tenantId = X}) chain into the target tenant's audit history.
+     * Platform-wide events ({@code tenantId = SYSTEM_TENANT_ID}) skip
+     * chaining via the existing {@link AuditChainHasher} contract.
+     */
+    @Transactional(propagation = Propagation.REQUIRED)
+    void persistWithPreAssignedId(UUID auditEventId, UUID tenantId,
+                                   AuditEventRecord event, JsonString details) {
+        jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)",
+                String.class, tenantId.toString());
+
+        AuditEventEntity entity = new AuditEventEntity(
+                tenantId,
+                event.actorUserId(),
+                event.targetUserId(),
+                event.action() == null ? null : event.action().name(),
+                details,
+                event.ipAddress());
+        entity.setId(auditEventId);
+
+        AuditChainHasher.HashedRow hashed = chainHasher.computeHashes(tenantId, entity);
+
+        // Raw INSERT — Spring Data JDBC's repository.save would treat the
+        // pre-set id as "existing row" and emit UPDATE.
+        jdbc.update(
+                "INSERT INTO audit_events ("
+                        + "id, timestamp, tenant_id, actor_user_id, target_user_id, "
+                        + "action, details, ip_address, prev_hash, row_hash) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?)",
+                auditEventId,
+                java.sql.Timestamp.from(entity.getTimestamp()),
+                tenantId,
+                event.actorUserId(),
+                event.targetUserId(),
+                event.action().name(),
+                details == null ? null : details.value(),
+                event.ipAddress(),
+                hashed.prevHash(),
+                hashed.rowHash());
+
+        chainHasher.advanceChainHead(tenantId, auditEventId, hashed);
+    }
 }

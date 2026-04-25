@@ -198,6 +198,52 @@ public class AuditEventService {
     }
 
     /**
+     * Phase G-4.3 entry point — persists an audit row with a CALLER-SUPPLIED
+     * UUID and an EXPLICIT {@code tenantId} (NOT pulled from
+     * {@link TenantContext}). Used by:
+     *
+     * <ul>
+     *   <li>{@code PlatformAdminLogger} AOP aspect — for every method
+     *       annotated {@code @PlatformAdminOnly}, the aspect pre-generates
+     *       UUIDs for the PAL row + AE row, then calls this method with
+     *       the AE UUID and the resolved {@code tenantId} (which may be
+     *       {@code SYSTEM_TENANT_ID} for platform-wide actions or
+     *       {@code PLATFORM_TENANT_HARD_DELETED}'s Decision-13 override).</li>
+     *   <li>{@code PlatformAdminAccessLogger.logLockout} — direct-write
+     *       hook from {@code PlatformAuthService} when the per-account
+     *       lockout transition fires (D6).</li>
+     * </ul>
+     *
+     * <p>Differs from the {@code @EventListener} path in two ways:
+     * <ol>
+     *   <li>The AE row id is supplied by the caller (Decision 11 ordering).</li>
+     *   <li>The {@code tenantId} is supplied by the caller, NOT inferred
+     *       from {@link TenantContext} — platform actions run outside any
+     *       tenant scope by design.</li>
+     * </ol>
+     *
+     * <p>Failures propagate to the caller — the aspect's
+     * {@code REQUIRES_NEW} transaction rolls back if the audit write fails.
+     * Per Casey Drummond's chain-of-custody directive, a platform-admin
+     * action that cannot be audited MUST NOT proceed.
+     */
+    public void persistPlatformAdminAuditEvent(UUID auditEventId, UUID tenantId,
+                                                AuditEventRecord event) {
+        try {
+            JsonString details = null;
+            if (event.details() != null) {
+                details = new JsonString(objectMapper.writeValueAsString(event.details()));
+            }
+            persister.persistWithPreAssignedId(auditEventId, tenantId, event, details);
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IllegalStateException(
+                    "Failed to persist platform-admin audit event " + auditEventId, e);
+        }
+    }
+
+    /**
      * Tenant-scoped audit query. Pulls {@code tenantId} from {@link TenantContext}
      * and delegates to {@link AuditEventRepository#findByTargetUserIdAndTenantId}.
      * A cross-tenant probe (valid UUID belonging to another tenant) returns empty.

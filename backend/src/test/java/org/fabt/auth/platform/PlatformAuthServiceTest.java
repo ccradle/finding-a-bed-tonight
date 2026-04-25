@@ -49,6 +49,7 @@ class PlatformAuthServiceTest {
 
     @Mock private PlatformUserRepository userRepository;
     @Mock private TotpService totpService;
+    @Mock private PlatformAdminAccessLogger adminAccessLogger;
     private PasswordService passwordService;
     private PlatformAuthService authService;
 
@@ -58,7 +59,8 @@ class PlatformAuthServiceTest {
         org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder encoder =
                 new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder();
         passwordService = new PasswordService(encoder);
-        authService = new PlatformAuthService(userRepository, passwordService, totpService);
+        authService = new PlatformAuthService(
+                userRepository, passwordService, totpService, adminAccessLogger);
     }
 
     // ------------------------------------------------------------------

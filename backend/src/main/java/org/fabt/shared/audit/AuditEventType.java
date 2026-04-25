@@ -429,6 +429,118 @@ public enum AuditEventType {
      */
     TENANT_HARD_DELETED,
 
+    // ─── Phase G-4.3 — platform-admin actions (issue #141) ───────────────
+    //
+    // Emitted by the @PlatformAdminOnly AOP aspect alongside a
+    // platform_admin_access_log (PAL) row inside one REQUIRES_NEW
+    // transaction (Decision 11). Distinct from the existing TENANT_*
+    // values because each captures a different facet of the same action:
+    // TENANT_CREATED / TENANT_SUSPENDED / etc. are emitted by the
+    // service-layer state-machine when the action effects; PLATFORM_*
+    // here are emitted by the aspect at the controller boundary with
+    // platform-admin context (justification, requestor, request fingerprint).
+    // A single platform-driven tenant suspend produces TWO audit_events
+    // rows — TENANT_SUSPENDED (effect) and PLATFORM_TENANT_SUSPENDED
+    // (intent + authority). Both are forensic value; they answer different
+    // queries.
+
+    /**
+     * A PLATFORM_OPERATOR triggered tenant creation via
+     * {@code POST /api/v1/tenants}. Detail blob includes
+     * {@code platform_admin_access_log_id, platform_user_id,
+     * justification_excerpt, request_method, request_path}. Aspect-emitted.
+     * AE.tenant_id = the new tenant's id (chain seeded in the new tenant's
+     * brand-new chain head).
+     */
+    PLATFORM_TENANT_CREATED,
+
+    /**
+     * A PLATFORM_OPERATOR triggered tenant suspension via
+     * {@code POST /api/v1/tenants/{id}/suspend}. AE.tenant_id = target tenant.
+     * Chained in target tenant's chain. See {@link #PLATFORM_TENANT_CREATED}
+     * for details payload shape.
+     */
+    PLATFORM_TENANT_SUSPENDED,
+
+    /**
+     * A PLATFORM_OPERATOR restored a SUSPENDED tenant via
+     * {@code POST /api/v1/tenants/{id}/unsuspend}. AE.tenant_id = target tenant.
+     */
+    PLATFORM_TENANT_UNSUSPENDED,
+
+    /**
+     * A PLATFORM_OPERATOR began the offboarding workflow via
+     * {@code POST /api/v1/tenants/{id}/offboard}. AE.tenant_id = target tenant.
+     */
+    PLATFORM_TENANT_OFFBOARDED,
+
+    /**
+     * A PLATFORM_OPERATOR triggered hard-delete (crypto-shred) via
+     * {@code DELETE /api/v1/tenants/{id}}. AE.tenant_id is forced to
+     * SYSTEM_TENANT_ID (Decision 13) so the audit row survives the cascade
+     * delete of the target tenant's chain head. Without that override, the
+     * row would either fail the FK on insert or be deleted with the cascade.
+     */
+    PLATFORM_TENANT_HARD_DELETED,
+
+    /**
+     * A PLATFORM_OPERATOR triggered per-tenant JWT key rotation via
+     * {@code POST /api/v1/tenants/{id}/keys/rotate}. AE.tenant_id = target tenant.
+     */
+    PLATFORM_KEY_ROTATED,
+
+    /**
+     * A PLATFORM_OPERATOR triggered an HMIS export via
+     * {@code POST /api/v1/hmis/export}. AE.tenant_id = source tenant.
+     */
+    PLATFORM_HMIS_EXPORTED,
+
+    /**
+     * A PLATFORM_OPERATOR exercised an OAuth2 test-connection endpoint via
+     * {@code POST /api/v1/tenants/{id}/oauth2-providers/{p}/test}.
+     * AE.tenant_id = target tenant.
+     */
+    PLATFORM_OAUTH2_TESTED,
+
+    /**
+     * A PLATFORM_OPERATOR triggered a batch job via
+     * {@code POST /api/v1/admin/batch-jobs/{name}/run}. Platform-wide action;
+     * AE.tenant_id = SYSTEM_TENANT_ID, NOT chained.
+     */
+    PLATFORM_BATCH_JOB_TRIGGERED,
+
+    /**
+     * A PLATFORM_OPERATOR invoked the dev-only test-reset endpoint. Platform-
+     * wide action; AE.tenant_id = SYSTEM_TENANT_ID, NOT chained. Endpoint is
+     * disabled in production via profile gating.
+     */
+    PLATFORM_TEST_RESET_INVOKED,
+
+    /**
+     * A {@code platform_user} was auto-locked after 5 failed MFA attempts in
+     * 15 minutes (V88 lockout policy). Emitted directly from
+     * {@code PlatformAuthService.recordFailureAndMaybeLock} via
+     * {@code PlatformAdminAccessLogger.logLockout(userId)}, NOT via the
+     * {@code @PlatformAdminOnly} aspect — the lockout fires from an internal
+     * service path the aspect can't reach (D6).
+     */
+    PLATFORM_USER_LOCKED_OUT,
+
+    /**
+     * A PLATFORM_OPERATOR created a new {@code platform_user} via
+     * {@code POST /api/v1/platform/users} (Phase H+). Platform-wide action;
+     * AE.tenant_id = SYSTEM_TENANT_ID, NOT chained.
+     */
+    PLATFORM_USER_CREATED,
+
+    /**
+     * A PLATFORM_OPERATOR reset a locked-out platform_user back to bootstrap
+     * state via the Phase H+ recovery endpoint. Folded in from F5 follow-up
+     * captured during G-4.2 hardening commit aceb1d9. Platform-wide action;
+     * AE.tenant_id = SYSTEM_TENANT_ID, NOT chained.
+     */
+    PLATFORM_USER_RESET_TO_BOOTSTRAP,
+
     // ─── Test-infrastructure sentinel (do not use in production code) ───
 
     /**
