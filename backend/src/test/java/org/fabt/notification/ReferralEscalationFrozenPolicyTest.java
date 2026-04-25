@@ -77,7 +77,7 @@ class ReferralEscalationFrozenPolicyTest extends BaseIntegrationTest {
         authHelper.setupAdminUser();
 
         var dvAdmin = authHelper.setupUserWithDvAccess(
-                "frozen-admin@test.fabt.org", "Frozen Admin", new String[]{"PLATFORM_ADMIN"});
+                "frozen-admin@test.fabt.org", "Frozen Admin", new String[]{"PLATFORM_ADMIN", "COC_ADMIN"});
         HttpHeaders adminHeaders = authHelper.headersForUser(dvAdmin);
 
         // Two outreach workers so we can create two referrals for the same shelter

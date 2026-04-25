@@ -78,7 +78,7 @@ class DvReferralIntegrationTest extends BaseIntegrationTest {
 
         // DV operations require dvAccess=true — use a DV-access admin for setup
         var dvAdmin = authHelper.setupUserWithDvAccess(
-                "dvadmin@test.fabt.org", "DV Admin", new String[]{"PLATFORM_ADMIN"});
+                "dvadmin@test.fabt.org", "DV Admin", new String[]{"PLATFORM_ADMIN", "COC_ADMIN"});
         adminHeaders = authHelper.headersForUser(dvAdmin);
         // Outreach worker with dvAccess=true (can see DV shelters via RLS)
         var dvOutreach = authHelper.setupUserWithDvAccess(
@@ -1048,7 +1048,7 @@ class DvReferralIntegrationTest extends BaseIntegrationTest {
         // Create a separate tenant with NO DV coordinators
         var isolatedTenant = authHelper.setupTestTenant("no-coord-tenant");
         var dvAdmin = authHelper.setupUserWithDvAccess(
-                "nocord-admin@test.fabt.org", "No-Coord Admin", new String[]{"PLATFORM_ADMIN"});
+                "nocord-admin@test.fabt.org", "No-Coord Admin", new String[]{"PLATFORM_ADMIN", "COC_ADMIN"});
         HttpHeaders isolatedAdminHeaders = authHelper.headersForUser(dvAdmin);
         var dvOutreach = authHelper.setupUserWithDvAccess(
                 "nocord-outreach@test.fabt.org", "No-Coord Outreach", new String[]{"OUTREACH_WORKER"});

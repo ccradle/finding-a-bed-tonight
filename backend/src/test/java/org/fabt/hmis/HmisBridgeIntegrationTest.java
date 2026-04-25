@@ -50,7 +50,13 @@ class HmisBridgeIntegrationTest extends BaseIntegrationTest {
         authHelper.setupOutreachWorkerUser();
 
         var dvAdmin = authHelper.setupUserWithDvAccess(
-                "dvadmin-hmis@test.fabt.org", "DV Admin HMIS", new String[]{"PLATFORM_ADMIN"});
+                "dvadmin-hmis@test.fabt.org", "DV Admin HMIS",
+                // G-4.4: PLATFORM_ADMIN + COC_ADMIN (matches V87 backfill +
+                // post-migration tenant-admin role list). The COC_ADMIN role
+                // satisfies the migrated tenant-scoped endpoints (/shelters
+                // POST etc.); PLATFORM_ADMIN remains for compat with any
+                // tests that still assert on it directly.
+                new String[]{"PLATFORM_ADMIN", "COC_ADMIN"});
         adminHeaders = authHelper.headersForUser(dvAdmin);
         outreachHeaders = authHelper.outreachWorkerHeaders();
 

@@ -54,7 +54,7 @@ class ReferralEscalationIntegrationTest extends BaseIntegrationTest {
 
         // DV admin for shelter creation
         var dvAdmin = authHelper.setupUserWithDvAccess(
-                "esc-admin@test.fabt.org", "Escalation Admin", new String[]{"PLATFORM_ADMIN"});
+                "esc-admin@test.fabt.org", "Escalation Admin", new String[]{"PLATFORM_ADMIN", "COC_ADMIN"});
         HttpHeaders adminHeaders = authHelper.headersForUser(dvAdmin);
 
         // DV outreach worker (creates referrals)

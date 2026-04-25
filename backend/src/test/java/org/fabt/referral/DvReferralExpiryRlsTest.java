@@ -56,7 +56,7 @@ class DvReferralExpiryRlsTest extends BaseIntegrationTest {
         authHelper.setupAdminUser();
 
         var dvAdmin = authHelper.setupUserWithDvAccess(
-                "rls-dvadmin@test.fabt.org", "RLS DV Admin", new String[]{"PLATFORM_ADMIN"});
+                "rls-dvadmin@test.fabt.org", "RLS DV Admin", new String[]{"PLATFORM_ADMIN", "COC_ADMIN"});
         adminHeaders = authHelper.headersForUser(dvAdmin);
 
         var dvOutreach = authHelper.setupUserWithDvAccess(

@@ -284,7 +284,7 @@ class AnalyticsIntegrationTest extends BaseIntegrationTest {
     @Test
     void batchJobsEndpoint_returnsJobList() {
         var platformAdmin = authHelper.setupUserWithDvAccess(
-                "batch-admin@test.fabt.org", "Batch Admin", new String[]{"PLATFORM_ADMIN"});
+                "batch-admin@test.fabt.org", "Batch Admin", new String[]{"PLATFORM_ADMIN", "COC_ADMIN"});
         HttpHeaders platformHeaders = authHelper.headersForUser(platformAdmin);
 
         ResponseEntity<List<Map<String, Object>>> response = restTemplate.exchange(

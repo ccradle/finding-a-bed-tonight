@@ -47,7 +47,7 @@ class DvAddressRedactionTest extends BaseIntegrationTest {
         TenantContext.runWithContext(authHelper.getTestTenantId(), true, () -> {
             // Admin with dvAccess
             var dvAdmin = authHelper.setupUserWithDvAccess(
-                    "dvadmin-redact@test.fabt.org", "DV Admin", new String[]{"PLATFORM_ADMIN"});
+                    "dvadmin-redact@test.fabt.org", "DV Admin", new String[]{"PLATFORM_ADMIN", "COC_ADMIN"});
             adminHeaders = authHelper.headersForUser(dvAdmin);
 
             // Outreach with dvAccess

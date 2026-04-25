@@ -49,7 +49,7 @@ class ReassignTest extends BaseIntegrationTest {
         authHelper.setupAdminUser();
 
         var dvAdmin = authHelper.setupUserWithDvAccess(
-                "reassign-padmin@test.fabt.org", "Reassign Platform Admin", new String[]{"PLATFORM_ADMIN"});
+                "reassign-padmin@test.fabt.org", "Reassign Platform Admin", new String[]{"PLATFORM_ADMIN", "COC_ADMIN"});
         HttpHeaders padminHeaders = authHelper.headersForUser(dvAdmin);
 
         var dvOutreach = authHelper.setupUserWithDvAccess(

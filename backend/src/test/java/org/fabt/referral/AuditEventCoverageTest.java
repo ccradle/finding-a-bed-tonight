@@ -66,7 +66,7 @@ class AuditEventCoverageTest extends BaseIntegrationTest {
         authHelper.setupAdminUser();
 
         var dvAdmin = authHelper.setupUserWithDvAccess(
-                "audit-padmin@test.fabt.org", "Audit Platform Admin", new String[]{"PLATFORM_ADMIN"});
+                "audit-padmin@test.fabt.org", "Audit Platform Admin", new String[]{"PLATFORM_ADMIN", "COC_ADMIN"});
         HttpHeaders padminHeaders = authHelper.headersForUser(dvAdmin);
 
         var dvOutreach = authHelper.setupUserWithDvAccess(

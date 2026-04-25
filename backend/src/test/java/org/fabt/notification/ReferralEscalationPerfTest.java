@@ -108,7 +108,7 @@ class ReferralEscalationPerfTest extends BaseIntegrationTest {
         authHelper.setupAdminUser();
 
         User dvAdmin = authHelper.setupUserWithDvAccess(
-                "perf-admin@test.fabt.org", "Perf Admin", new String[]{"PLATFORM_ADMIN"});
+                "perf-admin@test.fabt.org", "Perf Admin", new String[]{"PLATFORM_ADMIN", "COC_ADMIN"});
         HttpHeaders adminHeaders = authHelper.headersForUser(dvAdmin);
 
         // DV coordinator so the 1h threshold resolves a real recipient list.
