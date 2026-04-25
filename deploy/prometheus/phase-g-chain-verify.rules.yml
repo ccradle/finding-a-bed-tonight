@@ -131,3 +131,71 @@ groups:
             over 36 hours. Expected cadence is daily at 04:00 UTC.
             Check BatchJobScheduler state via GET /api/v1/batch/jobs;
             verify cron is 0 0 4 * * * and enabled=true.
+
+  # =====================================================================
+  # Phase G-3 — OCI Object Storage external anchor (§8.5)
+  # =====================================================================
+  - name: fabt_phase_g_anchor_upload
+    interval: 30s
+    rules:
+
+      # ---- WARN — sustained anchor upload failures ---------------------
+      # Fires when the OCI audit-anchor uploader sees any failures over a
+      # 1h window. Per-failure tagged with tenant_id (cardinality bounded
+      # to tenants that actually fail). Causes:
+      #   (a) OCI region outage / network reachability issue
+      #   (b) Service-principal credentials expired or rotated
+      #       (FABT_OCI_KEY_FINGERPRINT no longer matches the uploaded key)
+      #   (c) Bucket retention rule / IAM policy regression denied PutObject
+      #   (d) Bucket name / namespace misconfigured
+      # Anchor failures do not affect tenant operations — only forensic
+      # tamper-evidence — so WARN is the right severity unless failures
+      # are sustained for several days (then escalate manually).
+      - alert: FabtAuditAnchorUploadFailing
+        expr: |
+          sum by (tenant_id) (
+            increase(fabt_audit_anchor_upload_count_total{result="failure",env="prod"}[1h])
+          ) > 0
+        for: 30m
+        labels:
+          severity: warning
+          surface: phase-g-anchor
+          runbook: docs/security/phase-g-chain-verify-runbook.md
+        annotations:
+          summary: "Phase G: OCI audit-anchor upload failing for tenant {{ $labels.tenant_id }}"
+          description: |
+            AuditChainAnchorService.uploadAnchor reported {{ $value | humanize }}
+            failures for tenant {{ $labels.tenant_id }} in the last 1h. The
+            anchor for this tenant in this week's batch is missing or partial.
+
+            Triage:
+            1. Pull the verifier batch log for the most recent
+               auditChainAnchor run via GET /api/v1/batch/jobs/auditChainAnchor/executions
+            2. Check OCI Object Storage bucket via the OCI console — is the
+               bucket reachable? Has the retention rule's lock activation
+               passed (2026-05-09 02:16 UTC) and locked any unintended state?
+            3. Check FABT_OCI_KEY_FINGERPRINT matches the active API key on
+               the service-principal user (oci iam user api-key list)
+            4. Re-run on demand once the underlying error is fixed:
+               POST /api/v1/batch/jobs/auditChainAnchor/run
+
+      # ---- WARN — anchor job has not run in 10 days --------------------
+      # Cadence is weekly Monday 05:00 UTC. >10 days means the scheduler
+      # is wedged or the job is disabled — leaving the chain un-anchored
+      # externally for an extended window.
+      - alert: FabtAuditAnchorStalled
+        expr: |
+          (time() - fabt_audit_anchor_tenants_anchored_count_total_created{env="prod"}) > 864000
+        for: 1h
+        labels:
+          severity: warning
+          surface: phase-g-anchor
+          runbook: docs/security/phase-g-chain-verify-runbook.md
+        annotations:
+          summary: "Phase G: OCI audit-anchor job has not produced an upload in over 10 days"
+          description: |
+            No auditChainAnchor run has emitted tenants_anchored_count in
+            over 10 days. Expected cadence is weekly Monday 05:00 UTC.
+            Check BatchJobScheduler via GET /api/v1/batch/jobs; verify
+            cron is 0 0 5 * * MON and enabled=true; verify
+            fabt.oci.audit-anchor.enabled=true is set on the running JVM.
