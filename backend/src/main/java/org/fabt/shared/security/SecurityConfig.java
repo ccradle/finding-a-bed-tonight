@@ -194,9 +194,12 @@ public class SecurityConfig {
                         // Analytics — COC_ADMIN or PLATFORM_ADMIN (fine-grained via @PreAuthorize)
                         .requestMatchers("/api/v1/analytics/**").hasAnyRole("COC_ADMIN", "PLATFORM_ADMIN")
 
-                        // Batch job management — view: COC_ADMIN+, mutate: PLATFORM_ADMIN (via @PreAuthorize)
-                        .requestMatchers(HttpMethod.GET, "/api/v1/batch/**").hasAnyRole("COC_ADMIN", "PLATFORM_ADMIN")
-                        .requestMatchers("/api/v1/batch/**").hasRole("PLATFORM_ADMIN")
+                        // Batch job management — view: COC_ADMIN+, mutate: PLATFORM_OPERATOR / PLATFORM_ADMIN
+                        // (G-4.3 canary + G-4.4 endpoint migration). Method-level
+                        // @PreAuthorize + @PlatformAdminOnly give the precise per-endpoint
+                        // gate; this URL rule allows the role through to reach them.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/batch/**").hasAnyRole("COC_ADMIN", "PLATFORM_ADMIN", "PLATFORM_OPERATOR")
+                        .requestMatchers("/api/v1/batch/**").hasAnyRole("PLATFORM_OPERATOR", "PLATFORM_ADMIN")
 
                         // Test reset — profile-gated (dev/test only), requires PLATFORM_ADMIN + confirmation header
                         .requestMatchers("/api/v1/test/**").hasRole("PLATFORM_ADMIN")

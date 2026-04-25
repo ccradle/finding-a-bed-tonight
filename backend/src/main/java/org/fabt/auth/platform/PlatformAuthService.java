@@ -83,6 +83,7 @@ public class PlatformAuthService {
     private final PlatformUserRepository userRepository;
     private final PasswordService passwordService;
     private final TotpService totpService;
+    private final PlatformAdminAccessLogger adminAccessLogger;
     private final SecureRandom secureRandom = new SecureRandom();
 
     /**
@@ -97,10 +98,12 @@ public class PlatformAuthService {
 
     public PlatformAuthService(PlatformUserRepository userRepository,
                                PasswordService passwordService,
-                               TotpService totpService) {
+                               TotpService totpService,
+                               PlatformAdminAccessLogger adminAccessLogger) {
         this.userRepository = userRepository;
         this.passwordService = passwordService;
         this.totpService = totpService;
+        this.adminAccessLogger = adminAccessLogger;
         byte[] decoySeed = new byte[32];
         new SecureRandom().nextBytes(decoySeed);
         this.decoyPasswordHash = passwordService.hash(
@@ -273,6 +276,12 @@ public class PlatformAuthService {
         if (nowLocked) {
             log.warn("PLATFORM_USER_LOCKED_OUT userId={} threshold={} windowMin={}",
                     userId, LOCKOUT_THRESHOLD, LOCKOUT_WINDOW_MIN);
+            // G-4.3 D6 — emit a PAL + AE row for the lockout transition.
+            // Direct-write (NOT via @PlatformAdminOnly aspect) because the
+            // lockout fires from this internal service path which the
+            // aspect can't reach. Failure to audit is logged + swallowed
+            // by the writer so the operator's 401 is not blocked.
+            adminAccessLogger.logLockout(userId);
         }
     }
 

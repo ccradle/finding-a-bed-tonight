@@ -4,12 +4,18 @@ import java.time.Instant;
 import java.util.UUID;
 
 import org.fabt.auth.domain.User;
+import org.fabt.auth.platform.PlatformJwtService;
+import org.fabt.auth.platform.PlatformUser;
+import org.fabt.auth.platform.repository.PlatformUserRepository;
 import org.fabt.auth.repository.UserRepository;
 import org.fabt.auth.service.JwtService;
 import org.fabt.auth.service.PasswordService;
+import org.fabt.auth.service.TotpService;
 import org.fabt.tenant.domain.Tenant;
 import org.fabt.tenant.service.TenantService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -242,6 +248,110 @@ public class TestAuthHelper {
     private void ensureTenant() {
         if (testTenant == null) {
             setupTestTenant();
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // Platform-operator helpers (G-4.3 task 4.7a / R3)
+    // -----------------------------------------------------------------
+    //
+    // Used by every IT in G-4.3 / G-4.4 / G-4.5 that needs to issue a
+    // post-MFA platform JWT for an operator without going through the
+    // full forced-MFA-on-first-login flow each time. Delegates schema
+    // mutation to the V88 SECURITY DEFINER functions (fabt_app cannot
+    // direct-UPDATE platform_user); JWT minting goes through the real
+    // PlatformJwtService so the resulting token works against the
+    // production iss-routed JwtDecoder dispatch.
+
+    private static final UUID PLATFORM_BOOTSTRAP_ID =
+            UUID.fromString("00000000-0000-0000-0000-000000000fab");
+    public static final String PLATFORM_TEST_PASSWORD = "PlatformTestPwd!@#$1234";
+
+    @Autowired(required = false) private JdbcTemplate platformJdbc;
+    @Autowired(required = false) private PlatformUserRepository platformUserRepository;
+    @Autowired(required = false) private PlatformJwtService platformJwtService;
+    @Autowired(required = false) private TotpService totpService;
+
+    /**
+     * Activates the V87 bootstrap platform_user (id = {@code 0fab}) to a
+     * fully-enrolled state and returns a fresh access token. Convenience
+     * for IT scenarios that need a working platform JWT to hit
+     * {@code @PlatformAdminOnly} endpoints.
+     *
+     * <p>Idempotent — first resets to bootstrap state via the V88 reset
+     * function, then activates with a known email + bcrypt password +
+     * generated TOTP secret, then issues a real access token via
+     * {@link PlatformJwtService#generateAccessToken}. Caller can call
+     * {@link #resetPlatformBootstrap()} in {@code @AfterEach} to scrub
+     * shared-context pollution.
+     *
+     * @return a fresh platform access token with {@code mfaVerified=true},
+     *         {@code roles=[PLATFORM_OPERATOR]}, 15-min TTL
+     */
+    public PlatformOperatorFixture setupPlatformOperator(String email) {
+        if (platformJdbc == null || platformUserRepository == null
+                || platformJwtService == null || totpService == null) {
+            throw new IllegalStateException(
+                    "Platform-operator dependencies not autowired — "
+                            + "test class must extend BaseIntegrationTest with the full Spring context");
+        }
+        // Reset to bootstrap, then activate.
+        platformJdbc.queryForObject(
+                "SELECT platform_user_reset_to_bootstrap(?::uuid)",
+                Boolean.class, PLATFORM_BOOTSTRAP_ID);
+        platformJdbc.queryForObject(
+                "SELECT platform_user_set_email(?::uuid, ?)",
+                Object.class, PLATFORM_BOOTSTRAP_ID, email);
+        String secret = totpService.generateSecret();
+        platformJdbc.queryForObject(
+                "SELECT platform_user_update_credentials(?::uuid, ?, ?, ?, ?)",
+                Object.class, PLATFORM_BOOTSTRAP_ID,
+                passwordService.hash(PLATFORM_TEST_PASSWORD),
+                secret,
+                true,    // mfa_enabled = true (skip enrollment)
+                false);  // account_locked = false (allow login)
+
+        PlatformUser user = platformUserRepository.findById(PLATFORM_BOOTSTRAP_ID)
+                .orElseThrow(() -> new IllegalStateException(
+                        "platform_user lookup failed after activation"));
+        String accessToken = platformJwtService.generateAccessToken(user);
+        return new PlatformOperatorFixture(PLATFORM_BOOTSTRAP_ID, email,
+                PLATFORM_TEST_PASSWORD, secret, accessToken);
+    }
+
+    /**
+     * Default-email convenience.
+     */
+    public PlatformOperatorFixture setupPlatformOperator() {
+        return setupPlatformOperator("ops-it@test.fabt.org");
+    }
+
+    /**
+     * Resets the bootstrap platform_user to the V87 INSERTed state.
+     * IT classes call this in {@code @AfterEach} to keep the shared
+     * Spring context clean for sibling test classes.
+     */
+    public void resetPlatformBootstrap() {
+        if (platformJdbc != null) {
+            platformJdbc.queryForObject(
+                    "SELECT platform_user_reset_to_bootstrap(?::uuid)",
+                    Boolean.class, PLATFORM_BOOTSTRAP_ID);
+        }
+    }
+
+    /**
+     * Activated platform_user fixture returned by
+     * {@link #setupPlatformOperator(String)}. Carries the access token
+     * directly so tests can build {@code Authorization: Bearer ...}
+     * headers without re-querying.
+     */
+    public record PlatformOperatorFixture(UUID userId, String email,
+                                           String plaintextPassword,
+                                           String totpSecret,
+                                           String accessToken) {
+        /** Bearer header value ready for {@code HttpHeaders.set("Authorization", ...)}. */
+        public String bearer() {
+            return "Bearer " + accessToken;
         }
     }
 

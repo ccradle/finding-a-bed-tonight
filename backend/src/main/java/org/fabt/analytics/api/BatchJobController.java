@@ -12,6 +12,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import org.fabt.analytics.config.BatchJobScheduler;
+import org.fabt.auth.platform.PlatformAdminOnly;
+import org.fabt.shared.audit.AuditEventType;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.batch.core.BatchStatus;
@@ -136,7 +138,15 @@ public class BatchJobController {
     }
 
     @PostMapping("/{jobName}/run")
-    @PreAuthorize("hasRole('PLATFORM_ADMIN')")
+    // G-4.3 canary: triggers the @PlatformAdminOnly AOP aspect's PAL+AE
+    // double-write. Full endpoint migration of the remaining 6 sites in
+    // this controller (and the other 12 platform-scoped endpoints across
+    // the codebase) is G-4.4. PLATFORM_ADMIN remains in the @PreAuthorize
+    // expression for the deprecation window; G-4.4 swaps to PLATFORM_OPERATOR.
+    @PreAuthorize("hasAnyRole('PLATFORM_OPERATOR', 'PLATFORM_ADMIN')")
+    @PlatformAdminOnly(
+            reason = "Batch job trigger requires platform authority — affects scheduled work for every tenant via shared scheduler",
+            emits = AuditEventType.PLATFORM_BATCH_JOB_TRIGGERED)
     @Operation(summary = "Trigger manual job run",
             description = "Triggers a batch job immediately with optional date parameter.")
     public ResponseEntity<Map<String, Object>> triggerRun(
