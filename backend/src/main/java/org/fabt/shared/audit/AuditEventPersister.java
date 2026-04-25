@@ -123,7 +123,7 @@ class AuditEventPersister {
      * Spring Data JDBC interprets a non-null {@code @Id} as "this is an
      * existing row, do an UPDATE" without an explicit {@code Persistable}
      * implementation, which is the wrong semantics here. Raw
-     * {@link JdbcTemplate#update} guarantees an INSERT regardless of id
+     * {@link JdbcTemplate#update} produces an INSERT regardless of id
      * presence.
      *
      * <p>{@link AuditChainHasher#computeHashes} + {@link AuditChainHasher#advanceChainHead}
