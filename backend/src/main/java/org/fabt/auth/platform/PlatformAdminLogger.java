@@ -100,6 +100,21 @@ public class PlatformAdminLogger {
     @Around("@annotation(annotation)")
     public Object aroundPlatformAdminOnly(ProceedingJoinPoint pjp,
                                            PlatformAdminOnly annotation) throws Throwable {
+        // Defense-in-depth gate (F2 / G-4.4 task 5.4b): the SecurityContext
+        // authentication MUST carry the MFA_VERIFIED marker authority added
+        // by JwtAuthenticationFilter when binding a post-MFA platform JWT.
+        // If absent, reject BEFORE writing any audit rows. This catches a
+        // future regression in JwtAuthenticationFilter that might bind
+        // ROLE_PLATFORM_OPERATOR without requiring mfaVerified.
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || auth.getAuthorities().stream()
+                .noneMatch(a -> "MFA_VERIFIED".equals(a.getAuthority()))) {
+            log.warn("Platform admin endpoint hit without MFA_VERIFIED authority — "
+                    + "rejecting before audit write. action={}", annotation.emits());
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "Platform admin endpoints require MFA-verified platform JWT");
+        }
+
         String previousMdc = MDC.get(MDC_PLATFORM_ACTION);
         MDC.put(MDC_PLATFORM_ACTION, "true");
         UUID palId = UUID.randomUUID();

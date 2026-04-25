@@ -256,6 +256,85 @@ class PlatformAdminAccessAspectTest extends BaseIntegrationTest {
     }
 
     // -----------------------------------------------------------------
+    // mfaVerified=false rejection (G-4.4 task 5.13a, F2 follow-up)
+    // -----------------------------------------------------------------
+
+    @Test
+    @DisplayName("forged platform JWT with mfaVerified=false → 401, no log rows (F2 defense-in-depth)")
+    void forgedMfaUnverifiedTokenRejected() throws Exception {
+        long palBefore = countPalRows();
+        long aeBefore = countAeRowsForAction("PLATFORM_BATCH_JOB_TRIGGERED");
+
+        // Build a JWT signed with the ACTIVE platform key but with
+        // mfaVerified=false in the payload. The JWT signature is valid;
+        // the only thing wrong is the claim. JwtAuthenticationFilter
+        // should refuse to bind SecurityContext (existing G-4.2 logic),
+        // so Spring Security rejects with 401 BEFORE the aspect runs.
+        String forged = forgeMfaUnverifiedPlatformToken();
+
+        ResponseEntity<Map> response = postCanary("Bearer " + forged, VALID_JUSTIFICATION, "{}");
+
+        assertThat(response.getStatusCode())
+                .as("mfaVerified=false MUST be rejected before reaching @PlatformAdminOnly")
+                .isIn(HttpStatus.UNAUTHORIZED, HttpStatus.FORBIDDEN);
+        assertThat(countPalRows())
+                .as("no PAL row written for mfaVerified=false token")
+                .isEqualTo(palBefore);
+        assertThat(countAeRowsForAction("PLATFORM_BATCH_JOB_TRIGGERED"))
+                .as("no AE row written for mfaVerified=false token")
+                .isEqualTo(aeBefore);
+    }
+
+    /**
+     * Builds a platform JWT signed with the ACTIVE platform key but with
+     * {@code mfaVerified=false}. Used by {@link #forgedMfaUnverifiedTokenRejected}
+     * to verify the F2 defense-in-depth check.
+     *
+     * <p>This bypasses {@code PlatformJwtService.generateAccessToken}
+     * (which always sets {@code mfaVerified=true}) by emitting the
+     * payload manually. Real attackers without the platform key cannot
+     * produce a valid signature, so this test scenario simulates either
+     * a key compromise OR a hypothetical regression in
+     * {@code PlatformJwtService} that could allow such a token.
+     */
+    private String forgeMfaUnverifiedPlatformToken() throws Exception {
+        org.fabt.auth.platform.PlatformKeyRotationService.ActiveKey active =
+                applicationContext.getBean(
+                        org.fabt.auth.platform.PlatformKeyRotationService.class).findActiveKey();
+
+        java.util.Map<String, Object> header = new java.util.LinkedHashMap<>();
+        header.put("alg", "HS256");
+        header.put("typ", "JWT");
+        header.put("kid", active.kid());
+
+        long now = java.time.Instant.now().getEpochSecond();
+        java.util.Map<String, Object> payload = new java.util.LinkedHashMap<>();
+        payload.put("iss", "fabt-platform");
+        payload.put("sub", java.util.UUID.randomUUID().toString());
+        payload.put("roles", java.util.List.of("PLATFORM_OPERATOR"));
+        payload.put("mfaVerified", false);  // ← the forged claim
+        payload.put("ver", 0);
+        payload.put("iat", now);
+        payload.put("exp", now + 900);
+
+        tools.jackson.databind.ObjectMapper json =
+                tools.jackson.databind.json.JsonMapper.builder().build();
+        String headerB64 = base64Url(json.writeValueAsBytes(header));
+        String payloadB64 = base64Url(json.writeValueAsBytes(payload));
+        String signingInput = headerB64 + "." + payloadB64;
+        javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+        mac.init(active.key());
+        byte[] sig = mac.doFinal(signingInput.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        return signingInput + "." + base64Url(sig);
+    }
+
+    private static String base64Url(byte[] data) {
+        return java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(data);
+    }
+
+    @Autowired private org.springframework.context.ApplicationContext applicationContext;
+
+    // -----------------------------------------------------------------
     // FK enforcement (M-RV1 verification)
     // -----------------------------------------------------------------
 
