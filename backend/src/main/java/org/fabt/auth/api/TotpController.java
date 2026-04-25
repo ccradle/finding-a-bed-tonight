@@ -180,7 +180,7 @@ public class TotpController {
     @Operation(summary = "Admin disables user's 2FA",
             description = "Clears TOTP secret and disables 2FA for a user (e.g., lost device). Audit-logged.")
     @DeleteMapping("/totp/{id}")
-    @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasRole('COC_ADMIN')")
     public ResponseEntity<?> disableUserTotp(@PathVariable UUID id) {
         // D1/D3: userService.getUser(id) pulls tenantId from TenantContext
         // and throws NoSuchElementException -> 404 on cross-tenant access.
@@ -209,7 +209,7 @@ public class TotpController {
     @Operation(summary = "Admin regenerates user's backup codes",
             description = "Invalidates all previous codes and returns new ones for verbal communication to the user.")
     @PostMapping("/totp/{id}/regenerate-recovery-codes")
-    @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasRole('COC_ADMIN')")
     public ResponseEntity<?> adminRegenerateRecoveryCodes(@PathVariable UUID id) {
         // D1/D3: userService.getUser(id) pulls tenantId from TenantContext
         // and throws NoSuchElementException -> 404 on cross-tenant access.

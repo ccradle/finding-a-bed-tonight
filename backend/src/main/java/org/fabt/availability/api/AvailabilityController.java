@@ -59,7 +59,7 @@ public class AvailabilityController {
                     "Requires COORDINATOR (assigned only), COC_ADMIN, or PLATFORM_ADMIN role."
     )
     @PatchMapping("/{id}/availability")
-    @PreAuthorize("hasAnyRole('COORDINATOR', 'COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasAnyRole('COORDINATOR', 'COC_ADMIN')")
     public ResponseEntity<AvailabilitySnapshot> updateAvailability(
             @Parameter(description = "UUID of the shelter to update availability for") @PathVariable UUID id,
             @Valid @RequestBody AvailabilityUpdateRequest request,

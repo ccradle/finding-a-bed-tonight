@@ -18,7 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/v1/tenants/{tenantId}/config")
-@PreAuthorize("hasAnyRole('PLATFORM_ADMIN', 'COC_ADMIN')")
+@PreAuthorize("hasRole('COC_ADMIN')")
 public class TenantConfigController {
 
     private final TenantService tenantService;

@@ -65,7 +65,10 @@ public class TenantKeyRotationController {
                     + "{tenantId, oldGen, newGen, actorUserId, revokedKidCount} for "
                     + "compliance trail. Returns 202 + summary.")
     @PostMapping("/{tenantId}/rotate-jwt-key")
-    @PreAuthorize("hasRole('PLATFORM_ADMIN')")
+    @PreAuthorize("hasRole('PLATFORM_OPERATOR')")
+    @org.fabt.auth.platform.PlatformAdminOnly(
+            reason = "Per-tenant JWT signing-key rotation — invalidates every in-flight token for the target tenant; platform authority required",
+            emits = org.fabt.shared.audit.AuditEventType.PLATFORM_KEY_ROTATED)
     public ResponseEntity<Map<String, Object>> rotateJwtKey(
             @Parameter(description = "UUID of the tenant whose JWT key to rotate")
             @PathVariable UUID tenantId,

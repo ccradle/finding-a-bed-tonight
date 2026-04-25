@@ -76,7 +76,7 @@ public class ReferralTokenController {
                     "Authorized for CoC admins and platform admins. Contains zero PII."
     )
     @GetMapping("/escalated")
-    @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasAnyRole('COC_ADMIN')")
     public ResponseEntity<List<EscalatedReferralDto>> getEscalatedQueue() {
         List<ReferralToken> tokens = referralTokenService.getEscalatedQueue();
 
@@ -112,7 +112,7 @@ public class ReferralTokenController {
                     "requires the Override-Claim header (or override=true query param) to steal."
     )
     @PostMapping("/{id}/claim")
-    @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasAnyRole('COC_ADMIN')")
     public ResponseEntity<EscalatedReferralDto> claim(
             @PathVariable UUID id,
             @RequestParam(required = false, defaultValue = "false") boolean override,
@@ -135,7 +135,7 @@ public class ReferralTokenController {
 
     @Operation(summary = "Release a referral claim manually")
     @PostMapping("/{id}/release")
-    @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasAnyRole('COC_ADMIN')")
     public ResponseEntity<Void> release(
             @PathVariable UUID id,
             @RequestParam(required = false, defaultValue = "false") boolean override,
@@ -157,7 +157,7 @@ public class ReferralTokenController {
                     + "took manual ownership). Writes DV_REFERRAL_REASSIGNED audit event."
     )
     @PostMapping("/{id}/reassign")
-    @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasAnyRole('COC_ADMIN')")
     public ResponseEntity<Void> reassign(
             @PathVariable UUID id,
             @Valid @RequestBody ReassignReferralRequest request,
@@ -202,7 +202,7 @@ public class ReferralTokenController {
                     "allowed. Returns 409 if a duplicate exists. Requires dvAccess=true."
     )
     @PostMapping
-    @PreAuthorize("hasAnyRole('OUTREACH_WORKER', 'COORDINATOR', 'COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasAnyRole('OUTREACH_WORKER', 'COORDINATOR', 'COC_ADMIN')")
     public ResponseEntity<ReferralTokenResponse> create(
             @Valid @RequestBody CreateReferralRequest request,
             Authentication authentication) {
@@ -232,7 +232,7 @@ public class ReferralTokenController {
                     "destination shelter is deactivated or no longer a DV shelter, status is returned as SHELTER_CLOSED."
     )
     @GetMapping("/mine")
-    @PreAuthorize("hasAnyRole('OUTREACH_WORKER', 'COORDINATOR', 'COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasAnyRole('OUTREACH_WORKER', 'COORDINATOR', 'COC_ADMIN')")
 
     public ResponseEntity<List<ReferralTokenResponse>> listMine(Authentication authentication) {
         UUID userId = UUID.fromString(authentication.getName());
@@ -302,7 +302,7 @@ public class ReferralTokenController {
                     "number. Contains zero client PII."
     )
     @GetMapping("/pending")
-    @PreAuthorize("hasAnyRole('COORDINATOR', 'COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasAnyRole('COORDINATOR', 'COC_ADMIN')")
 
     public ResponseEntity<List<ReferralTokenResponse>> listPending(
             @Parameter(description = "UUID of the DV shelter") @RequestParam UUID shelterId) {
@@ -325,7 +325,7 @@ public class ReferralTokenController {
                     + "and shelter."
     )
     @GetMapping("/pending/count")
-    @PreAuthorize("hasAnyRole('COORDINATOR', 'COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasAnyRole('COORDINATOR', 'COC_ADMIN')")
     public ResponseEntity<PendingReferralCountResponse> countPending(Authentication authentication) {
         UUID userId = UUID.fromString(authentication.getName());
         List<UUID> assignedShelterIds = coordinatorAssignmentRepository.findShelterIdsByUserId(userId);
@@ -350,7 +350,7 @@ public class ReferralTokenController {
                     + "Contains zero client PII (same shape as /pending list rows)."
     )
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyRole('COORDINATOR', 'COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasAnyRole('COORDINATOR', 'COC_ADMIN')")
     public ResponseEntity<ReferralTokenResponse> getById(
             @Parameter(description = "UUID of the referral token") @PathVariable UUID id) {
         ReferralToken token = referralTokenService.findById(id);
@@ -365,7 +365,7 @@ public class ReferralTokenController {
                     "NEVER through this system. Returns 409 if token is expired or not pending."
     )
     @PatchMapping("/{id}/accept")
-    @PreAuthorize("hasAnyRole('COORDINATOR', 'COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasAnyRole('COORDINATOR', 'COC_ADMIN')")
     public ResponseEntity<ReferralTokenResponse> accept(
             @Parameter(description = "UUID of the referral token") @PathVariable UUID id,
             Authentication authentication) {
@@ -382,7 +382,7 @@ public class ReferralTokenController {
                     "label is shown to shelter staff. Returns 409 if token is expired or not pending."
     )
     @PatchMapping("/{id}/reject")
-    @PreAuthorize("hasAnyRole('COORDINATOR', 'COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasAnyRole('COORDINATOR', 'COC_ADMIN')")
     public ResponseEntity<ReferralTokenResponse> reject(
             @Parameter(description = "UUID of the referral token") @PathVariable UUID id,
             @Valid @RequestBody RejectReferralRequest request,
@@ -401,7 +401,7 @@ public class ReferralTokenController {
                     "Requires COC_ADMIN or PLATFORM_ADMIN role."
     )
     @GetMapping("/analytics")
-    @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasAnyRole('COC_ADMIN')")
     public ResponseEntity<Map<String, Object>> analytics() {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("requested", getCounterValue("requested"));

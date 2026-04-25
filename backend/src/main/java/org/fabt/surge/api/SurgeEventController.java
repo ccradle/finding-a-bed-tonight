@@ -39,7 +39,7 @@ public class SurgeEventController {
                     "Requires COC_ADMIN or PLATFORM_ADMIN role."
     )
     @PostMapping
-    @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasAnyRole('COC_ADMIN')")
     public ResponseEntity<SurgeEventResponse> activate(
             @Valid @RequestBody ActivateSurgeRequest request,
             Authentication authentication) {
@@ -81,7 +81,7 @@ public class SurgeEventController {
                     "Requires COC_ADMIN or PLATFORM_ADMIN role."
     )
     @PatchMapping("/{id}/deactivate")
-    @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasAnyRole('COC_ADMIN')")
     public ResponseEntity<SurgeEventResponse> deactivate(
             @Parameter(description = "UUID of the surge event to deactivate") @PathVariable UUID id,
             Authentication authentication) {

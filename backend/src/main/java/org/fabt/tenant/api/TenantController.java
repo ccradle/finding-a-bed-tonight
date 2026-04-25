@@ -33,7 +33,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/v1/tenants")
-@PreAuthorize("hasRole('PLATFORM_ADMIN')")
 public class TenantController {
 
     private static final Logger log = LoggerFactory.getLogger(TenantController.class);
@@ -68,6 +67,10 @@ public class TenantController {
                     "required fields (name, slug) are missing. Requires PLATFORM_ADMIN role."
     )
     @PostMapping
+    @PreAuthorize("hasRole('PLATFORM_OPERATOR')")
+    @org.fabt.auth.platform.PlatformAdminOnly(
+            reason = "Tenant creation — provisions a new isolation boundary; platform authority required",
+            emits = org.fabt.shared.audit.AuditEventType.PLATFORM_TENANT_CREATED)
     public ResponseEntity<TenantResponse> create(@Valid @RequestBody CreateTenantRequest request) {
         // F-4: prefer the lifecycle service's atomic bootstrap when the feature
         // flag is on (TenantLifecycleService bean exists). Falls back to the
@@ -93,6 +96,7 @@ public class TenantController {
                     "admin dashboards. Requires PLATFORM_ADMIN role."
     )
     @GetMapping
+    @PreAuthorize("hasRole('PLATFORM_OPERATOR')")
     public ResponseEntity<List<TenantResponse>> listAll() {
         List<TenantResponse> tenants = StreamSupport.stream(tenantService.findAll().spliterator(), false)
                 .map(TenantResponse::from)
@@ -107,6 +111,7 @@ public class TenantController {
                     "if no tenant exists with the given ID. Requires PLATFORM_ADMIN role."
     )
     @GetMapping("/{id}")
+    @PreAuthorize("hasRole('PLATFORM_OPERATOR')")
     public ResponseEntity<TenantResponse> getById(
             @Parameter(description = "UUID of the tenant to retrieve") @PathVariable UUID id) {
         return tenantService.findById(id)
@@ -123,6 +128,10 @@ public class TenantController {
                     "exist. Requires PLATFORM_ADMIN role."
     )
     @PutMapping("/{id}")
+    @PreAuthorize("hasRole('PLATFORM_OPERATOR')")
+    @org.fabt.auth.platform.PlatformAdminOnly(
+            reason = "Tenant attribute update (display name) — platform authority required for any tenant-level metadata change",
+            emits = org.fabt.shared.audit.AuditEventType.PLATFORM_TENANT_CREATED)
     public ResponseEntity<TenantResponse> update(
             @Parameter(description = "UUID of the tenant to update") @PathVariable UUID id,
             @Valid @RequestBody UpdateTenantRequest request) {
@@ -138,6 +147,7 @@ public class TenantController {
                     "tenant config JSONB and cached with a 60-second refresh interval."
     )
     @GetMapping("/{id}/observability")
+    @PreAuthorize("hasRole('PLATFORM_OPERATOR')")
     public ResponseEntity<ObservabilityConfig> getObservabilityConfig(
             @Parameter(description = "UUID of the tenant") @PathVariable UUID id) {
         TenantPathGuard.requireMatchingTenant(id);
@@ -151,6 +161,10 @@ public class TenantController {
                     "monitor intervals). Changes take effect within 60 seconds without restart."
     )
     @PutMapping("/{id}/observability")
+    @PreAuthorize("hasRole('PLATFORM_OPERATOR')")
+    @org.fabt.auth.platform.PlatformAdminOnly(
+            reason = "Tenant observability config update — affects what monitoring + tracing flows out of the tenant; platform authority required",
+            emits = org.fabt.shared.audit.AuditEventType.PLATFORM_TENANT_CREATED)
     public ResponseEntity<ObservabilityConfig> updateObservabilityConfig(
             @Parameter(description = "UUID of the tenant") @PathVariable UUID id,
             @RequestBody Map<String, Object> observabilitySettings) {
@@ -170,7 +184,10 @@ public class TenantController {
                     "INTERNAL/ADMIN-ONLY — this endpoint should not be exposed outside the corporate firewall."
     )
     @PutMapping("/{id}/dv-address-policy")
-    @PreAuthorize("hasRole('PLATFORM_ADMIN')")
+    @PreAuthorize("hasRole('PLATFORM_OPERATOR')")
+    @org.fabt.auth.platform.PlatformAdminOnly(
+            reason = "DV-address visibility policy change — affects who can see DV shelter physical addresses; high compliance impact (VAWA-comparable posture); platform authority required",
+            emits = org.fabt.shared.audit.AuditEventType.PLATFORM_TENANT_CREATED)
     public ResponseEntity<?> updateDvAddressPolicy(
             @Parameter(description = "UUID of the tenant") @PathVariable UUID id,
             @RequestBody Map<String, String> body,

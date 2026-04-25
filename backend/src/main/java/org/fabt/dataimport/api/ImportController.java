@@ -34,7 +34,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api/v1/import")
-@PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+@PreAuthorize("hasRole('COC_ADMIN')")
 public class ImportController {
 
     private final ShelterImportService shelterImportService;

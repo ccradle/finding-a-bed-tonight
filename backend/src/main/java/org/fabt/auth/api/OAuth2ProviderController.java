@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/v1/tenants/{tenantId}/oauth2-providers")
-@PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+@PreAuthorize("hasRole('COC_ADMIN')")
 public class OAuth2ProviderController {
 
     private final TenantOAuth2ProviderService providerService;

@@ -6,7 +6,6 @@ import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.lang.ArchRule;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -48,9 +47,6 @@ class NoPlatformAdminPreauthorizeTest {
             .importPackages("org.fabt");
 
     @Test
-    @Disabled("G-4.4 migration in progress — un-disable in the same commit that completes "
-            + "the bulk @PreAuthorize migration. The rule is correct; main just isn't yet "
-            + "compliant with it on this feature branch.")
     @DisplayName("no controller method's @PreAuthorize value contains PLATFORM_ADMIN")
     void noControllerPreauthorizeReferencesPlatformAdmin() {
         ArchRule rule = methods()

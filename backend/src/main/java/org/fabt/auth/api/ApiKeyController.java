@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/v1/api-keys")
-@PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+@PreAuthorize("hasRole('COC_ADMIN')")
 public class ApiKeyController {
 
     private final ApiKeyService apiKeyService;
