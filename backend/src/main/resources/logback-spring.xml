@@ -26,26 +26,38 @@
     </appender>
 
     <!--
-        Phase B D55 / Sam warroom W-B-5 + checkpoint-review tuning: rate-limit
-        the "Audit event published without TenantContext bound" WARN across
-        the JVM. DuplicateMessageFilter drops same-message repeats after the
-        threshold; without it, a runaway scheduled job could flood Loki with
-        10k identical WARN lines/min and mask the real signal. The companion
-        Micrometer counter (fabt.audit.system_insert.count) is unrate-limited
-        so Prometheus still sees the true rate.
+        DuplicateMessageFilter — JVM-wide dedup of identical SLF4J message
+        TEMPLATES (not formatted output). Phase B D55 / Sam warroom W-B-5
+        introduced this with allowedRepetitions=3 to cap the
+        "Audit event published without TenantContext bound" WARN at ~3
+        repetitions. The companion Micrometer counter
+        fabt.audit.system_insert.count remains unrate-limited so Prometheus
+        sees the true rate.
 
-        allowedRepetitions=3 (not 0): Sam checkpoint review — a burst of 50
-        distinct users hitting the SAME publisher-forgot-context path would
-        all produce the same message template, and allowedRepetitions=0 would
-        show the operator only 1 WARN. With 3, the on-call sees the first
-        4 within the cache window before suppression kicks in, which is
-        enough to recognize "this is repeating" without flooding logs.
+        ── v0.52 LESSON (2026-04-25) ──
+        allowedRepetitions=3 was TOO AGGRESSIVE and silently dropped
+        legitimate startup logs. During v0.52 deploy the
+        "Registered batch job '{}' with cron '{}' (dvAccess={})" line —
+        which uses the same template for every batch-job-config — was
+        suppressed for the 5th-9th batch jobs (bedHoldsReconciliation,
+        auditChainAnchor, auditChainVerifier, referralEscalation). Caused
+        ~6 hours of debug looking for non-existent bug; the jobs were
+        actually registered, the LOG OUTPUT was filtered. Resolution:
+        raise threshold to 1000 so legitimate per-bean / per-tenant
+        startup logs aren't dropped, while still capping a true runaway
+        loop (10k+/min) to a manageable level.
 
-        cacheSize=500 bounds memory. JVM-wide scope is intentional — any
-        identical log line anywhere collapses, not just audit-service.
+        Future fix (tracked in project memory): the original concern (the
+        single audit WARN) belongs as a SOURCE-SIDE rate-limiter (Caffeine
+        cache + Micrometer counter) on the specific publisher class, NOT
+        as a global TurboFilter. Replace this filter with a custom
+        TurboFilter scoped to a single Logger name when that lands.
+
+        cacheSize=500 bounds memory. JVM-wide scope is the trade-off
+        until the source-side rate-limiter ships.
     -->
     <turboFilter class="ch.qos.logback.classic.turbo.DuplicateMessageFilter">
-        <allowedRepetitions>3</allowedRepetitions>
+        <allowedRepetitions>1000</allowedRepetitions>
         <cacheSize>500</cacheSize>
     </turboFilter>
 
