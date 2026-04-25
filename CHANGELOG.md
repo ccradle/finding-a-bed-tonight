@@ -5,6 +5,116 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.52.0] — Phase G slices 0–3: tamper-evident audit chain + OCI external anchor
+
+**Backend-code release.** Backend JAR bumped `0.51.0 → 0.52.0`. Flyway HWM
+advances `V84 → V85` (one new migration). New runtime dependency: OCI Java
+SDK 3.85.0. Operator action required: provision an OCI Object Storage
+bucket with a 7-year locked retention rule + service principal + key
+deployment per `docs/security/phase-g-anchor-operator-setup.md`. Deploy
+runbook: `docs/oracle-update-notes-v0.52.0.md`.
+
+**Important window**: the OCI retention rule's lock-activation date is
+**14 days after rule creation**. Deploy promptly so the bucket sees real
+production data during the validation window — once locked, the bucket is
+committed for 7 years.
+
+### Added
+
+- **`AuditEventType` enum migration (G-0, closes #98).** `AuditEventRecord.action`
+  typed from `String` to `org.fabt.shared.audit.AuditEventType`. 44 enum cases
+  cover every action emitted across FABT plus a `TEST_PROBE` sentinel for
+  audit-infrastructure tests. Compile-time typo prevention; wire-name
+  stability pinned by `AuditEventTypeTest` so `.name()` of every case is
+  contract-stable across releases. Ships an ArchUnit rule (Family G-0) that
+  forbids production references to `TEST_PROBE`. `AuditEventRecord` compact
+  constructor now rejects null action — null-action audit rows are
+  forensically meaningless.
+
+- **Per-tenant audit hash chain (G-1).** Every `audit_events` INSERT becomes
+  a link in a per-tenant SHA-256 chain, computed inside the writer's
+  transaction. Two persister paths (`AuditEventPersister` REQUIRED +
+  `DetachedAuditPersister` REQUIRES_NEW) both call `AuditChainHasher` to
+  read the previous head with `SELECT ... FOR UPDATE` (per-tenant
+  serialisation), compute `row_hash = SHA-256(prev_hash || canonical_json(row))`,
+  stamp the entity, save, then UPDATE `tenant_audit_chain_head`. Atomic with
+  the audit row INSERT; rollback rolls both back. SYSTEM_TENANT_ID orphans
+  skip hashing by design.
+
+- **Canonical JSON utility + retrofit (G-2 §8.6a).** `AuditCanonicalJson`
+  bridges Jackson insertion-order output (writer) and PostgreSQL JSONB
+  `::text` form (verifier reading from DB) into a single hash-stable form.
+  Applied identically at both ends so the verifier reproduces the writer's
+  hash bit-for-bit. Single source of truth for the canonical form.
+
+- **Daily audit-chain verifier (G-2 §8.6 + §8.15).** Spring Batch job in
+  `org.fabt.observability.batch.AuditChainVerifierJobConfig` re-walks every
+  tenant's chain in cursor-style keyset pagination (constant memory),
+  recomputes every row_hash, checks chain continuity (row N+1's prev_hash
+  matches row N's row_hash), and verifies chain-head alignment. Daily cron
+  `0 0 4 * * *`. Three Prometheus alerts: `FabtAuditChainDriftDetected`
+  (CRITICAL), `FabtAuditChainVerifierError` (WARN), `FabtAuditChainVerifierStalled`
+  (WARN, >36h since last run). On-demand via existing
+  `POST /api/v1/batch/jobs/auditChainVerifier/run`.
+
+- **Weekly OCI Object Storage external anchor (G-3 §8.5).** Spring Batch
+  job uploads `{tenant_id, last_hash_hex, last_row_id, anchored_at, run_id,
+  anchor_format_version="v1"}` to OCI on Mondays 05:00 UTC. Bucket has a
+  7-year locked retention rule (Oracle-enforced WORM); IAM policy
+  explicitly omits `OBJECT_DELETE` and `OBJECT_OVERWRITE`; service
+  principal has only `can-use-api-keys`. Default disabled
+  (`fabt.oci.audit-anchor.enabled=false`); production opts in via 9
+  `FABT_OCI_AUDIT_ANCHOR_*` env vars + a private-key bind-mount. Two new
+  Prometheus alerts: `FabtAuditAnchorUploadFailing` (WARN),
+  `FabtAuditAnchorStalled` (WARN, >10 days since last run). Operator
+  runbook: `docs/security/phase-g-anchor-operator-setup.md`.
+
+- **Flyway V85.** Adds nullable `prev_hash BYTEA` and `row_hash BYTEA`
+  columns to `audit_events`, plus a 32-byte CHECK constraint on each.
+  Pre-V85 historical rows have NULL hashes (verifier skips them by
+  design). Metadata-only ALTER on small tables; near-instant on FABT
+  prod scale.
+
+### Changed
+
+- Microsecond truncation on `AuditEventEntity.timestamp` so DB round-trip
+  matches the original value (PostgreSQL TIMESTAMPTZ is microsecond
+  precision; without truncation, nanoseconds are dropped and the verifier
+  computes a different hash).
+
+- `.gitignore` extended for crypto-key file patterns: `*.pem`, `*.key`,
+  `*.p8`, `*.p12`, `*.pfx`, `*.jks`, `*-private-key*`, `.fabt-oci-keys/`,
+  `oci-keys/`. Defense-in-depth against accidental key commits.
+
+### Deprecated
+
+- `AuditEventTypes` constants class — superseded by `AuditEventType` enum.
+  Removed in this release; new code MUST use `AuditEventType.<CASE>`.
+
+### Tests
+
+- 100+ new tests across the four slices: `AuditEventTypeTest` (56 cases),
+  `AuditChainHasherIntegrationTest`, `AuditChainVerifierIntegrationTest`,
+  `AuditCanonicalJsonTest`, `AnchorPayloadShapeTest`,
+  `AuditChainAnchorJobTaskletTest`, `OciAuditAnchorDisabledByDefaultTest`,
+  `AuditChainAnchorJobConfigDisabledTest`, `FamilyG0ArchitectureTest`,
+  `AuditEventRecordLiteralGuardrailTest`, `AuditEventG0RoundTripIntegrationTest`.
+  Full backend regression: 1147/1147 green.
+
+### Operational notes
+
+- **OCI retention rule lock activates 14 days after rule creation.** Deploy
+  promptly so production audit anchors flow through the bucket during the
+  validation window — once locked, the bucket is committed for 7 years.
+- New env vars must be set BEFORE the backend starts when `fabt.oci.audit-anchor.enabled=true`
+  — the config validates required properties at boot and fails fast on any
+  missing value. No risk to non-OCI builds (default `enabled=false`).
+- Compose chain extended with `~/fabt-secrets/docker-compose.prod-v0.52-oci-anchor.yml`
+  to bind-mount the service-principal private key into the backend container
+  at `/etc/fabt/oci/audit-anchor.pem`.
+
+---
+
 ## [v0.51.0] — Phase F F-6: real crypto-shred via per-tenant wrapped DEKs
 
 **Backend-code release.** First since v0.49 (v0.50 was ops-tier). Backend
