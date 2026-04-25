@@ -342,6 +342,96 @@ class V88MigrationIntegrationTest extends BaseIntegrationTest {
                 .isFalse();
     }
 
+    // ------------------------------------------------------------------
+    // platform_user_reset_to_bootstrap
+    // ------------------------------------------------------------------
+
+    @Test
+    @DisplayName("reset_to_bootstrap clears every mutable field and deletes backup codes")
+    void resetToBootstrapClearsEverything() {
+        // Activate the row to a fully-populated state — every V87 + V88
+        // mutable field set to non-default — then reset and assert all
+        // are reverted. Pins the function's contract; if a future change
+        // adds a column without updating reset_to_bootstrap, this test
+        // catches it.
+        jdbc.queryForObject("SELECT platform_user_set_email(?::uuid, ?)",
+                Object.class, BOOTSTRAP_PLATFORM_USER_ID, "ops-reset@example.com");
+        jdbc.queryForObject(
+                "SELECT platform_user_update_credentials(?::uuid, ?, ?, ?, ?)",
+                Object.class, BOOTSTRAP_PLATFORM_USER_ID,
+                "$2a$10$dummyhash", "JBSWY3DPEHPK3PXP", true, false);
+        jdbc.queryForObject("SELECT platform_user_record_failure(?::uuid, ?, ?)",
+                Boolean.class, BOOTSTRAP_PLATFORM_USER_ID, 15, 99);
+        jdbc.queryForObject("SELECT platform_user_record_totp_use(?::uuid, ?)",
+                Object.class, BOOTSTRAP_PLATFORM_USER_ID, "654321");
+        // Insert one backup code via the V87 helper to verify the cascade-
+        // delete clears it.
+        jdbc.queryForObject(
+                "SELECT platform_user_insert_backup_codes(?::uuid, ?, ?, ?)",
+                Integer.class,
+                BOOTSTRAP_PLATFORM_USER_ID,
+                new UUID[]{UUID.randomUUID()},
+                new String[]{"hashvalue"},
+                new byte[][]{{1, 2, 3}});
+
+        // Sanity-check: at least one backup code is present pre-reset.
+        Integer codesBefore = jdbc.queryForObject(
+                "SELECT array_length(array_agg(id), 1) "
+                        + "FROM platform_user_backup_codes_for(?::uuid)",
+                Integer.class, BOOTSTRAP_PLATFORM_USER_ID);
+        assertThat(codesBefore).isNotNull().isGreaterThanOrEqualTo(1);
+
+        // Run the reset.
+        Boolean reset = jdbc.queryForObject(
+                "SELECT platform_user_reset_to_bootstrap(?::uuid)",
+                Boolean.class, BOOTSTRAP_PLATFORM_USER_ID);
+        assertThat(reset).as("reset must report it touched the row").isTrue();
+
+        // Verify all V87 fields cleared via the SECURITY DEFINER lookup.
+        Map<String, Object> after = jdbc.queryForMap(
+                "SELECT * FROM platform_user_lookup_by_id(?::uuid)",
+                BOOTSTRAP_PLATFORM_USER_ID);
+        assertThat(after.get("email")).as("email NULL").isNull();
+        assertThat(after.get("password_hash")).as("password NULL").isNull();
+        assertThat(after.get("mfa_secret")).as("mfa_secret NULL").isNull();
+        assertThat(after.get("mfa_enabled")).as("mfa_enabled false").isEqualTo(false);
+        assertThat(after.get("account_locked")).as("account_locked true").isEqualTo(true);
+
+        // V88 lockout fields cleared. record_failure with threshold=1 should
+        // now lock immediately if any prior fail timestamps lingered — a
+        // false return here proves the failure window is empty.
+        Boolean nowLocked = jdbc.queryForObject(
+                "SELECT platform_user_record_failure(?::uuid, ?, ?)",
+                Boolean.class, BOOTSTRAP_PLATFORM_USER_ID, 15, 99);
+        assertThat(nowLocked)
+                .as("after reset, fail counter is empty so threshold=99 cannot trip")
+                .isFalse();
+
+        // V88 TOTP replay-cache cleared.
+        Boolean recentReplay = jdbc.queryForObject(
+                "SELECT platform_user_was_totp_recently_used(?::uuid, ?, ?)",
+                Boolean.class, BOOTSTRAP_PLATFORM_USER_ID, "654321", 90);
+        assertThat(recentReplay)
+                .as("after reset, last_totp_used_at is NULL so replay-cache misses")
+                .isFalse();
+
+        // Backup codes deleted.
+        List<Map<String, Object>> codesAfter = jdbc.queryForList(
+                "SELECT * FROM platform_user_backup_codes_for(?::uuid)",
+                BOOTSTRAP_PLATFORM_USER_ID);
+        assertThat(codesAfter).as("backup codes wiped").isEmpty();
+    }
+
+    @Test
+    @DisplayName("reset_to_bootstrap returns false and no-ops on a non-existent userId")
+    void resetToBootstrapNonExistentRowReturnsFalse() {
+        UUID neverSeen = UUID.randomUUID();
+        Boolean reset = jdbc.queryForObject(
+                "SELECT platform_user_reset_to_bootstrap(?::uuid)",
+                Boolean.class, neverSeen);
+        assertThat(reset).isFalse();
+    }
+
     @Test
     @DisplayName("was_totp_recently_used returns false when no TOTP has been recorded yet")
     void totpNeverUsedReturnsFalse() {

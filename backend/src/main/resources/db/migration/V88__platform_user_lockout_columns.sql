@@ -248,12 +248,23 @@ GRANT EXECUTE ON FUNCTION platform_user_record_totp_use(UUID, TEXT) TO fabt_app;
 --   2. Test cleanup (V87/V88 IT, PlatformAuthIntegrationTest) — ensures
 --      shared-Spring-context test classes don't leak state to each other.
 -- Bootstrap row id is preserved (PRIMARY KEY); only mutable fields reset.
+--
+-- TODO(F5): Phase H+ caller MUST go through an authorized variant, e.g.
+-- platform_user_force_reactivate(p_target_id, p_caller_id) that checks the
+-- caller is itself an mfa-enabled, non-anonymized platform_user (matching
+-- spec line 142-146's "the OTHER platform_user can reset"). The current
+-- function is unauthorized — any code running as fabt_app can wipe ANY
+-- operator's credentials by passing their UUID. Risk is bounded today
+-- because no production caller exists; the only callers are tests. See
+-- design.md follow-up F5.
 CREATE OR REPLACE FUNCTION platform_user_reset_to_bootstrap(p_id UUID)
 RETURNS BOOLEAN
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = pg_catalog
 AS $$
+DECLARE
+    v_reset BOOLEAN := false;
 BEGIN
     UPDATE public.platform_user
        SET email                  = NULL,
@@ -266,13 +277,21 @@ BEGIN
            last_totp_code         = NULL,
            last_totp_used_at      = NULL
      WHERE id = p_id AND anonymized_at IS NULL;
-    -- Cascade-delete backup codes (V87 FK declares ON DELETE CASCADE; we
-    -- DELETE explicitly here since UPDATE doesn't trigger the cascade).
-    DELETE FROM public.platform_user_backup_code WHERE platform_user_id = p_id;
-    RETURN FOUND;
+    v_reset := FOUND;
+
+    -- Only delete backup codes if the row was actually reset. Without this
+    -- guard an anonymized row's UPDATE would no-op (correct) but the DELETE
+    -- would still wipe its backup codes (incorrect — touches data the
+    -- anonymization boundary was meant to leave alone).
+    IF v_reset THEN
+        DELETE FROM public.platform_user_backup_code WHERE platform_user_id = p_id;
+    END IF;
+    RETURN v_reset;
 END;
 $$;
 GRANT EXECUTE ON FUNCTION platform_user_reset_to_bootstrap(UUID) TO fabt_app;
+COMMENT ON FUNCTION platform_user_reset_to_bootstrap(UUID) IS
+    'Resets a platform_user row to V87 bootstrap state (NULL creds, locked, MFA cleared, backup codes deleted). UNAUTHORIZED — relies on caller-side gating. Currently used only by tests + planned Phase H+ recovery flow (spec line 142-146); the prod recovery flow MUST land an authorized variant per design.md F5 before any operator-facing endpoint calls this. Do NOT call manually from psql except in incident response with explicit operator authorization.';
 
 
 -- Sets email on a platform_user row. Used by the bootstrap activation
