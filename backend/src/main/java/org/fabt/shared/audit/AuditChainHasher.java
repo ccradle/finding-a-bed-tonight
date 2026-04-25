@@ -211,10 +211,12 @@ public class AuditChainHasher {
         if (entity.getDetails() == null || entity.getDetails().value() == null) {
             sb.append("null");
         } else {
-            // details.value() is already a canonical JSON string produced by
-            // ObjectMapper.writeValueAsString in the persister. Embed it
-            // verbatim (not escape-wrapped) — it's JSONB-valid by construction.
-            sb.append(entity.getDetails().value());
+            // Route details through the canonicaliser (G-2 §8.6a): writer gets
+            // Jackson-produced insertion-order JSON; verifier gets PG JSONB
+            // ::text (sorted keys + `": "` separator). AuditCanonicalJson
+            // re-serialises both into compact sorted form, so the hash input
+            // is byte-identical regardless of path.
+            sb.append(AuditCanonicalJson.canonicalize(entity.getDetails().value()));
         }
         sb.append(",\"ip_address\":").append(jsonStringOrNull(entity.getIpAddress()));
         sb.append('}');

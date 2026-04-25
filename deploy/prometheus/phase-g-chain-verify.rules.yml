@@ -1,0 +1,133 @@
+# Prometheus alert rules — multi-tenant-production-readiness Phase G
+# slice G-2 (audit-chain verifier, tasks §8.6 + §8.15).
+#
+# Mount into a Prometheus instance that already scrapes the backend
+# actuator (`fabt-backend` job in prometheus.yml):
+#
+#     rule_files:
+#       - /etc/prometheus/rules/phase-g-chain-verify.rules.yml
+#
+# Every alert here is Phase G specific — the signals depend on Micrometer
+# counters emitted by AuditChainVerifierJobConfig's tasklet. Do NOT delete
+# without updating docs/security/phase-g-chain-verify-runbook.md
+# (forthcoming with G-6 docs slice).
+#
+# Prometheus exposes the Micrometer counters with dots converted to
+# underscores and a `_total` suffix:
+#   fabt.audit.chain_verify.drift.count{tenant_id="..."}
+#       -> fabt_audit_chain_verify_drift_count_total{tenant_id="..."}
+#   fabt.audit.chain_verify.runs.count{result="pass|drift_detected"}
+#       -> fabt_audit_chain_verify_runs_count_total{result="..."}
+#   fabt.audit.chain_verify.error.count{tenant_id="..."}
+#       -> fabt_audit_chain_verify_error_count_total{tenant_id="..."}
+#
+# Warroom authority: Phase G §8.6 + §8.15 — drift is a forensic signal
+# (tamper evidence or hash-input canonicalizer regression); any drift
+# warrants immediate page.
+
+groups:
+  - name: fabt_phase_g_chain_verify
+    interval: 30s
+    rules:
+
+      # ---- CRITICAL — audit chain drift detected -----------------------
+      # Fires whenever the verifier tasklet finds a row whose stored
+      # row_hash disagrees with the recomputed expected hash, OR the
+      # chain-continuity / chain-head-alignment invariants break for
+      # any tenant. Non-zero means one of:
+      #   (a) Tamper evidence — someone modified audit_events rows
+      #       directly (bypassing the application) and the chain
+      #       detected the drift
+      #   (b) Canonicalizer regression — a change to
+      #       AuditCanonicalJson.canonicalize or
+      #       AuditChainHasher.canonicalJson produced a different hash
+      #       input form than the writer used at ship time
+      #   (c) advanceChainHead failure in the writer path left a chain
+      #       gap (G-1 `fabt.audit.chain_advance_failed.count` counter
+      #       should also be non-zero in this case)
+      # All three warrant immediate forensic review.
+      - alert: FabtAuditChainDriftDetected
+        # env="prod" filter mirrors Phase C pattern — test harnesses
+        # (AuditChainVerifierIntegrationTest tamper tests) intentionally
+        # trigger drift on CI scrapes. Without this label, a Prometheus
+        # instance scraping both CI and prod would false-page.
+        expr: |
+          sum by (tenant_id) (
+            increase(fabt_audit_chain_verify_drift_count_total{env="prod"}[1h])
+          ) > 0
+        for: 0m
+        labels:
+          severity: critical
+          surface: phase-g-audit-chain
+          runbook: docs/security/phase-g-chain-verify-runbook.md
+        annotations:
+          summary: "Phase G: audit chain drift detected for tenant {{ $labels.tenant_id }}"
+          description: |
+            AuditChainVerifierJobConfig reported {{ $value | humanize }}
+            drift event(s) for tenant {{ $labels.tenant_id }} in the last
+            1h. Drift indicates one of (a) direct-SQL tampering with
+            audit_events, (b) canonicalizer regression, or (c) chain-head
+            advance failure in the writer path.
+
+            Triage:
+            1. Pull the last AuditChainVerifierJobConfig run's log —
+               includes the offending row id + timestamp.
+            2. Compare audit_events.row_hash against a fresh recompute
+               via AuditChainHasher.canonicalJson in a shell.
+            3. Check fabt.audit.chain_advance_failed.count for the same
+               tenant — if non-zero, suspect G-1 writer-path failure,
+               not tampering.
+            4. If canonicalizer regression is suspected, diff
+               AuditCanonicalJson.canonicalize output against the last
+               known-good release (git blame).
+            5. If tampering is suspected, engage Casey + Marcus per
+               the incident-response runbook (§8.15 triage tree).
+
+      # ---- WARN — verifier error for a specific tenant -----------------
+      # The verifier catches exceptions per-tenant so one bad tenant
+      # doesn't block the rest. A non-zero rate here means the verifier
+      # itself is failing to complete for that tenant (DB access error,
+      # RLS binding gap, etc.) — not the same thing as drift, but worth
+      # an investigation because it leaves that tenant's chain
+      # un-verified.
+      - alert: FabtAuditChainVerifierError
+        expr: |
+          sum by (tenant_id) (
+            increase(fabt_audit_chain_verify_error_count_total{env="prod"}[1h])
+          ) > 0
+        for: 15m
+        labels:
+          severity: warning
+          surface: phase-g-audit-chain
+          runbook: docs/security/phase-g-chain-verify-runbook.md
+        annotations:
+          summary: "Phase G: audit chain verifier errored out for tenant {{ $labels.tenant_id }}"
+          description: |
+            Verifier tasklet threw for tenant {{ $labels.tenant_id }} and
+            moved on without completing chain verification for that
+            tenant. That tenant's chain is currently UN-VERIFIED.
+
+            Triage: check the verifier's log for the per-tenant exception
+            message. Re-run on-demand via
+            `POST /api/v1/batch/jobs/auditChainVerifier/run` once the
+            underlying error is fixed.
+
+      # ---- WARN — verifier did not run in last 36 hours ----------------
+      # Defensive: cron is 0 0 4 * * * (daily at 04:00 UTC). If no run
+      # has happened in 36h, scheduler is wedged or the job is disabled
+      # — both leave the chain un-verified for an extended window.
+      - alert: FabtAuditChainVerifierStalled
+        expr: |
+          (time() - fabt_audit_chain_verify_runs_count_total_created{env="prod"}) > 129600
+        for: 1h
+        labels:
+          severity: warning
+          surface: phase-g-audit-chain
+          runbook: docs/security/phase-g-chain-verify-runbook.md
+        annotations:
+          summary: "Phase G: audit chain verifier has not run in over 36h"
+          description: |
+            No AuditChainVerifierJobConfig run has emitted runs_count in
+            over 36 hours. Expected cadence is daily at 04:00 UTC.
+            Check BatchJobScheduler state via GET /api/v1/batch/jobs;
+            verify cron is 0 0 4 * * * and enabled=true.
