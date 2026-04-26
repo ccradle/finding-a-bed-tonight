@@ -37,6 +37,21 @@ const API_URL = process.env.API_URL || 'http://localhost:8080';
  */
 export const PLATFORM_OPERATOR_EMAIL = 'platform-ops@dev.fabt.org';
 export const PLATFORM_OPERATOR_PASSWORD = 'admin123';
+export const PLATFORM_OPERATOR_USER_ID = '00000000-0000-0000-0000-000000000fab';
+
+/**
+ * Dev-seeded SECONDARY platform_user (id `0fa2`) dedicated to the
+ * platform-totp-lockout spec. Same password + secret as the bootstrap
+ * row, but its account_locked + lockout-counter state is independent.
+ * Lets the lockout spec run in parallel with the access-log spec on a
+ * CI worker pool without colliding on shared state.
+ *
+ * Provisioned by `infra/scripts/seed-data.sql` (G-4.4 §5.13). NOT a
+ * production credential.
+ */
+export const PLATFORM_LOCKOUT_TARGET_EMAIL = 'platform-lockout@dev.fabt.org';
+export const PLATFORM_LOCKOUT_TARGET_PASSWORD = 'admin123';
+export const PLATFORM_LOCKOUT_TARGET_USER_ID = '00000000-0000-0000-0000-000000000fa2';
 
 /**
  * The token + secret bundle returned from {@link loginPlatformOperator}.
@@ -54,26 +69,45 @@ export interface PlatformOperatorSession {
 }
 
 /**
+ * Identity overrides for {@link loginPlatformOperator}. Defaults target
+ * the bootstrap `platform_user` (id `0fab`) seeded for the access-log
+ * spec; the lockout spec passes the lockout-target identity instead.
+ */
+export interface PlatformLoginIdentity {
+  email?: string;
+  password?: string;
+  /** Expected `platform_user.id` for the assertion-level UUID pin. */
+  expectedUserId?: string;
+}
+
+/**
  * Drive the full platform login → MFA-verify flow against the dev
  * backend. Returns a session bundle the caller can plug into
  * {@link platformAdminFetch}.
  *
- * <p>Assumes the bootstrap `platform_user` row has been activated via
+ * <p>Assumes the seeded `platform_user` row has been activated via
  * `seed-data.sql`. If the seed has not run, the login call returns
  * 401 invalid_credentials and this helper throws.
  *
+ * <p>By default targets the bootstrap row (id `0fab`); pass an
+ * {@link PlatformLoginIdentity} to target the lockout-target row
+ * (id `0fa2`) or any other dev-seeded platform_user.
+ *
  * @param request Playwright APIRequestContext (typically `page.request`)
+ * @param identity optional identity override
  */
 export async function loginPlatformOperator(
-  request: APIRequestContext
+  request: APIRequestContext,
+  identity: PlatformLoginIdentity = {}
 ): Promise<PlatformOperatorSession> {
-  // Step 1 — initial login. Bootstrap user has mfa_enabled=true so the
+  const email = identity.email ?? PLATFORM_OPERATOR_EMAIL;
+  const password = identity.password ?? PLATFORM_OPERATOR_PASSWORD;
+  const userId = identity.expectedUserId ?? PLATFORM_OPERATOR_USER_ID;
+
+  // Step 1 — initial login. Seeded users have mfa_enabled=true so the
   // server returns scope=mfa-verify-required.
   const loginResp = await request.post(`${API_URL}/api/v1/auth/platform/login`, {
-    data: {
-      email: PLATFORM_OPERATOR_EMAIL,
-      password: PLATFORM_OPERATOR_PASSWORD,
-    },
+    data: { email, password },
   });
   // Failure-message hygiene (Riley): keep the assertion message status-only
   // so the body doesn't get inlined into CI failure logs verbatim. On a real
@@ -82,12 +116,12 @@ export async function loginPlatformOperator(
   if (!loginResp.ok()) {
     // eslint-disable-next-line no-console
     console.error(
-      `loginPlatformOperator: /login failed status=${loginResp.status()} body=${await loginResp.text()}`
+      `loginPlatformOperator(${email}): /login failed status=${loginResp.status()} body=${await loginResp.text()}`
     );
   }
   expect(
     loginResp.ok(),
-    `Platform login failed status=${loginResp.status()} (see console.error for body)`
+    `Platform login (${email}) failed status=${loginResp.status()} (see console.error for body)`
   ).toBeTruthy();
   const loginBody = await loginResp.json();
   expect(loginBody.scope, `Expected mfa-verify scope; got ${loginBody.scope}`)
@@ -95,6 +129,7 @@ export async function loginPlatformOperator(
   const verifyToken: string = loginBody.token;
 
   // Step 2 — verify TOTP. Mint a fresh code from the seeded secret.
+  // (Both bootstrap + lockout-target share the same RFC 4648 §10 secret.)
   const code = generateTotp(PLATFORM_BOOTSTRAP_TOTP_SECRET);
   const verifyResp = await request.post(
     `${API_URL}/api/v1/auth/platform/login/mfa-verify`,
@@ -106,20 +141,35 @@ export async function loginPlatformOperator(
   if (!verifyResp.ok()) {
     // eslint-disable-next-line no-console
     console.error(
-      `loginPlatformOperator: /login/mfa-verify failed status=${verifyResp.status()} body=${await verifyResp.text()}`
+      `loginPlatformOperator(${email}): /login/mfa-verify failed status=${verifyResp.status()} body=${await verifyResp.text()}`
     );
   }
   expect(
     verifyResp.ok(),
-    `Platform MFA verify failed status=${verifyResp.status()} (see console.error for body)`
+    `Platform MFA verify (${email}) failed status=${verifyResp.status()} (see console.error for body)`
   ).toBeTruthy();
   const verifyBody = await verifyResp.json();
 
   return {
     accessToken: verifyBody.token,
     mfaSecret: PLATFORM_BOOTSTRAP_TOTP_SECRET,
-    platformUserId: '00000000-0000-0000-0000-000000000fab',
+    platformUserId: userId,
   };
+}
+
+/**
+ * Convenience login for the lockout-target user (id `0fa2`). Used by
+ * `platform-totp-lockout.spec.ts` so its lockout pollution stays
+ * isolated from the bootstrap row's other consumers.
+ */
+export async function loginLockoutTarget(
+  request: APIRequestContext
+): Promise<PlatformOperatorSession> {
+  return loginPlatformOperator(request, {
+    email: PLATFORM_LOCKOUT_TARGET_EMAIL,
+    password: PLATFORM_LOCKOUT_TARGET_PASSWORD,
+    expectedUserId: PLATFORM_LOCKOUT_TARGET_USER_ID,
+  });
 }
 
 /**

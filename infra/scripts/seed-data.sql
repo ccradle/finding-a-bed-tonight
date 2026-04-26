@@ -808,3 +808,34 @@ SET email          = 'platform-ops@dev.fabt.org',
     mfa_enabled    = true,
     account_locked = false
 WHERE id = '00000000-0000-0000-0000-000000000fab';
+
+-- ============================================================================
+-- PHASE G-4.4 §5.13: Lockout-target platform_user (parallel-safe Spec 2 isolation)
+-- ============================================================================
+--
+-- The platform-totp-lockout.spec.ts deliberately exhausts the per-account
+-- TOTP-failure counter and locks its target row. If that target were the
+-- bootstrap row above (0fab), the lockout spec running concurrent with the
+-- platform-admin-access-log.spec.ts on a parallel CI worker would lock the
+-- shared row and fail every concurrent loginPlatformOperator() call.
+--
+-- Solution: a SECOND seeded platform_user at id 0fa2, dedicated to the
+-- lockout spec. Independent lockout counter + identical credentials means
+-- both specs can run in parallel without colliding on shared state.
+-- F17 (per-call UUIDs for full N-way isolation) remains deferred to G-4.5;
+-- this two-row approach handles v0.53's test surface.
+INSERT INTO platform_user (id, email, password_hash, mfa_secret, mfa_enabled, account_locked, created_at)
+VALUES (
+    '00000000-0000-0000-0000-000000000fa2',
+    'platform-lockout@dev.fabt.org',
+    '$2b$10$D0ZKzFrhx0qdM0mQy9iZQeLYJPX8/eeEfrJi4TsO5D2o62Q/Fwhva',
+    'JBSWY3DPEHPK3PXP',
+    true,
+    false,
+    NOW()
+) ON CONFLICT (id) DO UPDATE SET
+    email          = EXCLUDED.email,
+    password_hash  = EXCLUDED.password_hash,
+    mfa_secret     = EXCLUDED.mfa_secret,
+    mfa_enabled    = EXCLUDED.mfa_enabled,
+    account_locked = EXCLUDED.account_locked;
