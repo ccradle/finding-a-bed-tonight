@@ -266,12 +266,19 @@ If you see `"0.52"` the new image isn't live — re-check §5.1 / §5.5.
 V87 ships the bootstrap row LOCKED with no email/password. `seed-data.sql` is dev/test only (refuses prod DB names), so the operator must activate manually before any platform-operator login can succeed. This step replaces what dev does via seed-data.
 
 ```bash
-# Step 1 — generate a bcrypt hash for the chosen platform-operator password.
-# Use the existing fabt-cli hash-password tool on the VM (or any laptop):
+# Step 1 — generate a bcrypt hash for the chosen platform-operator password
+# using the HashPasswordCli tool packaged in the deployed backend JAR.
+# (No separate fabt-cli module — the CLI lives at
+# org.fabt.tooling.HashPasswordCli inside the existing finding-a-bed-tonight
+# Spring Boot fat JAR, invoked via Spring Boot's PropertiesLauncher with a
+# main-class override.)
 ssh <VM_USER>@<VM_IP>
-cd ~/finding-a-bed-tonight
-java -jar fabt-cli/target/fabt-cli.jar hash-password
-# Tool prompts for password (no echo); prints the bcrypt hash.
+docker exec -it fabt-backend \
+  java -cp /app/finding-a-bed-tonight.jar \
+       -Dloader.main=org.fabt.tooling.HashPasswordCli \
+       org.springframework.boot.loader.PropertiesLauncher
+# Tool prompts for password (no echo on TTY); prints the bcrypt hash on stdout.
+# Copy the single-line bcrypt hash for Step 2.
 
 # Step 2 — UPDATE the bootstrap row with the chosen email + bcrypt hash.
 # REVOKEs prevent fabt_app from doing this; run as fabt OWNER.
@@ -364,7 +371,7 @@ All should succeed for COC_ADMIN-bearing accounts (the previous PLATFORM_ADMIN-b
 | Failure mode | Action | Recovery time |
 |---|---|---|
 | Backend fails to start (Flyway error, OCI key missing, etc.) | Re-pin to v0.52: `docker tag fabt-backend:v0.52.0 fabt-backend:latest` + `docker compose ... up -d --force-recreate backend`. V87/V88/V89 stay applied — Flyway is forward-only — but a v0.52 JAR running against V89 schema works (the new tables are unused by v0.52 code). | ~10 min |
-| Critical security bug post-deploy | Lock the bootstrap operator account immediately: `docker exec fabt-postgres psql -U fabt -d fabt -c "SELECT platform_user_set_account_locked('00000000-0000-0000-0000-000000000fab', true);"` (the V88 SECURITY DEFINER setter — fabt_app cannot direct-UPDATE due to V87 REVOKE). Then cut a v0.53.1 hotfix branch from `feature/g-4.4-endpoint-migration`, fix, scan-skip-allowed-for-hotfix, tag, push. | 30-60 min from bug-found to v0.53.1 deployed |
+| Critical security bug post-deploy | Reset the bootstrap operator account to its locked, no-credential V87 state immediately: `docker exec fabt-postgres psql -U fabt -d fabt -c "SELECT platform_user_reset_to_bootstrap('00000000-0000-0000-0000-000000000fab');"` (V88 SECURITY DEFINER function; wipes email/password/MFA/lockout state — strictly stronger than just locking the account; fabt_app cannot direct-UPDATE due to V87 REVOKE). Then cut a v0.53.1 hotfix branch from `main`, fix, scan-skip-allowed-for-hotfix, tag, push. After hotfix deploys, re-activate the operator via §5.10 with a fresh bcrypt hash. | 30-60 min from bug-found to v0.53.1 deployed |
 | Critical data corruption | Restore the pg_dump from §5.4. Both schema-only and data-only dumps are required. Re-deploy v0.52.0 against the restored DB. | 60-120 min |
 | Backend healthy but HMIS push failing (F16 audit row not landing) | Check `tail -50 logs/backend.log | grep "HMIS push audit event publish failed"`. The push itself succeeds even if audit row publish fails (intentional — push is irreversible, audit is best-effort with WARN log). Forward-fix in v0.53.1. | 0 min (no rollback; log + monitor) |
 | Platform-operator login flow broken | If §5.10 activation completed but login 401s, the bcrypt hash is wrong. Re-run §5.10 step 2 with a fresh hash. The bootstrap row is the only entry point. | 5 min |

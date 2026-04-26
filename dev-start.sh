@@ -292,7 +292,11 @@ if [[ "$FRESH_SEED" == true ]]; then
     log "Seed data reset complete."
 fi
 log "Loading seed data..."
-docker compose exec -T postgres psql -U fabt -d fabt < infra/scripts/seed-data.sql >/dev/null 2>&1
+# Pass the fabt.seed_force GUC so the seed-data.sql dev-guard (rejects DBs
+# whose name doesn't contain 'dev' or 'test') admits the dockerized 'fabt'
+# default. Prod DBs are named 'fabt' too, so the GUC is the deliberate
+# tooling-only opt-in (warroom Marcus 2026-04-26).
+docker compose exec -T -e PGOPTIONS='-c fabt.seed_force=1' postgres psql -U fabt -d fabt < infra/scripts/seed-data.sql >/dev/null 2>&1
 log "Seed data loaded (19 shelters across 3 tenants: dev-coc + dev-coc-west + dev-coc-east)."
 
 log "Loading demo activity data (28 days of snapshots, searches, reservations)..."

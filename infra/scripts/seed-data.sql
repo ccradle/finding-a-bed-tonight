@@ -10,15 +10,22 @@
 -- 'dev' or 'test'.
 --
 -- This belongs in the script itself rather than wrapper bash because
--- (a) operators can invoke psql -f directly without going through
--- dev-start.sh, and (b) the same script is reused by CI test fixtures
--- via dockerized test databases — both contexts naming their DB
--- 'fabt_dev' / 'fabt_test' / 'fabt'. Production DBs use 'fabt_prod'
--- (or similar) and would trip the guard.
+-- operators can invoke psql -f directly without going through
+-- dev-start.sh.
 --
--- To seed against a custom-named dev DB (e.g. a contributor's local
--- sandbox), rename it to include 'dev' or 'test', OR set the GUC
--- override: PGOPTIONS='-c fabt.seed_force=1' psql -d <dbname> -f seed-data.sql
+-- **CRITICAL (warroom 2026-04-26):** the prod database is ALSO named
+-- 'fabt' (verified across compose / CI / runbook). An earlier version
+-- of this guard allowed bare 'fabt' as a dockerized-dev default — that
+-- DEFEATED the guard in production. Now the guard requires the DB name
+-- to contain literal 'dev' or 'test'; the dockerized-dev default needs
+-- the explicit GUC override (dev-start.sh sets it).
+--
+-- To seed against a default-named dev DB (e.g. dev-start.sh's 'fabt'
+-- container, or a contributor's local sandbox), set the GUC override:
+-- PGOPTIONS='-c fabt.seed_force=1' psql -d <dbname> -f seed-data.sql.
+-- For prod, the guard is intentionally one-way: there is no operator
+-- need to seed dev credentials in prod, so the override is a deliberate
+-- step that only dev tooling takes.
 \set ON_ERROR_STOP on
 DO $$
 DECLARE
@@ -30,13 +37,13 @@ BEGIN
         RETURN;
     END IF;
     IF lower(db_name) NOT LIKE '%dev%'
-       AND lower(db_name) NOT LIKE '%test%'
-       AND lower(db_name) <> 'fabt' THEN
+       AND lower(db_name) NOT LIKE '%test%' THEN
         RAISE EXCEPTION
-            'seed-data.sql REFUSES to run against database "%": name does not contain ''dev'' or ''test'' (and is not the dockerized dev default ''fabt''). '
+            'seed-data.sql REFUSES to run against database "%": name does not contain ''dev'' or ''test''. '
             'This script seeds dev-only credentials (admin123 password, RFC 4648 test TOTP secret JBSWY3DPEHPK3PXP) and '
-            'is intended ONLY for local dev or CI test fixtures. To override (NOT for production), set the GUC: '
-            'PGOPTIONS=''-c fabt.seed_force=1'' psql -d <dbname> -f seed-data.sql',
+            'is intended ONLY for local dev or CI test fixtures. The dockerized dev default ''fabt'' must use the GUC '
+            'override (dev-start.sh sets this automatically): PGOPTIONS=''-c fabt.seed_force=1'' psql -d fabt -f seed-data.sql. '
+            'Prod DBs are named ''fabt'' as well; the override gate is what keeps prod safe.',
             db_name;
     END IF;
 END
