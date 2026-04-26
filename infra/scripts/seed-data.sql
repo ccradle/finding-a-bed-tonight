@@ -13,6 +13,10 @@ VALUES (
 
 -- Admin user (dvAccess=true, password: admin123)
 -- BCrypt hash of 'admin123'
+-- G-4.4: roles array includes both PLATFORM_ADMIN and COC_ADMIN to mirror the
+-- V87 backfill on existing app_users. Without COC_ADMIN, fresh dev databases
+-- would have admin@dev unable to hit /api/v1/users/** etc. (G-4.4 stripped
+-- PLATFORM_ADMIN from the URL rules per V87 backfill posture).
 INSERT INTO app_user (id, tenant_id, email, password_hash, display_name, roles, dv_access, created_at, updated_at)
 VALUES (
     'b0000000-0000-0000-0000-000000000001',
@@ -20,7 +24,7 @@ VALUES (
     'admin@dev.fabt.org',
     '$2b$10$D0ZKzFrhx0qdM0mQy9iZQeLYJPX8/eeEfrJi4TsO5D2o62Q/Fwhva',
     'Dev Admin',
-    ARRAY['PLATFORM_ADMIN'],
+    ARRAY['PLATFORM_ADMIN', 'COC_ADMIN'],
     true,
     NOW(), NOW()
 ) ON CONFLICT (tenant_id, email) DO UPDATE SET
@@ -544,9 +548,10 @@ VALUES (
 -- Blue Ridge users — 6-role matrix mirroring dev-coc (all passwords: admin123)
 INSERT INTO app_user (id, tenant_id, email, password_hash, display_name, roles, dv_access, created_at, updated_at)
 VALUES
+    -- G-4.4: roles include COC_ADMIN to mirror V87 backfill (fresh dev DB)
     ('b0000001-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000002',
      'admin@blueridge.fabt.org', '$2b$10$D0ZKzFrhx0qdM0mQy9iZQeLYJPX8/eeEfrJi4TsO5D2o62Q/Fwhva',
-     'Blue Ridge Admin', ARRAY['PLATFORM_ADMIN'], true, NOW(), NOW()),
+     'Blue Ridge Admin', ARRAY['PLATFORM_ADMIN', 'COC_ADMIN'], true, NOW(), NOW()),
     ('b0000001-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000002',
      'cocadmin@blueridge.fabt.org', '$2b$10$D0ZKzFrhx0qdM0mQy9iZQeLYJPX8/eeEfrJi4TsO5D2o62Q/Fwhva',
      'Blue Ridge CoC Admin', ARRAY['COC_ADMIN'], true, NOW(), NOW()),
@@ -623,9 +628,10 @@ VALUES (
 -- Pamlico Sound users — 6-role matrix (all passwords: admin123)
 INSERT INTO app_user (id, tenant_id, email, password_hash, display_name, roles, dv_access, created_at, updated_at)
 VALUES
+    -- G-4.4: roles include COC_ADMIN to mirror V87 backfill (fresh dev DB)
     ('b0000002-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000003',
      'admin@pamlico.fabt.org', '$2b$10$D0ZKzFrhx0qdM0mQy9iZQeLYJPX8/eeEfrJi4TsO5D2o62Q/Fwhva',
-     'Pamlico Sound Admin', ARRAY['PLATFORM_ADMIN'], true, NOW(), NOW()),
+     'Pamlico Sound Admin', ARRAY['PLATFORM_ADMIN', 'COC_ADMIN'], true, NOW(), NOW()),
     ('b0000002-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000003',
      'cocadmin@pamlico.fabt.org', '$2b$10$D0ZKzFrhx0qdM0mQy9iZQeLYJPX8/eeEfrJi4TsO5D2o62Q/Fwhva',
      'Pamlico Sound CoC Admin', ARRAY['COC_ADMIN'], true, NOW(), NOW()),
@@ -730,3 +736,34 @@ INSERT INTO coordinator_assignment (user_id, shelter_id) VALUES
     ('b0000002-0000-0000-0000-000000000003', 'd0000002-0000-0000-0000-000000000002'),  -- coord → Pamlico Example
     ('b0000002-0000-0000-0000-000000000005', 'd0000002-0000-0000-0000-000000000003')   -- dv-coord → DV East
 ON CONFLICT DO NOTHING;
+
+-- ============================================================================
+-- PHASE G-4.4: Activate the bootstrap platform_user for dev/Playwright
+-- ============================================================================
+--
+-- The V87 migration inserts a LOCKED bootstrap row at id 0fab with NO email
+-- and NO credentials. Production operators activate it via the fabt-cli
+-- hash-password tool + manual UPDATE. For local dev + the Playwright
+-- platformOperatorPage fixture, we activate it here with deterministic
+-- credentials so tests can mint a platform JWT without per-run TOTP enrollment.
+--
+-- Credentials (LOCAL DEV ONLY — these are publicly visible in this seed
+-- script and the Playwright auth helper):
+--   id:            00000000-0000-0000-0000-000000000fab
+--   email:         platform-ops@dev.fabt.org
+--   password:      admin123  (matches every other dev seed user — bcrypt hash same)
+--   mfa_secret:    JBSWY3DPEHPK3PXP  (RFC 4648 base32; standard MFA test secret)
+--   mfa_enabled:   true   (skips first-login forced enrollment)
+--   account_locked: false
+--
+-- NEVER run this seed against any environment other than dev/test. Production
+-- operators must use the fabt-cli hash-password tool + a real TOTP enrollment.
+-- The runtime guard for prod is the dev-start.sh wrapper + Spring profile
+-- gating; this script is invoked only from dev-start.sh and CI test setup.
+UPDATE platform_user
+SET email          = 'platform-ops@dev.fabt.org',
+    password_hash  = '$2b$10$D0ZKzFrhx0qdM0mQy9iZQeLYJPX8/eeEfrJi4TsO5D2o62Q/Fwhva',
+    mfa_secret     = 'JBSWY3DPEHPK3PXP',
+    mfa_enabled    = true,
+    account_locked = false
+WHERE id = '00000000-0000-0000-0000-000000000fab';

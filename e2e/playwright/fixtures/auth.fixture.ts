@@ -88,6 +88,14 @@ async function loginAndSaveState(page: Page, role: Role): Promise<void> {
  * Extended test fixture that provides pre-authenticated browser contexts per role.
  * Usage: import { test } from '../fixtures/auth.fixture';
  *        test('my test', async ({ outreachPage }) => { ... });
+ *
+ * Note: there is intentionally NO `platformOperatorPage` fixture here.
+ * Platform-operator actions (Phase G-4.4 +) are backend API surface only —
+ * v0.53 has no platform-operator UI. Tests that need a platform JWT call
+ * `loginPlatformOperator()` from `../auth/platform-operator.ts` in their
+ * `test.beforeEach` and use `platformAdminFetch()` for `@PlatformAdminOnly`
+ * endpoint calls. See `platform-admin-access-log.spec.ts` for the canonical
+ * pattern.
  */
 export const test = base.extend<{
   outreachPage: Page;

@@ -2,4 +2,6 @@ node_modules/
 playwright-report/
 test-results/
 blob-report/
-auth/
+# Storage-state JSON files contain access tokens — never commit these.
+# But helper TypeScript modules in the same directory ARE source code.
+auth/*.json
