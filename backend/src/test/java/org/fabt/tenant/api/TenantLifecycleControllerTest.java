@@ -3,6 +3,8 @@ package org.fabt.tenant.api;
 import java.util.Map;
 import java.util.UUID;
 
+import java.nio.file.Path;
+
 import org.fabt.BaseIntegrationTest;
 import org.fabt.TestAuthHelper;
 import org.fabt.auth.domain.User;
@@ -10,6 +12,7 @@ import org.fabt.shared.web.TenantContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.core.ParameterizedTypeReference;
@@ -19,6 +22,8 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -46,6 +51,26 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
         // exists and the IT can hit /api/v1/tenants/{id}/suspend etc.
         properties = "fabt.tenant.lifecycle.enabled=true")
 class TenantLifecycleControllerTest extends BaseIntegrationTest {
+
+    /**
+     * TenantOffboardExportService.exportTenant writes a JSON receipt to
+     * {@code <fabt.tenant.offboard.export-path>/<tenantId>/<timestamp>.json}.
+     * The default property value is {@code /var/fabt/exports} — writable on
+     * Windows (Java auto-creates {@code C:\var\fabt\exports}) but NOT on the
+     * Linux CI runner (would need root). Mirror the canonical pattern from
+     * {@code TenantLifecycleOffboardArchiveIntegrationTest} + the three other
+     * offboard-touching ITs: inject a JUnit {@link TempDir} via
+     * {@link DynamicPropertySource} so each test run writes to a fresh,
+     * writable directory regardless of platform. Without this override the
+     * controller IT's offboard happy-path 500s on Linux only.
+     */
+    @TempDir
+    static Path tempExportRoot;
+
+    @DynamicPropertySource
+    static void exportPath(DynamicPropertyRegistry registry) {
+        registry.add("fabt.tenant.offboard.export-path", () -> tempExportRoot.toString());
+    }
 
     @Autowired private TestAuthHelper authHelper;
     @Autowired private JdbcTemplate jdbc;
