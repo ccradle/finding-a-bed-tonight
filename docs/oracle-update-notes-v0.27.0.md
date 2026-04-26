@@ -3,7 +3,7 @@
 **Previous version:** v0.26.0 (Overflow Beds Management)
 **This version:** v0.27.0 (Password Recovery + TOTP 2FA)
 **Date:** 2026-04-01
-**Base runbook:** `oracle-demo-runbook-v0.21.0.md`
+**Base runbook:** `oracle-demo-runbook-v0.21.0.md` (now archived in docs repo at `docs/archive/oracle-demo-runbook-v0.21.0.md`; superseded for v0.25+ by per-release update notes like this file)
 
 ---
 
