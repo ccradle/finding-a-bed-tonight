@@ -107,15 +107,41 @@ class PlatformAdminAccessAspectTest extends BaseIntegrationTest {
     // -----------------------------------------------------------------
 
     @Test
-    @DisplayName("unauthenticated request → 401; no log rows written")
-    void unauthenticatedRejectedAtSecurity() {
+    @DisplayName("unauthenticated request WITH justification → 401; no log rows written")
+    void unauthenticatedWithJustificationRejectedAtSecurity() {
         long palBefore = countPalRows();
 
         ResponseEntity<Map> response = postCanary(null, VALID_JUSTIFICATION, "{}");
 
-        // Post-Security ordering (warroom M-RV2): Spring Security rejects
-        // first — operator gets 401, NOT 400. No info-disclosure that
-        // the endpoint has @PlatformAdminOnly.
+        // Filter passes (justification present); Spring Security then rejects
+        // the missing/anonymous auth → 401. This proves the filter does NOT
+        // gate on auth state — it gates ONLY on justification-header presence.
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(countPalRows()).isEqualTo(palBefore);
+    }
+
+    @Test
+    @DisplayName("unauthenticated WITHOUT justification → 401 (post-Security ordering pin)")
+    void unauthenticatedWithoutJustificationRejectedAtSecurity() {
+        long palBefore = countPalRows();
+
+        // Triage-pass-2 warroom pinning probe (Marcus/Alex HIGH): proves the
+        // JustificationValidationFilter is observably POST-Security in the
+        // current Spring Boot 4.x configuration — matching the original
+        // M-RV2 design intent + the filter's javadoc. An anonymous request
+        // to a @PlatformAdminOnly endpoint receives 401 from Spring
+        // Security's URL rule BEFORE the filter sees the missing-header
+        // case. If this assertion ever flips to 400, the filter has been
+        // promoted to pre-Security ordering and the security-posture
+        // analysis in JustificationValidationFilter's javadoc must be
+        // re-evaluated (the info-disclosure trade-off changes).
+        //
+        // Companion observation: a request that DOES carry the justification
+        // header but no auth also gets 401 (see
+        // unauthenticatedWithJustificationRejectedAtSecurity above), proving
+        // the filter does not gate on auth state — only on header presence.
+        ResponseEntity<Map> response = postCanary(null, null, "{}");
+
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         assertThat(countPalRows()).isEqualTo(palBefore);
     }

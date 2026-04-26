@@ -194,7 +194,7 @@ public class TenantController {
     @PutMapping("/{id}/dv-address-policy")
     @PreAuthorize("hasRole('PLATFORM_OPERATOR')")
     @org.fabt.auth.platform.PlatformAdminOnly(
-            reason = "DV-address visibility policy change — affects who can see DV shelter physical addresses; high compliance impact (VAWA-comparable posture); platform authority required",
+            reason = "DV-address visibility policy change — affects who can see DV shelter physical addresses; high-sensitivity tenant config; platform authority required",
             emits = org.fabt.shared.audit.AuditEventType.PLATFORM_TENANT_CREATED)
     public ResponseEntity<?> updateDvAddressPolicy(
             @Parameter(description = "UUID of the tenant") @PathVariable UUID id,

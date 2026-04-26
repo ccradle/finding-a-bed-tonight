@@ -24,12 +24,19 @@ class ArchitectureTest {
     // itself has no behavior (the AOP aspect lives in auth.platform). Treating
     // it as a permitted cross-cutting dependency keeps the shared.api → audit
     // contract clean without forcing a relocation of the controller.
+    //
+    // Triage-pass-2 warroom narrowing (Alex MEDIUM): the exception requires
+    // BOTH (a) the fully-qualified name match AND (b) the target class be an
+    // annotation. If someone later adds a static helper or nested type to
+    // PlatformAdminOnly, the exception stays scoped to the annotation surface
+    // only — it cannot silently drag in non-annotation auth.platform symbols.
     private static final DescribedPredicate<JavaClass> domainModulesExceptPlatformAdminAnnotation =
-            new DescribedPredicate<JavaClass>("domain modules (except auth.platform.PlatformAdminOnly)") {
+            new DescribedPredicate<JavaClass>("domain modules (except auth.platform.PlatformAdminOnly annotation)") {
                 @Override
                 public boolean test(JavaClass input) {
                     String name = input.getFullName();
-                    if ("org.fabt.auth.platform.PlatformAdminOnly".equals(name)) {
+                    if ("org.fabt.auth.platform.PlatformAdminOnly".equals(name)
+                            && input.isAnnotation()) {
                         return false;
                     }
                     String pkg = input.getPackageName();
