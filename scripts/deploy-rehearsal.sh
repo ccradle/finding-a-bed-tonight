@@ -327,7 +327,7 @@ POSTGRES_CONTAINER="$(docker ps --filter "name=${COMPOSE_PROJECT}-postgres" --fo
 if [[ -z "$POSTGRES_CONTAINER" ]]; then
     fail "SEED_DATA" "Could not find rehearsal postgres container"
 else
-    docker exec -i "$POSTGRES_CONTAINER" psql -U fabt -d fabt \
+    docker exec -i -e PGOPTIONS='-c fabt.seed_force=1' "$POSTGRES_CONTAINER" psql -U fabt -d fabt \
         < "$REPO_ROOT/infra/scripts/seed-data.sql" \
         >> "$ARTIFACT_DIR/seed-data.log" 2>&1 || fail "SEED_DATA" "seed-data.sql failed — see $ARTIFACT_DIR/seed-data.log"
     ok "Dev seed data loaded (dev-coc tenant + @dev.fabt.org users)"

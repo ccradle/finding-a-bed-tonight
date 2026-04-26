@@ -24,7 +24,7 @@ mvn flyway:migrate -Dflyway.url=jdbc:postgresql://localhost:5432/fabt -Dflyway.u
 
 # Load seed data
 echo "Loading seed data..."
-docker compose -f "$PROJECT_ROOT/docker-compose.yml" exec -T postgres psql -U fabt -d fabt < "$SCRIPT_DIR/seed-data.sql"
+docker compose -f "$PROJECT_ROOT/docker-compose.yml" exec -T -e PGOPTIONS='-c fabt.seed_force=1' postgres psql -U fabt -d fabt < "$SCRIPT_DIR/seed-data.sql"
 echo "Seed data loaded."
 
 echo ""
