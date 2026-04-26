@@ -162,6 +162,12 @@ public class ReferralTokenRepository {
      * EXPIRED via the existing expire tasklet.</p>
      */
     public int deleteStalePendingForTenant(UUID tenantId, Instant olderThan) {
+        // TODO(F24): the V41 partial index is (tenant_id, expires_at) WHERE
+        // status='PENDING'; the created_at predicate here doesn't use it.
+        // Microseconds for demo data, but if this job ever runs against a
+        // tenant with a sustained PENDING backlog, an index on
+        // (tenant_id, created_at) WHERE status='PENDING' is the fix. See
+        // openspec/changes/platform-admin-split-and-access-log/design.md F24.
         return jdbcTemplate.update(
                 "DELETE FROM referral_token "
                         + "WHERE tenant_id = ? AND status = 'PENDING' AND created_at < ?",

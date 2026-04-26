@@ -39,9 +39,13 @@ groups:
       # dedupe at the service layer caps single-shelter spam separately,
       # so a sustained 10/min from one IP is anomalous by construction.
       - alert: FabtDvReferralBurstFromSingleIp
+        # env="prod" filter mirrors phase-g-chain-verify.rules.yml — CI
+        # integration tests intentionally drive synthetic creates that
+        # would otherwise false-fire this rule on any Prometheus instance
+        # scraping both CI and prod (Jordan warroom M1).
         expr: |
           sum by (source_ip) (
-            rate(fabt_dv_referrals_created_total[2m])
+            rate(fabt_dv_referrals_created_total{env="prod"}[2m])
           ) * 60 > 10
         for: 2m
         labels:

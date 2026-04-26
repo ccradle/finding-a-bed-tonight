@@ -214,24 +214,25 @@ personas, not real stakeholders.
 ### Scenario
 
 Marcus, the platform operator on call, receives the
-`FabtDvReferralBurstFromSingleIp` alert at 14:32 local time. The label
-shows `source_ip="203.0.113.42"`. Casey, the compliance reviewer, is
-shadowing for the audit trail.
+`FabtDvReferralBurstFromSingleIp` alert. The label shows
+`source_ip="203.0.113.42"`. Casey, the compliance reviewer, is
+shadowing for the audit trail. Times below are relative to alert
+delivery (T+0).
 
 ### Walkthrough
 
-1. **14:32** — Alert fires. Marcus opens the Prometheus dashboard and
+1. **T+0** — Alert fires. Marcus opens the Prometheus dashboard and
    confirms the rate is `12.4/min` sustained over the last two
    minutes. _Outcome:_ confirms not stale.
-2. **14:33** — Marcus runs Step 2 (nginx log slice). The slice shows
+2. **T+1m** — Marcus runs Step 2 (nginx log slice). The slice shows
    ~25 POSTs from `203.0.113.42` in the last 4 minutes, all with
    User-Agent `python-requests/2.31`. _Outcome:_ script signature, not
    browser.
-3. **14:34** — Marcus runs Step 3 (audit query). 22 rows return, all
+3. **T+2m** — Marcus runs Step 3 (audit query). 22 rows return, all
    with `actor_user_id = <single uuid>` and `tenant_id =
    <dev-coc-east>`. _Outcome:_ classification (a), single compromised
    account.
-4. **14:35** — Marcus runs the token-version bump:
+4. **T+3m** — Marcus runs the token-version bump:
    ```sql
    UPDATE app_user
        SET token_version = token_version + 1
@@ -239,13 +240,13 @@ shadowing for the audit trail.
    ```
    The compromised session is revoked at the JWT layer; subsequent
    POSTs from `203.0.113.42` carrying the now-stale JWT return 401.
-5. **14:36** — Marcus pages the tenant's CoC admin via the channel
+5. **T+4m** — Marcus pages the tenant's CoC admin via the channel
    listed in the customer-comms registry. Shares the user_id and the
    approximate window of compromised activity.
-6. **14:38** — Sam (out-of-band) reviews the
+6. **T+6m** — Sam (out-of-band) reviews the
    `fabt_dv_referrals_created_total` graph in Grafana. The rate has
    fallen to zero. _Outcome:_ burst contained; no nginx ACL needed.
-7. **14:40** — Casey appends to the audit incident log: alert name,
+7. **T+8m** — Casey appends to the audit incident log: alert name,
    firing time, source IP, classification, action taken, CoC admin
    notification timestamp. Marks incident closed pending the affected
    user's password reset on next login.

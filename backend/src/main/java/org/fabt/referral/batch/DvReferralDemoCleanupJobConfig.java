@@ -146,8 +146,10 @@ public class DvReferralDemoCleanupJobConfig {
                 if (deleted > 0) {
                     totalDeleted += deleted;
                     publishCleanupAudit(tenantId, slug, deleted, cutoff);
-                    log.info("DV referral demo cleanup: deleted {} stale PENDING rows for tenant slug={}",
-                            deleted, slug);
+                    // tenant_id included so SOC tools that key on the UUID
+                    // can pivot directly without slug→id lookup (Marcus warroom M3).
+                    log.info("DV referral demo cleanup: deleted {} stale PENDING rows for tenant_id={} slug={}",
+                            deleted, tenantId, slug);
                 }
             }
 
@@ -179,6 +181,14 @@ public class DvReferralDemoCleanupJobConfig {
     public void registerWithScheduler() {
         // Every 6 hours at the top of the hour. Cron field order is
         // sec min hour day month weekday.
+        // TODO(F25): hardcoded cron matches the existing escalation-job
+        // pattern; runtime override IS supported via
+        // BatchJobScheduler.rescheduleJob (callable from tenant_config
+        // batch_schedules updates), but no JSONB default flows through
+        // DEFAULT_SCHEDULES today. Move both jobs to the JSONB-driven
+        // pattern when an operator actually needs to retune cadence
+        // without a restart. See
+        // openspec/changes/platform-admin-split-and-access-log/design.md F25.
         batchJobScheduler.registerJob("dvReferralDemoCleanup", dvReferralDemoCleanupJob(),
                 "0 0 */6 * * *", true);
     }

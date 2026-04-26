@@ -203,6 +203,9 @@ public class ObservabilityMetrics {
      * Captured as F22 in design.md for follow-up before any production
      * tenant goes live with this metric enabled.</p>
      */
+    // TODO(F22): configurable label-mode (raw | hash16 | disabled) before
+    // any non-demo tenant gets this metric enabled. See
+    // openspec/changes/platform-admin-split-and-access-log/design.md F22.
     public Counter dvReferralCreateCounter(String sourceIp) {
         return Counter.builder("fabt.dv.referrals.created")
                 .tag("source_ip", sourceIp != null ? sourceIp : "unknown")
