@@ -5,12 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [Unreleased] — v0.53.0 (Phase G-4: platform admin split + access log)
+## [v0.53.0] — 2026-04-26 — Phase G-4: platform admin split + access log + lifecycle REST
 
-**Backend-code release in progress.** Backend JAR will bump `0.52.0 → 0.53.0`.
-Flyway HWM advances `V85 → V89` (V87 + V88 + V89). Operator action required:
-review `docs/oracle-update-notes-v0.53.0.md` for the customer-comms note
-about PLATFORM_ADMIN deprecation + the new platform-operator login flow.
+Backend JAR `0.52.0 → 0.53.0`. Flyway HWM advances `V85 → V89` (V87 + V88 + V89).
+Operator action required: review `docs/oracle-update-notes-v0.53.0.md` for the
+customer-comms note about PLATFORM_ADMIN deprecation + the new platform-operator
+login flow + the §5.10 bootstrap-operator activation procedure.
 
 ### Changed (BREAKING for fresh-token issuance, NOT for existing JWTs)
 
