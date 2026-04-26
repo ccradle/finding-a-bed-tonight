@@ -54,6 +54,22 @@ export const PLATFORM_LOCKOUT_TARGET_PASSWORD = 'admin123';
 export const PLATFORM_LOCKOUT_TARGET_USER_ID = '00000000-0000-0000-0000-000000000fa2';
 
 /**
+ * Dev-seeded TERTIARY platform_user (id `0fa1`) dedicated to the
+ * platform-operator-smoke canary. V88's TOTP replay protection
+ * (last_totp_code, 89s window) means each platform_user can complete
+ * at most one /mfa-verify per ~30s window. The smoke spec runs every
+ * CI invocation; it cannot share its row with the access-log spec
+ * (which logs in via beforeAll and would set last_totp_code first if
+ * it ran earlier alphabetically).
+ *
+ * Provisioned by `infra/scripts/seed-data.sql` (G-4.4 §5.13). NOT a
+ * production credential.
+ */
+export const PLATFORM_SMOKE_USER_EMAIL = 'platform-smoke@dev.fabt.org';
+export const PLATFORM_SMOKE_USER_PASSWORD = 'admin123';
+export const PLATFORM_SMOKE_USER_ID = '00000000-0000-0000-0000-000000000fa1';
+
+/**
  * The token + secret bundle returned from {@link loginPlatformOperator}.
  * Holds the post-MFA access token for backend calls + the same secret
  * used to mint the verify code, so tests that need to mint additional
@@ -171,6 +187,22 @@ export async function loginAsLockoutTestUser(
     email: PLATFORM_LOCKOUT_TARGET_EMAIL,
     password: PLATFORM_LOCKOUT_TARGET_PASSWORD,
     expectedUserId: PLATFORM_LOCKOUT_TARGET_USER_ID,
+  });
+}
+
+/**
+ * Convenience login as the smoke-canary user (id `0fa1`). Used by
+ * `platform-operator-smoke.spec.ts` so its single-login canary does
+ * not trip V88's 89s TOTP replay protection on the bootstrap row that
+ * the access-log spec uses for its beforeAll.
+ */
+export async function loginAsSmokeUser(
+  request: APIRequestContext
+): Promise<PlatformOperatorSession> {
+  return loginPlatformOperator(request, {
+    email: PLATFORM_SMOKE_USER_EMAIL,
+    password: PLATFORM_SMOKE_USER_PASSWORD,
+    expectedUserId: PLATFORM_SMOKE_USER_ID,
   });
 }
 

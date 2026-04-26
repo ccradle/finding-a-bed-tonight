@@ -1,7 +1,8 @@
 import { test, expect } from '@playwright/test';
 import {
-  loginPlatformOperator,
-  PLATFORM_OPERATOR_EMAIL,
+  loginAsSmokeUser,
+  PLATFORM_SMOKE_USER_EMAIL,
+  PLATFORM_SMOKE_USER_ID,
 } from '../helpers/auth/platform-operator';
 import {
   generateTotp,
@@ -49,7 +50,11 @@ import {
  */
 test.describe('Platform-operator smoke (G-4.4 prereq)', () => {
   test('login + MFA verify returns access token (~2s)', async ({ request }) => {
-    const session = await loginPlatformOperator(request);
+    // Logs in as the dedicated smoke user (id 0fa1) — separate from the
+    // bootstrap row used by the access-log spec, so the two specs can
+    // run in the same Playwright invocation without colliding on V88's
+    // 89s TOTP replay protection.
+    const session = await loginAsSmokeUser(request);
 
     // Token shape — JWT has 3 base64url segments separated by '.'
     expect(session.accessToken).toBeTruthy();
@@ -59,9 +64,9 @@ test.describe('Platform-operator smoke (G-4.4 prereq)', () => {
     expect(parts[1].length).toBeGreaterThan(0);
     expect(parts[2].length).toBeGreaterThan(0);
 
-    // Bootstrap row id pin — if this changes, the seed UPDATE block
+    // Smoke-user row id pin — if this changes, the seed INSERT block
     // shifted off the well-known UUID.
-    expect(session.platformUserId).toBe('00000000-0000-0000-0000-000000000fab');
+    expect(session.platformUserId).toBe(PLATFORM_SMOKE_USER_ID);
 
     // TOTP secret round-trip pin — the helper-side constant must match
     // the seed-side value. If either drifts, login would have failed
@@ -77,12 +82,12 @@ test.describe('Platform-operator smoke (G-4.4 prereq)', () => {
     expect(code).toMatch(/^\d{6}$/);
   });
 
-  test('platform operator email matches the seeded value', () => {
+  test('smoke user email matches the seeded value', () => {
     // Pin the seed contract — if the email constant in seed-data.sql
     // changes without updating the TS helper, login would 401 with
     // invalid_credentials. This isolates the diagnosis to "the seed
     // and the helper are out of sync" rather than "the password is
-    // wrong" or "the bootstrap row was deleted."
-    expect(PLATFORM_OPERATOR_EMAIL).toBe('platform-ops@dev.fabt.org');
+    // wrong" or "the smoke row was deleted."
+    expect(PLATFORM_SMOKE_USER_EMAIL).toBe('platform-smoke@dev.fabt.org');
   });
 });

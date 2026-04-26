@@ -810,6 +810,38 @@ SET email          = 'platform-ops@dev.fabt.org',
 WHERE id = '00000000-0000-0000-0000-000000000fab';
 
 -- ============================================================================
+-- PHASE G-4.4 §5.13: Smoke-spec platform_user (parallel-safe canary isolation)
+-- ============================================================================
+--
+-- The platform-operator-smoke.spec.ts canary does a real /login + /mfa-verify
+-- round-trip on every CI run. V88's TOTP replay protection (last_totp_code,
+-- 89s window) means a successful login "consumes" the current TOTP code for
+-- 89 seconds. If the smoke spec shared the bootstrap row (0fab) with the
+-- access-log spec's beforeAll login, the second login within the same 30s
+-- TOTP window would mint the same code and trip the replay rejection.
+--
+-- Solution: a dedicated platform_user at id 0fa1 for the smoke spec. The
+-- access-log spec keeps using the bootstrap row (single beforeAll login per
+-- run); the lockout spec uses 0fa2 (independent counter); the smoke spec
+-- uses 0fa1. Each spec has its own last_totp_code state. F17 (per-call
+-- UUIDs for full N-way isolation) remains deferred to G-4.5.
+INSERT INTO platform_user (id, email, password_hash, mfa_secret, mfa_enabled, account_locked, created_at)
+VALUES (
+    '00000000-0000-0000-0000-000000000fa1',
+    'platform-smoke@dev.fabt.org',
+    '$2b$10$D0ZKzFrhx0qdM0mQy9iZQeLYJPX8/eeEfrJi4TsO5D2o62Q/Fwhva',
+    'JBSWY3DPEHPK3PXP',
+    true,
+    false,
+    NOW()
+) ON CONFLICT (id) DO UPDATE SET
+    email          = EXCLUDED.email,
+    password_hash  = EXCLUDED.password_hash,
+    mfa_secret     = EXCLUDED.mfa_secret,
+    mfa_enabled    = EXCLUDED.mfa_enabled,
+    account_locked = EXCLUDED.account_locked;
+
+-- ============================================================================
 -- PHASE G-4.4 §5.13: Lockout-target platform_user (parallel-safe Spec 2 isolation)
 -- ============================================================================
 --
