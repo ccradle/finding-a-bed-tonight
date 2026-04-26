@@ -344,9 +344,12 @@ ssh <VM_USER>@<VM_IP>
 docker exec -it fabt-backend \
   java -cp /app/finding-a-bed-tonight.jar \
        -Dloader.main=org.fabt.tooling.HashPasswordCli \
-       org.springframework.boot.loader.PropertiesLauncher
+       org.springframework.boot.loader.launch.PropertiesLauncher
 # Tool prompts for password (no echo on TTY); prints the bcrypt hash on stdout.
 # Copy the single-line bcrypt hash for Step 2.
+# Note the `.launch.` segment — Spring Boot 4 moved PropertiesLauncher under
+# the `loader.launch` package; older Spring Boot 3 docs use the unscoped
+# `loader.PropertiesLauncher` which now ClassNotFoundExceptions.
 
 # Step 2 — UPDATE the bootstrap row with the chosen email + bcrypt hash.
 # REVOKEs prevent fabt_app from doing this; run as fabt OWNER.
