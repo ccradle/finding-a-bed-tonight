@@ -106,11 +106,13 @@ export function generateWrongTotp(secret: string): string {
 }
 
 /**
- * Generate a TOTP code at counter+10 windows (5 minutes in the future,
- * well past the server's ±1 acceptance band). Guaranteed to be rejected
- * by the server even with the most generous tolerance window — the
- * verify path checks counters [N-1, N, N+1] for the current epoch N;
- * we mint at N+10, which is outside any reasonable acceptance band.
+ * Generate a TOTP code at counter+10 windows (5 minutes in the future).
+ * Designed to fall outside the server's configured ±1 acceptance band:
+ * the verify path checks counters [N-1, N, N+1] for the current epoch
+ * N; we mint at N+10, which is outside the v0.53 default tolerance. If
+ * the server's drift tolerance is ever widened past ±10 windows, this
+ * helper would need to advance further — pin the assumption in
+ * `platform-totp-lockout.spec.ts` rather than asserting it server-side.
  *
  * <p>Used by `platform-totp-lockout.spec.ts` to submit 5 wrong codes
  * with zero collision probability. Each call advances the offset to

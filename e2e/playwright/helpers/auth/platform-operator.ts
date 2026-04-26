@@ -158,11 +158,13 @@ export async function loginPlatformOperator(
 }
 
 /**
- * Convenience login for the lockout-target user (id `0fa2`). Used by
+ * Convenience login as the lockout-test-only user (id `0fa2`). Used by
  * `platform-totp-lockout.spec.ts` so its lockout pollution stays
- * isolated from the bootstrap row's other consumers.
+ * isolated from the bootstrap row's other consumers. Function name
+ * starts with "loginAs" to read as a fixture login (vs an attacker
+ * targeting a victim — the user IS the test fixture, not a victim).
  */
-export async function loginLockoutTarget(
+export async function loginAsLockoutTestUser(
   request: APIRequestContext
 ): Promise<PlatformOperatorSession> {
   return loginPlatformOperator(request, {

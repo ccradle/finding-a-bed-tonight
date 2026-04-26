@@ -58,23 +58,22 @@ test.describe('Platform admin access log — end-to-end pipeline (G-4.4 §5.12)'
     );
 
     // Either 200 (controller accepted, job runner silently no-op'd) or
-    // 4xx (controller rejected the unknown job id) — both prove the
-    // request reached the controller. Critically NOT 401 (security
-    // rejected before controller) and NOT 403 (role gate or aspect
-    // MFA_VERIFIED check rejected). The aspect's PAL+AE writes
-    // committed regardless of the controller's downstream verdict
-    // (Decision 11).
+    // 400 (controller rejected the unknown job id) — both prove the
+    // request reached the controller. Each negative assertion pins a
+    // specific regression: 401 = security/JWT broken; 403 = role gate
+    // or MFA_VERIFIED missing; 404 = controller bean unloaded or route
+    // renamed (the loudest regression we want to catch); 5xx = aspect
+    // or persistence broken. The aspect's PAL+AE writes committed
+    // regardless of the controller's downstream 4xx (Decision 11).
     const status = resp.status();
-    expect(
-      status >= 200 && status < 500,
-      `Expected request to reach BatchJobController.run, got ${status}. ` +
-        `401 = security/JWT broken; 403 = role gate or MFA_VERIFIED missing; ` +
-        `5xx = aspect / persistence broken.`
-    ).toBeTruthy();
     expect(status, 'must NOT be 401 — security must accept platform JWT')
       .not.toBe(401);
     expect(status, 'must NOT be 403 — role gate / MFA_VERIFIED must pass')
       .not.toBe(403);
+    expect(status, 'must NOT be 404 — BatchJobController.run route must be registered')
+      .not.toBe(404);
+    expect(status, 'must NOT be 5xx — aspect / persistence must commit cleanly')
+      .toBeLessThan(500);
   });
 
   test('missing justification header → 400 (filter rejects)', async ({ request }) => {
@@ -154,6 +153,16 @@ test.describe('Platform admin access log — end-to-end pipeline (G-4.4 §5.12)'
       `Tenant cocadmin login failed status=${tenantLoginResp.status()}`
     ).toBeTruthy();
     const tenantBody = await tenantLoginResp.json();
+    // Guard: if a prior dev session enabled TOTP on cocadmin, /auth/login
+    // returns {mfaRequired: true, mfaToken} instead of {accessToken}. The
+    // seed forces totp_enabled=false on cocadmin (seed-data.sql line ~75);
+    // if you see this assertion fail, re-seed: ./dev-start.sh --fresh OR
+    // psql -f infra/scripts/seed-data.sql.
+    expect(
+      tenantBody.mfaRequired,
+      'cocadmin must NOT have TOTP enabled — re-seed via ./dev-start.sh --fresh '
+        + 'or psql -f infra/scripts/seed-data.sql'
+    ).toBeFalsy();
     const tenantToken: string = tenantBody.accessToken;
     expect(tenantToken, '/auth/login response missing accessToken').toBeTruthy();
 

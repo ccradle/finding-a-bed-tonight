@@ -208,6 +208,17 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/batch/**").hasAnyRole("COC_ADMIN", "PLATFORM_ADMIN", "PLATFORM_OPERATOR")
                         .requestMatchers("/api/v1/batch/**").hasAnyRole("PLATFORM_OPERATOR", "PLATFORM_ADMIN")
 
+                        // Test platform unlock-expired — profile-gated (dev/test only) per
+                        // TestPlatformUnlockController. The spec calling this endpoint may
+                        // have just LOCKED its operator session by exhausting MFA attempts,
+                        // so requiring an Authorization header would create a circular
+                        // dependency. The @Profile("dev | test") gate on the controller is
+                        // the security boundary — the bean does not exist outside dev/test
+                        // so this URL is unreachable in prod. Must be ordered BEFORE the
+                        // /api/v1/test/** catch-all below (Spring matchers are first-match-
+                        // wins).
+                        .requestMatchers(HttpMethod.POST, "/api/v1/test/platform/unlock-expired").permitAll()
+
                         // Test reset — profile-gated (dev/test only). G-4.4: migrated to
                         // PLATFORM_OPERATOR + @PlatformAdminOnly; URL rule kept inclusive of
                         // PLATFORM_ADMIN for the deprecation window so legacy JWTs receive 403
