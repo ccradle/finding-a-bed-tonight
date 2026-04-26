@@ -79,12 +79,121 @@ about PLATFORM_ADMIN deprecation + the new platform-operator login flow.
   cleanup. ArchUnit rule `TestControllerProfileGuardTest` enforces the
   profile gate on every `Test*Controller`.
 
-### Deferred follow-ups (in design.md F1-F19)
+### Added — G-4.5 demo expansion + DV defenses + accessibility + monitoring
 
-- **F14** — cross-tenant operator-driven HMIS push endpoint
-- **F17** — Playwright fixture caching across tests (CI runtime)
-- **F18** — Prometheus alert on per-operator tenant-update rate
-- **F19** — Platform-operator observability config persistence IT
+- **Multi-tenant demo seed** — `seed-data.sql` expanded from one
+  `dev-coc` tenant + 5 users to three CoC tenants (`dev-coc`,
+  `dev-coc-west`, `dev-coc-east`) × 6 roles each = 17 demo users.
+  Each tenant has two CoC Admins, one Outreach Worker, one DV
+  Coordinator, and one DV Outreach Worker. All passwords `admin123`.
+  Try-It-Live matrix on findabed.org main page + demo/index.html
+  documents the full grid with semantic `<table>` + `<caption>`.
+
+- **DV referral abuse defenses** (5 layers around
+  `POST /api/v1/dv-referrals`):
+  - Bucket4j per-IP throttle: 5 creates per source IP per hour
+    (`rate-limit-dv-referral-create`); reads X-Real-IP header so the
+    bucket keys on the actual client IP behind nginx, not nginx's
+    container IP. New shared `ClientIpResolver` utility used here +
+    by the §6.8 Prometheus counter.
+  - `DvReferralCrossSiteFilter` — rejects 403 on
+    `Sec-Fetch-Site: cross-site`; allows same-origin / same-site /
+    none / absent. Documented as "raise abuse cost slightly", not
+    "block abuse" (bypassable by non-browser clients).
+  - `fabt.dv.referrals.created{source_ip}` counter +
+    `FabtDvReferralBurstFromSingleIp` Prometheus alert (rate >10/min
+    sustained 2 min). Cardinality nuance captured as F22.
+  - `dvReferralDemoCleanup` batch job (`@Profile("demo")`, every
+    6h): deletes PENDING DV referrals >48h old from tenants with
+    slug starting `dev-`. Per-tenant
+    `DV_REFERRAL_DEMO_CLEANUP` audit row.
+  - `docs/security/dv-incident-response.md` operator triage
+    runbook with FORCE-RLS-aware psql queries + 7-step tabletop.
+
+- **Accessibility refinements** on platform-operator MFA flows:
+  - TOTP inputs (LoginPage + TotpEnrollmentPage):
+    `autoComplete="one-time-code"` for mobile autofill,
+    `pattern="[0-9]{6}"` for constraint validation, proper
+    `<label>`/`aria-labelledby` association.
+  - QR canvas wrapped with `role="img"` + `aria-label`; manual-entry
+    secret + keyboard-accessible Copy button via `<details>` disclosure.
+  - Backup codes rebuilt as semantic `<ol>` with `<h2>` heading,
+    per-code Copy buttons, new Print button, `@media print` rule
+    rendering codes at 18pt black-on-white.
+  - LoginPage error region: `role="alert"` + `aria-atomic="true"`
+    always rendered (fixes display:none AX-tree fragility);
+    lockout messages now announce reliably.
+  - Try-It-Live `<table>` carries `<caption>` describing the
+    multi-tenant matrix purpose for sighted + assistive users.
+
+- **Platform-admin monitoring** (G-4.5 §6.17–§6.19):
+  - `fabt.platform.login.failures{reason}` counter (4 reasons:
+    bad_email / locked / bad_password / mfa_disabled) →
+    `FabtPlatformLoginFailureBurst` warning alert.
+  - `fabt.platform.user.locked_out` counter (transition only) →
+    `FabtPlatformUserLockedOut` info alert.
+  - `fabt.platform.action.without_justification{action}` counter +
+    aspect-side defense-in-depth check that throws AccessDeniedException
+    if the X-Platform-Justification header is missing →
+    `FabtPlatformActionWithoutJustification` critical alert.
+  - All rules in `deploy/prometheus/phase-g-platform-admin.rules.yml`
+    with `env="prod"` matchers so CI runs don't false-page.
+  - SLF4J MDC marker `platform_action=true` on every
+    `@PlatformAdminOnly` aspect log line + the V88 lockout audit-failure
+    error path; SOC log filters can isolate the platform-action surface.
+  - `docs/observability/platform-admin-monitoring.md` documents what
+    v0.53 emits + 6 Grafana panel sketches for Phase H+.
+
+### Changed — G-4.5 user-facing role labels (post-G-4.4)
+
+- Demo + onboarding pages updated from "Platform Admin" → "CoC Admin"
+  for actions that map to the COC_ADMIN role under G-4.4. Affects
+  `index.html`, `demo/index.html`, `demo/hmisindex.html`,
+  `demo/shelter-onboarding.html`,
+  `docs/training/admin-onboarding-checklist.html`, and
+  `demo/shelter-edit-walkthrough.md`. Internal references
+  (PLATFORM_OPERATOR, OpenSpec, runbook) are unchanged.
+
+- `dvEscalations.policy.error.role` i18n string (en + es) updated to
+  reflect the post-G-4.4 role taxonomy.
+
+### Fixed
+
+- **CI seed-data.sql guard hotfix** (post-merge of 9067d53). The
+  tightened guard refuses to run against any DB whose name doesn't
+  contain `dev` or `test`. CI workflow + dev-setup.sh + rehearsal
+  harness updated to pass `PGOPTIONS='-c fabt.seed_force=1'` for the
+  dockerized `fabt` default.
+
+- **Bucket4j cache `rate-limit-dv-referral-create` declared in
+  `application.conf`** (Caffeine JCache requires explicit cache list).
+  Earlier addition in `application.yml` alone caused
+  `JCacheNotFoundException` at startup when `bucket4j.enabled=true`.
+
+### Deferred follow-ups (in design.md F1-F28)
+
+Severity matches design.md classification.
+
+- **F14** (MEDIUM) — cross-tenant operator-driven HMIS push endpoint
+- **F17** (HIGH) — Playwright fixture caching across tests (CI runtime)
+- **F18** (MEDIUM) — Prometheus alert on per-operator tenant-update rate
+- **F19** (MEDIUM) — Platform-operator observability config persistence IT
+- **F22** (MEDIUM) — `fabt_dv_referrals_created_total{source_ip}` cardinality
+  posture before any non-demo tenant
+- **F23** (HIGH) — sweep pre-existing bucket4j entries to use ClientIpResolver
+  (currently collapse to nginx's container IP in prod)
+- **F24** (MEDIUM) — partial index for `deleteStalePendingForTenant` query
+- **F25** (MEDIUM) — move demo-cleanup + escalation cron to JSONB-driven
+  `batch_schedules` for runtime retuning
+- **F26** (MEDIUM) — TOTP secret copy-to-clipboard toast + 30s auto-clear
+- **F27** (MEDIUM) — print template "retrieve from printer immediately"
+  warning banner
+- **F28** (MEDIUM) — `FabtPlatformUserDelayedActivation` alert + V94
+  SECURITY DEFINER `platform_user_count_unactivated_older_than` function
+
+None are v0.53 blockers. F23 is the highest-priority post-deploy item
+(closes a per-IP throttle gap on the highest-risk endpoints — login,
+password change, MFA verify).
 
 ---
 

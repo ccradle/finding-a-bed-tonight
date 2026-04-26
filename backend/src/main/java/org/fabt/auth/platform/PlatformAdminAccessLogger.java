@@ -160,53 +160,61 @@ public class PlatformAdminAccessLogger {
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void logLockout(UUID platformUserId) {
-        UUID palId = UUID.randomUUID();
-        UUID auditEventId = UUID.randomUUID();
-
-        String ipAddress = null;
-        if (org.springframework.web.context.request.RequestContextHolder
-                .getRequestAttributes() instanceof
-                org.springframework.web.context.request.ServletRequestAttributes sra) {
-            ipAddress = sra.getRequest().getRemoteAddr();
-        }
-
+        // §6.18 + warroom H2: MDC marker scopes the ENTIRE method, not just
+        // the catch block. The lockout audit path runs OUTSIDE the
+        // @PlatformAdminOnly aspect (service-internal call from
+        // PlatformAuthService.recordFailureAndMaybeLock), so the aspect's
+        // MDC.put never wraps it. Without explicit scope here, SOC log
+        // filters keyed on platform_action=true would MISS the success-path
+        // logs (the writePlatformAction call may emit DEBUG/INFO lines from
+        // child loggers that should also be classified as platform_action).
+        // Save + restore prior MDC value to avoid clobbering nested context.
+        String previousMdc = org.slf4j.MDC.get("platform_action");
+        org.slf4j.MDC.put("platform_action", "true");
         try {
-            writePlatformAction(
-                    palId,
-                    auditEventId,
-                    platformUserId,
-                    TenantContext.SYSTEM_TENANT_ID,  // platform-wide; not chained
-                    AuditEventType.PLATFORM_USER_LOCKED_OUT,
-                    "platform_user",
-                    platformUserId,
-                    "PLATFORM_USER_LOCKED_OUT auto-lockout — 5 failed MFA attempts in 15 minutes (V88 policy)",
-                    "INTERNAL",
-                    "/auth/platform/login/mfa-verify",
-                    null,
-                    null,  // before_state — no meaningful pre-action state for an internal lockout
-                    ipAddress);
-        } catch (RuntimeException e) {
-            // Per Marcus warroom synthesis: failure to audit a lockout is
-            // a serious security signal but MUST NOT block the lockout
-            // itself — the operator's account is already locked at this
-            // point (V88 record_failure ran the SET account_locked=true
-            // UPDATE). Log + swallow so the locked operator gets the
-            // 401, then ops can detect the missing audit row via the
-            // PAL.timestamp gap alert (G-4.5 task).
-            //
-            // §6.18: MDC marker so SOC platform_action filters pick this
-            // line up alongside the @PlatformAdminOnly aspect's logs.
-            // The lockout audit path runs OUTSIDE the aspect (service-
-            // internal), so the aspect's MDC.put never wraps this call.
-            // Set + remove in a try/finally so the marker is contained.
-            org.slf4j.MDC.put("platform_action", "true");
+            UUID palId = UUID.randomUUID();
+            UUID auditEventId = UUID.randomUUID();
+
+            String ipAddress = null;
+            if (org.springframework.web.context.request.RequestContextHolder
+                    .getRequestAttributes() instanceof
+                    org.springframework.web.context.request.ServletRequestAttributes sra) {
+                ipAddress = sra.getRequest().getRemoteAddr();
+            }
+
             try {
+                writePlatformAction(
+                        palId,
+                        auditEventId,
+                        platformUserId,
+                        TenantContext.SYSTEM_TENANT_ID,  // platform-wide; not chained
+                        AuditEventType.PLATFORM_USER_LOCKED_OUT,
+                        "platform_user",
+                        platformUserId,
+                        "PLATFORM_USER_LOCKED_OUT auto-lockout — 5 failed MFA attempts in 15 minutes (V88 policy)",
+                        "INTERNAL",
+                        "/auth/platform/login/mfa-verify",
+                        null,
+                        null,  // before_state — no meaningful pre-action state for an internal lockout
+                        ipAddress);
+            } catch (RuntimeException e) {
+                // Per Marcus warroom synthesis: failure to audit a lockout is
+                // a serious security signal but MUST NOT block the lockout
+                // itself — the operator's account is already locked at this
+                // point (V88 record_failure ran the SET account_locked=true
+                // UPDATE). Log + swallow so the locked operator gets the
+                // 401, then ops can detect the missing audit row via the
+                // PAL.timestamp gap alert (G-4.5 task).
                 log.error("Failed to persist lockout audit row for platform_user {} — "
                                 + "account remains locked, but audit chain is missing this entry. "
                                 + "Investigate: {}",
                         platformUserId, e.getMessage(), e);
-            } finally {
+            }
+        } finally {
+            if (previousMdc == null) {
                 org.slf4j.MDC.remove("platform_action");
+            } else {
+                org.slf4j.MDC.put("platform_action", previousMdc);
             }
         }
     }
