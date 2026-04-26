@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * CoC Analytics API endpoints (Design D3).
- * All endpoints require COC_ADMIN or PLATFORM_ADMIN.
+ * All endpoints require COC_ADMIN.
  * Returns aggregate data — no PII.
  */
 @RestController

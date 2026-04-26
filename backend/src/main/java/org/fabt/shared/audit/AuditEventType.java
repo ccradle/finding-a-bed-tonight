@@ -476,6 +476,33 @@ public enum AuditEventType {
     PLATFORM_TENANT_CREATED,
 
     /**
+     * A PLATFORM_OPERATOR updated tenant display-name metadata via
+     * {@code PUT /api/v1/tenants/{id}}. Aspect-emitted; AE.tenant_id =
+     * target tenant. Distinct from {@link #PLATFORM_TENANT_CREATED} so
+     * oncall + SIEM rules can distinguish create-vs-update activity in
+     * audit timelines.
+     */
+    PLATFORM_TENANT_UPDATED,
+
+    /**
+     * A PLATFORM_OPERATOR updated a tenant's observability config via
+     * {@code PUT /api/v1/tenants/{id}/observability}. Aspect-emitted;
+     * AE.tenant_id = target tenant. Distinct event type so changes to
+     * monitoring/tracing posture can be queried independently of other
+     * tenant mutations.
+     */
+    PLATFORM_TENANT_OBSERVABILITY_UPDATED,
+
+    /**
+     * A PLATFORM_OPERATOR changed a tenant's DV-address visibility policy
+     * via {@code PUT /api/v1/tenants/{id}/dv-address-policy}. Aspect-
+     * emitted; AE.tenant_id = target tenant. Distinct event type because
+     * DV-address policy is the single highest-sensitivity tenant config —
+     * compliance reviews query this action class specifically.
+     */
+    PLATFORM_DV_ADDRESS_POLICY_CHANGED,
+
+    /**
      * A PLATFORM_OPERATOR triggered tenant suspension via
      * {@code POST /api/v1/tenants/{id}/suspend}. AE.tenant_id = target tenant.
      * Chained in target tenant's chain. See {@link #PLATFORM_TENANT_CREATED}

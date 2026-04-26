@@ -87,7 +87,7 @@ public class PasswordController {
 
     @Operation(
             summary = "Reset a user's password (admin action)",
-            description = "Allows a COC_ADMIN or PLATFORM_ADMIN to reset the password for any user " +
+            description = "Allows a COC_ADMIN to reset the password for any user " +
                     "within their tenant. The admin sets a temporary password (minimum 12 characters) " +
                     "which should be communicated to the user out-of-band. The user's existing JWT tokens " +
                     "are invalidated and they must sign in with the new password. Returns 404 if the user " +

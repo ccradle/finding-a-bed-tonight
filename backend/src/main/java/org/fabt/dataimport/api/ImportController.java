@@ -62,7 +62,7 @@ public class ImportController {
                     "any row-level errors. An import log entry is recorded for audit. Returns 400 " +
                     "if the file is empty or contains no importable organizations. Returns 500 if " +
                     "the file cannot be parsed as valid HSDS JSON. " +
-                    "Requires COC_ADMIN or PLATFORM_ADMIN role."
+                    "Requires COC_ADMIN role."
     )
     @PostMapping("/hsds")
     public ResponseEntity<ImportResultResponse> importHsds(
@@ -96,7 +96,7 @@ public class ImportController {
                     "mapping before importing. The import is upsert-based. The response includes " +
                     "counts of created, updated, and skipped records, plus row-level errors. " +
                     "Returns 400 if the file is empty or contains no data rows. " +
-                    "Requires COC_ADMIN or PLATFORM_ADMIN role."
+                    "Requires COC_ADMIN role."
     )
     @PostMapping("/211")
     public ResponseEntity<ImportResultResponse> importTwoOneOne(
@@ -128,7 +128,7 @@ public class ImportController {
                     "columns map to which shelter fields and which columns will be ignored. Use this " +
                     "before calling POST /api/v1/import/211 to verify that the CSV format is " +
                     "compatible. This is a read-only, side-effect-free operation — no data is imported. " +
-                    "Requires COC_ADMIN or PLATFORM_ADMIN role."
+                    "Requires COC_ADMIN role."
     )
     @PostMapping("/211/preview")
     public ResponseEntity<ColumnMappingResponse> previewCsvMapping(
@@ -146,7 +146,7 @@ public class ImportController {
                     "updated, WITHOUT committing any changes. Shows per-row validation errors " +
                     "and DV flag change safety notices. Use this after column mapping preview " +
                     "and before the final POST /api/v1/import/211 commit. " +
-                    "Requires COC_ADMIN or PLATFORM_ADMIN role."
+                    "Requires COC_ADMIN role."
     )
     @PostMapping("/211/preview-import")
     public ResponseEntity<ImportResultResponse> previewImport(
@@ -176,7 +176,7 @@ public class ImportController {
                     "211_CSV), original filename, row counts (created, updated, skipped, errored), " +
                     "and the timestamp of the import. Use this to audit past imports and track " +
                     "data provenance. The list is unpaginated. " +
-                    "Requires COC_ADMIN or PLATFORM_ADMIN role."
+                    "Requires COC_ADMIN role."
     )
     @GetMapping("/history")
     public ResponseEntity<List<ImportLogResponse>> history() {

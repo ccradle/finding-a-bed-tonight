@@ -24,12 +24,13 @@ import org.springframework.web.bind.annotation.RestController;
  * {@link TenantKeyRotationService} so it joins the rotation
  * transaction).
  *
- * <p>{@code @PreAuthorize PLATFORM_ADMIN} matches the existing pattern in
- * {@code AccessCodeController} / {@code AnalyticsController}. The cross-
- * tenant guard at the service layer ({@code findByIdAndTenantId} on the
- * tenant lookup, plus the rotation operating on whatever tenantId is
- * supplied) means a PLATFORM_ADMIN can rotate ANY tenant's key — that's
- * the intended platform-level capability for emergency response.
+ * <p>G-4.4 migrated this endpoint to {@code @PreAuthorize PLATFORM_OPERATOR
+ * + @PlatformAdminOnly} so the action requires (a) the platform-JWT
+ * iss=fabt-platform identity, (b) MFA_VERIFIED authority on that JWT,
+ * (c) X-Platform-Justification header (≥10 chars ASCII), and (d) lands
+ * a PAL row + chained audit_event. The PLATFORM_OPERATOR role is
+ * intentionally cross-tenant — they can rotate ANY tenant's key, which
+ * is the intended platform-level capability for emergency response.
  *
  * <p><b>Rate limit (deferred):</b> warroom Q4 + Marcus M3 + Jordan call
  * for 1 rotation/tenant/min to prevent accidental rapid-rotation that
@@ -37,9 +38,10 @@ import org.springframework.web.bind.annotation.RestController;
  * jwt_revocations growth. Phase A4.3 ships without the rate limiter
  * (current FABT rate-limit infrastructure is per-IP via Bucket4j; per-
  * tenant rate-limit-config table lives in Phase E task 6.1). Tracked as
- * a follow-up issue; safe interim because PLATFORM_ADMIN is a small
- * trusted group + every rotation produces an audit row visible to
- * incident responders.
+ * a follow-up issue; safe interim because PLATFORM_OPERATOR is a small
+ * trusted group with mandatory MFA, the @PlatformAdminOnly aspect
+ * captures every invocation in PAL, and every rotation also produces
+ * an audit_event row visible to incident responders.
  */
 @RestController
 @RequestMapping("/api/v1/admin/tenants")
@@ -54,7 +56,7 @@ public class TenantKeyRotationController {
     }
 
     @Operation(
-            summary = "Rotate a tenant's JWT signing key (PLATFORM_ADMIN)",
+            summary = "Rotate a tenant's JWT signing key (PLATFORM_OPERATOR + MFA + justification header)",
             description = "Bumps the tenant's jwt_key_generation, deactivates the prior "
                     + "generation, adds all outstanding kids to the jwt_revocations "
                     + "blocklist (7-day expires_at ceiling), and invalidates the "
@@ -74,7 +76,7 @@ public class TenantKeyRotationController {
             @PathVariable UUID tenantId,
             Authentication auth) {
         UUID actorUserId = parseActorOrNull(auth);
-        log.info("PLATFORM_ADMIN-triggered JWT key rotation: tenant={} actor={}",
+        log.info("PLATFORM_OPERATOR-triggered JWT key rotation: tenant={} actor={}",
                 tenantId, actorUserId);
 
         TenantKeyRotationService.RotationResult result =

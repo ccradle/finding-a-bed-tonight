@@ -39,7 +39,7 @@ public class ApiKeyController {
                     "key's UUID (for management operations), the plaintext key, and a suffix (last " +
                     "4 characters) for identification in logs and UI. The optional label field is " +
                     "a human-readable name for the key. Returns 201. " +
-                    "Requires COC_ADMIN or PLATFORM_ADMIN role."
+                    "Requires COC_ADMIN role."
     )
     @PostMapping
     public ResponseEntity<ApiKeyCreateResponse> createApiKey(@Valid @RequestBody CreateApiKeyRequest request) {
@@ -57,7 +57,7 @@ public class ApiKeyController {
                     "including id, suffix, label, shelterId binding, active status, and timestamps. " +
                     "The plaintext key is never returned — only the suffix is available for " +
                     "identification. Deactivated keys are included in the response (check the " +
-                    "active field). Requires COC_ADMIN or PLATFORM_ADMIN role."
+                    "active field). Requires COC_ADMIN role."
     )
     @GetMapping
     public ResponseEntity<List<ApiKeyResponse>> listApiKeys() {
@@ -74,7 +74,7 @@ public class ApiKeyController {
                     "authenticating requests, but the record is retained for audit purposes. This " +
                     "operation is idempotent — deactivating an already-inactive key returns 204 " +
                     "without error. Returns 204 No Content on success. " +
-                    "Requires COC_ADMIN or PLATFORM_ADMIN role."
+                    "Requires COC_ADMIN role."
     )
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deactivateApiKey(
@@ -90,7 +90,7 @@ public class ApiKeyController {
                     "once — store it immediately. The key UUID, label, and shelter binding remain " +
                     "unchanged. Use this for periodic credential rotation or after a suspected " +
                     "key compromise. Returns 200 with the new key details. " +
-                    "Requires COC_ADMIN or PLATFORM_ADMIN role."
+                    "Requires COC_ADMIN role."
     )
     @PostMapping("/{id}/rotate")
     public ResponseEntity<ApiKeyCreateResponse> rotateApiKey(

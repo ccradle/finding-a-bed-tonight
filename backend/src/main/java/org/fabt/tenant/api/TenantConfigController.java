@@ -33,7 +33,7 @@ public class TenantConfigController {
                     "is stored as an arbitrary JSON object (Map<String, Object>) and may include keys " +
                     "such as feature flags, display preferences, or integration settings. Returns an " +
                     "empty map if no configuration has been set. Returns 404 if the tenant does not " +
-                    "exist. Requires COC_ADMIN or PLATFORM_ADMIN role."
+                    "exist. Requires COC_ADMIN role."
     )
     @GetMapping
     public ResponseEntity<Map<String, Object>> getConfig(
@@ -50,7 +50,7 @@ public class TenantConfigController {
                     "from the request body will be removed. Returns the saved configuration after the " +
                     "update. To add a single key without losing others, first GET the current config, " +
                     "merge your changes client-side, then PUT the full map. Returns 404 if the tenant " +
-                    "does not exist. Requires COC_ADMIN or PLATFORM_ADMIN role."
+                    "does not exist. Requires COC_ADMIN role."
     )
     @PutMapping
     public ResponseEntity<Map<String, Object>> updateConfig(

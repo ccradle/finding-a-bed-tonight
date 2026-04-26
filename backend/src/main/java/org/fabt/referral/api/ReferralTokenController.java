@@ -398,7 +398,7 @@ public class ReferralTokenController {
                     "rejected, expired) and average response time. Backed by Micrometer counters — " +
                     "no PII, no individual referral data. Counters persist in Prometheus when the " +
                     "observability stack is active; otherwise reset on backend restart. " +
-                    "Requires COC_ADMIN or PLATFORM_ADMIN role."
+                    "Requires COC_ADMIN role."
     )
     @GetMapping("/analytics")
     @PreAuthorize("hasAnyRole('COC_ADMIN')")

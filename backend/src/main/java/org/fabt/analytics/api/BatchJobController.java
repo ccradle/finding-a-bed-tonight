@@ -34,8 +34,13 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Batch job management API (Design D14).
- * GET endpoints: COC_ADMIN, PLATFORM_ADMIN.
- * Mutating endpoints: PLATFORM_ADMIN only.
+ * GET endpoints (list, executions): COC_ADMIN — read-only telemetry of the
+ *   shared scheduler. Documented platform-scope leak (deferred follow-up F20):
+ *   a CoC admin at Tenant A can see scheduler state for jobs that affect
+ *   Tenant B. Acceptable for v0.53 because no PII / tenant-scoped data leaks
+ *   through the metadata; future hardening tightens to PLATFORM_OPERATOR.
+ * Mutating endpoints (run, restart, schedule, enable): PLATFORM_OPERATOR +
+ *   @PlatformAdminOnly + X-Platform-Justification header (G-4.4).
  */
 @RestController
 @RequestMapping("/api/v1/batch/jobs")

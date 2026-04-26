@@ -50,7 +50,7 @@ public class UserController {
                     "records; defaults to false). The dvAccess flag is a sensitive permission: only " +
                     "set it for users who have completed DV confidentiality training. Returns 201 " +
                     "with the created user. Returns 400 if email or displayName is blank. " +
-                    "Requires COC_ADMIN or PLATFORM_ADMIN role."
+                    "Requires COC_ADMIN role."
     )
     @PostMapping
     public ResponseEntity<UserResponse> createUser(@Valid @RequestBody CreateUserRequest request) {
@@ -62,7 +62,7 @@ public class UserController {
             summary = "List all users in the authenticated tenant",
             description = "Returns all users belonging to the caller's tenant. Each user record " +
                     "includes id, email, displayName, roles, dvAccess flag, status, and timestamps. " +
-                    "Requires COC_ADMIN or PLATFORM_ADMIN role."
+                    "Requires COC_ADMIN role."
     )
     @GetMapping
     public ResponseEntity<List<UserResponse>> listUsers() {
@@ -76,7 +76,7 @@ public class UserController {
             summary = "Get a single user by ID within the authenticated tenant",
             description = "Returns the user with the specified UUID, provided the user belongs to " +
                     "the caller's tenant. Returns 404 if the user does not exist or belongs to a " +
-                    "different tenant. Requires COC_ADMIN or PLATFORM_ADMIN role."
+                    "different tenant. Requires COC_ADMIN role."
     )
     @GetMapping("/{id}")
     public ResponseEntity<UserResponse> getUser(
@@ -90,7 +90,7 @@ public class UserController {
                     "in the request body are applied. Updatable fields: displayName, email, roles " +
                     "(replaces entire list), dvAccess. Role or dvAccess changes increment " +
                     "tokenVersion, invalidating the user's existing JWTs. " +
-                    "Requires COC_ADMIN or PLATFORM_ADMIN role."
+                    "Requires COC_ADMIN role."
     )
     @PutMapping("/{id}")
     public ResponseEntity<UserResponse> updateUser(
@@ -109,7 +109,7 @@ public class UserController {
             description = "Sets the user's status to DEACTIVATED or ACTIVE. Deactivated users " +
                     "cannot log in and their existing JWTs are immediately invalidated via " +
                     "tokenVersion increment. Deactivation also disconnects any active SSE " +
-                    "notification stream. Requires COC_ADMIN or PLATFORM_ADMIN role."
+                    "notification stream. Requires COC_ADMIN role."
     )
     @PatchMapping("/{id}/status")
     public ResponseEntity<UserResponse> changeStatus(

@@ -37,7 +37,10 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Admin API for HMIS bridge management — export status, data preview, history, vendor config.
- * All endpoints require COC_ADMIN or PLATFORM_ADMIN. Write operations require PLATFORM_ADMIN.
+ * Most endpoints (status / preview / history / push / vendors / vendor CRUD stubs) require
+ * {@code COC_ADMIN} (tenant-scoped per the G-4.4 F16 revert). The cross-tenant
+ * {@code retry/{outboxId}} endpoint requires {@code PLATFORM_OPERATOR + @PlatformAdminOnly}.
+ * See CHANGELOG v0.53.0 + design.md F16 for the revert rationale.
  */
 @RestController
 @RequestMapping("/api/v1/hmis")

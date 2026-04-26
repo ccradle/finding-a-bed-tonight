@@ -63,7 +63,7 @@ public class TenantController {
                     "are scoped to a tenant. The slug must be globally unique and is used in URLs and " +
                     "OAuth2 redirect URIs (e.g., 'atlanta-coc'). Returns 201 with the created tenant " +
                     "including its generated UUID. Returns 400 if the slug is already taken or if " +
-                    "required fields (name, slug) are missing. Requires PLATFORM_ADMIN role."
+                    "required fields (name, slug) are missing. Requires PLATFORM_OPERATOR role + X-Platform-Justification header."
     )
     @PostMapping
     @PreAuthorize("hasRole('PLATFORM_OPERATOR')")
@@ -92,7 +92,7 @@ public class TenantController {
             description = "Returns every tenant registered on the platform. Each tenant represents " +
                     "a Continuum of Care organization. The response includes tenant id, name, slug, " +
                     "and timestamps. This is an unfiltered, unpaginated list — suitable for platform " +
-                    "admin dashboards. Requires PLATFORM_ADMIN role."
+                    "admin dashboards. Requires PLATFORM_OPERATOR role + X-Platform-Justification header."
     )
     @GetMapping
     @PreAuthorize("hasRole('PLATFORM_OPERATOR')")
@@ -107,7 +107,7 @@ public class TenantController {
             summary = "Get a single tenant by ID",
             description = "Returns the tenant with the specified UUID. Use this to retrieve tenant " +
                     "details including name, slug, and timestamps. Returns 404 (via NoSuchElementException) " +
-                    "if no tenant exists with the given ID. Requires PLATFORM_ADMIN role."
+                    "if no tenant exists with the given ID. Requires PLATFORM_OPERATOR role + X-Platform-Justification header."
     )
     @GetMapping("/{id}")
     @PreAuthorize("hasRole('PLATFORM_OPERATOR')")
@@ -124,13 +124,13 @@ public class TenantController {
             description = "Updates the name of an existing tenant. The slug cannot be changed after " +
                     "creation because it is embedded in OAuth2 redirect URIs and API key scoping. " +
                     "Returns the full updated tenant object. Returns 404 if the tenant ID does not " +
-                    "exist. Requires PLATFORM_ADMIN role."
+                    "exist. Requires PLATFORM_OPERATOR role + X-Platform-Justification header."
     )
     @PutMapping("/{id}")
     @PreAuthorize("hasRole('PLATFORM_OPERATOR')")
     @org.fabt.auth.platform.PlatformAdminOnly(
             reason = "Tenant attribute update (display name) — platform authority required for any tenant-level metadata change",
-            emits = org.fabt.shared.audit.AuditEventType.PLATFORM_TENANT_CREATED)
+            emits = org.fabt.shared.audit.AuditEventType.PLATFORM_TENANT_UPDATED)
     public ResponseEntity<TenantResponse> update(
             @Parameter(description = "UUID of the tenant to update") @PathVariable UUID id,
             @Valid @RequestBody UpdateTenantRequest request) {
@@ -172,7 +172,7 @@ public class TenantController {
     @PreAuthorize("hasRole('PLATFORM_OPERATOR')")
     @org.fabt.auth.platform.PlatformAdminOnly(
             reason = "Tenant observability config update — affects what monitoring + tracing flows out of the tenant; platform authority required",
-            emits = org.fabt.shared.audit.AuditEventType.PLATFORM_TENANT_CREATED)
+            emits = org.fabt.shared.audit.AuditEventType.PLATFORM_TENANT_OBSERVABILITY_UPDATED)
     public ResponseEntity<ObservabilityConfig> updateObservabilityConfig(
             @Parameter(description = "UUID of the tenant") @PathVariable UUID id,
             @RequestBody Map<String, Object> observabilitySettings) {
@@ -188,14 +188,14 @@ public class TenantController {
             summary = "Change DV address visibility policy",
             description = "Updates the DV shelter address visibility policy for a tenant. " +
                     "Valid policies: ADMIN_AND_ASSIGNED (default), ADMIN_ONLY, ALL_DV_ACCESS, NONE. " +
-                    "Requires PLATFORM_ADMIN role and X-Confirm-Policy-Change: CONFIRM header. " +
+                    "Requires PLATFORM_OPERATOR role + X-Platform-Justification header + X-Confirm-Policy-Change: CONFIRM header. " +
                     "INTERNAL/ADMIN-ONLY — this endpoint should not be exposed outside the corporate firewall."
     )
     @PutMapping("/{id}/dv-address-policy")
     @PreAuthorize("hasRole('PLATFORM_OPERATOR')")
     @org.fabt.auth.platform.PlatformAdminOnly(
             reason = "DV-address visibility policy change — affects who can see DV shelter physical addresses; high-sensitivity tenant config; platform authority required",
-            emits = org.fabt.shared.audit.AuditEventType.PLATFORM_TENANT_CREATED)
+            emits = org.fabt.shared.audit.AuditEventType.PLATFORM_DV_ADDRESS_POLICY_CHANGED)
     public ResponseEntity<?> updateDvAddressPolicy(
             @Parameter(description = "UUID of the tenant") @PathVariable UUID id,
             @RequestBody Map<String, String> body,
