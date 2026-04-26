@@ -2,6 +2,8 @@ node_modules/
 playwright-report/
 test-results/
 blob-report/
-# Storage-state JSON files contain access tokens — never commit these.
-# But helper TypeScript modules in the same directory ARE source code.
-auth/*.json
+# Storage-state JSON files contain access tokens. Source-code helpers live
+# in helpers/auth/ (tracked) — /auth/ at the playwright root is exclusively
+# storage state. The leading slash anchors the pattern so the helpers/auth/
+# subdirectory is NOT swept by the same rule.
+/auth/

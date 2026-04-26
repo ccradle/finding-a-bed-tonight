@@ -1,5 +1,46 @@
 -- Seed data for local development
 -- Run after Flyway migrations: psql -U fabt -d fabt -f seed-data.sql
+--
+-- Phase G-4.4 §5.13 prereq (warroom Pre-spec 3 Marcus HIGH): runtime guard.
+-- This script seeds dev-only credentials (password=admin123, well-known
+-- bcrypt hashes, the RFC 4648 §10 test TOTP secret JBSWY3DPEHPK3PXP for
+-- the bootstrap platform_user). Running it against any non-dev/test
+-- database would leak those credentials into a real environment. The
+-- guard below halts execution if the database name does NOT contain
+-- 'dev' or 'test'.
+--
+-- This belongs in the script itself rather than wrapper bash because
+-- (a) operators can invoke psql -f directly without going through
+-- dev-start.sh, and (b) the same script is reused by CI test fixtures
+-- via dockerized test databases — both contexts naming their DB
+-- 'fabt_dev' / 'fabt_test' / 'fabt'. Production DBs use 'fabt_prod'
+-- (or similar) and would trip the guard.
+--
+-- To seed against a custom-named dev DB (e.g. a contributor's local
+-- sandbox), rename it to include 'dev' or 'test', OR set the GUC
+-- override: PGOPTIONS='-c fabt.seed_force=1' psql -d <dbname> -f seed-data.sql
+\set ON_ERROR_STOP on
+DO $$
+DECLARE
+    db_name TEXT := current_database();
+    forced  TEXT := NULLIF(current_setting('fabt.seed_force', true), '');
+BEGIN
+    IF forced = '1' THEN
+        RAISE NOTICE 'seed-data.sql: fabt.seed_force=1 — bypassing dev/test name check on database "%"', db_name;
+        RETURN;
+    END IF;
+    IF lower(db_name) NOT LIKE '%dev%'
+       AND lower(db_name) NOT LIKE '%test%'
+       AND lower(db_name) <> 'fabt' THEN
+        RAISE EXCEPTION
+            'seed-data.sql REFUSES to run against database "%": name does not contain ''dev'' or ''test'' (and is not the dockerized dev default ''fabt''). '
+            'This script seeds dev-only credentials (admin123 password, RFC 4648 test TOTP secret JBSWY3DPEHPK3PXP) and '
+            'is intended ONLY for local dev or CI test fixtures. To override (NOT for production), set the GUC: '
+            'PGOPTIONS=''-c fabt.seed_force=1'' psql -d <dbname> -f seed-data.sql',
+            db_name;
+    END IF;
+END
+$$;
 
 -- Default tenant
 INSERT INTO tenant (id, name, slug, config, created_at, updated_at)

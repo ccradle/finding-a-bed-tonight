@@ -75,9 +75,19 @@ export async function loginPlatformOperator(
       password: PLATFORM_OPERATOR_PASSWORD,
     },
   });
+  // Failure-message hygiene (Riley): keep the assertion message status-only
+  // so the body doesn't get inlined into CI failure logs verbatim. On a real
+  // failure we log the body via console.error so debugging is still possible
+  // without the body landing in the final assertion message.
+  if (!loginResp.ok()) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `loginPlatformOperator: /login failed status=${loginResp.status()} body=${await loginResp.text()}`
+    );
+  }
   expect(
     loginResp.ok(),
-    `Platform login failed (${loginResp.status()}): ${await loginResp.text()}`
+    `Platform login failed status=${loginResp.status()} (see console.error for body)`
   ).toBeTruthy();
   const loginBody = await loginResp.json();
   expect(loginBody.scope, `Expected mfa-verify scope; got ${loginBody.scope}`)
@@ -93,9 +103,15 @@ export async function loginPlatformOperator(
       data: { code },
     }
   );
+  if (!verifyResp.ok()) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `loginPlatformOperator: /login/mfa-verify failed status=${verifyResp.status()} body=${await verifyResp.text()}`
+    );
+  }
   expect(
     verifyResp.ok(),
-    `Platform MFA verify failed (${verifyResp.status()}): ${await verifyResp.text()}`
+    `Platform MFA verify failed status=${verifyResp.status()} (see console.error for body)`
   ).toBeTruthy();
   const verifyBody = await verifyResp.json();
 

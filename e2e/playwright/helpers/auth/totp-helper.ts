@@ -88,15 +88,42 @@ export function generateTotp(secret: string, atUnixSeconds?: number): string {
 }
 
 /**
- * Generate the next deterministically-different TOTP code by looking
- * one window into the future. Useful for the lockout spec which needs
- * to submit 5 distinct WRONG codes — we generate the current code, then
- * mutate the last digit to produce a guaranteed-wrong-but-well-formed
- * 6-digit number.
+ * Generate a TOTP code at the same window as {@link generateTotp}, then
+ * flip the last digit so the result is well-formed but typically wrong.
+ * NOT "guaranteed wrong" — server-side ±1 window tolerance leaves a
+ * tiny collision chance (~3 / 1,000,000 per call) where the mutated
+ * digit happens to match the code at counter±1. Acceptable for
+ * "submit a code that's almost-certainly different from a fresh
+ * {@link generateTotp}" use cases; NOT acceptable for the lockout spec
+ * where every attempt must be wrong with zero ambiguity. Use
+ * {@link generateFutureWrongTotp} for that.
  */
 export function generateWrongTotp(secret: string): string {
   const correct = generateTotp(secret);
   const lastDigit = parseInt(correct[correct.length - 1], 10);
   const wrongLast = (lastDigit + 1) % 10;
   return correct.slice(0, 5) + wrongLast.toString();
+}
+
+/**
+ * Generate a TOTP code at counter+10 windows (5 minutes in the future,
+ * well past the server's ±1 acceptance band). Guaranteed to be rejected
+ * by the server even with the most generous tolerance window — the
+ * verify path checks counters [N-1, N, N+1] for the current epoch N;
+ * we mint at N+10, which is outside any reasonable acceptance band.
+ *
+ * <p>Used by `platform-totp-lockout.spec.ts` to submit 5 wrong codes
+ * with zero collision probability. Each call advances the offset to
+ * keep submissions distinct (V88's TOTP-replay table may track distinct
+ * codes per attempt — different offset → different code, even within
+ * the same 30s window).
+ *
+ * @param secret base32 TOTP secret
+ * @param offsetWindows additional 30s windows past the base +10 offset
+ *        (default 0 — i.e. counter+10). The lockout spec passes 0..4
+ *        across its 5 attempts to mint 5 distinct future codes.
+ */
+export function generateFutureWrongTotp(secret: string, offsetWindows = 0): string {
+  const futureSec = Math.floor(Date.now() / 1000) + 300 + offsetWindows * 30;
+  return generateTotp(secret, futureSec);
 }
