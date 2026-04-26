@@ -32,8 +32,14 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
  *   docker exec -it fabt-backend \
  *     java -cp /app/finding-a-bed-tonight.jar \
  *          -Dloader.main=org.fabt.tooling.HashPasswordCli \
- *          org.springframework.boot.loader.PropertiesLauncher
+ *          org.springframework.boot.loader.launch.PropertiesLauncher
  * }</pre>
+ *
+ * <p>The {@code .launch.} package segment is required — Spring Boot 4
+ * moved {@code PropertiesLauncher} from {@code o.s.b.loader} to
+ * {@code o.s.b.loader.launch}. The old (Spring Boot 3) path
+ * {@code org.springframework.boot.loader.PropertiesLauncher} now
+ * {@code ClassNotFoundException}s.
  *
  * <p>The tool prints a single line to stdout: the bcrypt hash. Reads the
  * password from stdin (echoed if not a TTY, e.g. piped from a file —

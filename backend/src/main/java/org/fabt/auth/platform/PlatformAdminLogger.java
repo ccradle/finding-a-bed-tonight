@@ -198,7 +198,11 @@ public class PlatformAdminLogger {
                                   UUID palId, UUID auditEventId) {
         UUID platformUserId = currentPlatformUserId();
         HttpServletRequest request = currentRequest();
-        UUID actionTenantId = resolveActionTenantId(pjp, annotation);
+        // Use the warn-on-fallback wrapper rather than calling resolveActionTenantId
+        // directly. Same return value; additionally logs WARN + bumps
+        // fabt.platform.audit.tenant_id_fallback when a tenant-scoped action
+        // misses the convention. See G-4.6 warroom HIGH (Jordan).
+        UUID actionTenantId = resolveAndWarnOnFallback(pjp, annotation);
         String requestPath = request != null ? request.getRequestURI() : "(no-request)";
         String requestMethod = request != null ? request.getMethod() : "?";
         String ipAddress = request != null ? request.getRemoteAddr() : null;
@@ -242,6 +246,18 @@ public class PlatformAdminLogger {
      * parameters. Otherwise, look for a parameter named {@code tenantId}
      * of type {@link UUID} in the proceeding method signature; default to
      * SYSTEM_TENANT_ID if not present.
+     *
+     * <p><b>G-4.6 warroom HIGH (Jordan):</b> the parameter-name match is a
+     * silent contract — a controller author who names the path variable
+     * {@code id} (URL-friendly) but expects per-tenant audit chaining will
+     * land their AE row in the SYSTEM chain with no warning. The instance-
+     * level {@link #resolveAndWarnOnFallback(ProceedingJoinPoint, PlatformAdminOnly)}
+     * wrapper logs WARN + increments
+     * {@code fabt.platform.audit.tenant_id_fallback} for every non-HARD_DELETE
+     * action that hits the fallback, so an operator-dashboard alert catches
+     * the next regression before it ages into the audit record. F14 OpenSpec
+     * follow-up adds an ArchUnit rule pinning the {@code tenantId} param
+     * convention at compile/test time.</p>
      */
     private static UUID resolveActionTenantId(ProceedingJoinPoint pjp, PlatformAdminOnly annotation) {
         if (annotation.emits() == AuditEventType.PLATFORM_TENANT_HARD_DELETED) {
@@ -258,6 +274,59 @@ public class PlatformAdminLogger {
             }
         }
         return TenantContext.SYSTEM_TENANT_ID;
+    }
+
+    /**
+     * Calls {@link #resolveActionTenantId} and additionally emits a WARN
+     * log + counter increment when the resolution falls back to
+     * {@link TenantContext#SYSTEM_TENANT_ID} for an action whose audit-
+     * chaining contract requires the target tenant's chain
+     * (i.e. every {@code PLATFORM_TENANT_*} action except HARD_DELETED,
+     * which is intentionally SYSTEM-scoped per Decision 13). The counter
+     * SHOULD be zero in steady state — any non-zero rate indicates a
+     * controller defined its path variable with a name other than exactly
+     * {@code tenantId} and is silently miswriting AE rows into the
+     * SYSTEM chain.
+     */
+    private UUID resolveAndWarnOnFallback(ProceedingJoinPoint pjp, PlatformAdminOnly annotation) {
+        UUID resolved = resolveActionTenantId(pjp, annotation);
+        if (resolved.equals(TenantContext.SYSTEM_TENANT_ID)
+                && annotation.emits() != AuditEventType.PLATFORM_TENANT_HARD_DELETED
+                && isTenantScopedAction(annotation.emits())) {
+            String methodSig = pjp.getSignature().toShortString();
+            log.warn("PlatformAdminLogger.resolveActionTenantId fell back to SYSTEM_TENANT_ID for "
+                            + "action={} method={} — controller is missing a parameter named exactly "
+                            + "'tenantId' of type UUID. AE row will land in SYSTEM chain instead of "
+                            + "the target tenant's chain. Rename the @PathVariable / @RequestParam "
+                            + "to 'tenantId' (use @PathVariable(\"id\") UUID tenantId to keep the URL).",
+                    annotation.emits(), methodSig);
+            if (meterRegistry != null) {
+                Counter.builder("fabt.platform.audit.tenant_id_fallback")
+                        .tag("action", annotation.emits().name())
+                        .register(meterRegistry)
+                        .increment();
+            }
+        }
+        return resolved;
+    }
+
+    /**
+     * Heuristic for "this action's AE row belongs in the target tenant's
+     * chain, not SYSTEM." Per the convention captured in
+     * {@code resolveResourceName}, the tenant-scoped action enums are the
+     * {@code PLATFORM_TENANT_*} family minus the HARD_DELETED override.
+     * Other platform actions ({@code PLATFORM_BATCH_JOB_TRIGGERED},
+     * {@code PLATFORM_USER_*}, etc.) are platform-owned and intentionally
+     * SYSTEM-scoped — they should NOT trigger the warning.
+     */
+    private static boolean isTenantScopedAction(AuditEventType action) {
+        return switch (action) {
+            case PLATFORM_TENANT_CREATED, PLATFORM_TENANT_SUSPENDED,
+                 PLATFORM_TENANT_UNSUSPENDED, PLATFORM_TENANT_OFFBOARDED,
+                 PLATFORM_TENANT_UPDATED, PLATFORM_KEY_ROTATED,
+                 PLATFORM_HMIS_EXPORTED, PLATFORM_OAUTH2_TESTED -> true;
+            default -> false;
+        };
     }
 
     private static UUID resolveResourceId(ProceedingJoinPoint pjp) {

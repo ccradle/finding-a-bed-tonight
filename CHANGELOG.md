@@ -144,6 +144,42 @@ about PLATFORM_ADMIN deprecation + the new platform-operator login flow.
   - `docs/observability/platform-admin-monitoring.md` documents what
     v0.53 emits + 6 Grafana panel sketches for Phase H+.
 
+### Added — G-4.6 TenantLifecycleController REST endpoints
+
+- 4 new platform-operator REST endpoints over the existing
+  `TenantLifecycleService` (which has shipped since v0.51 but had no
+  HTTP surface — operators previously invoked lifecycle actions via psql
+  against the DB owner, breaking the audit posture):
+  - `POST /api/v1/tenants/{id}/suspend` — ACTIVE → SUSPENDED + bumps
+    JWT key generation + deactivates all API keys
+  - `POST /api/v1/tenants/{id}/unsuspend` — SUSPENDED → ACTIVE
+    (intentionally asymmetric — neither re-rotates JWT keys nor
+    re-activates API keys, per Decision 11 post-compromise hygiene)
+  - `POST /api/v1/tenants/{id}/offboard` — ACTIVE-or-SUSPENDED →
+    OFFBOARDING + generates GDPR-Art-20 export receipt URI
+  - `DELETE /api/v1/tenants/{id}` — ARCHIVED → DELETED, fires the
+    Phase F crypto-shred CASCADE (22 FKs including `tenant_dek`)
+- All 4 endpoints carry the full platform-operator authority stack:
+  `@PreAuthorize("PLATFORM_OPERATOR")` + `@PlatformAdminOnly` aspect
+  (commits PAL row + chained AE row pre-proceed per Decision 11) +
+  `X-Platform-Justification` header (≥10 chars, validated by
+  `JustificationValidationFilter`) + MFA-verified-JWT requirement.
+  State-capture allowlist limited to `slug, name, state, archived_at`.
+- Gated behind `fabt.tenant.lifecycle.enabled` (default false until
+  G-4.6 promotion) — same flag that gates the underlying service.
+- New `TenantLifecycleExceptionAdvice` with `@Order(HIGHEST_PRECEDENCE)`
+  maps `IllegalStateTransitionException` → 409, `TenantStateGuardException`
+  → 404 (read) / 503 (write) per the existing D3 no-existence-leak
+  pattern. Order is load-bearing — without it the global catch-all
+  `Exception` handler wins and FSM rejections surface as 500.
+- `PlatformAdminLogger.resolveActionTenantId` now WARNs + bumps a new
+  `fabt.platform.audit.tenant_id_fallback{action=...}` Counter when a
+  tenant-scoped action falls back to SYSTEM_TENANT_ID due to a
+  controller missing a `tenantId` UUID parameter. Steady-state value
+  should be 0 — any non-zero rate indicates a controller misconfigured
+  the path-variable name and is silently miswriting AE chains.
+  Operators should add a `>0` alert rule.
+
 ### Changed — G-4.5 user-facing role labels (post-G-4.4)
 
 - Demo + onboarding pages updated from "Platform Admin" → "CoC Admin"
@@ -170,7 +206,7 @@ about PLATFORM_ADMIN deprecation + the new platform-operator login flow.
   Earlier addition in `application.yml` alone caused
   `JCacheNotFoundException` at startup when `bucket4j.enabled=true`.
 
-### Deferred follow-ups (in design.md F1-F28)
+### Deferred follow-ups (in design.md F1-F34)
 
 Severity matches design.md classification.
 
@@ -190,6 +226,21 @@ Severity matches design.md classification.
   warning banner
 - **F28** (MEDIUM) — `FabtPlatformUserDelayedActivation` alert + V94
   SECURITY DEFINER `platform_user_count_unactivated_older_than` function
+- **F29** (LOW debate) — synthetic audit row for defense-in-depth
+  aspect rejections (Marcus / Casey unresolved)
+- **F30** (MEDIUM) — `FabtPlatformLoginFailureBurst` slow-drip
+  distributed-enumeration second-tier alert (defer to first-deployment
+  calibration window)
+- **F31** (HIGH, partial) — `@PlatformAdminOnly` `tenantId`-param
+  ArchUnit pin (the runtime WARN + Counter half shipped in G-4.6;
+  ArchUnit guard deferred to v0.54)
+- **F32** (LOW) — ArchUnit guard against reflection-based regression
+  of state-capture allowlist
+- **F33** (LOW) — controller-level IT for the 3 remaining
+  `TENANT_*_REJECTED` audit-row paths (only suspend covered today)
+- **F34** (LOW) — push `fabt.tenant.lifecycle.enabled=true` into
+  shared `application-lifecycle-test.yml` profile to share Spring
+  contexts across lifecycle ITs
 
 None are v0.53 blockers. F23 is the highest-priority post-deploy item
 (closes a per-IP throttle gap on the highest-risk endpoints — login,

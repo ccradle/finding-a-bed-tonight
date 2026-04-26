@@ -10,6 +10,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.MessageSource;
 import org.springframework.context.i18n.LocaleContextHolder;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -25,8 +27,22 @@ import org.springframework.web.context.request.ServletRequestAttributes;
  * Spring supports multiple {@code @RestControllerAdvice} beans — this one handles
  * tenant-lifecycle exceptions, the shared one handles cross-cutting concerns
  * (auth, validation, etc.).
+ *
+ * <p><b>Precedence (G-4.6 warroom fix):</b> {@code @Order(HIGHEST_PRECEDENCE)} is
+ * required because {@code GlobalExceptionHandler.handleUnexpected(Exception)} is a
+ * catch-all that matches every {@code Throwable}. Spring's
+ * {@code ExceptionHandlerExceptionResolver} iterates {@code @ControllerAdvice}
+ * beans in {@code @Order} order, returning the first match — without the explicit
+ * order, the unannotated Global bean often wins by classpath / bean-name fallback,
+ * silently mapping {@link org.fabt.tenant.domain.IllegalStateTransitionException}
+ * to a 500 instead of the 409 we hand-wired below. The HIGHEST_PRECEDENCE marker
+ * pins module-local advice ahead of the shared catch-all without changing
+ * Global's behavior for every other handler. (See diagnosis behind G-4.6
+ * controller IT 5/5 failures: SUSPENDED→SUSPENDED self-transition surfaced as
+ * 500 even with this handler defined, because Global was queried first.)</p>
  */
 @RestControllerAdvice
+@Order(Ordered.HIGHEST_PRECEDENCE)
 public class TenantLifecycleExceptionAdvice {
 
     private static final Logger log = LoggerFactory.getLogger(TenantLifecycleExceptionAdvice.class);
@@ -77,6 +93,36 @@ public class TenantLifecycleExceptionAdvice {
             .header("Retry-After", "3600")
             .body(new ErrorResponse("service_unavailable",
                 "Service temporarily unavailable for this resource", 503));
+    }
+
+    /**
+     * G-4.6: state-machine rejections from {@link TenantLifecycleService}
+     * (e.g., suspending an already-SUSPENDED tenant, hard-deleting from
+     * OFFBOARDING without going through ARCHIVED) surface as
+     * {@link org.fabt.tenant.domain.IllegalStateTransitionException}.
+     * Map to 409 Conflict so callers (operator UI, scripts) can
+     * distinguish FSM violations from auth failures (401/403) and
+     * validation errors (400). Body shape matches the other handlers
+     * here for consistency.
+     *
+     * <p>Note: per Decision 11 the {@code @PlatformAdminOnly} aspect
+     * has already committed the PAL row before this handler runs. The
+     * failed transition itself is recorded by the lifecycle service via
+     * {@code DetachedAuditPersister} as {@code TENANT_*_REJECTED} —
+     * operators correlate that audit row with the PAL row at the same
+     * timestamp.</p>
+     */
+    @ExceptionHandler(org.fabt.tenant.domain.IllegalStateTransitionException.class)
+    public ResponseEntity<ErrorResponse> handleIllegalStateTransition(
+            org.fabt.tenant.domain.IllegalStateTransitionException ex) {
+        log.warn("Tenant FSM violation (409): {}", ex.getMessage());
+        Counter.builder("fabt.tenant.lifecycle.fsm_rejection")
+                .register(meterRegistry)
+                .increment();
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(new ErrorResponse("invalid_state_transition",
+                        ex.getMessage(), 409));
     }
 
     /**

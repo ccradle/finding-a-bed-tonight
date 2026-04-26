@@ -29,7 +29,37 @@ This is **designed to support** NIST SP 800-88 Rev 2 §2.5 "Cryptographic Erase"
 
 ## How to shred a tenant (break-glass procedure)
 
-**Important:** v0.51.0 does NOT expose a public admin API or CLI for `hardDelete`. The method exists as a service-layer entry point; a CLI wrapper lands in a later release. For the first prod shred (if required before the CLI lands), use the Spring Boot actuator or a purpose-built one-shot migration. This section documents the operator-side procedure; run it through the warroom before executing.
+**Important:** From v0.53.0 onward, `hardDelete` IS exposed via REST as `DELETE /api/v1/tenants/{id}` (G-4.6) — but the endpoint ships gated behind `fabt.tenant.lifecycle.enabled=false` and **stays gated off until operators rehearse the new flow against staging and explicitly flip the flag**. Until then, this section's psql-against-the-DB-owner break-glass procedure remains the supported path for the first prod shred. After the flag flips, see "Path B (G-4.6 REST)" below for the supported endpoint.
+
+### Path A — psql / actuator break-glass (v0.51-v0.53 default)
+
+This section documents the operator-side procedure; run it through the warroom before executing. The Spring Boot actuator or a purpose-built one-shot migration are the supported invocation points.
+
+### Path B — G-4.6 REST endpoint (after flag flip)
+
+When `fabt.tenant.lifecycle.enabled=true` is set in `prod-*.env` and backend has been restarted:
+
+```bash
+# Prerequisite: a platform-operator JWT minted via /api/v1/auth/platform/login
+# + /api/v1/auth/platform/verify-mfa (TOTP), and a justification ≥10 chars.
+TENANT_ID="..."  # The ARCHIVED tenant past its 30-day retention window
+JUSTIFICATION="GDPR Art-17 erasure request — ticket #XYZ — legal sign-off attached"
+
+curl -X DELETE "https://findabed.org/api/v1/tenants/${TENANT_ID}" \
+  -H "Authorization: Bearer ${PLATFORM_JWT}" \
+  -H "X-Platform-Justification: ${JUSTIFICATION}"
+```
+
+Expected: `204 No Content`. The response is empty by design — there is no tenant left to return. The full audit trail lands in:
+- `platform_admin_access_log` (PAL row, pre-shred state captured via `before_state`)
+- `audit_events` chained AE row in the SYSTEM tenant chain (forced by Decision 13 so the row survives the cascade)
+- `audit_events` `TENANT_HARD_DELETED` tombstone written via `DetachedAuditPersister` (after-commit hook) under SYSTEM_TENANT_ID
+
+If the call returns `409 Conflict`, the FSM rejected the request — most commonly the tenant is not in `ARCHIVED` state OR `archived_at + 30 days > now()`. Check the `error.message` body for the specific gate.
+
+If the call returns `404 Not Found`, either the tenant ID does not exist OR the `TenantStateGuard` masked the response per the existing D3 no-existence-leak pattern (the operator's role is intentionally cross-tenant, so a true 404 vs a state-guard mask is indistinguishable from the response — check the audit trail to confirm).
+
+The pre-shred operator checklist below applies regardless of which path is used.
 
 ### Pre-shred operator checklist
 

@@ -54,6 +54,7 @@ consulted:
   - `TestControllerProfileGuardTest` (every Test*Controller has `@Profile("dev | test")` gate)
 - 2 new Playwright specs (`platform-admin-access-log.spec.ts`, `platform-totp-lockout.spec.ts`) + 1 smoke spec
 - 3 new dev-seed `platform_user` rows (bootstrap `0fab`, smoke `0fa1`, lockout-target `0fa2`) — LOCAL DEV ONLY; `seed-data.sql` has a runtime DB-name guard that REFUSES non-dev/test DBs
+- **G-4.6 — TenantLifecycleController REST endpoints.** 4 new platform-operator endpoints (`POST /api/v1/tenants/{id}/suspend`, `/unsuspend`, `/offboard`, `DELETE /api/v1/tenants/{id}`) finally expose the `TenantLifecycleService` (shipped in v0.51) over HTTP. Pre-G-4.6, lifecycle actions in prod ran via psql against the DB owner — no audit row, no MFA gate, no operator identity, no justification. All 4 endpoints carry the full platform-operator authority stack (`@PreAuthorize("PLATFORM_OPERATOR")` + `@PlatformAdminOnly` aspect + `X-Platform-Justification` header + MFA-verified JWT). Gated behind `fabt.tenant.lifecycle.enabled` (default false); operators flip the flag in `prod-*.env` post-deploy when ready to retire the psql break-glass path. New `TenantLifecycleExceptionAdvice` (with `@Order(HIGHEST_PRECEDENCE)`) maps FSM rejections → 409 and tenant-state-guard rejections → 404 (read) / 503 (write). New `fabt.platform.audit.tenant_id_fallback{action=...}` Counter — should be **zero in steady state**; any non-zero rate indicates a `@PlatformAdminOnly` controller is misnaming its tenant-id parameter and silently miswriting the AE chain (operators should add a `>0` alert rule).
 
 ### What does NOT change in this deploy
 
@@ -343,9 +344,12 @@ ssh <VM_USER>@<VM_IP>
 docker exec -it fabt-backend \
   java -cp /app/finding-a-bed-tonight.jar \
        -Dloader.main=org.fabt.tooling.HashPasswordCli \
-       org.springframework.boot.loader.PropertiesLauncher
+       org.springframework.boot.loader.launch.PropertiesLauncher
 # Tool prompts for password (no echo on TTY); prints the bcrypt hash on stdout.
 # Copy the single-line bcrypt hash for Step 2.
+# Note the `.launch.` segment — Spring Boot 4 moved PropertiesLauncher under
+# the `loader.launch` package; older Spring Boot 3 docs use the unscoped
+# `loader.PropertiesLauncher` which now ClassNotFoundExceptions.
 
 # Step 2 — UPDATE the bootstrap row with the chosen email + bcrypt hash.
 # REVOKEs prevent fabt_app from doing this; run as fabt OWNER.
@@ -431,6 +435,23 @@ Spot-check (one each):
 
 All should succeed for COC_ADMIN-bearing accounts (the previous PLATFORM_ADMIN-bearing accounts now also have COC_ADMIN per V87 backfill).
 
+### 6.7. G-4.6 TenantLifecycleController surface check (read-only — flag stays OFF)
+
+The G-4.6 endpoints ship behind `fabt.tenant.lifecycle.enabled=false` (default). DO NOT flip the flag in this deploy — surface check confirms the controller bean is gated off correctly so traffic continues hitting the existing psql break-glass path until operators rehearse the new flow against staging.
+
+```bash
+# Should return 404 (controller bean not registered when flag is false).
+# A 404 here = correct — the @ConditionalOnProperty gate is working.
+# A 401/403/405 here = the controller bean IS registered. Flag was flipped
+# accidentally OR the @ConditionalOnProperty annotation regressed. Investigate.
+curl -sk -o /dev/null -w "%{http_code}\n" \
+  -X POST https://findabed.org/api/v1/tenants/$(uuidgen)/suspend \
+  -H 'X-Platform-Justification: surface-check-must-404'
+# Expected: 404
+```
+
+Confirms the gate is intact. When operators are ready to retire the psql break-glass path (post-deploy decision in §8), flip `fabt.tenant.lifecycle.enabled=true` in `prod-*.env` + restart backend + re-run §6.7 expecting 401 (justification + JWT required) rather than 404.
+
 ---
 
 ## 7. Rollback
@@ -453,19 +474,25 @@ All should succeed for COC_ADMIN-bearing accounts (the previous PLATFORM_ADMIN-b
 - [ ] Update `project_resume_point.md` memory to v0.53 deployed state
 - [ ] Update `project_live_deployment_status.md` memory (compose-file count + Flyway HWM + JAR version)
 - [ ] Smoke-verify post-deploy via §6 sweep
-- [ ] Coordinate G-4.5 / G-4.6 kickoff in next session
+- [ ] Decide when to flip `fabt.tenant.lifecycle.enabled=true` in `prod-*.env` (G-4.6 endpoints currently gated off; flip retires the psql break-glass path for tenant lifecycle actions — coordinate with operator-runbook update + first end-to-end suspend/unsuspend rehearsal against staging)
+- [ ] Add Grafana alert: `rate(fabt_platform_audit_tenant_id_fallback_total[5m]) > 0` — pages on the first regression of any `@PlatformAdminOnly` controller's tenant-id parameter convention
 - [ ] Update fabt-cli runbook entries for new platform-operator activation flow
 
 ---
 
 ## 9. Known limitations + deferred follow-ups
 
-See `openspec/changes/platform-admin-split-and-access-log/design.md` §F1-F20 for full follow-up list. Highlights for v0.53:
+See `openspec/changes/platform-admin-split-and-access-log/design.md` §F1-F34 for full follow-up list. Highlights for v0.53:
 
-- **F13** — `after_state` always NULL on PAL rows in v0.53 (Decision 11)
+- **F12** — TenantLifecycleController REST endpoints — **✅ shipped in G-4.6**
+- **F13** — `after_state` always NULL on PAL rows in v0.53 (Decision 11). G-4.6 controllers call `captureAfter` for forward compat; surfaced in MDC application logs only until F13 lands the post-proceed PAL update path.
 - **F14** — Cross-tenant operator-driven HMIS push (`POST /api/v1/admin/tenants/{id}/hmis/push`) deferred to G-4.5 / dedicated micro-change
 - **F16** — HMIS push authority broadening + audit-chain regression mitigated via confirm-header + per-tenant audit_event row; customer-comms in §3 includes the disclosure
 - **F17** — Playwright fixture caching across tests (CI runtime cost); G-4.5
 - **F18** — Prometheus alert on per-operator tenant-update rate; G-4.5 monitoring
 - **F19** — Platform-operator observability config persistence IT; G-4.5
 - **F20** — Audit gaps on platform-scoped reads + cross-tenant batch metadata reads (deliberate v0.53 decision)
+- **F31** — `@PlatformAdminOnly` `tenantId`-param ArchUnit pin (runtime WARN + Counter half shipped in G-4.6; ArchUnit guard deferred to v0.54)
+- **F32** — ArchUnit guard against reflection-based regression of state-capture allowlist; LOW
+- **F33** — controller-level ITs for the 3 remaining `TENANT_*_REJECTED` audit-row paths (only suspend covered by G-4.6 IT today); LOW
+- **F34** — push `fabt.tenant.lifecycle.enabled=true` into shared `application-lifecycle-test.yml` profile to share Spring contexts across lifecycle ITs; LOW
