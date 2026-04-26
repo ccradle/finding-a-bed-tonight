@@ -220,15 +220,31 @@ Default: 4 hours (`dv_referral_expiry_minutes: 240` in tenant config). Configura
 
 The `referral_token` table inherits DV shelter access control via the `shelter` FK join. The RLS policy follows the same pattern as `bed_availability` (V13). Users without `dvAccess=true` cannot see, create, or respond to DV referral tokens.
 
-### Defense in Depth (D14)
+### Defense in Depth (D14, expanded for v0.53 G-4.5 §6.b)
 
-DV shelter protection is enforced at **two independent layers**:
+DV shelter protection is enforced at **multiple independent layers**.
+The two **always-on** data-protection layers (D14) are paired with
+three **demo-environment abuse defenses** (G-4.5 §6.b) so the public
+demo at findabed.org can absorb cross-site attempts and slow-drip
+enumeration without leaking DV-shelter signal into ops noise.
+
+**Always-on data protection (D14):**
 
 1. **Database layer (RLS)**: Every JDBC connection executes `SET ROLE fabt_app` before any query. The `fabt_app` role is NOSUPERUSER (created in V16), so PostgreSQL RLS policies enforce. The session variable `app.dv_access` is set from the JWT claim. Users without `dvAccess=true` cannot see DV shelter rows — the database simply returns no results.
 
 2. **Service layer**: `ReferralTokenService.createToken()` explicitly checks `TenantContext.getDvAccess()` and throws `AccessDeniedException` if false. This check is independent of RLS — even if the database role were misconfigured, the service layer blocks the request.
 
 **Why both?** During development, we discovered that PostgreSQL superusers (including the user created by Testcontainers in CI) bypass RLS entirely, even with `FORCE ROW LEVEL SECURITY`. The `SET ROLE` fix ensures RLS applies in all environments. The service-layer check ensures protection even if the database configuration is wrong. Neither layer alone is sufficient — together they provide the zero-tolerance protection required by VAWA.
+
+**Demo abuse-cost layers (G-4.5 §6.b, v0.53):**
+
+3. **Per-IP throttle (`rate-limit-dv-referral-create`)**: Bucket4j caps `POST /api/v1/dv-referrals` at 5 creates per source IP per hour. Cache-key SpEL reads `X-Real-IP` header so the bucket keys on the actual client IP behind nginx, not nginx's container IP. Returns 429 with a friendly retry message.
+
+4. **Cross-site filter (`DvReferralCrossSiteFilter`)**: Rejects 403 on `Sec-Fetch-Site: cross-site`; allows `same-origin` / `same-site` / `none` / absent. Documented as "raise abuse cost slightly", not "block abuse" — non-browser clients (curl, scripts) can omit or forge the header. The filter narrows the casual cross-origin attack surface.
+
+5. **Burst alert (`FabtDvReferralBurstFromSingleIp`)**: Prometheus rule fires when `fabt.dv.referrals.created{source_ip}` exceeds 10/min sustained over 2 min — i.e. the bucket4j throttle was bypassed (rotating IPs, proxy chains). Operator triage flow lives at `docs/security/dv-incident-response.md` with FORCE-RLS-aware psql queries + a 7-step tabletop walkthrough.
+
+A sixth layer — the `dvReferralDemoCleanup` batch job — deletes PENDING referrals older than 48h from `dev-*` tenants every 6 hours so the public demo's queue doesn't accumulate noise across visitor sessions. Bean is `@Profile("demo")`-gated and uses an explicit slug filter as defense in depth.
 
 ### Offline Behavior (v0.25.1)
 
