@@ -193,10 +193,21 @@ public class PlatformAdminAccessLogger {
             // UPDATE). Log + swallow so the locked operator gets the
             // 401, then ops can detect the missing audit row via the
             // PAL.timestamp gap alert (G-4.5 task).
-            log.error("Failed to persist lockout audit row for platform_user {} — "
-                            + "account remains locked, but audit chain is missing this entry. "
-                            + "Investigate: {}",
-                    platformUserId, e.getMessage(), e);
+            //
+            // §6.18: MDC marker so SOC platform_action filters pick this
+            // line up alongside the @PlatformAdminOnly aspect's logs.
+            // The lockout audit path runs OUTSIDE the aspect (service-
+            // internal), so the aspect's MDC.put never wraps this call.
+            // Set + remove in a try/finally so the marker is contained.
+            org.slf4j.MDC.put("platform_action", "true");
+            try {
+                log.error("Failed to persist lockout audit row for platform_user {} — "
+                                + "account remains locked, but audit chain is missing this entry. "
+                                + "Investigate: {}",
+                        platformUserId, e.getMessage(), e);
+            } finally {
+                org.slf4j.MDC.remove("platform_action");
+            }
         }
     }
 

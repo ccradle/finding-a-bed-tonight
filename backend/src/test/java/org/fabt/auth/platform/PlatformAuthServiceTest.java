@@ -52,6 +52,7 @@ class PlatformAuthServiceTest {
     @Mock private PlatformAdminAccessLogger adminAccessLogger;
     private PasswordService passwordService;
     private PlatformAuthService authService;
+    private io.micrometer.core.instrument.simple.SimpleMeterRegistry meterRegistry;
 
     @BeforeEach
     void setUp() {
@@ -59,8 +60,32 @@ class PlatformAuthServiceTest {
         org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder encoder =
                 new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder();
         passwordService = new PasswordService(encoder);
+        // G-4.5 §6.17: PlatformAuthService now takes a MeterRegistry to
+        // register the platform-login-failure + locked-out counters.
+        // SimpleMeterRegistry is the standard test harness — no scrape
+        // endpoint, but Counter increments are accumulated in-memory and
+        // queryable via meterRegistry.find(...).counter().count().
+        meterRegistry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
         authService = new PlatformAuthService(
-                userRepository, passwordService, totpService, adminAccessLogger);
+                userRepository, passwordService, totpService, adminAccessLogger,
+                meterRegistry);
+    }
+
+    /**
+     * Helper: read the current count of the per-reason login-failure
+     * counter. Returns 0.0 if no increments have happened — Micrometer
+     * does NOT lazy-create counters in {@code find()} mode, but our
+     * service constructor pre-registers all 4 reasons at boot so they
+     * exist from the moment SimpleMeterRegistry is wired.
+     */
+    private double loginFailureCount(String reason) {
+        return meterRegistry.find("fabt.platform.login.failures")
+                .tag("reason", reason).counter().count();
+    }
+
+    private double lockedOutCount() {
+        return meterRegistry.find("fabt.platform.user.locked_out")
+                .counter().count();
     }
 
     // ------------------------------------------------------------------
@@ -355,6 +380,74 @@ class PlatformAuthServiceTest {
         verify(totpService, never()).verifyCode(anyString(), anyString());
         verify(userRepository, never())
                 .updateCredentials(any(), any(), any(), any(), any());
+    }
+
+    // ==================================================================
+    // G-4.5 §6.17 — metric increments on REJECTED + lockout paths
+    // ==================================================================
+
+    @Test
+    @DisplayName("§6.17 bad email → fabt.platform.login.failures{reason=bad_email} increments")
+    void metric_loginBadEmail() {
+        when(userRepository.findByEmail("nope@example.com")).thenReturn(Optional.empty());
+
+        authService.login("nope@example.com", "anything");
+
+        assertThat(loginFailureCount("bad_email")).isEqualTo(1.0);
+        assertThat(loginFailureCount("locked")).isZero();
+        assertThat(loginFailureCount("bad_password")).isZero();
+    }
+
+    @Test
+    @DisplayName("§6.17 locked account → fabt.platform.login.failures{reason=locked} increments")
+    void metric_loginLocked() {
+        PlatformUser locked = userWith(true, true, passwordService.hash("real-password"));
+        when(userRepository.findByEmail("ops@example.com")).thenReturn(Optional.of(locked));
+
+        authService.login("ops@example.com", "anything");
+
+        assertThat(loginFailureCount("locked")).isEqualTo(1.0);
+        assertThat(loginFailureCount("bad_email")).isZero();
+        assertThat(loginFailureCount("bad_password")).isZero();
+    }
+
+    @Test
+    @DisplayName("§6.17 bad password → fabt.platform.login.failures{reason=bad_password} increments")
+    void metric_loginBadPassword() {
+        PlatformUser u = userWith(false, true, passwordService.hash("real-password"));
+        when(userRepository.findByEmail("ops@example.com")).thenReturn(Optional.of(u));
+
+        authService.login("ops@example.com", "wrong-password");
+
+        assertThat(loginFailureCount("bad_password")).isEqualTo(1.0);
+        assertThat(loginFailureCount("locked")).isZero();
+        assertThat(loginFailureCount("bad_email")).isZero();
+    }
+
+    @Test
+    @DisplayName("§6.17 lockout transition → fabt.platform.user.locked_out increments exactly once")
+    void metric_lockoutTransition() {
+        UUID userId = UUID.randomUUID();
+        PlatformUser u = userWith(false, true, passwordService.hash("real-password"));
+        u.setId(userId);
+        u.setMfaSecret("SECRET");
+        when(userRepository.findById(userId)).thenReturn(Optional.of(u));
+        when(userRepository.wasTotpRecentlyUsed(eq(userId), anyString(), anyInt())).thenReturn(false);
+        when(totpService.verifyCode(anyString(), anyString())).thenReturn(false);
+        when(userRepository.findUnusedBackupCodes(userId)).thenReturn(List.of());
+        // recordFailure returns true on the lockout transition; the counter
+        // should fire exactly once even if verifyMfa is called many times.
+        when(userRepository.recordFailure(eq(userId), anyInt(), anyInt()))
+                .thenReturn(false, false, false, false, true);
+
+        for (int i = 0; i < 5; i++) {
+            authService.verifyMfa(userId, "999999");
+        }
+
+        assertThat(lockedOutCount())
+                .as("Counter increments only on the TRANSITION (recordFailure → true), "
+                        + "not on every failed attempt")
+                .isEqualTo(1.0);
     }
 
     // ------------------------------------------------------------------

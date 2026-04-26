@@ -1,0 +1,187 @@
+# Prometheus alert rules — G-4.5 §6.17 Platform admin monitoring (Jordan).
+#
+# Mount into a Prometheus instance that already scrapes the backend
+# actuator (`fabt-backend` job in prometheus.yml):
+#
+#     rule_files:
+#       - /etc/prometheus/rules/phase-g-platform-admin.rules.yml
+#
+# Backing metrics:
+#   * fabt.platform.login.failures{reason}        — Counter, PlatformAuthService
+#       reasons: bad_email | locked | bad_password | mfa_disabled
+#   * fabt.platform.user.locked_out               — Counter, PlatformAuthService
+#       fires only on the lockout TRANSITION, not per failed attempt
+#   * fabt.platform.action.without_justification{action} — Counter,
+#       PlatformAdminLogger; defense-in-depth — should always be zero in
+#       steady state (JustificationValidationFilter rejects upstream)
+#
+# Runbook companion: docs/observability/platform-admin-monitoring.md
+#
+# Cardinality posture: all four metrics have bounded label cardinality
+#   * login.failures: 4 reasons × 1 = 4 series
+#   * locked_out: 1 series
+#   * action.without_justification: ~30 distinct PlatformAdminOnly methods
+#       across the codebase = ≤30 series, all OFF in steady state
+# No source_ip / per-user labels here (those live in audit_events for
+# forensics) — see F22 cardinality posture for the DV-defense parallel.
+#
+# Deferred companion (see design.md F28): FabtPlatformUserDelayedActivation
+# alert needs a fabt.platform.user.unactivated.count gauge backed by a new
+# V94 SECURITY DEFINER function. Functional gap covered by the
+# isLoginAllowed() runtime guard (an unactivated user cannot log in) and
+# the §5.10 runbook activation checklist; gauge ships in a follow-up.
+
+groups:
+  - name: fabt_phase_g_platform_admin
+    interval: 30s
+    rules:
+
+      # ---- WARN — sustained burst of platform login failures --------
+      # The platform-operator account class is the highest-value account
+      # in the system (cross-tenant ops, MFA-mandated, separate identity
+      # from tenant users). A sustained spike in REJECTED login outcomes
+      # indicates either a brute-force attack against a known operator
+      # email or an enumeration sweep ("does admin@example.com exist as
+      # a platform operator?"). Both warrant immediate operator paging.
+      #
+      # Threshold rationale: legitimate platform login is rare (handful
+      # of times per day per operator). 5 failures / 5 min sustained
+      # over 2 min is far above any realistic mistake rate (the per-IP
+      # bucket4j throttle caps a single IP at 5 attempts / 15 min, so
+      # this rate must come from multiple IPs = distributed attack).
+      - alert: FabtPlatformLoginFailureBurst
+        # env="prod" filter mirrors phase-g-chain-verify pattern — CI
+        # integration tests intentionally drive failed login attempts
+        # to verify the lockout flow (platform-totp-lockout.spec.ts);
+        # without this label, a Prometheus instance scraping both CI
+        # and prod would false-page on every CI run.
+        expr: |
+          sum(
+            rate(fabt_platform_login_failures_total{env="prod"}[5m])
+          ) * 60 > 5
+        for: 2m
+        labels:
+          severity: warning
+          surface: phase-g-platform-admin
+          runbook: docs/observability/platform-admin-monitoring.md
+        annotations:
+          summary: "Platform login failure burst — {{ $value | humanize }}/min sustained"
+          description: |
+            Platform login failures are running at {{ $value | humanize }}
+            per minute averaged over the last 5 minutes — well above the
+            mistake-rate baseline. The bucket4j per-IP throttle should
+            normally prevent this; sustained breach means either:
+              (a) Distributed attack from many IPs (each below the per-IP
+                  threshold but in aggregate high). Pivot to nginx access
+                  log to enumerate distinct source IPs in the last 5 min.
+              (b) Account-enumeration sweep (mostly bad_email reason).
+                  Compare counter labels:
+                    sum by (reason) (rate(fabt_platform_login_failures_total[5m]))
+                  Heavy bad_email vs bad_password tells the attack shape.
+              (c) Single legitimate operator forgetting their password
+                  AND the bucket4j throttle is mis-configured. Verify:
+                    /actuator/configprops | grep rate-limit-platform-login
+
+            Triage:
+            1. Pull nginx access log for the last 10 minutes filtered
+               on POST /api/v1/auth/platform/login.
+            2. If a single source_ip dominates: apply nginx ACL deny.
+            3. If many distinct source_ips: investigate whether
+               Cloudflare upstream filtering needs tightening.
+            4. Notify any affected operator out-of-band; consider
+               rotating their password.
+
+      # ---- INFO — any platform_user lockout transition ----------------
+      # Single-event signal, not a paging-grade alert. Operator value:
+      # during incident response the on-call wants to know "is anyone's
+      # account locked right now?" without grepping audit_events. The
+      # info-level alert provides a short-lived bell + breadcrumb for
+      # the incident timeline.
+      #
+      # Counter increments only on the lock TRANSITION (not on every
+      # failed MFA verify), so a single lockout event = a single rate
+      # spike. Triggering on any non-zero rate over 5 min is correct.
+      - alert: FabtPlatformUserLockedOut
+        expr: |
+          rate(fabt_platform_user_locked_out_total{env="prod"}[5m]) > 0
+        for: 0m
+        labels:
+          severity: info
+          surface: phase-g-platform-admin
+          runbook: docs/observability/platform-admin-monitoring.md
+        annotations:
+          summary: "Platform operator account locked out (5 MFA fails / 15 min policy)"
+          description: |
+            A platform_user just transitioned to the locked state via
+            the V88 5-fail / 15-min policy. The lockout itself does NOT
+            require operator action — V88 auto-clears via the cron job
+            after the window expires, OR an operator can manually unlock
+            via {@code SELECT platform_user_reset_to_bootstrap(uuid);}
+            (see oracle-update-notes-v0.53.0.md §7 rollback recipe).
+
+            Use this alert to:
+            * Confirm during incident response that the on-call's
+              account is or is not locked (don't double-incident a
+              "no one can respond" situation).
+            * Correlate with FabtPlatformLoginFailureBurst — a lockout
+              + sustained failure burst is a credible attack signal.
+
+            Triage (only if lockout is unexpected / operator denies
+            having retried):
+            1. Pull the corresponding PLATFORM_USER_LOCKED_OUT row from
+               audit_events (the lockout writes a forensic row via the
+               same path as the metric increment — they should always
+               appear together).
+            2. Cross-reference the source IP with the
+               FabtPlatformLoginFailureBurst alert annotations.
+
+      # ---- CRITICAL — platform action reached aspect without justification ----
+      # Defense-in-depth alert. The JustificationValidationFilter SHOULD
+      # reject any request missing X-Platform-Justification before the
+      # @PlatformAdminOnly aspect runs. The aspect now ALSO checks (G-4.5
+      # §6.17) and increments this counter if it ever sees a missing
+      # header — which means the filter chain is broken (filter disabled,
+      # ordering rearranged, or new code path bypasses the filter).
+      #
+      # Critical severity because: (a) any non-zero rate indicates a
+      # security control is offline, (b) the aspect rejects the request
+      # so no actual exposure occurred — but the next code change might
+      # not be defended.
+      - alert: FabtPlatformActionWithoutJustification
+        expr: |
+          sum(
+            rate(fabt_platform_action_without_justification_total{env="prod"}[5m])
+          ) > 0
+        for: 0m
+        labels:
+          severity: critical
+          surface: phase-g-platform-admin
+          runbook: docs/observability/platform-admin-monitoring.md
+        annotations:
+          summary: "PlatformAdminLogger saw a request without X-Platform-Justification — filter chain broken"
+          description: |
+            The @PlatformAdminOnly aspect observed a request that reached
+            it without an X-Platform-Justification header. In steady
+            state, JustificationValidationFilter rejects such requests
+            with 400 BAD_REQUEST before they reach any controller. The
+            aspect's defensive check fired, meaning:
+              (a) JustificationValidationFilter has been disabled or
+                  removed from the Spring filter chain.
+              (b) The filter's URL pattern doesn't cover a new
+                  @PlatformAdminOnly endpoint added since the filter
+                  was wired.
+              (c) Another filter ahead of JustificationValidationFilter
+                  is consuming the request body or short-circuiting in
+                  a way that bypasses the justification gate.
+
+            Triage (immediate):
+            1. Check FilterRegistrationBean entries via
+               /actuator/conditions — confirm
+               JustificationValidationFilter is registered.
+            2. Pull the last 10 application log lines tagged with
+               MDC platform_action=true — the WARN line carries the
+               action name + URL of the request that triggered.
+            3. Confirm SecurityConfig + FilterRegistrationBean ordering
+               has not regressed (filter should run BEFORE the AOP
+               aspect's @Around invocation, which is post-Security
+               but pre-controller).
