@@ -587,6 +587,7 @@
   "totp.done": "Done",
   "totp.tryAgain": "Try Again",
   "totp.loginPrompt": "Enter the 6-digit code from your authenticator app.",
+  "totp.loginPromptBackup": "Enter one of your 8-character backup codes.",
   "totp.useBackupCode": "Use a backup code instead",
   "totp.useAuthenticator": "Use authenticator app",
   "totp.codeAriaLabel": "6-digit code from authenticator",

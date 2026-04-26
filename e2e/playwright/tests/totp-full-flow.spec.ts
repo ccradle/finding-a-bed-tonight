@@ -111,6 +111,23 @@ base.describe('TOTP Full Enrollment Flow', () => {
     const qrCode = page.getByTestId('totp-qr-code');
     await expect(qrCode).toBeVisible({ timeout: 5000 });
 
+    // ─── §6.c H4 a11y assertions: QR canvas semantics ─────────────────
+    // §6.13: <canvas> alone is opaque to screen readers; the QrCodeCanvas
+    // wrapper sets role="img" + aria-label so assistive tech understands
+    // what the canvas conveys.
+    const canvas = qrCode.locator('canvas');
+    await expect(canvas).toHaveAttribute('role', 'img');
+    const qrAriaLabel = await canvas.getAttribute('aria-label');
+    expect(qrAriaLabel).toMatch(/scan|authenticator|register/i);
+
+    // ─── §6.c H4 a11y assertions: TOTP verify input attributes ────────
+    // §6.12: autoComplete=one-time-code triggers mobile autofill;
+    // pattern enforces 6-digit format at constraint-validation layer.
+    const verifyInput = page.getByTestId('totp-verify-input');
+    await expect(verifyInput).toHaveAttribute('autocomplete', 'one-time-code');
+    await expect(verifyInput).toHaveAttribute('inputmode', 'numeric');
+    await expect(verifyInput).toHaveAttribute('pattern', '[0-9]{6}');
+
     // Get the secret from the manual entry section
     const detailsSummary = page.locator('summary');
     await detailsSummary.click();
@@ -120,6 +137,13 @@ base.describe('TOTP Full Enrollment Flow', () => {
     expect(secret).toBeTruthy();
     expect(secret!.length).toBeGreaterThan(10);
 
+    // §6.13: Copy-secret button is keyboard-accessible (not just a clickable div)
+    // and carries an aria-label distinct from the visible "Copy" text.
+    const copySecretButton = page.getByTestId('totp-copy-secret-button');
+    await expect(copySecretButton).toBeVisible();
+    const copySecretAria = await copySecretButton.getAttribute('aria-label');
+    expect(copySecretAria).toMatch(/copy.*secret|secret.*clipboard/i);
+
     // Generate a valid TOTP code using the secret
     const code = generateTotpCode(secret!.trim());
 
@@ -128,17 +152,40 @@ base.describe('TOTP Full Enrollment Flow', () => {
     await page.getByTestId('totp-verify-submit').click();
     await page.waitForTimeout(3000);
 
-    // Backup codes should be displayed
-    const codesGrid = page.getByTestId('backup-codes-grid');
-    await expect(codesGrid).toBeVisible({ timeout: 5000 });
+    // Backup codes should be displayed (G-4.5 §6.14: now an <ol> not a <div> grid)
+    const codesList = page.getByTestId('backup-codes-list');
+    await expect(codesList).toBeVisible({ timeout: 5000 });
 
-    // Should have 8 codes
-    const codeElements = codesGrid.locator('div');
+    // ─── §6.c H4 a11y assertions: backup codes semantic structure ─────
+    // §6.14: testid attaches to <ol> (not <div>), each code in <li>,
+    // ol carries aria-label describing the list purpose.
+    const olTagName = await codesList.evaluate((el) => el.tagName.toLowerCase());
+    expect(olTagName).toBe('ol');
+    const olAriaLabel = await codesList.getAttribute('aria-label');
+    expect(olAriaLabel).toMatch(/backup.*code|code.*authenticator/i);
+
+    // §6.14: <h2> "Save these codes" heading anchors the section.
+    // Search within the same step container, not the page (banner h2s
+    // could match too).
+    const codesStep = page.locator('.fabt-backup-codes-step');
+    const heading = codesStep.locator('h2');
+    await expect(heading).toBeVisible();
+
+    // Should have 8 codes — count <li> children of the <ol>
+    const codeElements = codesList.locator('li');
     expect(await codeElements.count()).toBe(8);
 
-    // Copy and Download buttons should be visible
+    // §6.14: per-code Copy buttons present and aria-labelled
+    // ("Copy backup code 1" through 8).
+    const firstCopyButton = page.getByTestId('copy-code-0');
+    await expect(firstCopyButton).toBeVisible();
+    const firstCopyAria = await firstCopyButton.getAttribute('aria-label');
+    expect(firstCopyAria).toMatch(/copy.*1|1.*copy/i);
+
+    // Copy, Download, and Print buttons should be visible (Print added in §6.14)
     await expect(page.getByTestId('copy-codes-button')).toBeVisible();
     await expect(page.getByTestId('download-codes-button')).toBeVisible();
+    await expect(page.getByTestId('print-codes-button')).toBeVisible();
   });
 });
 
@@ -183,6 +230,26 @@ base.describe('TOTP Full Two-Phase Login', () => {
     // Should see TOTP verify screen (not the main app)
     const totpScreen = page.getByTestId('totp-verify-screen');
     await expect(totpScreen).toBeVisible({ timeout: 5000 });
+
+    // ─── §6.c H4 a11y assertions: LoginPage TOTP input + error region ──
+    // §6.12 + H1 fix: input uses aria-labelledby (not bare aria-label) so
+    // the visible prompt paragraph IS the source of truth for the
+    // accessible name. autoComplete="one-time-code" enables mobile
+    // browser autofill from incoming SMS / email TOTP messages.
+    const loginInput = page.getByTestId('totp-login-input');
+    await expect(loginInput).toHaveAttribute('autocomplete', 'one-time-code');
+    await expect(loginInput).toHaveAttribute('aria-labelledby', 'totp-login-prompt');
+    await expect(loginInput).toHaveAttribute('inputmode', 'numeric');
+    await expect(loginInput).toHaveAttribute('pattern', '[0-9]{6}');
+
+    // §6.15 + H3 fix: error region exists in the DOM regardless of error
+    // state (so screen readers discover the live region on page load),
+    // carries role="alert" + aria-atomic="true". The polite/assertive
+    // tension was resolved by dropping aria-live and letting role="alert"
+    // imply assertive — correct severity for "your account is locked".
+    const errorRegion = page.getByTestId('login-error-region');
+    await expect(errorRegion).toHaveAttribute('role', 'alert');
+    await expect(errorRegion).toHaveAttribute('aria-atomic', 'true');
 
     // Generate a fresh TOTP code and enter it
     const loginCode = generateTotpCode(secret);
