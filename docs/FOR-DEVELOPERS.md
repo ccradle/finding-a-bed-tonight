@@ -30,12 +30,12 @@ Three deployment tiers allow the same codebase to serve communities of vastly di
 | Layer | Technology |
 |---|---|
 | Backend | Java 25, Spring Boot 4.0, Spring MVC, Spring Data JDBC, Virtual Threads |
-| Database | PostgreSQL 16.5+ (enforced by `PgVersionGate` at boot; floor doubles as CVE gate), Flyway (66 migrations, latest V78; renumber-forward posture from v0.45 — see `deploy/prod-state.json`), Row Level Security (D14 tenant-RLS + FORCE RLS on 7 regulated tables: `audit_events`, `hmis_audit_log`, `hmis_outbox`, `password_reset_token`, `one_time_access_code`, `tenant_key_material`, `kid_to_tenant_key`; plus DV shelters + notifications), pgaudit extension (Debian + PGDG image) for detection-of-last-resort, `application_name = 'fabt:tenant:<uuid>'` co-located with `app.tenant_id` so pgaudit log lines carry tenant UUID |
+| Database | PostgreSQL 16.5+ (enforced by `PgVersionGate` at boot; floor doubles as CVE gate), Flyway (75 migrations, latest V89 platform_admin_access_log; renumber-forward posture from v0.45 — see `deploy/prod-state.json`), Row Level Security (D14 tenant-RLS + FORCE RLS on 7 regulated tables: `audit_events`, `hmis_audit_log`, `hmis_outbox`, `password_reset_token`, `one_time_access_code`, `tenant_key_material`, `kid_to_tenant_key`; plus DV shelters + notifications), pgaudit extension (Debian + PGDG image) for detection-of-last-resort, `application_name = 'fabt:tenant:<uuid>'` co-located with `app.tenant_id` so pgaudit log lines carry tenant UUID |
 | Cache | Caffeine L1 / + Redis L2 (Standard/Full) |
 | Events | Spring Events (Lite) / Kafka (Full) |
 | Auth | JWT (per-tenant HKDF-SHA256 signing keys + opaque `kid` header + revocation registry) + OAuth2/OIDC + API Keys (hybrid). Per-tenant DEK-envelope (v1 `FABT` magic + kid + AES-GCM) for secrets at rest — see `design-a3-encryption-envelope.md` + `design-a4-jwt-refactor.md`. |
 | Frontend | React 19, Vite, TypeScript, Workbox PWA (injectManifest), react-intl (EN/ES), CSS custom properties design tokens |
-| Testing | JUnit 5, Testcontainers, ArchUnit (619 tests), Playwright (348 UI tests), Vitest (42 unit tests), Karate (82 API scenarios), Gatling (8 simulations) |
+| Testing | JUnit 5, Testcontainers, ArchUnit, Playwright (chromium + nginx projects), Vitest, Karate (214 scenarios), Gatling (10 simulations). Aggregate counts grow with each release — current baseline is **1269/1269 backend** (`mvn test`) + **384/384 Playwright** (`BASE_URL=http://localhost:8081 npx playwright test`) verified at v0.53 PR review (PR #164). |
 | Infra | Docker, GitHub Actions CI/CD + E2E pipeline, Terraform (3 tiers) |
 
 ---
@@ -141,7 +141,15 @@ Phase 2 will add an MCP server as a thin wrapper around the REST API, enabling n
 
 ## Database Schema
 
-49 Flyway migrations (V1–V52, with V8.1 and gaps at V40–V43):
+**75 Flyway migrations through V89** (renumber-forward posture from
+v0.45 — see `deploy/prod-state.json`). The full list lives in
+`backend/src/main/resources/db/migration/`; the inline table below
+covers V1–V30 (the load-bearing schema for the original v0.1–v0.15
+release line) plus a curated walk through the rest by phase. Run
+`ls backend/src/main/resources/db/migration/V*.sql | sort -V` for
+the canonical enumeration.
+
+### Foundational schema (V1–V30, original v0.1–v0.15 release line)
 
 | Migration | Description |
 |---|---|
@@ -177,6 +185,27 @@ Phase 2 will add an MCP server as a thin wrapper around the REST API, enabling n
 | V29 | `audit_events` — audit trail for admin actions (user management, shelter DV changes) |
 | V30 | `idempotency_key` on `reservation` — deduplication for offline queue replay (nullable VARCHAR(36)) |
 
+### Phase-grouped highlights (V31–V89)
+
+| Migration band | Phase / release | Highlight |
+|---|---|---|
+| V31–V46 | Operational hardening (v0.16–v0.34) | Notification persistence, escalation policy, HMIS retry/backoff, batch job tracking, hold-duration config, coordinator-DV-shelter assignment policy, bed-hold integrity rebuild |
+| V57 | v0.36 | `audit_events.tenant_id` added — enables tenant-scoped audit chain |
+| V67 | v0.42 | `fabt_current_tenant_id()` SECURITY DEFINER function — RLS reads tenant from session GUC |
+| V68–V72 | **Phase B FORCE RLS** (v0.45–v0.48) | RLS policies on 7 regulated tables (audit_events, hmis_audit_log, hmis_outbox, password_reset_token, one_time_access_code, tenant_key_material, kid_to_tenant_key) + FORCE attribute + REVOKE UPDATE/DELETE on append-only audit tables |
+| V76–V78 | v0.48 | Additional demo tenants (Blue Ridge / Pamlico) + coordinator assignments |
+| V80 | v0.49 | `tenant_audit_chain_head` schema — Phase G-1 audit chain |
+| V82 | v0.51 | `tenant_dek` schema — Phase F per-tenant wrapped DEKs |
+| V84 | v0.51 | `tenant` FK cascade |
+| V85 | v0.52 | `audit_events.row_hash` + chain-pointer columns — Phase G-1 chain writer |
+| **V87** | **v0.53 (in PR)** | **`platform_user`** + key material — separate platform-operator identity table, REVOKEd from fabt_app, accessed via SECURITY DEFINER functions |
+| **V88** | **v0.53 (in PR)** | **`platform_user_lockout_columns`** — per-account 5-fail / 15-min auto-lockout for platform login MFA |
+| **V89** | **v0.53 (in PR)** | **`platform_admin_access_log`** — append-only per-action audit table for `@PlatformAdminOnly` controller methods |
+
+V90–V93 are queued for the post-v0.53 `transitional-reentry-support`
+slice (Casey's i18n review pending — see
+`openspec/changes/transitional-reentry-support/`).
+
 ### Entity Relationship Diagram
 
 ![ERD](erd.svg)
@@ -195,7 +224,7 @@ Phase 2 will add an MCP server as a thin wrapper around the REST API, enabling n
 
 ## Recent Changes
 
-### Operational Alerting + v0.48.1 Roll-In (v0.49, current)
+### Operational Alerting + v0.48.1 Roll-In (v0.49, historical)
 
 The 9 Prometheus rules (5 Phase B + 4 Phase C) loaded since v0.47 but firing into a dashboard no one watches now actually deliver notifications. New `alertmanager` compose service (profile `alerting`, deliberately separate from `observability` so dev workflows running `dev-start.sh --observability` don't crashloop on an unrendered template) routes via `prom/alertmanager:v0.27.0` to two parallel receivers: `email_default` (Gmail SMTP, WARN + CRITICAL) and `ntfy_urgent` (ntfy.sh push, CRITICAL only). Alertmanager config is rendered from `deploy/alertmanager.yml.tmpl` via `envsubst` into `~/fabt-secrets/alertmanager.yml` (0600, VM-only) — `prom/alertmanager:v0.27.0` does NOT interpolate env vars natively at parse time. Route tree groups by `alertname`+`tenant_id`; inhibit rule suppresses WARNING when CRITICAL is firing on the same `(alertname, tenant_id)` pair. v0.48.1 V78 seed migration (coordinator_assignment gap-fix for `dev-coc-west` + `dev-coc-east`, hot-patched on prod 2026-04-20) is rolled forward via Flyway in this release — data-level no-op on prod, codifies the rows in `flyway_schema_history`. Triage runbook: `docs/security/alertmanager-triage-runbook.md`.
 
@@ -209,7 +238,7 @@ Three tenants live on prod, all seeded by Flyway (no manual setup):
 
 Per-tenant weather stations resolve via `OperationalMonitorService.checkTemperatureSurge` (Option A from the design-c warroom): the hourly job iterates registered tenants, reads each `tenant.config → observability.noaa_station_id`, and de-duplicates NOAA fetches by station so multiple tenants on KAVL hit NOAA once.
 
-**D11 URL-path-sink tenant guard** — new `TenantPathGuard.requireMatchingTenant(UUID)` helper in `org.fabt.shared.web` throws `NoSuchElementException` (→ HTTP 404 via `GlobalExceptionHandler`) when the URL-path `tenantId` differs from `TenantContext.getTenantId()`. Symmetric with the D3 existence-leak posture for reads. Applied to 10 endpoints across `TenantController`, `TenantConfigController`, `OAuth2ProviderController`. **D15** ratified the existing implementation: `Role.PLATFORM_ADMIN` is tenant-scoped (users keyed on `(tenantId, email)`, JWTs carry a hard `tenantId` claim) — Phase F will rename to `TENANT_ADMIN` and split out a genuine platform-spanning role; for v0.48 Phase M-light, each demo tenant carries its own independently-seeded `PLATFORM_ADMIN`.
+**D11 URL-path-sink tenant guard** — new `TenantPathGuard.requireMatchingTenant(UUID)` helper in `org.fabt.shared.web` throws `NoSuchElementException` (→ HTTP 404 via `GlobalExceptionHandler`) when the URL-path `tenantId` differs from `TenantContext.getTenantId()`. Symmetric with the D3 existence-leak posture for reads. Applied to 10 endpoints across `TenantController`, `TenantConfigController`, `OAuth2ProviderController`. **D15** ratified the existing implementation: `Role.PLATFORM_ADMIN` is tenant-scoped (users keyed on `(tenantId, email)`, JWTs carry a hard `tenantId` claim) — Phase F renamed the conceptual split. **Post-G-4.4 (v0.53):** the genuine cross-tenant role is now `PLATFORM_OPERATOR`, backed by a separate `platform_user` table with mandatory MFA (see Platform Operator Surface in REST API Reference). `PLATFORM_ADMIN` is deprecated for new use; the V87 backfill grants `COC_ADMIN` to every existing `PLATFORM_ADMIN`-bearing user so tenant-admin workflows continue without disruption. The aspect-side `@PlatformAdminOnly` + `JustificationValidationFilter` + `MFA_VERIFIED` triple gate replaces the URL-path-guard pattern for cross-tenant endpoints (since platform JWTs do not enter TenantContext, the path-guard's tenant-mismatch check no longer applies).
 
 **Tenant-identity UI** — desktop header carries a neutral border-only pill displaying the full `tenant.name` (`Layout.tsx:319-342`, `data-testid=app-tenant-name`), styled with the WCAG-verified `color.headerText` token. Mobile users get the same name via the kebab-overflow row (`data-testid=header-overflow-tenant-name`) and the footer (`data-testid=app-tenant-name-footer`). Walked back from the original 14.9 proposal that used per-tenant accent colors, per warroom feedback (gimmicky, inconsistent screenshots).
 
@@ -462,7 +491,7 @@ chmod +x dev-start.sh
 ./dev-start.sh --fresh
 ```
 
-The script starts PostgreSQL via Docker Compose, builds and launches the backend (with Flyway migrations), loads seed data (13 shelters, 3 users, 1 tenant), and starts the frontend dev server. Use `--fresh` when shelter structure has changed — it runs `infra/scripts/seed-reset.sql` before loading seed data, clearing old shelters that would otherwise persist via `ON CONFLICT DO NOTHING`.
+The script starts PostgreSQL via Docker Compose, builds and launches the backend (with Flyway migrations), loads seed data (**3 CoC tenants** — `dev-coc`, `dev-coc-west`, `dev-coc-east` — with **17 demo accounts** total across roles + ~13 shelters distributed across the tenants), and starts the frontend dev server. The Try-It-Live matrix on `demo/index.html` is the canonical account list. Use `--fresh` when shelter structure has changed — it runs `infra/scripts/seed-reset.sql` before loading seed data, clearing old shelters that would otherwise persist via `ON CONFLICT DO NOTHING`.
 
 ### Manual start
 
@@ -503,12 +532,20 @@ After starting the stack, open **http://localhost:5173** in your browser.
 
 Use one of the seed data accounts:
 
+Each of the 3 CoC tenants (`dev-coc`, `dev-coc-west`, `dev-coc-east`)
+has its own role-keyed accounts. Below shows the `dev-coc` baseline;
+the west and east tenants follow the same pattern with their own
+domain (`@blueridge.fabt.org`, `@pamlico.fabt.org`) and add a
+Coordinator role for 6 accounts each. Full 17-account matrix lives
+on the [Try-It-Live block](https://ccradle.github.io/findABed/demo/index.html).
+
 | Role | Email | Password | What you'll see |
 |------|-------|----------|----------------|
-| **Platform Admin** | `admin@dev.fabt.org` | `admin123` | Admin panel (tenant/user management) |
-| **CoC Admin** | `cocadmin@dev.fabt.org` | `admin123` | Coordinator dashboard (5 assigned shelters) |
+| **CoC Admin** (`PLATFORM_ADMIN` + `COC_ADMIN`) | `admin@dev.fabt.org` | `admin123` | Admin panel (tenant/user management). Post-G-4.4: holds COC_ADMIN for all tenant-scoped admin work. Cross-tenant operations (tenant create/update, observability config, DV address policy) require a separate platform-operator login at `/api/v1/auth/platform/login`. |
+| **CoC Admin** (`COC_ADMIN` only) | `cocadmin@dev.fabt.org` | `admin123` | Coordinator dashboard (5 assigned shelters in dev-coc) |
 | **Outreach Worker** | `outreach@dev.fabt.org` | `admin123` | Bed search with live availability |
-| **DV Outreach Worker** | `dv-outreach@dev.fabt.org` | `admin123` | Bed search with DV shelters visible (addresses redacted) |
+| **DV Coordinator** | `dv-coordinator@dev.fabt.org` | `admin123` | DV referral escalation queue + assigned DV shelters |
+| **DV Outreach Worker** | `dv-outreach@dev.fabt.org` | `admin123` | Bed search with DV shelters visible (addresses redacted by default policy) |
 
 **Tenant slug:** `dev-coc`
 
@@ -571,7 +608,7 @@ curl -s http://localhost:8080/actuator/health | python3 -m json.tool
 ```bash
 cd backend
 
-# Run all 425 backend tests
+# Run all backend tests (1269 at v0.53; count grows per release)
 mvn test
 
 # Run E2E tests (requires dev-start.sh stack running)
@@ -700,7 +737,7 @@ Real-time notifications use Server-Sent Events (SSE) via Spring Boot `SseEmitter
 | `AuthIntegrationTest` | 7 | JWT login, refresh, wrong password/email/tenant |
 | `ApiKeyAuthTest` | 6 | API key auth, rotation, deactivation, role resolution |
 | `DvAccessRlsTest` | 3 | PostgreSQL RLS for DV shelter data protection |
-| `RoleBasedAccessTest` | 10 | 4-role access control (PLATFORM_ADMIN, COC_ADMIN, COORDINATOR, OUTREACH_WORKER) |
+| `RoleBasedAccessTest` | 10 | 5-role access control (post-G-4.4: PLATFORM_OPERATOR via platform_user, COC_ADMIN, COORDINATOR, OUTREACH_WORKER, plus backwards-compat checks for the deprecated PLATFORM_ADMIN role) |
 | `OAuth2ProviderTest` | 6 | OAuth2 provider CRUD, public endpoint, tenant leakage prevention |
 | `OAuth2FlowIntegrationTest` | 9 | OAuth2 authorization code + PKCE flow, JWKS, account linking |
 | `OAuth2AccountLinkTest` | 4 | Account linking, rejection of unknown emails, JWT identity |
@@ -815,7 +852,7 @@ FABT implements a **privacy-preserving referral system** for domestic violence s
 - **Hard-delete purge** — all referral tokens are permanently deleted within 24 hours of completion
 - **Aggregate analytics only** — Micrometer counters track referral volume for HUD reporting; durable analytics require the observability stack (Prometheus)
 
-DV shelter address visibility is controlled by a configurable tenant-level policy (`dv_address_visibility`). Default: admins and assigned coordinators see the address; outreach workers do not. Policy changeable via API only (PLATFORM_ADMIN + confirmation header — endpoint should not be exposed outside the firewall).
+DV shelter address visibility is controlled by a configurable tenant-level policy (`dv_address_visibility`). Default: admins and assigned coordinators see the address; outreach workers do not. Policy changeable via API only (post-G-4.4: PLATFORM_OPERATOR + MFA + `X-Platform-Justification` header; pre-G-4.4: PLATFORM_ADMIN + confirmation header. Endpoint should still not be exposed outside the firewall regardless).
 
 See **[docs/DV-OPAQUE-REFERRAL.md](DV-OPAQUE-REFERRAL.md)** for the full legal basis, architecture, address visibility policies, VAWA self-assessment checklist, and operational notes. See the **[DV Referral Demo Walkthrough](https://ccradle.github.io/findABed/demo/dvindex.html)** for annotated screenshots of the full flow.
 
@@ -848,7 +885,7 @@ Cross-tenant isolation is enforced at the SQL layer (the repository query predic
 
 **Per-tenant policy editor:** the admin UI at `/admin#dvEscalations → Escalation Policy` renders the current policy (platform default or tenant override) and PATCHes a new version on save. The backend validates threshold IDs are unique within the policy, durations are monotonic, severities are in the whitelist, and recipients map to valid roles. Validation is enforced in `EscalationPolicyService.validateThresholds(...)` at the service layer, **not** in Bean Validation on the DTO — a direct service caller (a test, a script, a future internal job) therefore cannot bypass the validation by skipping the controller. Two `Caffeine` caches front the storage — `policyById` for frozen-policy lookups from the batch tasklet, and `currentPolicyByTenant` for new-referral creation. Cache invalidation is explicit on PATCH.
 
-**SSE fan-out for coordinated views:** four domain events keep every admin's queue live — `referral.claimed`, `referral.released`, `referral.queue-changed`, `referral.policy-updated`. `NotificationService.notifyAdminQueueEvent` routes them to users with `COC_ADMIN`/`PLATFORM_ADMIN` role AND `dv_access=true`. On the frontend, `useDvEscalationQueue` listens for these events via window `CustomEvents` dispatched by the existing `useNotifications` SSE connection — one SSE connection per session, not one per feature — and debounces a REST refetch by 250ms so a burst of events collapses into one network round-trip. The hook also runs a 30-second live-countdown interval to keep `remainingMinutes` honest when no SSE events arrive; the interval is gated by `document.visibilityState === 'visible'` and re-fires a catch-up refetch on `visibilitychange`. Without that gating, 18 partner agencies × admins idle in background tabs would burn ~1080 REST calls/hour per admin for nothing — the `visibilitychange` listener is load-bearing, not cleanup-target.
+**SSE fan-out for coordinated views:** four domain events keep every admin's queue live — `referral.claimed`, `referral.released`, `referral.queue-changed`, `referral.policy-updated`. `NotificationService.notifyAdminQueueEvent` routes them to users with the `COC_ADMIN` role AND `dv_access=true` (post-G-4.4 the cross-tenant `PLATFORM_OPERATOR` role does NOT receive these tenant-scoped events; the V87 backfill ensures historical PLATFORM_ADMIN-bearing users now also have COC_ADMIN so they continue to receive them). On the frontend, `useDvEscalationQueue` listens for these events via window `CustomEvents` dispatched by the existing `useNotifications` SSE connection — one SSE connection per session, not one per feature — and debounces a REST refetch by 250ms so a burst of events collapses into one network round-trip. The hook also runs a 30-second live-countdown interval to keep `remainingMinutes` honest when no SSE events arrive; the interval is gated by `document.visibilityState === 'visible'` and re-fires a catch-up refetch on `visibilitychange`. Without that gating, 18 partner agencies × admins idle in background tabs would burn ~1080 REST calls/hour per admin for nothing — the `visibilitychange` listener is load-bearing, not cleanup-target.
 
 **Key files:**
 
@@ -971,16 +1008,77 @@ All endpoints are under `/api/v1`. Authentication is via JWT Bearer token (from 
 
 ### Tenants
 
+Cross-tenant operations require **PLATFORM_OPERATOR** (post-G-4.4
+v0.53) — a separate identity backed by the `platform_user` table
+with mandatory MFA via TOTP. Tenant-scoped reads/writes use
+**COC_ADMIN**. The legacy `PLATFORM_ADMIN` role is deprecated; the
+V87 backfill grants COC_ADMIN to existing PLATFORM_ADMIN-bearing
+users so existing tenant-admin work continues to function. See
+"Platform Operator Surface" below for the new auth flow.
+
+All cross-tenant endpoints below carry `@PlatformAdminOnly` and
+require an `X-Platform-Justification` header (≥10 ASCII chars). Each
+call writes a `platform_admin_access_log` row + an `audit_event` row
+chained together (G-4.3 D5).
+
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| `POST` | `/api/v1/tenants` | PLATFORM_ADMIN | Create a new tenant (CoC) |
-| `GET` | `/api/v1/tenants` | PLATFORM_ADMIN | List all tenants |
-| `GET` | `/api/v1/tenants/{id}` | PLATFORM_ADMIN | Get tenant by ID |
-| `PUT` | `/api/v1/tenants/{id}` | PLATFORM_ADMIN | Update tenant name |
+| `POST` | `/api/v1/tenants` | PLATFORM_OPERATOR + MFA + justification | Create a new tenant (CoC) |
+| `GET` | `/api/v1/tenants` | PLATFORM_OPERATOR + MFA | List all tenants (read; no justification required — see F20) |
+| `GET` | `/api/v1/tenants/{id}` | PLATFORM_OPERATOR + MFA | Get tenant by ID (read) |
+| `PUT` | `/api/v1/tenants/{id}` | PLATFORM_OPERATOR + MFA + justification | Update tenant name |
 | `GET` | `/api/v1/tenants/{id}/config` | COC_ADMIN+ | Get tenant configuration |
 | `PUT` | `/api/v1/tenants/{id}/config` | COC_ADMIN+ | Update tenant configuration (incl. hold_duration_minutes) |
-| `GET` | `/api/v1/tenants/{id}/observability` | PLATFORM_ADMIN | Get observability settings (prometheus, tracing, thresholds) |
-| `PUT` | `/api/v1/tenants/{id}/observability` | PLATFORM_ADMIN | Update observability settings at runtime |
+| `GET` | `/api/v1/tenants/{id}/observability` | PLATFORM_OPERATOR + MFA | Get observability settings (prometheus, tracing, thresholds) |
+| `PUT` | `/api/v1/tenants/{id}/observability` | PLATFORM_OPERATOR + MFA + justification | Update observability settings at runtime |
+| `PATCH` | `/api/v1/tenants/{id}/dv-address-policy` | PLATFORM_OPERATOR + MFA + justification | Change tenant DV address visibility policy (high-sensitivity tenant config) |
+
+### Platform Operator Surface (G-4.4 / v0.53)
+
+The platform-operator identity is **separate from tenant users** — a
+different table (`platform_user`), a different JWT issuer
+(`iss=fabt-platform`), mandatory TOTP MFA on every login, and a
+per-action audit table (`platform_admin_access_log`) that chains to
+`audit_events`. Operators activate ONE bootstrap row at id
+`00000000-0000-0000-0000-000000000fab` via the documented procedure
+in `oracle-update-notes-v0.53.0.md §5.10` (LOCKED row → fabt-cli
+`HashPasswordCli` → SQL UPDATE).
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `POST` | `/api/v1/auth/platform/login` | None | Step 1: email + password. Returns `{mfaToken, expiresIn}` if password valid + MFA enrolled, OR `{mfaSetupToken}` for first-time enrollment. Per-IP rate-limited (5/15min — tighter than tenant /login per design Decision 5). Per-account 5-fail / 15-min auto-lockout via V88 schema. |
+| `POST` | `/api/v1/auth/platform/setup-mfa` | mfaSetupToken | Returns TOTP secret + QR URI + 10 single-use backup codes. Atomic SECURITY DEFINER write — secret + codes commit together or not at all. |
+| `POST` | `/api/v1/auth/platform/confirm-mfa` | mfaSetupToken | Verifies first TOTP code, flips `mfa_enabled=true`. |
+| `POST` | `/api/v1/auth/platform/verify-mfa` | mfaToken | Step 2: TOTP-or-backup-code. On success returns the platform JWT (`iss=fabt-platform`, `MFA_VERIFIED` authority). 90-second TOTP replay protection via V88 `last_totp_code` column. |
+
+The platform JWT carries `MFA_VERIFIED` as a Spring Security
+authority (in addition to `ROLE_PLATFORM_OPERATOR`). The
+`@PlatformAdminOnly` AOP aspect rejects any request reaching it
+without `MFA_VERIFIED`, even if the JWT somehow has the role —
+defense in depth against token-shape regressions.
+
+**Defense-in-depth gates** on every `@PlatformAdminOnly` method
+(rejection emits a metric + WARN log + MDC `platform_action=true`):
+
+1. `JustificationValidationFilter` — pre-controller filter that
+   rejects 400 if `X-Platform-Justification` header is missing or
+   <10 ASCII chars.
+2. Aspect-side header check (warroom B1 mitigation) — increments
+   `fabt.platform.action.without_justification` counter and throws
+   AccessDeniedException if the filter chain is somehow bypassed.
+   Drives `FabtPlatformActionWithoutJustification` CRITICAL alert.
+3. Aspect-side `MFA_VERIFIED` authority check — throws
+   AccessDeniedException if the binding regressed.
+4. `@PreAuthorize("hasRole('PLATFORM_OPERATOR')")` — Spring Security
+   role check.
+
+Each successful invocation commits **two rows BEFORE** the controller
+method runs (Decision 11): one row in `platform_admin_access_log`
+(operator id, action, justification text, request fingerprint) and
+one row in `audit_events` chained via `audit_event_id` so
+forensics can correlate. After-state is currently always NULL
+(F13 — V89 append-only trigger blocks the after-write update; deferred
+follow-up).
 
 ### OAuth2 Flow
 
@@ -1422,7 +1520,7 @@ finding-a-bed-tonight/
 ├── infra/
 │   ├── docker/                                        # Dockerfiles (backend, frontend, nginx)
 │   ├── scripts/
-│   │   ├── seed-data.sql                              # 13 shelters, 3 users, 17 availability snapshots
+│   │   ├── seed-data.sql                              # 3 CoC tenants × 17 demo accounts + ~13 shelters distributed across them; requires PGOPTIONS='-c fabt.seed_force=1' for the 'fabt' DB name
 │   │   ├── seed-reset.sql                             # Clears seed data for fresh reload (--fresh flag)
 │   │   └── demo-activity-seed.sql                     # 28 days of deterministic demo activity
 │   └── keycloak/

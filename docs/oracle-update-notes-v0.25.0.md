@@ -3,7 +3,7 @@
 **Previous version:** v0.24.0 (Offline Honesty)
 **This version:** v0.25.0 (Sprint 2 Quick Wins)
 **Date:** 2026-04-01
-**Base runbook:** `oracle-demo-runbook-v0.21.0.md` — all sections still apply
+**Base runbook:** `oracle-demo-runbook-v0.21.0.md` — all sections still apply (now archived in docs repo at `docs/archive/oracle-demo-runbook-v0.21.0.md`; superseded for v0.25+ by per-release update notes like this file)
 
 ---
 

@@ -21,6 +21,7 @@ import org.fabt.referral.domain.ReferralToken;
 import org.fabt.referral.service.ReferralTokenService;
 import org.fabt.shared.audit.AuditEventRecord;
 import org.fabt.shared.audit.AuditEventType;
+import org.fabt.shared.security.ClientIpResolver;
 import org.fabt.shelter.domain.Shelter;
 import org.fabt.shelter.repository.CoordinatorAssignmentRepository;
 import org.fabt.shelter.service.ShelterService;
@@ -205,7 +206,8 @@ public class ReferralTokenController {
     @PreAuthorize("hasAnyRole('OUTREACH_WORKER', 'COORDINATOR', 'COC_ADMIN')")
     public ResponseEntity<ReferralTokenResponse> create(
             @Valid @RequestBody CreateReferralRequest request,
-            Authentication authentication) {
+            Authentication authentication,
+            jakarta.servlet.http.HttpServletRequest httpRequest) {
         UUID userId = UUID.fromString(authentication.getName());
         ReferralToken token = referralTokenService.createToken(
                 request.shelterId(), userId, request.householdSize(),
@@ -218,6 +220,16 @@ public class ReferralTokenController {
                 Map.of("shelter_id", request.shelterId().toString(),
                        "shelter_name", shelterName,
                        "urgency", request.urgency()));
+
+        // Per-source-IP create counter (G-4.5 §6.8). Increment only AFTER the
+        // service.createToken() returned successfully, so the counter reflects
+        // accepted creates — not duplicate-rejected (409) or validation-rejected
+        // (400) attempts. Paired with the FabtDvReferralBurstFromSingleIp alert.
+        // ClientIpResolver reads X-Real-IP first (nginx-set in prod) so the
+        // metric labels with the actual client IP, not nginx's container IP
+        // (Marcus warroom B1, fixed in amendment commit).
+        observabilityMetrics.dvReferralCreateCounter(ClientIpResolver.resolve(httpRequest))
+                .increment();
 
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ReferralTokenResponse.from(token, null, null));

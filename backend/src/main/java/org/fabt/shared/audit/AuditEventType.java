@@ -134,6 +134,18 @@ public enum AuditEventType {
     DV_REFERRAL_ADMIN_REJECTED,
 
     /**
+     * The {@code dvReferralDemoCleanup} batch job deleted stale PENDING DV
+     * referrals from a demo tenant (G-4.5 §6.10). The job runs every 6 hours
+     * on demo deployments and removes PENDING referrals older than 48 hours
+     * from tenants whose slug starts with {@code dev-}. Emitted under each
+     * affected tenant's audit chain (one row per tenant per run that deleted
+     * rows). Detail blob: {@code {deleted_count, cutoff_at, tenant_slug}}.
+     * Zero PII — the deleted referrals themselves carry no client PII per
+     * the DV opaque-token design.
+     */
+    DV_REFERRAL_DEMO_CLEANUP,
+
+    /**
      * A CoC admin updated the per-tenant escalation policy via
      * {@code PATCH /api/v1/admin/escalation-policy/{eventType}}. The policy is
      * append-only versioned, so this audit row records the new version

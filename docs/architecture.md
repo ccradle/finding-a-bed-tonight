@@ -15,7 +15,7 @@
 
 ### §1.1 Module Boundaries
 
-FABT's backend is a **modular monolith** — one Spring Boot JAR, fourteen Java packages under `org.fabt.*`, and a set of [ArchUnit](backend/src/test/java/org/fabt/ArchitectureTest.java) rules that fail CI if any module reaches into another module's internals. The diagram below shows the seven domain modules that carry business logic; ten supporting packages (`shared`, `observability`, `tenant`, `availability`, `analytics`, `dataimport`, `hmis`, `subscription`, `surge`, frontend types) are omitted for visual clarity but live alongside these.
+FABT's backend is a **modular monolith** — one Spring Boot JAR, sixteen Java packages under `org.fabt.*`, and a set of [ArchUnit](backend/src/test/java/org/fabt/ArchitectureTest.java) rules that fail CI if any module reaches into another module's internals. The diagram below shows six domain modules that carry business logic (auth, shelter, reservation, referral, notification, surge); ten supporting packages (`shared`, `observability`, `tenant`, `availability`, `analytics`, `dataimport`, `hmis`, `subscription`, `cli`, `tooling`) are omitted for visual clarity but live alongside these. Post-G-4.4 (v0.53) the `auth` module gained an `auth.platform` sub-package for the separate platform-operator identity table; ArchUnit allows `auth.platform.PlatformAdminOnly` to be referenced cross-module since it is a cross-cutting security marker analogous to `@PreAuthorize`.
 
 ```mermaid
 %% Module boundary diagram. Rectangles are service layers; the cylinder is

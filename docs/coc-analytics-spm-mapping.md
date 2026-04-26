@@ -17,7 +17,9 @@ These are complementary data layers. FABT provides supply-side and demand-side d
 
 ## HMIS Data Standards Version
 
-FABT's HMIS Bridge targets **FY 2026 HMIS Data Standards** (effective October 1, 2025). Element 2.07 (Bed and Unit Inventory Information) is the primary data element for HIC reporting.
+FABT's HMIS Bridge targets **FY 2026 HMIS Data Standards** (effective October 1, 2025) for outbound vendor pushes (Clarity / WellSky / ClientTrack). Element 2.07 (Bed and Unit Inventory Information) is the primary data element for HIC reporting.
+
+**Two HUD versions in play, intentionally:** the HMIS Bridge ships against FY 2026 for forward compatibility with the standards effective in late 2025, while the **HIC/PIT export** (CSV download, see table below) targets the FY2024+ HUD Inventory.csv schema since that remains the format CoCs file with HUD for current reporting cycles. Both are designed to support current HUD requirements; the FY2026 vendor format will become the HIC/PIT format too once HUD's submission system catches up.
 
 ## Mapping Table
 

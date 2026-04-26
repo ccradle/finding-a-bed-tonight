@@ -27,7 +27,7 @@ An open-source platform that shows real-time shelter bed availability across an 
 
 ## See It in Action
 
-- **[Platform Walkthrough](https://ccradle.github.io/findABed/demo/index.html)** — 15 annotated screenshots with story-driven narrative
+- **[Platform Walkthrough](https://ccradle.github.io/findABed/demo/index.html)** — 20 annotated screenshots with story-driven narrative
 - **[DV Referral Flow](https://ccradle.github.io/findABed/demo/dvindex.html)** — privacy-preserving referral for DV shelters
 - **[HMIS Bridge](https://ccradle.github.io/findABed/demo/hmisindex.html)** — automated data push to HMIS vendors
 - **[CoC Analytics](https://ccradle.github.io/findABed/demo/analyticsindex.html)** — utilization trends, demand signals, HIC/PIT export
@@ -46,7 +46,7 @@ cd finding-a-bed-tonight
 
 - **Frontend:** http://localhost:5173
 - **Swagger:** http://localhost:8080/api/v1/docs
-- **Login:** `admin@dev.fabt.org` / `admin123` (tenant: `dev-coc`)
+- **Login:** `admin@dev.fabt.org` / `admin123` (tenant: `dev-coc`). The dev seed provisions 17 demo accounts across 3 CoC tenants (`dev-coc`, `dev-coc-west`, `dev-coc-east`) — see the Try-It-Live matrix on the [demo site](https://ccradle.github.io/findABed/demo/index.html).
 
 Full setup guide: [For Developers](docs/FOR-DEVELOPERS.md#prerequisites)
 
@@ -57,16 +57,16 @@ Full setup guide: [For Developers](docs/FOR-DEVELOPERS.md#prerequisites)
 | Layer | Technology |
 |---|---|
 | Backend | Java 25, Spring Boot 4.0, Spring MVC, Spring Data JDBC, Virtual Threads |
-| Database | PostgreSQL 16, Flyway (66 migrations), Row Level Security (Phase B FORCE RLS on 7 regulated tables + tenant isolation) |
+| Database | PostgreSQL 16, Flyway (75 migrations through V89), Row Level Security (Phase B FORCE RLS on 7 regulated tables + tenant isolation) |
 | Frontend | React 19, Vite, TypeScript, Workbox PWA (injectManifest), react-intl (EN/ES), CSS custom properties design tokens |
-| Testing | JUnit 5, Testcontainers, ArchUnit (619 tests), Playwright (348 UI tests), Vitest (42 unit tests), Karate (82 API scenarios), Gatling (8 simulations) |
+| Testing | JUnit 5, Testcontainers, ArchUnit, Playwright (chromium + nginx projects), Vitest, Karate (214 API scenarios), Gatling (10 simulations). Aggregate counts grow with each release — run `mvn test` and `npx playwright test` for current scoreboard. |
 | Infra | Docker, GitHub Actions CI/CD + E2E pipeline, Terraform (3 tiers) |
 
 ---
 
 ## What's Complete
 
-**Current version: v0.49.0** — 63 archived OpenSpec changes, 89 specs, 14 modules. Multi-tenant SaaS (3 demo tenants live), Phase B FORCE RLS shipped, Phase C cache-isolation guardrails shipped, operational alerting (Prometheus → Alertmanager → email + ntfy) live.
+**Current version: v0.52.0** (live at findabed.org); **v0.53.0 in PR review** for Phase G-4 (platform admin split + per-action audit log + DV-aware demo defenses + accessibility refinements + platform-admin Prometheus monitoring). 65 archived OpenSpec changes, 91 specs, 14 modules. Multi-tenant SaaS (3 demo tenants live), Phase B FORCE RLS shipped, Phase C cache-isolation guardrails shipped, operational alerting (Prometheus → Alertmanager → email + ntfy) live, tamper-evident audit chain shipped (Phase G-1) with OCI external anchor (Phase G-2).
 
 - Real-time bed search with freshness indicators and constraint filters
 - Soft-hold reservations with configurable hold duration (default 90 min)

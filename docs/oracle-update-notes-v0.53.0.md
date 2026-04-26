@@ -153,6 +153,73 @@ Phases run in chronological order. Each phase blocks the next.
 
 ## 5. Deploy Steps
 
+### 5.0. Static content (docs site) — ship the multi-tenant Try-It-Live + role labels FIRST
+
+Static content is served from `/var/www/findabed-docs/` on the
+Oracle VM. Nginx serves these via `try_files` — no restart needed
+after copying. Static deploys safely BEFORE the backend swap because
+the new HTML is content-only (no API contract change); the old
+backend serves it just fine until §5.6 swaps the image.
+
+v0.53 ships **8 stale files** that need to land before any demo
+visitor sees the new platform-operator login flow:
+
+```bash
+# From your local Windows / Git Bash machine. FABT_VM_IP is set
+# out-of-band per feedback_no_ip_in_repo (it lives in memory + the
+# operator's local env, never in git).
+
+# Root + demo walkthroughs — Try-It-Live multi-tenant matrix (17
+# accounts × 3 CoC tenants), monitoring notice, "five or six roles
+# per tenant" caption fix, role label sweep across walkthroughs:
+scp -i ~/.ssh/fabt-oracle \
+  /c/Development/findABed/index.html \
+  ubuntu@${FABT_VM_IP}:/var/www/findabed-docs/
+
+scp -i ~/.ssh/fabt-oracle \
+  /c/Development/findABed/demo/index.html \
+  /c/Development/findABed/demo/analyticsindex.html \
+  /c/Development/findABed/demo/hmisindex.html \
+  /c/Development/findABed/demo/shelter-onboarding.html \
+  /c/Development/findABed/demo/for-coordinators.html \
+  ubuntu@${FABT_VM_IP}:/var/www/findabed-docs/demo/
+
+# Training material:
+scp -i ~/.ssh/fabt-oracle \
+  /c/Development/findABed/docs/training/admin-onboarding-checklist.html \
+  ubuntu@${FABT_VM_IP}:/var/www/findabed-docs/docs/training/
+
+# Verify on VM:
+ssh -i ~/.ssh/fabt-oracle ubuntu@${FABT_VM_IP} "
+  echo '=== root index ==='
+  ls -la /var/www/findabed-docs/index.html
+  grep -c 'dev-coc-west\\|dev-coc-east' /var/www/findabed-docs/index.html
+  echo '=== demo walkthroughs ==='
+  ls -la /var/www/findabed-docs/demo/{index,analyticsindex,hmisindex,shelter-onboarding,for-coordinators}.html
+  grep -l 'PLATFORM_ADMIN\\|COC_ADMIN' /var/www/findabed-docs/demo/*.html || echo 'no raw role enums (expected)'
+  echo '=== training ==='
+  ls -la /var/www/findabed-docs/docs/training/admin-onboarding-checklist.html
+"
+# Expected:
+#   index.html ~24779 bytes (vs Apr-9 baseline ~20081)
+#   `grep -c dev-coc-west` returns >= 1 in root index.html
+#   demo/index.html ~27840 bytes (vs Apr-12 baseline ~23787)
+#   no raw role enums (COC_ADMIN/PLATFORM_ADMIN/OBSERVABILITY) in
+#     demo/*.html — those were swapped to human labels in §6.a
+```
+
+**No nginx reload required** — static content is read at every request
+(nginx caches headers, not bodies). Service worker caching on the
+client side may serve stale HTML until next refresh; users testing
+immediately after deploy should hard-reload (Ctrl+Shift+R) or open
+incognito. See `feedback_stale_sw_on_deploy.md`.
+
+The supplementary `demo/shelter-edit-walkthrough.md` (markdown form)
+is intentionally NOT scp'd — the walkthroughs render as `*.html`;
+the `.md` is reference-only for the docs repo and never served as
+a user page. Same for the dvindex/hmisindex companions that didn't
+change in v0.53.
+
 ### 5.1. Preserve last-good image tag
 
 ```bash

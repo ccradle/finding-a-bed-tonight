@@ -106,7 +106,26 @@ public class PlatformAdminLogger {
     @Around("@annotation(annotation)")
     public Object aroundPlatformAdminOnly(ProceedingJoinPoint pjp,
                                            PlatformAdminOnly annotation) throws Throwable {
-        // Defense-in-depth gate (F2 / G-4.4 task 5.4b): the SecurityContext
+        // Defense-in-depth gate #1 (G-4.5 §6.17): the JustificationValidationFilter
+        // SHOULD have rejected any request missing X-Platform-Justification
+        // before this aspect runs. If we observe the header missing here, the
+        // filter chain is mis-configured (filter disabled, ordering broken,
+        // or new path bypassing the filter). Increment the
+        // FabtPlatformActionWithoutJustification counter — alert paged at
+        // any non-zero rate. Reject defensively so the bug condition does
+        // not leak an unaudited platform action.
+        HttpServletRequest req = currentRequest();
+        if (req != null && (req.getHeader("X-Platform-Justification") == null
+                || req.getHeader("X-Platform-Justification").isBlank())) {
+            emitWithoutJustificationMetric(annotation.emits());
+            log.error("Platform admin endpoint reached aspect without X-Platform-Justification — "
+                    + "JustificationValidationFilter is mis-configured. action={}",
+                    annotation.emits());
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "Platform admin endpoints require X-Platform-Justification header");
+        }
+
+        // Defense-in-depth gate #2 (F2 / G-4.4 task 5.4b): the SecurityContext
         // authentication MUST carry the MFA_VERIFIED marker authority added
         // by JwtAuthenticationFilter when binding a post-MFA platform JWT.
         // If absent, reject BEFORE writing any audit rows. This catches a
@@ -382,6 +401,24 @@ public class PlatformAdminLogger {
         Counter.builder("fabt.platform.admin.action")
                 .tag("action", action.name())
                 .tag("outcome", outcome)
+                .register(meterRegistry)
+                .increment();
+    }
+
+    /**
+     * G-4.5 §6.17: defense-in-depth counter — incremented when the aspect
+     * sees a request without {@code X-Platform-Justification}, which
+     * indicates the {@code JustificationValidationFilter} chain is broken
+     * (filter disabled, ordering rearranged, or a future code path bypasses
+     * the filter). The counter SHOULD be zero in steady state — any
+     * non-zero rate fires {@code FabtPlatformActionWithoutJustification}.
+     */
+    private void emitWithoutJustificationMetric(AuditEventType action) {
+        if (meterRegistry == null) {
+            return;
+        }
+        Counter.builder("fabt.platform.action.without_justification")
+                .tag("action", action.name())
                 .register(meterRegistry)
                 .increment();
     }

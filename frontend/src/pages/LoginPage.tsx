@@ -212,32 +212,69 @@ export function LoginPage() {
           <FormattedMessage id="login.title" />
         </h2>
 
-        {error && (
-          <div
-            style={{
-              backgroundColor: color.errorBg,
-              color: color.error,
-              padding: '12px 16px',
-              borderRadius: '8px',
-              marginBottom: '20px',
-              fontSize: text.base,
-            }}
-            role="alert"
-          >
-            {error}
-          </div>
-        )}
+        {/* §6.15 a11y (warroom H3 amendment): role="alert" carries an
+            implicit aria-live="assertive" — the prior aria-live="polite"
+            was overridden and misleading, so it's been removed. role is
+            now ALWAYS present so the AX tree treats this as a live region
+            on page load (newly-added live regions are not always announced
+            on transition). Visibility is toggled via opacity + position
+            rather than display:none so the region stays in the AX tree.
+            For the lockout case ("Account locked. Try again in 15 minutes.")
+            assertive interruption is correct — the user needs to know
+            immediately that subsequent submits will be no-ops. */}
+        <div
+          role="alert"
+          aria-atomic="true"
+          data-testid="login-error-region"
+          style={{
+            backgroundColor: error ? color.errorBg : 'transparent',
+            color: color.error,
+            padding: error ? '12px 16px' : 0,
+            borderRadius: '8px',
+            marginBottom: error ? '20px' : 0,
+            fontSize: text.base,
+            // Region stays in the AX tree even when empty so the SR
+            // discovers it on page load and announces content changes.
+            // When empty, it's visually inert (no padding, no bg).
+            minHeight: error ? undefined : 0,
+            overflow: 'hidden',
+          }}
+        >
+          {error}
+        </div>
 
         {mfaToken ? (
           /* Two-phase TOTP verification screen */
           <div data-testid="totp-verify-screen">
-            <p style={{ fontSize: text.sm, color: color.textTertiary, textAlign: 'center', marginBottom: 16 }}>
-              <FormattedMessage id="totp.loginPrompt" />
+            {/* §6.c H1 fix: the prompt <p> now carries an id so the input
+                can use aria-labelledby to associate with it programmatically.
+                Sighted users see the visible prompt; assistive tech reads
+                the same string via the labelledby reference. Replaces the
+                prior aria-label which would have shadowed the visible text
+                for screen readers. */}
+            <p
+              id="totp-login-prompt"
+              style={{ fontSize: text.sm, color: color.textTertiary, textAlign: 'center', marginBottom: 16 }}
+            >
+              <FormattedMessage
+                id={showBackupInput ? 'totp.loginPromptBackup' : 'totp.loginPrompt'}
+              />
             </p>
+            {/* §6.12 a11y semantics: autoComplete=one-time-code triggers
+                browser autofill from SMS / email TOTP messages on mobile;
+                pattern enforces 6 digits when in TOTP mode (backup codes
+                are alphanumeric so pattern is conditional). The input
+                is associated with the visible prompt above via
+                aria-labelledby — single source of truth for the input's
+                accessible name. */}
             <input
+              id="totp-login-input"
               data-testid="totp-login-input"
               type="text"
-              inputMode="numeric"
+              inputMode={showBackupInput ? 'text' : 'numeric'}
+              autoComplete="one-time-code"
+              pattern={showBackupInput ? undefined : '[0-9]{6}'}
+              aria-labelledby="totp-login-prompt"
               maxLength={showBackupInput ? 8 : 6}
               value={totpCode}
               onChange={(e) => {

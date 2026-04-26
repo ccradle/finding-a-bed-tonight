@@ -10,6 +10,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -87,6 +89,30 @@ public class PlatformAuthService {
     private final SecureRandom secureRandom = new SecureRandom();
 
     /**
+     * G-4.5 §6.17: per-reason counter for REJECTED login outcomes. Tagged
+     * by {@code reason} (bad_email | locked | bad_password | mfa_disabled).
+     * Drives {@code FabtPlatformLoginFailureBurst} alert at >5 failures /
+     * 5 min sustained 2 min — a sustained spike indicates either a
+     * brute-force attack against a known operator email or an enumeration
+     * sweep, both of which warrant operator paging because the
+     * platform-operator account class is the highest-value target.
+     */
+    private final Counter loginFailureBadEmail;
+    private final Counter loginFailureLocked;
+    private final Counter loginFailureBadPassword;
+    private final Counter loginFailureMfaDisabled;
+
+    /**
+     * G-4.5 §6.17: counter incremented when {@code recordFailureAndMaybeLock}
+     * transitions a {@code platform_user} into the locked state. Drives
+     * {@code FabtPlatformUserLockedOut} INFO alert (severity=info, not
+     * critical — a single lockout is not page-worthy, but the operator
+     * still wants visibility for downstream "is the on-call account
+     * locked right now?" questions during incident response).
+     */
+    private final Counter userLockedOutCount;
+
+    /**
      * Decoy bcrypt hash used to equalize timing on the "bad email" /
      * "account locked" rejection paths (warroom M2). The decoy is generated
      * at construction time over a random secret no caller will ever know;
@@ -99,7 +125,8 @@ public class PlatformAuthService {
     public PlatformAuthService(PlatformUserRepository userRepository,
                                PasswordService passwordService,
                                TotpService totpService,
-                               PlatformAdminAccessLogger adminAccessLogger) {
+                               PlatformAdminAccessLogger adminAccessLogger,
+                               MeterRegistry meterRegistry) {
         this.userRepository = userRepository;
         this.passwordService = passwordService;
         this.totpService = totpService;
@@ -108,6 +135,21 @@ public class PlatformAuthService {
         new SecureRandom().nextBytes(decoySeed);
         this.decoyPasswordHash = passwordService.hash(
                 HexFormat.of().formatHex(decoySeed));
+
+        // G-4.5 §6.17: pre-built per-reason counters. Bounded cardinality
+        // (4 distinct reasons) so safe to retain raw labels without the
+        // F22 hashing concern. Building once at construction avoids the
+        // per-call Counter.builder lookup.
+        this.loginFailureBadEmail = Counter.builder("fabt.platform.login.failures")
+                .tag("reason", "bad_email").register(meterRegistry);
+        this.loginFailureLocked = Counter.builder("fabt.platform.login.failures")
+                .tag("reason", "locked").register(meterRegistry);
+        this.loginFailureBadPassword = Counter.builder("fabt.platform.login.failures")
+                .tag("reason", "bad_password").register(meterRegistry);
+        this.loginFailureMfaDisabled = Counter.builder("fabt.platform.login.failures")
+                .tag("reason", "mfa_disabled").register(meterRegistry);
+        this.userLockedOutCount = Counter.builder("fabt.platform.user.locked_out")
+                .register(meterRegistry);
     }
 
     /**
@@ -130,14 +172,20 @@ public class PlatformAuthService {
         Optional<PlatformUser> opt = userRepository.findByEmail(email);
         if (opt.isEmpty()) {
             passwordService.matches(password, decoyPasswordHash);
+            // §6.17: increment AFTER the decoy verify so timing parity is
+            // preserved (counter increment is sub-microsecond — does not
+            // shift the wall-clock signature observable from outside).
+            loginFailureBadEmail.increment();
             return LoginResult.rejected();
         }
         PlatformUser user = opt.get();
         if (!user.isLoginAllowed()) {
             passwordService.matches(password, decoyPasswordHash);
+            loginFailureLocked.increment();
             return LoginResult.rejected();
         }
         if (!passwordService.matches(password, user.getPasswordHash())) {
+            loginFailureBadPassword.increment();
             return LoginResult.rejected();
         }
         if (user.isMfaEnabled()) {
@@ -247,6 +295,10 @@ public class PlatformAuthService {
                 .orElseThrow(() -> new IllegalStateException(
                         "platform_user not found: " + userId));
         if (!user.isMfaEnabled() || user.getMfaSecret() == null) {
+            // §6.17: distinct reason — the user reached MFA verify without
+            // enrollment, which is a different failure mode (operator
+            // process gap) than a bad code (attacker brute force).
+            loginFailureMfaDisabled.increment();
             recordFailureAndMaybeLock(userId);
             return false;
         }
@@ -274,6 +326,11 @@ public class PlatformAuthService {
         boolean nowLocked = userRepository.recordFailure(
                 userId, LOCKOUT_WINDOW_MIN, LOCKOUT_THRESHOLD);
         if (nowLocked) {
+            // §6.17: counter increments only on the lock TRANSITION (not on
+            // every failure within the window). Drives FabtPlatformUserLockedOut
+            // info-level alert. Increment before the audit write so a future
+            // audit-write failure doesn't suppress the metric signal.
+            userLockedOutCount.increment();
             log.warn("PLATFORM_USER_LOCKED_OUT userId={} threshold={} windowMin={}",
                     userId, LOCKOUT_THRESHOLD, LOCKOUT_WINDOW_MIN);
             // G-4.3 D6 — emit a PAL + AE row for the lockout transition.

@@ -156,6 +156,10 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
      * Production (Cloudflare → nginx): nginx sets X-Real-IP from CF-Connecting-IP.
      * Local dev (no proxy): falls back to getRemoteAddr().
      */
+    // TODO(F23): delegate to ClientIpResolver.resolve() when the broader
+    // bucket4j sweep lands. Identical semantics today; the sweep folds
+    // this private copy into the shared utility used by §6.b filters and
+    // metrics. See openspec/changes/platform-admin-split-and-access-log/design.md F23.
     private String resolveClientIp(HttpServletRequest request) {
         String realIp = request.getHeader("X-Real-IP");
         if (realIp != null && !realIp.isBlank()) {

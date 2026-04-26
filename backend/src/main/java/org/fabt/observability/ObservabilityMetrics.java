@@ -178,6 +178,40 @@ public class ObservabilityMetrics {
                 .register(registry);
     }
 
+    /**
+     * Counter for DV referral creates, tagged by {@code source_ip} (G-4.5
+     * §6.8). Paired with the alert rule
+     * {@code FabtDvReferralBurstFromSingleIp} in
+     * {@code deploy/prometheus/dv-defenses.rules.yml} to detect a burst of
+     * creates from a single source address that breached the bucket4j
+     * 5/hour throttle (§6.7) — for example, a botnet rotating IPs faster
+     * than the per-IP bucket can react, or a single attacker bypassing the
+     * throttle via legitimate-looking proxy chains.
+     *
+     * <p><b>Cardinality caveat (Marcus Webb / Sam Okafor):</b> raw
+     * {@code source_ip} labeling is unbounded by design — every distinct
+     * client IP creates a new time series. For the demo deployment
+     * (capped by bucket4j to ≤5 creates per IP per hour and a small
+     * audience) this is acceptable. For multi-tenant production use, an
+     * operator should either:
+     * <ul>
+     *   <li>configure Prometheus relabel rules to drop source_ip after a
+     *       burst is paged on; or</li>
+     *   <li>disable this counter via Spring profile and rely on
+     *       {@code audit_events} for per-IP forensics.</li>
+     * </ul>
+     * Captured as F22 in design.md for follow-up before any production
+     * tenant goes live with this metric enabled.</p>
+     */
+    // TODO(F22): configurable label-mode (raw | hash16 | disabled) before
+    // any non-demo tenant gets this metric enabled. See
+    // openspec/changes/platform-admin-split-and-access-log/design.md F22.
+    public Counter dvReferralCreateCounter(String sourceIp) {
+        return Counter.builder("fabt.dv.referrals.created")
+                .tag("source_ip", sourceIp != null ? sourceIp : "unknown")
+                .register(registry);
+    }
+
     // --- notification-deep-linking metrics (Priya differentiator, Phase 4 9a.x) ---
 
     /**
