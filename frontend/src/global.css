@@ -231,3 +231,44 @@ textarea:focus-visible {
   border-color: var(--color-border-focus);
   box-shadow: 0 0 0 1px var(--color-border-focus);
 }
+
+/*
+ * Print stylesheet — primarily for the TOTP backup-codes page (G-4.5 §6.14).
+ * The user opens the codes view, prints the page, and pockets a hard copy
+ * of all 10 codes. Hide nav chrome, action buttons, and storage guidance
+ * so the printout is just the heading + the ordered list of codes at a
+ * size large enough to read on paper.
+ *
+ * `.fabt-print-hide` is the opt-in class — apply to UI chrome that should
+ * not appear on the printed page (top nav, copy/download/print buttons,
+ * "Done" button, helper paragraphs). The backup-codes <ol> itself, the
+ * <h2> heading, and the <code> elements stay visible.
+ */
+@media print {
+  .fabt-print-hide,
+  nav,
+  header,
+  footer {
+    display: none !important;
+  }
+
+  /* High contrast on paper, regardless of theme */
+  body,
+  .fabt-backup-codes-step {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  /* Codes themselves: large monospace so each character is unambiguous
+     when read off paper (l vs 1, O vs 0). */
+  .fabt-backup-codes-step code {
+    font-size: 18pt !important;
+    color: #000000 !important;
+  }
+
+  .fabt-backup-codes-step h2 {
+    font-size: 16pt !important;
+    color: #000000 !important;
+  }
+}
+

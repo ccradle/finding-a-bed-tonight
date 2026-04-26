@@ -212,21 +212,32 @@ export function LoginPage() {
           <FormattedMessage id="login.title" />
         </h2>
 
-        {error && (
-          <div
-            style={{
-              backgroundColor: color.errorBg,
-              color: color.error,
-              padding: '12px 16px',
-              borderRadius: '8px',
-              marginBottom: '20px',
-              fontSize: text.base,
-            }}
-            role="alert"
-          >
-            {error}
-          </div>
-        )}
+        {/* §6.15 a11y: aria-live=polite ensures screen readers announce the
+            lockout message ("Account locked. Try again in 15 minutes.") and
+            other auth errors as soon as they appear, without interrupting
+            the user mid-thought (assertive would). role=alert keeps the
+            assistive-tech announcement immediate; the polite live region
+            is the WCAG-recommended belt + suspenders for auth errors. */}
+        <div
+          aria-live="polite"
+          aria-atomic="true"
+          role={error ? 'alert' : undefined}
+          data-testid="login-error-region"
+          style={{
+            // Visually hidden when empty so the styled box doesn't reserve
+            // space — but still present in the DOM so screen readers
+            // discover the live region on page load.
+            display: error ? 'block' : 'none',
+            backgroundColor: color.errorBg,
+            color: color.error,
+            padding: '12px 16px',
+            borderRadius: '8px',
+            marginBottom: '20px',
+            fontSize: text.base,
+          }}
+        >
+          {error}
+        </div>
 
         {mfaToken ? (
           /* Two-phase TOTP verification screen */
@@ -234,10 +245,21 @@ export function LoginPage() {
             <p style={{ fontSize: text.sm, color: color.textTertiary, textAlign: 'center', marginBottom: 16 }}>
               <FormattedMessage id="totp.loginPrompt" />
             </p>
+            {/* §6.12 a11y semantics: autoComplete=one-time-code triggers
+                browser autofill from SMS / email TOTP messages on mobile;
+                pattern enforces 6 digits when in TOTP mode (backup codes
+                are alphanumeric so pattern is conditional). aria-label
+                survives styling and is read by every screen reader. */}
             <input
+              id="totp-login-input"
               data-testid="totp-login-input"
               type="text"
-              inputMode="numeric"
+              inputMode={showBackupInput ? 'text' : 'numeric'}
+              autoComplete="one-time-code"
+              pattern={showBackupInput ? undefined : '[0-9]{6}'}
+              aria-label={intl.formatMessage({
+                id: showBackupInput ? 'totp.backupCodeAriaLabel' : 'totp.codeAriaLabel',
+              })}
               maxLength={showBackupInput ? 8 : 6}
               value={totpCode}
               onChange={(e) => {

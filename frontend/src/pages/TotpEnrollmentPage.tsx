@@ -23,8 +23,19 @@ interface ConfirmResponse {
   backupCodes: string[];
 }
 
-/** Client-side QR code renderer — TOTP secret never leaves the browser */
-function QrCodeCanvas({ uri, ...props }: { uri: string; 'data-testid'?: string }) {
+/**
+ * Client-side QR code renderer — TOTP secret never leaves the browser.
+ *
+ * §6.13 a11y: <canvas> is opaque to screen readers, so we use role="img"
+ * + aria-label to give assistive tech an equivalent description. The
+ * adjacent visible secret + copy button (rendered by the parent) are the
+ * keyboard-accessible alternative for users who cannot scan.
+ */
+function QrCodeCanvas({ uri, ariaLabel, ...props }: {
+  uri: string;
+  ariaLabel: string;
+  'data-testid'?: string;
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -38,7 +49,12 @@ function QrCodeCanvas({ uri, ...props }: { uri: string; 'data-testid'?: string }
       padding: 16, backgroundColor: '#ffffff', borderRadius: 12,
       border: `2px solid ${color.border}`, textAlign: 'center', marginBottom: 16,
     }}>
-      <canvas ref={canvasRef} style={{ display: 'block', margin: '0 auto' }} />
+      <canvas
+        ref={canvasRef}
+        role="img"
+        aria-label={ariaLabel}
+        style={{ display: 'block', margin: '0 auto' }}
+      />
     </div>
   );
 }
@@ -146,30 +162,62 @@ export function TotpEnrollmentPage() {
           </p>
 
           {/* QR Code — rendered locally, TOTP secret never leaves the browser */}
-          <QrCodeCanvas data-testid="totp-qr-code" uri={qrUri} />
+          <QrCodeCanvas
+            data-testid="totp-qr-code"
+            uri={qrUri}
+            ariaLabel={intl.formatMessage({ id: 'totp.qrAriaLabel' })}
+          />
 
-          {/* Manual entry secret */}
+          {/* Manual entry secret — §6.13: <details>/<summary> is the
+              native keyboard-accessible disclosure for users who can't
+              scan. Copy button has explicit aria-label so screen readers
+              announce purpose, not just the icon glyph. */}
           <details style={{ marginBottom: 16 }}>
             <summary style={{ fontSize: text.xs, color: color.textMuted, cursor: 'pointer' }}>
               <FormattedMessage id="totp.manualEntry" />
             </summary>
-            <code data-testid="totp-manual-secret" style={{
-              display: 'block', padding: 12, marginTop: 8, borderRadius: 8,
-              backgroundColor: color.bgTertiary, fontSize: text.sm, wordBreak: 'break-all',
-              fontFamily: 'monospace', color: color.text,
-            }}>
-              {secret}
-            </code>
+            <div style={{ display: 'flex', alignItems: 'stretch', gap: 8, marginTop: 8 }}>
+              <code data-testid="totp-manual-secret" style={{
+                flex: 1, padding: 12, borderRadius: 8,
+                backgroundColor: color.bgTertiary, fontSize: text.sm, wordBreak: 'break-all',
+                fontFamily: 'monospace', color: color.text,
+              }}>
+                {secret}
+              </code>
+              <button
+                type="button"
+                data-testid="totp-copy-secret-button"
+                onClick={() => navigator.clipboard.writeText(secret)}
+                aria-label={intl.formatMessage({ id: 'totp.copySecretAriaLabel' })}
+                style={{
+                  padding: '0 16px', borderRadius: 8, border: `2px solid ${color.border}`,
+                  backgroundColor: color.bg, color: color.text, fontSize: text.sm,
+                  fontWeight: weight.semibold, cursor: 'pointer', minHeight: 44,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                <FormattedMessage id="totp.copySecret" />
+              </button>
+            </div>
           </details>
 
-          {/* Verify code */}
-          <label style={{ fontSize: text.xs, fontWeight: weight.semibold, color: color.textTertiary, display: 'block', marginBottom: 4 }}>
+          {/* Verify code — §6.12 a11y semantics: type=text + inputMode=numeric
+              gives mobile users the numeric keypad without losing copy/paste,
+              autoComplete=one-time-code lets browsers auto-fill from SMS/email,
+              pattern enforces 6 digits at the constraint-validation layer,
+              aria-label gives screen readers a description that survives even
+              when the visual <label> is far away or styled away. */}
+          <label htmlFor="totp-verify-input" style={{ fontSize: text.xs, fontWeight: weight.semibold, color: color.textTertiary, display: 'block', marginBottom: 4 }}>
             <FormattedMessage id="totp.enterCode" />
           </label>
           <input
+            id="totp-verify-input"
             data-testid="totp-verify-input"
             type="text"
             inputMode="numeric"
+            autoComplete="one-time-code"
+            pattern="[0-9]{6}"
+            aria-label={intl.formatMessage({ id: 'totp.codeAriaLabel' })}
             maxLength={6}
             value={verifyCode}
             onChange={(e) => {
@@ -202,29 +250,81 @@ export function TotpEnrollmentPage() {
       )}
 
       {step === 'codes' && (
-        <div>
-          <div style={{
+        <div className="fabt-backup-codes-step">
+          {/* §6.14: <h2> heading anchors the section for screen-reader nav
+              and document outline. The "Save these codes" wording cues the
+              user that this content is high-stakes (they cannot retrieve
+              the codes again later). */}
+          <h2 style={{
+            fontSize: text.lg, fontWeight: weight.bold, color: color.text,
+            marginTop: 0, marginBottom: 8,
+          }}>
+            <FormattedMessage id="totp.codesHeading" />
+          </h2>
+
+          <div role="alert" style={{
             padding: '16px', borderRadius: 12, backgroundColor: color.warningBg,
             color: color.warning, fontSize: text.sm, fontWeight: weight.semibold, marginBottom: 16,
           }}>
             <FormattedMessage id="totp.codesWarning" />
           </div>
 
-          <div data-testid="backup-codes-grid" style={{
-            display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16,
-          }}>
+          {/* §6.14: <ol> is the right semantic for an ordered list of
+              one-time codes; screen readers announce "1 of N" so the user
+              knows which code they're hearing. Per-code copy button gives
+              keyboard-only users a direct copy path without selecting
+              text. The inner code styling is large enough to read at
+              arm's length on a printout (~16pt monospace). */}
+          <ol
+            data-testid="backup-codes-list"
+            aria-label={intl.formatMessage({ id: 'totp.codesListAriaLabel' })}
+            style={{
+              listStyle: 'decimal inside',
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: 8,
+              padding: 0,
+              margin: 0,
+              marginBottom: 16,
+            }}
+          >
             {backupCodes.map((code, i) => (
-              <div key={i} style={{
-                padding: '8px 12px', borderRadius: 8, backgroundColor: color.bgTertiary,
-                fontFamily: 'monospace', fontSize: text.sm, fontWeight: weight.bold,
-                textAlign: 'center', color: color.text,
-              }}>
-                {code}
-              </div>
+              <li
+                key={i}
+                style={{
+                  padding: '8px 12px', borderRadius: 8, backgroundColor: color.bgTertiary,
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  gap: 8,
+                }}
+              >
+                <code style={{
+                  fontFamily: 'monospace', fontSize: text.base, fontWeight: weight.bold,
+                  color: color.text, letterSpacing: '0.05em',
+                }}>
+                  {code}
+                </code>
+                <button
+                  type="button"
+                  data-testid={`copy-code-${i}`}
+                  onClick={() => navigator.clipboard.writeText(code)}
+                  aria-label={intl.formatMessage(
+                    { id: 'totp.copyCodeAriaLabel' },
+                    { index: i + 1 },
+                  )}
+                  className="fabt-print-hide"
+                  style={{
+                    padding: '4px 10px', borderRadius: 6, border: `1px solid ${color.border}`,
+                    backgroundColor: color.bg, color: color.text, fontSize: text.xs,
+                    fontWeight: weight.semibold, cursor: 'pointer', minHeight: 28,
+                  }}
+                >
+                  <FormattedMessage id="totp.copyCodeShort" />
+                </button>
+              </li>
             ))}
-          </div>
+          </ol>
 
-          <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+          <div className="fabt-print-hide" style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
             <button
               data-testid="copy-codes-button"
               onClick={copyAllCodes}
@@ -247,15 +347,27 @@ export function TotpEnrollmentPage() {
             >
               <FormattedMessage id="totp.downloadCodes" />
             </button>
+            <button
+              data-testid="print-codes-button"
+              onClick={() => window.print()}
+              style={{
+                flex: 1, padding: 10, borderRadius: 8, border: `2px solid ${color.border}`,
+                backgroundColor: color.bg, color: color.text, fontSize: text.sm,
+                fontWeight: weight.semibold, cursor: 'pointer', minHeight: 44,
+              }}
+            >
+              <FormattedMessage id="totp.printCodes" />
+            </button>
           </div>
 
-          <p style={{ fontSize: text.xs, color: color.textMuted, marginBottom: 16 }}>
+          <p className="fabt-print-hide" style={{ fontSize: text.xs, color: color.textMuted, marginBottom: 16 }}>
             <FormattedMessage id="totp.storageGuidance" />
           </p>
 
           <button
             data-testid="totp-done-button"
             onClick={() => navigate(-1)}
+            className="fabt-print-hide"
             style={{
               width: '100%', padding: 12, borderRadius: 10, border: 'none',
               backgroundColor: color.successBright, color: color.textInverse,
