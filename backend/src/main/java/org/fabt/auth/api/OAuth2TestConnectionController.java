@@ -16,7 +16,6 @@ import org.springframework.web.client.RestClient;
 
 @RestController
 @RequestMapping("/api/v1/oauth2")
-@PreAuthorize("hasRole('PLATFORM_ADMIN')")
 public class OAuth2TestConnectionController {
 
     private static final Logger log = LoggerFactory.getLogger(OAuth2TestConnectionController.class);
@@ -33,6 +32,10 @@ public class OAuth2TestConnectionController {
                     "to validate that the identity provider is reachable and properly configured."
     )
     @GetMapping("/test-connection")
+    @PreAuthorize("hasRole('PLATFORM_OPERATOR')")
+    @org.fabt.auth.platform.PlatformAdminOnly(
+            reason = "OAuth2 test-connection probe — issues an outbound HTTPS request to a tenant-supplied URL; platform authority required to prevent SSRF probing by tenant admins",
+            emits = org.fabt.shared.audit.AuditEventType.PLATFORM_OAUTH2_TESTED)
     public ResponseEntity<Map<String, Object>> testConnection(@RequestParam String issuerUri) {
         String wellKnown = issuerUri.replaceAll("/$", "") + "/.well-known/openid-configuration";
         try {

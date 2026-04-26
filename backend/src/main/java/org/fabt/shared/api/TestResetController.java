@@ -57,9 +57,12 @@ public class TestResetController {
                     "IN PRODUCTION — it is profile-gated with @Profile(\"dev | test\"). Requires PLATFORM_ADMIN " +
                     "role and X-Confirm-Reset: DESTROY header."
     )
-    @TenantUnscopedQuery("test/dev-only DESTROY endpoint; class is @Profile(\"dev | test\")-gated and unreachable in lite/standard/full. PLATFORM_ADMIN + X-Confirm-Reset header required.")
+    @TenantUnscopedQuery("test/dev-only DESTROY endpoint; class is @Profile(\"dev | test\")-gated and unreachable in lite/standard/full. PLATFORM_OPERATOR + X-Confirm-Reset header required.")
     @DeleteMapping("/reset")
-    @PreAuthorize("hasRole('PLATFORM_ADMIN')")
+    @PreAuthorize("hasRole('PLATFORM_OPERATOR')")
+    @org.fabt.auth.platform.PlatformAdminOnly(
+            reason = "Test-data DESTROY — dev/test profile only; platform authority required because it wipes every tenant's data wholesale",
+            emits = org.fabt.shared.audit.AuditEventType.PLATFORM_TEST_RESET_INVOKED)
     public ResponseEntity<?> resetTestData(
             @RequestHeader(value = "X-Confirm-Reset", required = false) String confirmHeader) throws Exception {
 

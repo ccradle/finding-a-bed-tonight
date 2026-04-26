@@ -198,9 +198,20 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             PlatformJwtService.PlatformJwtClaims claims = platformJwtService.validateToken(token);
             String[] roles = claims.roles();
             if (roles != null && roles.length > 0 && claims.mfaVerified()) {
-                List<SimpleGrantedAuthority> authorities = Arrays.stream(roles)
+                // Build the authority list with TWO classes of authority:
+                // 1. ROLE_<role> per claim role (drives @PreAuthorize hasRole)
+                // 2. MFA_VERIFIED — marker authority added ONLY when the JWT
+                //    carries mfaVerified=true. Per design follow-up F2 / G-4.4
+                //    task 5.4b, this provides defense-in-depth: the
+                //    @PlatformAdminOnly aspect asserts the marker's presence
+                //    before writing audit rows. If a future change to this
+                //    filter accidentally grants ROLE_PLATFORM_OPERATOR without
+                //    requiring mfaVerified, the aspect still rejects.
+                List<SimpleGrantedAuthority> authorities = new java.util.ArrayList<>();
+                Arrays.stream(roles)
                         .map(role -> new SimpleGrantedAuthority("ROLE_" + role))
-                        .toList();
+                        .forEach(authorities::add);
+                authorities.add(new SimpleGrantedAuthority("MFA_VERIFIED"));
                 UsernamePasswordAuthenticationToken authentication =
                         new UsernamePasswordAuthenticationToken(claims.sub(), null, authorities);
                 SecurityContextHolder.getContext().setAuthentication(authentication);

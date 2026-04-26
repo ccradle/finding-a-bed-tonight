@@ -2,4 +2,8 @@ node_modules/
 playwright-report/
 test-results/
 blob-report/
-auth/
+# Storage-state JSON files contain access tokens. Source-code helpers live
+# in helpers/auth/ (tracked) — /auth/ at the playwright root is exclusively
+# storage state. The leading slash anchors the pattern so the helpers/auth/
+# subdirectory is NOT swept by the same rule.
+/auth/

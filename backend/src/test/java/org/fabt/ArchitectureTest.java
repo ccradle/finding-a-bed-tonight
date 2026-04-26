@@ -1,5 +1,7 @@
 package org.fabt;
 
+import com.tngtech.archunit.base.DescribedPredicate;
+import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
@@ -15,23 +17,50 @@ class ArchitectureTest {
 
     // shared.security is allowed to depend on auth module (Design D1 rule #5:
     // "auth module is a dependency exception — security filters need auth services")
+    //
+    // G-4.4 narrow exception: PlatformAdminOnly is a cross-cutting security
+    // annotation analogous to @PreAuthorize. The TestResetController in
+    // shared.api applies it for audit + justification capture; the annotation
+    // itself has no behavior (the AOP aspect lives in auth.platform). Treating
+    // it as a permitted cross-cutting dependency keeps the shared.api → audit
+    // contract clean without forcing a relocation of the controller.
+    //
+    // Triage-pass-2 warroom narrowing (Alex MEDIUM): the exception requires
+    // BOTH (a) the fully-qualified name match AND (b) the target class be an
+    // annotation. If someone later adds a static helper or nested type to
+    // PlatformAdminOnly, the exception stays scoped to the annotation surface
+    // only — it cannot silently drag in non-annotation auth.platform symbols.
+    private static final DescribedPredicate<JavaClass> domainModulesExceptPlatformAdminAnnotation =
+            new DescribedPredicate<JavaClass>("domain modules (except auth.platform.PlatformAdminOnly annotation)") {
+                @Override
+                public boolean test(JavaClass input) {
+                    String name = input.getFullName();
+                    if ("org.fabt.auth.platform.PlatformAdminOnly".equals(name)
+                            && input.isAnnotation()) {
+                        return false;
+                    }
+                    String pkg = input.getPackageName();
+                    return pkg.startsWith("org.fabt.tenant")
+                            || pkg.startsWith("org.fabt.auth")
+                            || pkg.startsWith("org.fabt.shelter")
+                            || pkg.startsWith("org.fabt.dataimport")
+                            || pkg.startsWith("org.fabt.observability")
+                            || pkg.startsWith("org.fabt.subscription")
+                            || pkg.startsWith("org.fabt.availability")
+                            || pkg.startsWith("org.fabt.reservation")
+                            || pkg.startsWith("org.fabt.surge")
+                            || pkg.startsWith("org.fabt.analytics")
+                            || pkg.startsWith("org.fabt.notification");
+                }
+            };
+
     @ArchTest
     static final ArchRule shared_non_security_should_not_depend_on_modules =
             noClasses().that().resideInAPackage("org.fabt.shared..")
                     .and().resideOutsideOfPackage("org.fabt.shared.security..")
-                    .should().dependOnClassesThat().resideInAnyPackage(
-                            "org.fabt.tenant..",
-                            "org.fabt.auth..",
-                            "org.fabt.shelter..",
-                            "org.fabt.dataimport..",
-                            "org.fabt.observability..",
-                            "org.fabt.subscription..",
-                            "org.fabt.availability..",
-                            "org.fabt.reservation..",
-                            "org.fabt.surge..",
-                            "org.fabt.analytics..",
-                            "org.fabt.notification.."
-                    ).as("Shared kernel (except security) must not depend on any domain module");
+                    .should().dependOnClassesThat(domainModulesExceptPlatformAdminAnnotation)
+                    .as("Shared kernel (except security) must not depend on any domain module "
+                            + "(PlatformAdminOnly annotation excepted as cross-cutting security)");
 
     @ArchTest
     static final ArchRule shared_security_only_depends_on_auth =

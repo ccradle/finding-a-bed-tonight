@@ -23,7 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequestMapping("/api/v1/users")
-@PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+@PreAuthorize("hasRole('COC_ADMIN')")
 public class UserShelterController {
 
     private final CoordinatorAssignmentRepository coordinatorAssignmentRepository;
@@ -38,7 +38,7 @@ public class UserShelterController {
                     "scoped to the caller's tenant. Each entry contains the shelter's UUID and name. " +
                     "Returns an empty array if the user has no assignments or belongs to a different tenant. " +
                     "DV shelters are only visible if the caller has dvAccess=true (RLS enforced). " +
-                    "Requires COC_ADMIN or PLATFORM_ADMIN role."
+                    "Requires COC_ADMIN role."
     )
     @GetMapping("/{id}/shelters")
     public ResponseEntity<List<ShelterSummary>> getUserShelters(

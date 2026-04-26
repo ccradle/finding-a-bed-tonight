@@ -116,7 +116,7 @@ class UserShelterControllerTest extends BaseIntegrationTest {
         Tenant tenantB = authHelper.setupTestTenant("tenant-b-shelter-isolation");
         User tenantBAdmin = authHelper.setupUserWithDvAccess(
                 "admin-b-shelter@test.fabt.org", "Tenant B Admin",
-                new String[]{"PLATFORM_ADMIN"});
+                new String[]{"PLATFORM_ADMIN", "COC_ADMIN"});
         HttpHeaders tenantBHeaders = authHelper.headersForUser(tenantBAdmin);
 
         UUID tenantBShelter = createShelterWithHeaders("Tenant B Shelter", tenantBHeaders);
@@ -179,7 +179,7 @@ class UserShelterControllerTest extends BaseIntegrationTest {
     void getUserShelters_adminWithDvAccess_seesDvShelters() {
         User dvAdmin = authHelper.setupUserWithDvAccess(
                 "dv-admin-shelter@test.fabt.org", "DV Admin",
-                new String[]{"PLATFORM_ADMIN"});
+                new String[]{"PLATFORM_ADMIN", "COC_ADMIN"});
         HttpHeaders dvAdminHeaders = authHelper.headersForUser(dvAdmin);
 
         // Create DV shelter (needs dvAccess admin)
@@ -206,7 +206,7 @@ class UserShelterControllerTest extends BaseIntegrationTest {
     void getUserShelters_adminWithoutDvAccess_doesNotSeeDvShelters() {
         User dvAdmin = authHelper.setupUserWithDvAccess(
                 "dv-admin-shelter2@test.fabt.org", "DV Admin 2",
-                new String[]{"PLATFORM_ADMIN"});
+                new String[]{"PLATFORM_ADMIN", "COC_ADMIN"});
         HttpHeaders dvAdminHeaders = authHelper.headersForUser(dvAdmin);
 
         // Create DV shelter (needs dvAccess admin)

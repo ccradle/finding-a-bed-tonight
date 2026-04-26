@@ -50,7 +50,13 @@ class HmisBridgeIntegrationTest extends BaseIntegrationTest {
         authHelper.setupOutreachWorkerUser();
 
         var dvAdmin = authHelper.setupUserWithDvAccess(
-                "dvadmin-hmis@test.fabt.org", "DV Admin HMIS", new String[]{"PLATFORM_ADMIN"});
+                "dvadmin-hmis@test.fabt.org", "DV Admin HMIS",
+                // G-4.4: PLATFORM_ADMIN + COC_ADMIN (matches V87 backfill +
+                // post-migration tenant-admin role list). The COC_ADMIN role
+                // satisfies the migrated tenant-scoped endpoints (/shelters
+                // POST etc.); PLATFORM_ADMIN remains for compat with any
+                // tests that still assert on it directly.
+                new String[]{"PLATFORM_ADMIN", "COC_ADMIN"});
         adminHeaders = authHelper.headersForUser(dvAdmin);
         outreachHeaders = authHelper.outreachWorkerHeaders();
 
@@ -190,7 +196,9 @@ class HmisBridgeIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    void pushEndpoint_requiresPlatformAdmin() {
+    void pushEndpoint_requiresCocAdmin() {
+        // G-4.4 follow-up: HMIS push reverted to COC_ADMIN (tenant-scoped). A
+        // non-admin role like outreach must still 403.
         ResponseEntity<String> resp = restTemplate.exchange(
                 "/api/v1/hmis/push", HttpMethod.POST,
                 new HttpEntity<>(outreachHeaders), String.class);
@@ -198,7 +206,7 @@ class HmisBridgeIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    void vendorsEndpoint_requiresPlatformAdmin() {
+    void vendorsEndpoint_requiresCocAdmin() {
         ResponseEntity<String> resp = restTemplate.exchange(
                 "/api/v1/hmis/vendors", HttpMethod.GET,
                 new HttpEntity<>(outreachHeaders), String.class);
@@ -214,12 +222,31 @@ class HmisBridgeIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    void manualPush_succeeds() {
+    void manualPush_succeeds_withConfirmHeader() {
+        // G-4.4 §F16: HMIS push is COC_ADMIN (tenant-scoped). Admin user has
+        // COC_ADMIN per V87 backfill. Requires X-Confirm-HMIS-Push: CONFIRM
+        // header to prevent accidental triggers.
+        HttpHeaders headers = new HttpHeaders();
+        headers.addAll(adminHeaders);
+        headers.set("X-Confirm-HMIS-Push", "CONFIRM");
+        ResponseEntity<String> resp = restTemplate.exchange(
+                "/api/v1/hmis/push", HttpMethod.POST,
+                new HttpEntity<>(headers), String.class);
+        assertEquals(HttpStatus.OK, resp.getStatusCode());
+        assertTrue(resp.getBody().contains("outboxEntriesCreated"));
+    }
+
+    @Test
+    void manualPush_withoutConfirmHeader_rejected() {
+        // G-4.4 §F16 mitigation: without X-Confirm-HMIS-Push: CONFIRM, the
+        // endpoint must 400 with missing_confirmation. Mirrors the
+        // X-Confirm-Policy-Change pattern on TenantController.
         ResponseEntity<String> resp = restTemplate.exchange(
                 "/api/v1/hmis/push", HttpMethod.POST,
                 new HttpEntity<>(adminHeaders), String.class);
-        assertEquals(HttpStatus.OK, resp.getStatusCode());
-        assertTrue(resp.getBody().contains("outboxEntriesCreated"));
+        assertEquals(HttpStatus.BAD_REQUEST, resp.getStatusCode());
+        assertTrue(resp.getBody().contains("missing_confirmation"),
+                "Body should signal missing_confirmation: " + resp.getBody());
     }
 
     private void createShelter(String name, boolean dvShelter) {

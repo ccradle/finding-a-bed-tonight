@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/v1/tenants/{tenantId}/oauth2-providers")
-@PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+@PreAuthorize("hasRole('COC_ADMIN')")
 public class OAuth2ProviderController {
 
     private final TenantOAuth2ProviderService providerService;
@@ -39,7 +39,7 @@ public class OAuth2ProviderController {
                     "like 'google' or 'azure-ad' — must be unique within the tenant), clientId, " +
                     "clientSecret, and issuerUri (the OIDC discovery URL). The clientSecret is stored " +
                     "encrypted. Returns 201 with the provider record (clientSecret is not echoed). " +
-                    "Requires COC_ADMIN or PLATFORM_ADMIN role."
+                    "Requires COC_ADMIN role."
     )
     @PostMapping
     public ResponseEntity<OAuth2ProviderResponse> create(
@@ -64,7 +64,7 @@ public class OAuth2ProviderController {
                     "including both enabled and disabled providers. Each record includes providerName, " +
                     "clientId, issuerUri, enabled status, and timestamps. The clientSecret is never " +
                     "returned. Use this to audit which identity providers are configured. " +
-                    "Requires COC_ADMIN or PLATFORM_ADMIN role."
+                    "Requires COC_ADMIN role."
     )
     @GetMapping
     public ResponseEntity<List<OAuth2ProviderResponse>> list(
@@ -83,7 +83,7 @@ public class OAuth2ProviderController {
                     "a field unchanged, pass its current value. Setting enabled to false disables " +
                     "SSO login for this provider without deleting the configuration. Returns the " +
                     "updated provider record. Returns 404 if the provider ID does not exist. " +
-                    "Requires COC_ADMIN or PLATFORM_ADMIN role."
+                    "Requires COC_ADMIN role."
     )
     @PutMapping("/{providerId}")
     public ResponseEntity<OAuth2ProviderResponse> update(
@@ -110,7 +110,7 @@ public class OAuth2ProviderController {
                     "SSO and must use password login or another configured provider. This is a hard " +
                     "delete — to temporarily disable a provider without losing its configuration, " +
                     "use the update endpoint to set enabled=false instead. Returns 204 No Content. " +
-                    "Requires COC_ADMIN or PLATFORM_ADMIN role."
+                    "Requires COC_ADMIN role."
     )
     @DeleteMapping("/{providerId}")
     public ResponseEntity<Void> delete(

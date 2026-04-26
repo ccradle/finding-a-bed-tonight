@@ -27,10 +27,15 @@ Feature: DV Address Policy — Change Endpoint Safeguards
     When method PUT
     Then status 403
 
-  Scenario: Valid policy change succeeds
-    * configure headers = { Authorization: '#(adminAuthHeader)', 'X-Confirm-Policy-Change': 'CONFIRM' }
-    Given path '/api/v1/tenants', tenantId, 'dv-address-policy'
-    And request { "policy": "ADMIN_AND_ASSIGNED" }
-    When method PUT
-    Then status 200
-    And match response.policy == 'ADMIN_AND_ASSIGNED'
+  # G-4.4 §F21 follow-up: the "valid policy change succeeds" happy-path
+  # scenario was removed from this feature on 2026-04-26. After G-4.4 the
+  # /dv-address-policy endpoint is @PlatformAdminOnly, requiring a
+  # platform-operator JWT (iss=fabt-platform, mfaVerified=true) +
+  # X-Platform-Justification header + X-Confirm-Policy-Change header.
+  # Karate currently has no platform-operator login helper (TOTP
+  # generation in JS + /auth/platform/login + /verify-mfa flow). The
+  # backend IT DvAddressRedactionTest covers the happy path with 13
+  # scenarios + the helper TestAuthHelper.platformOperatorHeaders().
+  # Coverage parity is preserved without the Karate refactor; F21
+  # tracks adding Karate platform-operator support for future cross-
+  # layer coverage if needed.

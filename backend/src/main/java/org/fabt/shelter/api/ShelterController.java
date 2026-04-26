@@ -66,10 +66,10 @@ public class ShelterController {
                     "domestic violence shelters — their records are hidden from users who do not " +
                     "have dvAccess=true on their user profile. Returns 201 with the created shelter " +
                     "including its generated UUID. Returns 400 if validation fails. " +
-                    "Requires COC_ADMIN or PLATFORM_ADMIN role."
+                    "Requires COC_ADMIN role."
     )
     @PostMapping
-    @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasRole('COC_ADMIN')")
     public ResponseEntity<ShelterResponse> create(@Valid @RequestBody CreateShelterRequest request) {
         Shelter shelter = shelterService.create(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(ShelterResponse.from(shelter));
@@ -251,7 +251,7 @@ public class ShelterController {
                     "Requires COORDINATOR (assigned only), COC_ADMIN, or PLATFORM_ADMIN role."
     )
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyRole('COORDINATOR', 'COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasAnyRole('COORDINATOR', 'COC_ADMIN')")
     public ResponseEntity<ShelterResponse> update(
             @Parameter(description = "UUID of the shelter to update") @PathVariable UUID id,
             @Valid @RequestBody UpdateShelterRequest request,
@@ -286,10 +286,10 @@ public class ShelterController {
     @Operation(
             summary = "List coordinators assigned to a shelter",
             description = "Returns the user IDs of coordinators assigned to the specified shelter. " +
-                    "Requires COC_ADMIN or PLATFORM_ADMIN role."
+                    "Requires COC_ADMIN role."
     )
     @GetMapping("/{id}/coordinators")
-    @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasRole('COC_ADMIN')")
     public ResponseEntity<List<java.util.UUID>> listCoordinators(
             @Parameter(description = "UUID of the shelter") @PathVariable java.util.UUID id) {
         shelterService.findById(id)
@@ -304,10 +304,10 @@ public class ShelterController {
                     "profile via PUT /api/v1/shelters/{id}. The shelter must exist within the caller's " +
                     "tenant — returns 404 if not found. The request body must include the userId of the " +
                     "user to assign. Assigning an already-assigned coordinator is idempotent. " +
-                    "Returns 200 on success. Requires COC_ADMIN or PLATFORM_ADMIN role."
+                    "Returns 200 on success. Requires COC_ADMIN role."
     )
     @PostMapping("/{id}/coordinators")
-    @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasRole('COC_ADMIN')")
     public ResponseEntity<Void> assignCoordinator(
             @Parameter(description = "UUID of the shelter to assign the coordinator to") @PathVariable UUID id,
             @Valid @RequestBody AssignCoordinatorRequest request) {
@@ -323,12 +323,12 @@ public class ShelterController {
             summary = "Remove a coordinator assignment from a shelter",
             description = "Removes the assignment linking the specified user to the specified shelter. " +
                     "After removal, the user can no longer update this shelter (unless they also hold " +
-                    "COC_ADMIN or PLATFORM_ADMIN role). The shelter must exist within the caller's " +
+                    "COC_ADMIN role). The shelter must exist within the caller's " +
                     "tenant — returns 404 if not found. Removing a non-existent assignment is " +
-                    "idempotent and returns 204. Requires COC_ADMIN or PLATFORM_ADMIN role."
+                    "idempotent and returns 204. Requires COC_ADMIN role."
     )
     @DeleteMapping("/{id}/coordinators/{userId}")
-    @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasRole('COC_ADMIN')")
     public ResponseEntity<Void> unassignCoordinator(
             @Parameter(description = "UUID of the shelter") @PathVariable UUID id,
             @Parameter(description = "UUID of the coordinator user to unassign") @PathVariable UUID userId) {
@@ -344,10 +344,10 @@ public class ShelterController {
             summary = "Deactivate a shelter",
             description = "Deactivates a shelter, making it invisible in bed search. Active holds are " +
                     "cancelled and outreach workers are notified. For DV shelters with pending referrals, " +
-                    "a confirmation is required. Requires COC_ADMIN or PLATFORM_ADMIN role."
+                    "a confirmation is required. Requires COC_ADMIN role."
     )
     @PatchMapping("/{id}/deactivate")
-    @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasRole('COC_ADMIN')")
     public ResponseEntity<?> deactivate(
             @Parameter(description = "UUID of the shelter to deactivate") @PathVariable UUID id,
             @Valid @RequestBody DeactivateShelterRequest request,
@@ -381,10 +381,10 @@ public class ShelterController {
     @Operation(
             summary = "Reactivate a shelter",
             description = "Reactivates a previously deactivated shelter, making it visible in bed search " +
-                    "again. Clears all deactivation metadata. Requires COC_ADMIN or PLATFORM_ADMIN role."
+                    "again. Clears all deactivation metadata. Requires COC_ADMIN role."
     )
     @PatchMapping("/{id}/reactivate")
-    @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasRole('COC_ADMIN')")
     public ResponseEntity<ShelterResponse> reactivate(
             @Parameter(description = "UUID of the shelter to reactivate") @PathVariable UUID id,
             Authentication authentication) {

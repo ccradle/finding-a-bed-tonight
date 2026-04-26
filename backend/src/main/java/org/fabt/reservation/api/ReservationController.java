@@ -53,7 +53,7 @@ public class ReservationController {
                     "Requires OUTREACH_WORKER, COORDINATOR, COC_ADMIN, or PLATFORM_ADMIN role."
     )
     @PostMapping
-    @PreAuthorize("hasAnyRole('OUTREACH_WORKER', 'COORDINATOR', 'COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasAnyRole('OUTREACH_WORKER', 'COORDINATOR', 'COC_ADMIN')")
     public ResponseEntity<ReservationResponse> create(
             @Valid @RequestBody CreateReservationRequest request,
             @RequestHeader(value = "X-Idempotency-Key", required = false) String idempotencyKey,
@@ -79,7 +79,7 @@ public class ReservationController {
                     + "status. Requires any authenticated role with reservation capability."
     )
     @GetMapping
-    @PreAuthorize("hasAnyRole('OUTREACH_WORKER', 'COORDINATOR', 'COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasAnyRole('OUTREACH_WORKER', 'COORDINATOR', 'COC_ADMIN')")
     public ResponseEntity<List<ReservationResponse>> listForUser(
             @Parameter(description = "Comma-separated reservation statuses to include. "
                     + "Omit for HELD-only (legacy behavior).")
@@ -129,7 +129,7 @@ public class ReservationController {
                     "the reservation has already expired, been cancelled, or been confirmed."
     )
     @PatchMapping("/{id}/confirm")
-    @PreAuthorize("hasAnyRole('OUTREACH_WORKER', 'COORDINATOR', 'COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasAnyRole('OUTREACH_WORKER', 'COORDINATOR', 'COC_ADMIN')")
     public ResponseEntity<ReservationResponse> confirm(
             @Parameter(description = "UUID of the reservation to confirm") @PathVariable UUID id,
             Authentication authentication) {
@@ -146,7 +146,7 @@ public class ReservationController {
                     "the reservation has already expired, been cancelled, or been confirmed."
     )
     @PatchMapping("/{id}/cancel")
-    @PreAuthorize("hasAnyRole('OUTREACH_WORKER', 'COORDINATOR', 'COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasAnyRole('OUTREACH_WORKER', 'COORDINATOR', 'COC_ADMIN')")
     public ResponseEntity<ReservationResponse> cancel(
             @Parameter(description = "UUID of the reservation to cancel") @PathVariable UUID id,
             Authentication authentication) {

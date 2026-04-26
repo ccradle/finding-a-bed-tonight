@@ -38,7 +38,7 @@ public class AccessCodeController {
                     + "Code expires in 15 minutes, single-use. Returns plaintext code once. "
                     + "DV safeguard: generating a code for a dvAccess=true user requires the admin to also have dvAccess.")
     @PostMapping("/{id}/generate-access-code")
-    @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasRole('COC_ADMIN')")
     public ResponseEntity<?> generateAccessCode(@PathVariable UUID id, Authentication auth) {
         UUID adminId = UUID.fromString(auth.getName());
         UUID tenantId = TenantContext.getTenantId();

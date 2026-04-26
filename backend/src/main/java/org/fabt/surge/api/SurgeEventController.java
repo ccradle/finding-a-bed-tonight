@@ -36,10 +36,10 @@ public class SurgeEventController {
                     "shelter capacity is being opened. Only one surge can be active per tenant. " +
                     "The response includes affected_shelter_count and estimated_overflow_beds. " +
                     "A surge.activated event is published to the EventBus for webhook delivery. " +
-                    "Requires COC_ADMIN or PLATFORM_ADMIN role."
+                    "Requires COC_ADMIN role."
     )
     @PostMapping
-    @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasAnyRole('COC_ADMIN')")
     public ResponseEntity<SurgeEventResponse> activate(
             @Valid @RequestBody ActivateSurgeRequest request,
             Authentication authentication) {
@@ -78,10 +78,10 @@ public class SurgeEventController {
             summary = "Deactivate a surge event",
             description = "Ends an active surge event. Transitions status to DEACTIVATED and " +
                     "publishes a surge.deactivated event to the EventBus. " +
-                    "Requires COC_ADMIN or PLATFORM_ADMIN role."
+                    "Requires COC_ADMIN role."
     )
     @PatchMapping("/{id}/deactivate")
-    @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasAnyRole('COC_ADMIN')")
     public ResponseEntity<SurgeEventResponse> deactivate(
             @Parameter(description = "UUID of the surge event to deactivate") @PathVariable UUID id,
             Authentication authentication) {

@@ -30,7 +30,14 @@ class RoleBasedAccessTest extends BaseIntegrationTest {
     }
 
     @Test
-    void test_platformAdmin_canCreateTenant() {
+    void test_platformAdmin_cannotCreateTenant_postG44() {
+        // G-4.4 §5.4 migrated /api/v1/tenants from PLATFORM_ADMIN to
+        // PLATFORM_OPERATOR + @PlatformAdminOnly. The legacy admin user
+        // (tenant JWT with PLATFORM_ADMIN role) MUST get 403 — tenant-scoped
+        // identities can no longer trigger platform actions. The positive
+        // case (PLATFORM_OPERATOR can create) is covered by the
+        // PlatformAdminAccessAspectTest IT family + the new G-4.4 endpoint
+        // tests using the platform_user fixture.
         HttpHeaders headers = authHelper.adminHeaders();
         String slug = "rbac-admin-" + UUID.randomUUID().toString().substring(0, 8);
         String body = """
@@ -44,7 +51,10 @@ class RoleBasedAccessTest extends BaseIntegrationTest {
                 String.class
         );
 
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(response.getStatusCode())
+                .as("after G-4.4, tenant-scoped admin JWT cannot create tenants — "
+                        + "platform-operator login required")
+                .isIn(HttpStatus.FORBIDDEN, HttpStatus.BAD_REQUEST);
     }
 
     @Test

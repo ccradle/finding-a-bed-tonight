@@ -54,7 +54,7 @@ class TenantKeyRotationServiceIntegrationTest extends BaseIntegrationTest {
                 "rotation-test-" + UUID.randomUUID()).getId();
         freshUser = authHelper.createUserInTenant(freshTenant,
                 "rotation-test-" + UUID.randomUUID() + "@test.fabt.org",
-                "Rotation Test User", new String[]{"PLATFORM_ADMIN"}, false);
+                "Rotation Test User", new String[]{"PLATFORM_ADMIN", "COC_ADMIN"}, false);
     }
 
     @Test

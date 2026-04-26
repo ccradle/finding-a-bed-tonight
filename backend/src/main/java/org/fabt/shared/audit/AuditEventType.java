@@ -234,6 +234,27 @@ public enum AuditEventType {
      */
     BACKUP_CODES_REGENERATED,
 
+    // ─── HMIS export (tenant-scoped) ───
+
+    /**
+     * A COC_ADMIN triggered an HMIS export of their tenant's bed inventory
+     * via {@code POST /api/v1/hmis/push}. Tenant-scoped action — distinct
+     * from {@link #PLATFORM_HMIS_EXPORTED} (the platform-operator-driven
+     * cross-tenant flavour, deferred to F14). Detail blob:
+     * {@code {"vendorTypes": [...], "outboxEntriesCreated": N}}.
+     *
+     * <p>Phase G-4.4 §F16 mitigation: the HMIS push endpoint reverted from
+     * {@code @PlatformAdminOnly} to {@code COC_ADMIN}-only because its
+     * service contract reads {@code TenantContext}. The revert broadened
+     * authority (CoC admins who never had PLATFORM_ADMIN are now
+     * authorized) and dropped the platform_admin_access_log audit trail
+     * G-4.3 had attached. This audit_event row is the per-tenant
+     * replacement: every CoC admin's HMIS export attempt produces a row
+     * in {@code audit_events} with actor identity + vendor list, scoped
+     * to the calling tenant.
+     */
+    HMIS_EXPORT_TRIGGERED,
+
     /**
      * A platform admin forcibly disabled TOTP on another user's account via
      * {@code POST /api/v1/users/{id}/totp/disable}. Detail blob: {@code null}.
@@ -453,6 +474,33 @@ public enum AuditEventType {
      * brand-new chain head).
      */
     PLATFORM_TENANT_CREATED,
+
+    /**
+     * A PLATFORM_OPERATOR updated tenant display-name metadata via
+     * {@code PUT /api/v1/tenants/{id}}. Aspect-emitted; AE.tenant_id =
+     * target tenant. Distinct from {@link #PLATFORM_TENANT_CREATED} so
+     * oncall + SIEM rules can distinguish create-vs-update activity in
+     * audit timelines.
+     */
+    PLATFORM_TENANT_UPDATED,
+
+    /**
+     * A PLATFORM_OPERATOR updated a tenant's observability config via
+     * {@code PUT /api/v1/tenants/{id}/observability}. Aspect-emitted;
+     * AE.tenant_id = target tenant. Distinct event type so changes to
+     * monitoring/tracing posture can be queried independently of other
+     * tenant mutations.
+     */
+    PLATFORM_TENANT_OBSERVABILITY_UPDATED,
+
+    /**
+     * A PLATFORM_OPERATOR changed a tenant's DV-address visibility policy
+     * via {@code PUT /api/v1/tenants/{id}/dv-address-policy}. Aspect-
+     * emitted; AE.tenant_id = target tenant. Distinct event type because
+     * DV-address policy is the single highest-sensitivity tenant config —
+     * compliance reviews query this action class specifically.
+     */
+    PLATFORM_DV_ADDRESS_POLICY_CHANGED,
 
     /**
      * A PLATFORM_OPERATOR triggered tenant suspension via

@@ -153,8 +153,8 @@ public class SecurityConfig {
                         // POST /auth/login, /auth/refresh, /auth/access-code, /auth/verify-totp,
                         // POST /auth/forgot-password, /auth/reset-password, GET /auth/capabilities
                         // TOTP admin operations require COC_ADMIN+
-                        .requestMatchers(HttpMethod.DELETE, "/api/v1/auth/totp/*").hasAnyRole("COC_ADMIN", "PLATFORM_ADMIN")
-                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/totp/*/regenerate-recovery-codes").hasAnyRole("COC_ADMIN", "PLATFORM_ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/api/v1/auth/totp/*").hasRole("COC_ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/totp/*/regenerate-recovery-codes").hasRole("COC_ADMIN")
                         .requestMatchers("/api/v1/auth/**").permitAll()
                         .requestMatchers("/oauth2/**", "/login/oauth2/**").permitAll()
                         .requestMatchers("/actuator/health/**").permitAll()
@@ -164,23 +164,30 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/tenants/*/oauth2-providers/public").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/version").permitAll()
 
-                        // OAuth2 provider management — COC_ADMIN or PLATFORM_ADMIN
+                        // OAuth2 provider management — COC_ADMIN (G-4.4 stripped PLATFORM_ADMIN per V87 backfill posture)
                         // Must be BEFORE the general /api/v1/tenants/** matcher
-                        .requestMatchers("/api/v1/tenants/*/oauth2-providers/**").hasAnyRole("COC_ADMIN", "PLATFORM_ADMIN")
+                        .requestMatchers("/api/v1/tenants/*/oauth2-providers/**").hasRole("COC_ADMIN")
 
-                        // Tenant management — PLATFORM_ADMIN only
-                        .requestMatchers("/api/v1/tenants/**").hasRole("PLATFORM_ADMIN")
+                        // OAuth2 test-connection — PLATFORM_OPERATOR (G-4.4: SSRF-mitigation; method also has @PlatformAdminOnly)
+                        .requestMatchers("/api/v1/oauth2/**").hasAnyRole("PLATFORM_OPERATOR", "PLATFORM_ADMIN")
 
-                        // User management — COC_ADMIN or PLATFORM_ADMIN
-                        .requestMatchers("/api/v1/users/**").hasAnyRole("COC_ADMIN", "PLATFORM_ADMIN")
+                        // Tenant management — PLATFORM_OPERATOR (G-4.4 / G-4.6); kept PLATFORM_ADMIN
+                        // in hasAnyRole for the deprecation window so existing tooling that still issues
+                        // PLATFORM_ADMIN-only JWTs receives 403 from method @PreAuthorize, not 401 from
+                        // URL-rule short-circuit. Method-level @PreAuthorize + @PlatformAdminOnly are
+                        // the real gates.
+                        .requestMatchers("/api/v1/tenants/**").hasAnyRole("PLATFORM_OPERATOR", "PLATFORM_ADMIN")
 
-                        // API key management — COC_ADMIN or PLATFORM_ADMIN
-                        .requestMatchers("/api/v1/api-keys/**").hasAnyRole("COC_ADMIN", "PLATFORM_ADMIN")
+                        // User management — COC_ADMIN (G-4.4 stripped PLATFORM_ADMIN per V87 backfill posture)
+                        .requestMatchers("/api/v1/users/**").hasRole("COC_ADMIN")
+
+                        // API key management — COC_ADMIN (G-4.4 stripped PLATFORM_ADMIN per V87 backfill posture)
+                        .requestMatchers("/api/v1/api-keys/**").hasRole("COC_ADMIN")
 
                         // Surge events — GET any authenticated, POST/PATCH COC_ADMIN+
                         .requestMatchers(HttpMethod.GET, "/api/v1/surge-events/**").authenticated()
-                        .requestMatchers(HttpMethod.POST, "/api/v1/surge-events/**").hasAnyRole("COC_ADMIN", "PLATFORM_ADMIN")
-                        .requestMatchers(HttpMethod.PATCH, "/api/v1/surge-events/**").hasAnyRole("COC_ADMIN", "PLATFORM_ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/surge-events/**").hasRole("COC_ADMIN")
+                        .requestMatchers(HttpMethod.PATCH, "/api/v1/surge-events/**").hasRole("COC_ADMIN")
 
                         // Reservations — outreach workers, coordinators, and admins
                         .requestMatchers("/api/v1/reservations/**").hasAnyRole("OUTREACH_WORKER", "COORDINATOR", "COC_ADMIN", "PLATFORM_ADMIN")
@@ -192,7 +199,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/hmis/**").authenticated()
 
                         // Analytics — COC_ADMIN or PLATFORM_ADMIN (fine-grained via @PreAuthorize)
-                        .requestMatchers("/api/v1/analytics/**").hasAnyRole("COC_ADMIN", "PLATFORM_ADMIN")
+                        .requestMatchers("/api/v1/analytics/**").hasRole("COC_ADMIN")
 
                         // Batch job management — view: COC_ADMIN+, mutate: PLATFORM_OPERATOR / PLATFORM_ADMIN
                         // (G-4.3 canary + G-4.4 endpoint migration). Method-level
@@ -201,8 +208,23 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/batch/**").hasAnyRole("COC_ADMIN", "PLATFORM_ADMIN", "PLATFORM_OPERATOR")
                         .requestMatchers("/api/v1/batch/**").hasAnyRole("PLATFORM_OPERATOR", "PLATFORM_ADMIN")
 
-                        // Test reset — profile-gated (dev/test only), requires PLATFORM_ADMIN + confirmation header
-                        .requestMatchers("/api/v1/test/**").hasRole("PLATFORM_ADMIN")
+                        // Test platform unlock-expired — profile-gated (dev/test only) per
+                        // TestPlatformUnlockController. The spec calling this endpoint may
+                        // have just LOCKED its operator session by exhausting MFA attempts,
+                        // so requiring an Authorization header would create a circular
+                        // dependency. The @Profile("dev | test") gate on the controller is
+                        // the security boundary — the bean does not exist outside dev/test
+                        // so this URL is unreachable in prod. Must be ordered BEFORE the
+                        // /api/v1/test/** catch-all below (Spring matchers are first-match-
+                        // wins).
+                        .requestMatchers(HttpMethod.POST, "/api/v1/test/platform/unlock-expired").permitAll()
+
+                        // Test reset — profile-gated (dev/test only). G-4.4: migrated to
+                        // PLATFORM_OPERATOR + @PlatformAdminOnly; URL rule kept inclusive of
+                        // PLATFORM_ADMIN for the deprecation window so legacy JWTs receive 403
+                        // from method @PreAuthorize, not 401 short-circuit. Method-level
+                        // @PreAuthorize + @PlatformAdminOnly are the real gates.
+                        .requestMatchers("/api/v1/test/**").hasAnyRole("PLATFORM_OPERATOR", "PLATFORM_ADMIN")
 
                         // Bed search queries — any authenticated role
                         .requestMatchers("/api/v1/queries/**").authenticated()
@@ -218,14 +240,14 @@ public class SecurityConfig {
                         // never be more restrictive than the controller body. Must precede the broader
                         // POST /shelters/** rule below since matchers are first-match-wins.
                         .requestMatchers(HttpMethod.POST, "/api/v1/shelters/*/manual-hold").hasAnyRole("COORDINATOR", "COC_ADMIN", "PLATFORM_ADMIN")
-                        .requestMatchers(HttpMethod.POST, "/api/v1/shelters/**").hasAnyRole("COC_ADMIN", "PLATFORM_ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/shelters/**").hasRole("COC_ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/api/v1/shelters/**").hasAnyRole("COORDINATOR", "COC_ADMIN", "PLATFORM_ADMIN")
 
                         // Import — COC_ADMIN or PLATFORM_ADMIN
-                        .requestMatchers("/api/v1/import/**").hasAnyRole("COC_ADMIN", "PLATFORM_ADMIN")
+                        .requestMatchers("/api/v1/import/**").hasRole("COC_ADMIN")
 
                         // Audit events — COC_ADMIN or PLATFORM_ADMIN
-                        .requestMatchers("/api/v1/audit-events/**").hasAnyRole("COC_ADMIN", "PLATFORM_ADMIN")
+                        .requestMatchers("/api/v1/audit-events/**").hasRole("COC_ADMIN")
 
                         // SSE notifications — any authenticated role (token via query param)
                         .requestMatchers("/api/v1/notifications/stream").authenticated()

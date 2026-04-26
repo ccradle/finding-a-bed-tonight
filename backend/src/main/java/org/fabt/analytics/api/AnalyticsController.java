@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * CoC Analytics API endpoints (Design D3).
- * All endpoints require COC_ADMIN or PLATFORM_ADMIN.
+ * All endpoints require COC_ADMIN.
  * Returns aggregate data — no PII.
  */
 @RestController
@@ -39,7 +39,7 @@ public class AnalyticsController {
     }
 
     @GetMapping("/utilization")
-    @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasRole('COC_ADMIN')")
     @Operation(summary = "Utilization rates over time",
             description = "Returns utilization rates from pre-aggregated daily summaries, filterable by date range and granularity.")
     public ResponseEntity<Map<String, Object>> getUtilization(
@@ -51,7 +51,7 @@ public class AnalyticsController {
     }
 
     @GetMapping("/demand")
-    @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasRole('COC_ADMIN')")
     @Operation(summary = "Demand signals",
             description = "Reservation conversion/expiry rates and zero-result search counts.")
     public ResponseEntity<Map<String, Object>> getDemand(
@@ -62,7 +62,7 @@ public class AnalyticsController {
     }
 
     @GetMapping("/capacity")
-    @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasRole('COC_ADMIN')")
     @Operation(summary = "System capacity trends",
             description = "Total beds over time, add/remove deltas.")
     public ResponseEntity<Map<String, Object>> getCapacity(
@@ -73,7 +73,7 @@ public class AnalyticsController {
     }
 
     @GetMapping("/dv-summary")
-    @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasRole('COC_ADMIN')")
     @Operation(summary = "DV shelter aggregate statistics",
             description = "Aggregated DV shelter stats with minimum cell size 5 suppression. Requires dvAccess.")
     public ResponseEntity<Map<String, Object>> getDvSummary() throws Exception {
@@ -85,7 +85,7 @@ public class AnalyticsController {
     }
 
     @GetMapping("/geographic")
-    @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasRole('COC_ADMIN')")
     @Operation(summary = "Geographic shelter view",
             description = "Shelter locations with utilization data. DV shelters excluded from map.")
     public ResponseEntity<List<Map<String, Object>>> getGeographic() {
@@ -94,7 +94,7 @@ public class AnalyticsController {
     }
 
     @GetMapping("/hic")
-    @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasRole('COC_ADMIN')")
     @Operation(summary = "HIC export (CSV)",
             description = "Housing Inventory Count export in HUD format.")
     public ResponseEntity<String> getHicExport(
@@ -109,7 +109,7 @@ public class AnalyticsController {
     }
 
     @GetMapping("/pit")
-    @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasRole('COC_ADMIN')")
     @Operation(summary = "PIT export (CSV)",
             description = "Sheltered Point-in-Time count export in HUD format.")
     public ResponseEntity<String> getPitExport(
@@ -124,7 +124,7 @@ public class AnalyticsController {
     }
 
     @GetMapping("/hmis-health")
-    @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasRole('COC_ADMIN')")
     @Operation(summary = "HMIS push health",
             description = "HMIS push success/failure rates, last push per vendor, dead letter count.")
     public ResponseEntity<Map<String, Object>> getHmisHealth() {

@@ -75,8 +75,12 @@ class ObservabilityIntegrationTest extends BaseIntegrationTest {
 
     @Test
     void test_errorResponse_defaultEnglish() {
-        // Request a nonexistent tenant — should return English error
-        HttpHeaders headers = authHelper.adminHeaders();
+        // Request a nonexistent tenant — should return English error.
+        // G-4.4: GET /tenants/{id} is PLATFORM_OPERATOR-only; tenant JWT would
+        // 403 before reaching the controller's NotFound throw, so we use the
+        // platform-operator fixture to exercise the error-response shape path.
+        HttpHeaders headers = authHelper.platformOperatorHeaders(
+                "Observability IT - localized 404 shape verification");
 
         ResponseEntity<String> response = restTemplate.exchange(
                 "/api/v1/tenants/" + UUID.randomUUID(),
@@ -91,7 +95,8 @@ class ObservabilityIntegrationTest extends BaseIntegrationTest {
 
     @Test
     void test_errorResponse_spanishLocale() {
-        HttpHeaders headers = authHelper.adminHeaders();
+        HttpHeaders headers = authHelper.platformOperatorHeaders(
+                "Observability IT - localized 404 shape (es)");
         headers.set("Accept-Language", "es");
 
         ResponseEntity<String> response = restTemplate.exchange(
@@ -111,7 +116,8 @@ class ObservabilityIntegrationTest extends BaseIntegrationTest {
     @Test
     void test_errorResponses_containStructuredErrorCode() {
         // Verify MCP-ready error response structure
-        HttpHeaders headers = authHelper.adminHeaders();
+        HttpHeaders headers = authHelper.platformOperatorHeaders(
+                "Observability IT - structured error shape verification");
 
         ResponseEntity<Map> response = restTemplate.exchange(
                 "/api/v1/tenants/" + UUID.randomUUID(),

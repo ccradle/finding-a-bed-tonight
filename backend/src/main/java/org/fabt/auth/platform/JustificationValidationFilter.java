@@ -45,12 +45,31 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
  *   <li><b>Post-Security</b> (current): the same probe gets back 401
  *       (Spring Security rejects first) — no info-disclosure. An
  *       authenticated caller with the wrong role gets 403 (Spring
- *       Security). Only an authenticated, role-correct caller with a
- *       missing/short justification gets 400 — the design intent.</li>
+ *       Security URL rule). Only an authenticated caller whose role
+ *       passes the URL rule but whose request is missing/short on
+ *       justification gets 400 — the design intent.</li>
  * </ul>
  *
  * <p>The performance trade-off is microseconds per rejected request,
  * which platform-admin endpoints don't have at meaningful volume anyway.
+ *
+ * <p>Triage-pass-2 pinning probe
+ * ({@code PlatformAdminAccessAspectTest#unauthenticatedWithoutJustificationRejectedAtFilter}):
+ * an anonymous request without the justification header receives 401
+ * (Spring Security URL rule rejects), proving the post-Security
+ * ordering still holds. If this assertion ever flips to 400, the
+ * filter ordering changed and this javadoc + the warroom design
+ * decision must be re-evaluated.
+ *
+ * <p>Practical consequences for tests with legacy {@code PLATFORM_ADMIN}-
+ * bearing fixtures: those users pass the {@code /api/v1/tenants/**}
+ * URL rule (which admits {@code hasAnyRole("PLATFORM_OPERATOR",
+ * "PLATFORM_ADMIN")} during the deprecation window), so the filter is
+ * the next gate. Negative-auth assertions for those fixtures MUST
+ * include the justification header, or the filter rejects with 400
+ * before the method-level {@code @PreAuthorize} can issue the 403 the
+ * test wants to observe. Use {@code TestAuthHelper.withJustification(
+ * headers, reason)} or {@code platformOperatorHeaders(reason)}.
  *
  * <p>Decision 10 ({@code X-Platform-Justification} is operator-asserted
  * documentation, NOT server-validated authority): the filter only checks

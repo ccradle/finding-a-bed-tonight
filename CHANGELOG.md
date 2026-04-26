@@ -5,6 +5,89 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased] — v0.53.0 (Phase G-4: platform admin split + access log)
+
+**Backend-code release in progress.** Backend JAR will bump `0.52.0 → 0.53.0`.
+Flyway HWM advances `V85 → V89` (V87 + V88 + V89). Operator action required:
+review `docs/oracle-update-notes-v0.53.0.md` for the customer-comms note
+about PLATFORM_ADMIN deprecation + the new platform-operator login flow.
+
+### Changed (BREAKING for fresh-token issuance, NOT for existing JWTs)
+
+- **PLATFORM_ADMIN role deprecated** (`Role.java` `@Deprecated(forRemoval=true,
+  since="0.53.0")`). V87 backfills `COC_ADMIN` onto every existing app_user
+  whose roles array contained `PLATFORM_ADMIN`, so existing operator
+  accounts continue to work for tenant-scoped admin tasks (user management,
+  shelter management, OAuth2 provider config, API keys, TOTP admin
+  endpoints). The PLATFORM_ADMIN value is preserved in the enum for the
+  deprecation window so legacy JWTs still parse; cleanup release will
+  remove the value entirely. New ArchUnit rule
+  `NoPlatformAdminPreauthorizeTest` prevents re-introduction of the role
+  in `@PreAuthorize` expressions on controller methods.
+
+- **Tenant-lifecycle endpoints + per-tenant JWT key rotation + OAuth2
+  test-connection + batch-job control require PLATFORM_OPERATOR + MFA**.
+  These actions previously accepted any PLATFORM_ADMIN-bearing JWT; they
+  now require a separate platform-operator login at
+  `POST /api/v1/auth/platform/login` (different identity table, different
+  JWT issuer, mandatory TOTP). Activation runbook in
+  `docs/oracle-update-notes-v0.53.0.md`. Existing tenant operators do NOT
+  lose tenant-scoped capability (V87 backfill grants COC_ADMIN); only the
+  cross-tenant / platform-action surface moves behind the new role.
+
+- **HMIS push (`POST /api/v1/hmis/push`) — F16 mitigation.** Endpoint
+  remains COC_ADMIN-only (tenant-scoped). NEW: requires
+  `X-Confirm-HMIS-Push: CONFIRM` header to prevent accidental triggers
+  (mirrors the X-Confirm-Policy-Change pattern). Each push writes a
+  per-tenant `HMIS_EXPORT_TRIGGERED` audit_event row capturing actor
+  identity + vendor type list + outbox entry count. Replaces the
+  G-4.3 platform_admin_access_log audit trail that was attached during
+  the brief @PlatformAdminOnly migration window. Pre-G-4.3 baseline
+  required PLATFORM_ADMIN; the V87 backfill broadened that to COC_ADMIN —
+  operators with COC_ADMIN-only roles (no historical PLATFORM_ADMIN) are
+  now authorized to push. Audit chain captures the actor for review.
+  F14 captures the future cross-tenant operator-driven endpoint at
+  `POST /api/v1/admin/tenants/{id}/hmis/push` (deferred post-v0.53).
+
+### Added
+
+- **`platform_user` schema (V87)** — separate identity table for platform
+  operators. iss=`fabt-platform` JWT distinct from tenant JWTs. Bootstrap
+  row at id `00000000-0000-0000-0000-000000000fab` is inserted locked
+  with no credentials; activate via fabt-cli + manual UPDATE.
+
+- **`platform_user_lockout_columns` (V88)** — per-account 5-fail TOTP
+  lockout with 15-minute auto-unlock cron. Failed attempts tracked as a
+  rolling timestamp array; threshold trip flips `account_locked=true`.
+  V88 SECURITY DEFINER functions enforce REVOKE on platform_user.
+
+- **`platform_admin_access_log` (V89)** — append-only audit table for
+  every `@PlatformAdminOnly` controller method invocation. Captures
+  operator id, action, justification (operator-asserted text), request
+  fingerprint, and links to a chained `audit_event` row.
+
+- **`@PlatformAdminOnly` AOP aspect** with `JustificationValidationFilter`
+  + `MFA_VERIFIED` authority check. Defense-in-depth: even if a tenant
+  JWT somehow has PLATFORM_OPERATOR in its roles array, the aspect
+  rejects without the platform-JWT-only `MFA_VERIFIED` authority.
+
+- **`HMIS_EXPORT_TRIGGERED` audit event type** (tenant-scoped) — captures
+  COC_ADMIN-driven HMIS pushes per the F16 mitigation above.
+
+- **`TestPlatformUnlockController`** (`@Profile("dev | test")`) at
+  `POST /api/v1/test/platform/unlock-expired` for E2E lockout-spec
+  cleanup. ArchUnit rule `TestControllerProfileGuardTest` enforces the
+  profile gate on every `Test*Controller`.
+
+### Deferred follow-ups (in design.md F1-F19)
+
+- **F14** — cross-tenant operator-driven HMIS push endpoint
+- **F17** — Playwright fixture caching across tests (CI runtime)
+- **F18** — Prometheus alert on per-operator tenant-update rate
+- **F19** — Platform-operator observability config persistence IT
+
+---
+
 ## [v0.52.0] — Phase G slices 0–3: tamper-evident audit chain + OCI external anchor
 
 **Backend-code release.** Backend JAR bumped `0.51.0 → 0.52.0`. Flyway HWM

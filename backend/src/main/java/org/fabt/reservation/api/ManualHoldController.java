@@ -81,7 +81,7 @@ public class ManualHoldController {
                     "PATCH path that bypasses the recompute discipline."
     )
     @PostMapping("/{shelterId}/manual-hold")
-    @PreAuthorize("hasAnyRole('COORDINATOR', 'COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasAnyRole('COORDINATOR', 'COC_ADMIN')")
     public ResponseEntity<ReservationResponse> create(
             @Parameter(description = "UUID of the shelter to hold a bed at") @PathVariable UUID shelterId,
             @Valid @RequestBody ManualHoldRequest request,

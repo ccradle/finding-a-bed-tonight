@@ -72,7 +72,7 @@ public class EscalationPolicyController {
                     + "for CoC admins and platform admins."
     )
     @GetMapping("/{eventType}")
-    @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasRole('COC_ADMIN')")
     public ResponseEntity<EscalationPolicyDto> getCurrentPolicy(
             @Parameter(description = "Event type identifier (e.g. 'dv-referral')") @PathVariable String eventType) {
         UUID tenantId = TenantContext.getTenantId();
@@ -95,7 +95,7 @@ public class EscalationPolicyController {
                     + "Writes ESCALATION_POLICY_UPDATED audit event. Authorized for CoC admins."
     )
     @PatchMapping("/{eventType}")
-    @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasRole('COC_ADMIN')")
     public ResponseEntity<EscalationPolicyDto> updatePolicy(
             @PathVariable String eventType,
             @Valid @RequestBody UpdateEscalationPolicyRequest request,

@@ -94,7 +94,7 @@ class EscalatedQueueEndpointTest extends BaseIntegrationTest {
 
         // A platform admin in tenantA used for shelter creation in both tenants.
         var platformAdmin = authHelper.setupUserWithDvAccess(
-                "queue-padmin@test.fabt.org", "Queue Platform Admin", new String[]{"PLATFORM_ADMIN"});
+                "queue-padmin@test.fabt.org", "Queue Platform Admin", new String[]{"PLATFORM_ADMIN", "COC_ADMIN"});
         HttpHeaders platformAdminHeaders = authHelper.headersForUser(platformAdmin);
 
         // Clean prior queue/notification state in both tenants so the assertion math is exact.
@@ -107,7 +107,7 @@ class EscalatedQueueEndpointTest extends BaseIntegrationTest {
 
         // Tenant B shelter creation needs an admin in tenantB context. Create one ad-hoc.
         var platformAdminB = createUserInTenant(tenantB, "queue-padmin-b@test.fabt.org",
-                "Queue Platform Admin B", new String[]{"PLATFORM_ADMIN"}, true);
+                "Queue Platform Admin B", new String[]{"PLATFORM_ADMIN", "COC_ADMIN"}, true);
         HttpHeaders platformAdminBHeaders = jwtHeaders(platformAdminB);
         TenantContext.runWithContext(tenantB.getId(), true, () ->
                 shelterBId = createDvShelter(platformAdminBHeaders, "Shelter Tenant B"));
@@ -147,7 +147,7 @@ class EscalatedQueueEndpointTest extends BaseIntegrationTest {
         // duplicate-pending guard means we need either three users or three
         // shelters per outreach worker. Three shelters is simpler.
         var platformAdmin = authHelper.setupUserWithDvAccess(
-                "queue-padmin@test.fabt.org", "Queue Platform Admin", new String[]{"PLATFORM_ADMIN"});
+                "queue-padmin@test.fabt.org", "Queue Platform Admin", new String[]{"PLATFORM_ADMIN", "COC_ADMIN"});
         HttpHeaders padminHeaders = authHelper.headersForUser(platformAdmin);
 
         UUID[] shelters = new UUID[3];

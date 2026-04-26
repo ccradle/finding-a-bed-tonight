@@ -34,8 +34,13 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Batch job management API (Design D14).
- * GET endpoints: COC_ADMIN, PLATFORM_ADMIN.
- * Mutating endpoints: PLATFORM_ADMIN only.
+ * GET endpoints (list, executions): COC_ADMIN — read-only telemetry of the
+ *   shared scheduler. Documented platform-scope leak (deferred follow-up F20):
+ *   a CoC admin at Tenant A can see scheduler state for jobs that affect
+ *   Tenant B. Acceptable for v0.53 because no PII / tenant-scoped data leaks
+ *   through the metadata; future hardening tightens to PLATFORM_OPERATOR.
+ * Mutating endpoints (run, restart, schedule, enable): PLATFORM_OPERATOR +
+ *   @PlatformAdminOnly + X-Platform-Justification header (G-4.4).
  */
 @RestController
 @RequestMapping("/api/v1/batch/jobs")
@@ -57,7 +62,7 @@ public class BatchJobController {
     }
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasRole('COC_ADMIN')")
     @Operation(summary = "List all batch jobs",
             description = "Returns all registered batch jobs with current schedule, enabled/disabled state, and last execution status.")
     public ResponseEntity<List<Map<String, Object>>> listJobs() {
@@ -91,7 +96,7 @@ public class BatchJobController {
     }
 
     @GetMapping("/{jobName}/executions")
-    @PreAuthorize("hasAnyRole('COC_ADMIN', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasRole('COC_ADMIN')")
     @Operation(summary = "Job execution history",
             description = "Returns execution history for a specific job with step-level detail.")
     public ResponseEntity<List<Map<String, Object>>> getExecutions(@PathVariable String jobName) {
@@ -143,7 +148,7 @@ public class BatchJobController {
     // this controller (and the other 12 platform-scoped endpoints across
     // the codebase) is G-4.4. PLATFORM_ADMIN remains in the @PreAuthorize
     // expression for the deprecation window; G-4.4 swaps to PLATFORM_OPERATOR.
-    @PreAuthorize("hasAnyRole('PLATFORM_OPERATOR', 'PLATFORM_ADMIN')")
+    @PreAuthorize("hasRole('PLATFORM_OPERATOR')")
     @PlatformAdminOnly(
             reason = "Batch job trigger requires platform authority — affects scheduled work for every tenant via shared scheduler",
             emits = AuditEventType.PLATFORM_BATCH_JOB_TRIGGERED)
@@ -162,7 +167,10 @@ public class BatchJobController {
     }
 
     @PostMapping("/{jobName}/restart/{executionId}")
-    @PreAuthorize("hasRole('PLATFORM_ADMIN')")
+    @PreAuthorize("hasRole('PLATFORM_OPERATOR')")
+    @PlatformAdminOnly(
+            reason = "Restart of a failed batch job execution — platform authority required because it affects shared scheduler state across tenants",
+            emits = AuditEventType.PLATFORM_BATCH_JOB_TRIGGERED)
     @Operation(summary = "Restart failed execution",
             description = "Restarts a failed job execution from the last committed chunk.")
     public ResponseEntity<Map<String, Object>> restartExecution(
@@ -181,7 +189,10 @@ public class BatchJobController {
     }
 
     @PutMapping("/{jobName}/schedule")
-    @PreAuthorize("hasRole('PLATFORM_ADMIN')")
+    @PreAuthorize("hasRole('PLATFORM_OPERATOR')")
+    @PlatformAdminOnly(
+            reason = "Cron rescheduling of a batch job — platform authority required because it changes when tenant-affecting work runs",
+            emits = AuditEventType.PLATFORM_BATCH_JOB_TRIGGERED)
     @Operation(summary = "Update job schedule",
             description = "Updates the cron expression for a batch job.")
     public ResponseEntity<Map<String, Object>> updateSchedule(
@@ -201,7 +212,10 @@ public class BatchJobController {
     }
 
     @PutMapping("/{jobName}/enable")
-    @PreAuthorize("hasRole('PLATFORM_ADMIN')")
+    @PreAuthorize("hasRole('PLATFORM_OPERATOR')")
+    @PlatformAdminOnly(
+            reason = "Enable/disable a batch job — platform authority required because it suppresses or resumes tenant-affecting scheduled work",
+            emits = AuditEventType.PLATFORM_BATCH_JOB_TRIGGERED)
     @Operation(summary = "Enable or disable job",
             description = "Enables or disables a batch job's scheduled execution.")
     public ResponseEntity<Map<String, Object>> setEnabled(

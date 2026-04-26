@@ -44,15 +44,18 @@ class TenantKeyRotationControllerIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("PLATFORM_ADMIN gets 202 + rotation summary body")
-    void platformAdminTriggers202() {
-        // Bootstrap tenantA's first kid by issuing a token
-        User platformAdmin = authHelper.createUserInTenant(tenantA,
-                "platform-admin-" + UUID.randomUUID() + "@test.fabt.org",
-                "Platform Admin", new String[]{"PLATFORM_ADMIN"}, false);
-        jwtService.generateAccessToken(platformAdmin);
+    @DisplayName("PLATFORM_OPERATOR gets 202 + rotation summary body")
+    void platformOperatorTriggers202() {
+        // Bootstrap tenantA's first kid by issuing a token for any user
+        // (so the first generation exists in tenant_jwt_kid before rotation).
+        User seed = authHelper.createUserInTenant(tenantA,
+                "kid-seed-" + UUID.randomUUID() + "@test.fabt.org",
+                "Kid Seed", new String[]{"COC_ADMIN"}, false);
+        jwtService.generateAccessToken(seed);
 
-        HttpHeaders headers = authHelper.headersForUser(platformAdmin);
+        // G-4.4: endpoint migrated to PLATFORM_OPERATOR + @PlatformAdminOnly.
+        HttpHeaders headers = authHelper.platformOperatorHeaders(
+                "G-4.4 IT - rotate JWT key for tenant " + tenantA);
         ResponseEntity<java.util.Map<String, Object>> response = restTemplate.exchange(
                 "/api/v1/admin/tenants/" + tenantA + "/rotate-jwt-key",
                 HttpMethod.POST,
@@ -73,13 +76,17 @@ class TenantKeyRotationControllerIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("COC_ADMIN gets 403 — endpoint is PLATFORM_ADMIN-only")
+    @DisplayName("COC_ADMIN gets 403 — endpoint is PLATFORM_OPERATOR-only")
     void cocAdminGets403() {
         User cocAdmin = authHelper.createUserInTenant(tenantA,
                 "coc-admin-" + UUID.randomUUID() + "@test.fabt.org",
                 "Tenant CoC Admin", new String[]{"COC_ADMIN"}, false);
 
-        HttpHeaders headers = authHelper.headersForUser(cocAdmin);
+        // G-4.4: provide justification so JustificationValidationFilter doesn't
+        // 400 first; the security/aspect rejection (403) is what we want.
+        HttpHeaders headers = authHelper.withJustification(
+                authHelper.headersForUser(cocAdmin),
+                "G-4.4 IT - COC_ADMIN must not be able to rotate keys");
         ResponseEntity<String> response = restTemplate.exchange(
                 "/api/v1/admin/tenants/" + tenantA + "/rotate-jwt-key",
                 HttpMethod.POST,
@@ -114,7 +121,9 @@ class TenantKeyRotationControllerIntegrationTest extends BaseIntegrationTest {
                 "outreach-" + UUID.randomUUID() + "@test.fabt.org",
                 "Outreach Worker", new String[]{"OUTREACH_WORKER"}, false);
 
-        HttpHeaders headers = authHelper.headersForUser(outreach);
+        HttpHeaders headers = authHelper.withJustification(
+                authHelper.headersForUser(outreach),
+                "G-4.4 IT - OUTREACH_WORKER must not be able to rotate keys");
         ResponseEntity<String> response = restTemplate.exchange(
                 "/api/v1/admin/tenants/" + tenantA + "/rotate-jwt-key",
                 HttpMethod.POST,

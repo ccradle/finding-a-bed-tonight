@@ -79,7 +79,7 @@ class DvShelterConcurrentIsolationTest extends BaseIntegrationTest {
 
         // Create users scoped to this unique tenant
         User dvAdmin = createUser(tenantId, "dv-admin-" + suffix + "@test.fabt.org",
-                new String[]{"PLATFORM_ADMIN"}, true);
+                new String[]{"PLATFORM_ADMIN", "COC_ADMIN"}, true);
         dvAdminToken = jwtService.generateAccessToken(dvAdmin);
 
         User outreach = createUser(tenantId, "outreach-" + suffix + "@test.fabt.org",

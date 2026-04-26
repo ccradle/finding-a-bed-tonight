@@ -53,7 +53,7 @@ class ClaimReleaseTest extends BaseIntegrationTest {
         authHelper.setupAdminUser();
 
         var dvAdmin = authHelper.setupUserWithDvAccess(
-                "claim-padmin@test.fabt.org", "Claim Platform Admin", new String[]{"PLATFORM_ADMIN"});
+                "claim-padmin@test.fabt.org", "Claim Platform Admin", new String[]{"PLATFORM_ADMIN", "COC_ADMIN"});
         HttpHeaders padminHeaders = authHelper.headersForUser(dvAdmin);
 
         var dvOutreach = authHelper.setupUserWithDvAccess(

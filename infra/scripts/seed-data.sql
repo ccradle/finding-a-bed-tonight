@@ -1,5 +1,46 @@
 -- Seed data for local development
 -- Run after Flyway migrations: psql -U fabt -d fabt -f seed-data.sql
+--
+-- Phase G-4.4 §5.13 prereq (warroom Pre-spec 3 Marcus HIGH): runtime guard.
+-- This script seeds dev-only credentials (password=admin123, well-known
+-- bcrypt hashes, the RFC 4648 §10 test TOTP secret JBSWY3DPEHPK3PXP for
+-- the bootstrap platform_user). Running it against any non-dev/test
+-- database would leak those credentials into a real environment. The
+-- guard below halts execution if the database name does NOT contain
+-- 'dev' or 'test'.
+--
+-- This belongs in the script itself rather than wrapper bash because
+-- (a) operators can invoke psql -f directly without going through
+-- dev-start.sh, and (b) the same script is reused by CI test fixtures
+-- via dockerized test databases — both contexts naming their DB
+-- 'fabt_dev' / 'fabt_test' / 'fabt'. Production DBs use 'fabt_prod'
+-- (or similar) and would trip the guard.
+--
+-- To seed against a custom-named dev DB (e.g. a contributor's local
+-- sandbox), rename it to include 'dev' or 'test', OR set the GUC
+-- override: PGOPTIONS='-c fabt.seed_force=1' psql -d <dbname> -f seed-data.sql
+\set ON_ERROR_STOP on
+DO $$
+DECLARE
+    db_name TEXT := current_database();
+    forced  TEXT := NULLIF(current_setting('fabt.seed_force', true), '');
+BEGIN
+    IF forced = '1' THEN
+        RAISE NOTICE 'seed-data.sql: fabt.seed_force=1 — bypassing dev/test name check on database "%"', db_name;
+        RETURN;
+    END IF;
+    IF lower(db_name) NOT LIKE '%dev%'
+       AND lower(db_name) NOT LIKE '%test%'
+       AND lower(db_name) <> 'fabt' THEN
+        RAISE EXCEPTION
+            'seed-data.sql REFUSES to run against database "%": name does not contain ''dev'' or ''test'' (and is not the dockerized dev default ''fabt''). '
+            'This script seeds dev-only credentials (admin123 password, RFC 4648 test TOTP secret JBSWY3DPEHPK3PXP) and '
+            'is intended ONLY for local dev or CI test fixtures. To override (NOT for production), set the GUC: '
+            'PGOPTIONS=''-c fabt.seed_force=1'' psql -d <dbname> -f seed-data.sql',
+            db_name;
+    END IF;
+END
+$$;
 
 -- Default tenant
 INSERT INTO tenant (id, name, slug, config, created_at, updated_at)
@@ -13,6 +54,10 @@ VALUES (
 
 -- Admin user (dvAccess=true, password: admin123)
 -- BCrypt hash of 'admin123'
+-- G-4.4: roles array includes both PLATFORM_ADMIN and COC_ADMIN to mirror the
+-- V87 backfill on existing app_users. Without COC_ADMIN, fresh dev databases
+-- would have admin@dev unable to hit /api/v1/users/** etc. (G-4.4 stripped
+-- PLATFORM_ADMIN from the URL rules per V87 backfill posture).
 INSERT INTO app_user (id, tenant_id, email, password_hash, display_name, roles, dv_access, created_at, updated_at)
 VALUES (
     'b0000000-0000-0000-0000-000000000001',
@@ -20,7 +65,7 @@ VALUES (
     'admin@dev.fabt.org',
     '$2b$10$D0ZKzFrhx0qdM0mQy9iZQeLYJPX8/eeEfrJi4TsO5D2o62Q/Fwhva',
     'Dev Admin',
-    ARRAY['PLATFORM_ADMIN'],
+    ARRAY['PLATFORM_ADMIN', 'COC_ADMIN'],
     true,
     NOW(), NOW()
 ) ON CONFLICT (tenant_id, email) DO UPDATE SET
@@ -544,9 +589,10 @@ VALUES (
 -- Blue Ridge users — 6-role matrix mirroring dev-coc (all passwords: admin123)
 INSERT INTO app_user (id, tenant_id, email, password_hash, display_name, roles, dv_access, created_at, updated_at)
 VALUES
+    -- G-4.4: roles include COC_ADMIN to mirror V87 backfill (fresh dev DB)
     ('b0000001-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000002',
      'admin@blueridge.fabt.org', '$2b$10$D0ZKzFrhx0qdM0mQy9iZQeLYJPX8/eeEfrJi4TsO5D2o62Q/Fwhva',
-     'Blue Ridge Admin', ARRAY['PLATFORM_ADMIN'], true, NOW(), NOW()),
+     'Blue Ridge Admin', ARRAY['PLATFORM_ADMIN', 'COC_ADMIN'], true, NOW(), NOW()),
     ('b0000001-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000002',
      'cocadmin@blueridge.fabt.org', '$2b$10$D0ZKzFrhx0qdM0mQy9iZQeLYJPX8/eeEfrJi4TsO5D2o62Q/Fwhva',
      'Blue Ridge CoC Admin', ARRAY['COC_ADMIN'], true, NOW(), NOW()),
@@ -623,9 +669,10 @@ VALUES (
 -- Pamlico Sound users — 6-role matrix (all passwords: admin123)
 INSERT INTO app_user (id, tenant_id, email, password_hash, display_name, roles, dv_access, created_at, updated_at)
 VALUES
+    -- G-4.4: roles include COC_ADMIN to mirror V87 backfill (fresh dev DB)
     ('b0000002-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000003',
      'admin@pamlico.fabt.org', '$2b$10$D0ZKzFrhx0qdM0mQy9iZQeLYJPX8/eeEfrJi4TsO5D2o62Q/Fwhva',
-     'Pamlico Sound Admin', ARRAY['PLATFORM_ADMIN'], true, NOW(), NOW()),
+     'Pamlico Sound Admin', ARRAY['PLATFORM_ADMIN', 'COC_ADMIN'], true, NOW(), NOW()),
     ('b0000002-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000003',
      'cocadmin@pamlico.fabt.org', '$2b$10$D0ZKzFrhx0qdM0mQy9iZQeLYJPX8/eeEfrJi4TsO5D2o62Q/Fwhva',
      'Pamlico Sound CoC Admin', ARRAY['COC_ADMIN'], true, NOW(), NOW()),
@@ -730,3 +777,97 @@ INSERT INTO coordinator_assignment (user_id, shelter_id) VALUES
     ('b0000002-0000-0000-0000-000000000003', 'd0000002-0000-0000-0000-000000000002'),  -- coord → Pamlico Example
     ('b0000002-0000-0000-0000-000000000005', 'd0000002-0000-0000-0000-000000000003')   -- dv-coord → DV East
 ON CONFLICT DO NOTHING;
+
+-- ============================================================================
+-- PHASE G-4.4: Activate the bootstrap platform_user for dev/Playwright
+-- ============================================================================
+--
+-- The V87 migration inserts a LOCKED bootstrap row at id 0fab with NO email
+-- and NO credentials. Production operators activate it via the fabt-cli
+-- hash-password tool + manual UPDATE. For local dev + the Playwright
+-- platformOperatorPage fixture, we activate it here with deterministic
+-- credentials so tests can mint a platform JWT without per-run TOTP enrollment.
+--
+-- Credentials (LOCAL DEV ONLY — these are publicly visible in this seed
+-- script and the Playwright auth helper):
+--   id:            00000000-0000-0000-0000-000000000fab
+--   email:         platform-ops@dev.fabt.org
+--   password:      admin123  (matches every other dev seed user — bcrypt hash same)
+--   mfa_secret:    JBSWY3DPEHPK3PXP  (RFC 4648 base32; standard MFA test secret)
+--   mfa_enabled:   true   (skips first-login forced enrollment)
+--   account_locked: false
+--
+-- NEVER run this seed against any environment other than dev/test. Production
+-- operators must use the fabt-cli hash-password tool + a real TOTP enrollment.
+-- The runtime guard for prod is the dev-start.sh wrapper + Spring profile
+-- gating; this script is invoked only from dev-start.sh and CI test setup.
+UPDATE platform_user
+SET email          = 'platform-ops@dev.fabt.org',
+    password_hash  = '$2b$10$D0ZKzFrhx0qdM0mQy9iZQeLYJPX8/eeEfrJi4TsO5D2o62Q/Fwhva',
+    mfa_secret     = 'JBSWY3DPEHPK3PXP',
+    mfa_enabled    = true,
+    account_locked = false
+WHERE id = '00000000-0000-0000-0000-000000000fab';
+
+-- ============================================================================
+-- PHASE G-4.4 §5.13: Smoke-spec platform_user (parallel-safe canary isolation)
+-- ============================================================================
+--
+-- The platform-operator-smoke.spec.ts canary does a real /login + /mfa-verify
+-- round-trip on every CI run. V88's TOTP replay protection (last_totp_code,
+-- 89s window) means a successful login "consumes" the current TOTP code for
+-- 89 seconds. If the smoke spec shared the bootstrap row (0fab) with the
+-- access-log spec's beforeAll login, the second login within the same 30s
+-- TOTP window would mint the same code and trip the replay rejection.
+--
+-- Solution: a dedicated platform_user at id 0fa1 for the smoke spec. The
+-- access-log spec keeps using the bootstrap row (single beforeAll login per
+-- run); the lockout spec uses 0fa2 (independent counter); the smoke spec
+-- uses 0fa1. Each spec has its own last_totp_code state. F17 (per-call
+-- UUIDs for full N-way isolation) remains deferred to G-4.5.
+INSERT INTO platform_user (id, email, password_hash, mfa_secret, mfa_enabled, account_locked, created_at)
+VALUES (
+    '00000000-0000-0000-0000-000000000fa1',
+    'platform-smoke@dev.fabt.org',
+    '$2b$10$D0ZKzFrhx0qdM0mQy9iZQeLYJPX8/eeEfrJi4TsO5D2o62Q/Fwhva',
+    'JBSWY3DPEHPK3PXP',
+    true,
+    false,
+    NOW()
+) ON CONFLICT (id) DO UPDATE SET
+    email          = EXCLUDED.email,
+    password_hash  = EXCLUDED.password_hash,
+    mfa_secret     = EXCLUDED.mfa_secret,
+    mfa_enabled    = EXCLUDED.mfa_enabled,
+    account_locked = EXCLUDED.account_locked;
+
+-- ============================================================================
+-- PHASE G-4.4 §5.13: Lockout-target platform_user (parallel-safe Spec 2 isolation)
+-- ============================================================================
+--
+-- The platform-totp-lockout.spec.ts deliberately exhausts the per-account
+-- TOTP-failure counter and locks its target row. If that target were the
+-- bootstrap row above (0fab), the lockout spec running concurrent with the
+-- platform-admin-access-log.spec.ts on a parallel CI worker would lock the
+-- shared row and fail every concurrent loginPlatformOperator() call.
+--
+-- Solution: a SECOND seeded platform_user at id 0fa2, dedicated to the
+-- lockout spec. Independent lockout counter + identical credentials means
+-- both specs can run in parallel without colliding on shared state.
+-- F17 (per-call UUIDs for full N-way isolation) remains deferred to G-4.5;
+-- this two-row approach handles v0.53's test surface.
+INSERT INTO platform_user (id, email, password_hash, mfa_secret, mfa_enabled, account_locked, created_at)
+VALUES (
+    '00000000-0000-0000-0000-000000000fa2',
+    'platform-lockout@dev.fabt.org',
+    '$2b$10$D0ZKzFrhx0qdM0mQy9iZQeLYJPX8/eeEfrJi4TsO5D2o62Q/Fwhva',
+    'JBSWY3DPEHPK3PXP',
+    true,
+    false,
+    NOW()
+) ON CONFLICT (id) DO UPDATE SET
+    email          = EXCLUDED.email,
+    password_hash  = EXCLUDED.password_hash,
+    mfa_secret     = EXCLUDED.mfa_secret,
+    mfa_enabled    = EXCLUDED.mfa_enabled,
+    account_locked = EXCLUDED.account_locked;

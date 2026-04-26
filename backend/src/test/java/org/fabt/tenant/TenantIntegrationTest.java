@@ -28,9 +28,17 @@ class TenantIntegrationTest extends BaseIntegrationTest {
         authHelper.setupAdminUser();
     }
 
+    /**
+     * G-4.4: /api/v1/tenants/* is @PlatformAdminOnly + PLATFORM_OPERATOR.
+     * Each test gets a fresh platform-operator JWT via the bootstrap fixture.
+     */
+    private HttpHeaders platformHeaders(String purpose) {
+        return authHelper.platformOperatorHeaders("Tenant IT - " + purpose);
+    }
+
     @Test
     void test_createTenant_success() {
-        HttpHeaders headers = authHelper.adminHeaders();
+        HttpHeaders headers = platformHeaders("create tenant happy-path");
         String body = """
                 {"name": "New CoC Tenant", "slug": "new-coc-tenant"}
                 """;
@@ -52,7 +60,7 @@ class TenantIntegrationTest extends BaseIntegrationTest {
 
     @Test
     void test_createTenant_duplicateSlug() {
-        HttpHeaders headers = authHelper.adminHeaders();
+        HttpHeaders headers = platformHeaders("create tenant duplicate-slug rejection");
 
         // Create first tenant with a unique slug for this test
         String uniqueSlug = "dup-slug-" + UUID.randomUUID().toString().substring(0, 8);
@@ -85,7 +93,7 @@ class TenantIntegrationTest extends BaseIntegrationTest {
 
     @Test
     void test_getTenant_byId() {
-        HttpHeaders headers = authHelper.adminHeaders();
+        HttpHeaders headers = platformHeaders("get tenant by id happy-path");
 
         // Create a tenant to retrieve
         String slug = "get-test-" + UUID.randomUUID().toString().substring(0, 8);
@@ -119,7 +127,7 @@ class TenantIntegrationTest extends BaseIntegrationTest {
 
     @Test
     void test_getTenant_notFound() {
-        HttpHeaders headers = authHelper.adminHeaders();
+        HttpHeaders headers = platformHeaders("get tenant not-found shape");
         UUID fakeId = UUID.randomUUID();
 
         ResponseEntity<String> response = restTemplate.exchange(
@@ -134,10 +142,12 @@ class TenantIntegrationTest extends BaseIntegrationTest {
 
     @Test
     void test_updateTenant_selfTenant_ok() {
-        // Admin PUT on their OWN tenant must succeed. Per D15, PLATFORM_ADMIN is
-        // tenant-scoped (see openspec multi-tenant-production-readiness Phase M
-        // platform-admin-tenant-scoping-v0.48 + Phase D TenantPathGuard D11).
-        HttpHeaders headers = authHelper.adminHeaders();
+        // G-4.4: PUT /tenants/{id} is now @PlatformAdminOnly. The D15
+        // "platform-admin is tenant-scoped" model is superseded by the
+        // platform-operator role: PLATFORM_OPERATOR can manage any tenant
+        // (the cross-tenant invariant is now enforced by role separation
+        // and audit chain, not by TenantPathGuard).
+        HttpHeaders headers = platformHeaders("update tenant happy-path");
         UUID ownTenantId = authHelper.getTestTenantId();
 
         // Read the original name so we can restore it (setupTestTenant is idempotent
@@ -171,13 +181,17 @@ class TenantIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    void test_updateTenant_otherTenant_rejectedBy_D11_guard() {
-        // D11 URL-path-sink: an admin in tenant A creates tenant B (bootstrap
-        // path is still open under D15), but then cannot rename B via
-        // PUT /api/v1/tenants/{B} — the TenantPathGuard rejects with 404
-        // (symmetric with D3 existence-leak posture). Phase F will revisit
-        // with a dedicated platform-operator role.
-        HttpHeaders headers = authHelper.adminHeaders();
+    void test_updateTenant_otherTenant_okForPlatformOperator() {
+        // G-4.4: PLATFORM_OPERATOR can manage any tenant by design. The D11
+        // URL-path-sink concern is now structurally mitigated:
+        //   - PLATFORM_OPERATOR (the only role that can hit this endpoint) is
+        //     intentionally cross-tenant — a "foreign" tenant simply isn't
+        //     foreign to the operator.
+        //   - tenant-scoped JWTs (COC_ADMIN/etc.) cannot reach the endpoint at
+        //     all — Spring Security 403 on the @PreAuthorize gate.
+        // The audit chain (PAL row + audit_event) captures the exact target
+        // tenantId for compliance review, replacing the per-request guard.
+        HttpHeaders headers = platformHeaders("update foreign tenant - platform-operator legitimate cross-tenant action");
 
         String slug = "update-rejected-" + UUID.randomUUID().toString().substring(0, 8);
         ResponseEntity<TenantResponse> created = restTemplate.exchange(
@@ -188,13 +202,14 @@ class TenantIntegrationTest extends BaseIntegrationTest {
         assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         UUID foreignTenantId = created.getBody().id();
 
-        ResponseEntity<String> response = restTemplate.exchange(
+        ResponseEntity<TenantResponse> response = restTemplate.exchange(
                 "/api/v1/tenants/" + foreignTenantId,
                 HttpMethod.PUT,
-                new HttpEntity<>("{\"name\": \"Attacker Name\"}", headers),
-                String.class);
+                new HttpEntity<>("{\"name\": \"Renamed By Operator\"}", headers),
+                TenantResponse.class);
 
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().name()).isEqualTo("Renamed By Operator");
     }
 
     @Test
@@ -247,7 +262,7 @@ class TenantIntegrationTest extends BaseIntegrationTest {
 
     @Test
     void test_tenantIsolation_separateTenants() {
-        HttpHeaders headers = authHelper.adminHeaders();
+        HttpHeaders headers = platformHeaders("isolation: create + verify two tenants");
 
         // Create two separate tenants
         String slugA = "tenant-a-" + UUID.randomUUID().toString().substring(0, 8);
