@@ -79,10 +79,9 @@ consulted:
 
 ## 3. Customer-comms note (C-S1)
 
-**Required reading for every CoC pilot operator-of-record before deploy.**
-**Timing: send ≥24 hours before deploy + confirm read-receipt from each operator-of-record before opening §4 deploy gates.**
+**Reference template — NOT a gate for the v0.53 deploy.** Operator decision was that no comms send is required for this release; the template below is retained for future deploys that need it.
 
-Send the text below verbatim to each pilot's operator-of-record via the contact email used during pilot onboarding. (Do NOT use any name, role, or affiliation in the committed runbook — pilot mappings live in private operator-comms ledgers.)
+If a future deploy reactivates the comms step: send the text below verbatim to each pilot's operator-of-record via the contact email used during pilot onboarding, and re-add the gate items to §4 Phase C. (Do NOT use any name, role, or affiliation in the committed runbook — pilot mappings live in private operator-comms ledgers.)
 
 > **FABT v0.53 — what's changing for your account**
 >
@@ -136,10 +135,10 @@ Phases run in chronological order. Each phase blocks the next.
 - [ ] Tag `v0.53.0` cut from `main` HEAD: `git tag -a v0.53.0 -m "G-4.4 platform-admin-split"; git push origin v0.53.0`
 - [ ] GitHub release created from the tag with CHANGELOG entry as body
 
-### Phase C — Pre-deploy (≥24h before deploy)
+### Phase C — Pre-deploy
 
-- [ ] Customer-comms email sent to each pilot operator-of-record (§3 verbatim text)
-- [ ] Read-receipt confirmed from each operator
+(Customer-comms send is NOT a gate for v0.53 per operator decision — see §3. If reactivated for a future deploy, re-add the comms-sent + read-receipt-confirmed items here.)
+
 - [ ] Memory `project_resume_point.md` updated with branch HEAD + intent to deploy
 - [ ] Flyway dry-run executed against a copy of prod DB; V87+V88+V89 verified clean
 
