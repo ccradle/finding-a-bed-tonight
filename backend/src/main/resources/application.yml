@@ -249,7 +249,12 @@ bucket4j:
       http-response-body: '{"error":"rate_limited","message":"Too many referral submissions from this address. Try again later.","status":429}'
       http-content-type: application/json
       rate-limits:
-        - cache-key: getRemoteAddr()
+        # Reads X-Real-IP first (nginx sets this in prod from $remote_addr) so
+        # the bucket keys on the actual client IP, not nginx's container IP.
+        # Falls back to getRemoteAddr() in local dev (no proxy in front of the
+        # backend). Marcus warroom B1 fix — every other rate-limit entry above
+        # uses bare getRemoteAddr() and shares the same prod bug; tracked as F23.
+        - cache-key: "getHeader('X-Real-IP') != null and !getHeader('X-Real-IP').isBlank() ? getHeader('X-Real-IP') : getRemoteAddr()"
           bandwidths:
             - capacity: 5
               time: 1

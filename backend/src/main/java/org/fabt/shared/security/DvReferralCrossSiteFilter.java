@@ -1,6 +1,7 @@
 package org.fabt.shared.security;
 
 import java.io.IOException;
+import java.util.Set;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -56,7 +57,16 @@ public class DvReferralCrossSiteFilter extends OncePerRequestFilter {
 
     private static final Logger log = LoggerFactory.getLogger(DvReferralCrossSiteFilter.class);
 
-    private static final String DV_REFERRAL_CREATE_PATH = "/api/v1/dv-referrals";
+    /**
+     * Both forms accepted because Servlet containers do not normalize
+     * trailing slashes on POST. A future curl- or script-driven attacker
+     * adding {@code /} would otherwise bypass the filter (Riley warroom H2).
+     * Browsers always submit without the trailing slash so the variant
+     * never appears in legitimate traffic.
+     */
+    private static final Set<String> DV_REFERRAL_CREATE_PATHS = Set.of(
+            "/api/v1/dv-referrals",
+            "/api/v1/dv-referrals/");
     private static final String SEC_FETCH_SITE_HEADER = "Sec-Fetch-Site";
     private static final String CROSS_SITE_VALUE = "cross-site";
     private static final String REJECTION_BODY =
@@ -69,7 +79,7 @@ public class DvReferralCrossSiteFilter extends OncePerRequestFilter {
                                     FilterChain filterChain) throws ServletException, IOException {
 
         if (!"POST".equalsIgnoreCase(request.getMethod())
-                || !DV_REFERRAL_CREATE_PATH.equals(request.getRequestURI())) {
+                || !DV_REFERRAL_CREATE_PATHS.contains(request.getRequestURI())) {
             filterChain.doFilter(request, response);
             return;
         }

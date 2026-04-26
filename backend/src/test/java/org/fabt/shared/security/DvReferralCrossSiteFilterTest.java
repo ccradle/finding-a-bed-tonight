@@ -152,4 +152,29 @@ class DvReferralCrossSiteFilterTest {
         verifyNoInteractions(chain);
         assertThat(response.getStatus()).isEqualTo(403);
     }
+
+    // --- Trailing slash variant (Riley warroom H2) ---
+
+    @Test
+    void cross_site_trailing_slash_also_rejected() throws ServletException, IOException {
+        request.setMethod("POST");
+        request.setRequestURI("/api/v1/dv-referrals/");
+        request.addHeader("Sec-Fetch-Site", "cross-site");
+
+        filter.doFilterInternal(request, response, chain);
+
+        verifyNoInteractions(chain);
+        assertThat(response.getStatus()).isEqualTo(403);
+    }
+
+    @Test
+    void same_origin_trailing_slash_passes() throws ServletException, IOException {
+        request.setMethod("POST");
+        request.setRequestURI("/api/v1/dv-referrals/");
+        request.addHeader("Sec-Fetch-Site", "same-origin");
+
+        filter.doFilterInternal(request, response, chain);
+
+        verify(chain).doFilter(request, response);
+    }
 }

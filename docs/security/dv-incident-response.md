@@ -97,35 +97,60 @@ Replace `<source_ip>` with the alert label literal. Look for:
 
 ### Step 3 — Pull recent DV referral audit rows
 
-Connect with the `fabt` owner role (NOT `fabt_app`) so RLS does not
-hide DV-tenant rows. The owner bypass is documented in
-`feedback_rls_hides_dv_data.md`.
+Connect with the `fabt` owner role (NOT `fabt_app`) so RLS dv-access
+filtering does not hide DV-tenant rows. The owner-vs-app distinction
+is documented in `feedback_rls_hides_dv_data.md`.
+
+**Do NOT inline the password on the command line** — it lands in your
+shell history. Two safe patterns:
 
 ```bash
-PGPASSWORD=<fabt-owner-password> psql -h localhost -U fabt -d fabt
+# Option 1 — ~/.pgpass entry, mode 0600:
+#   localhost:5432:fabt:fabt:<the-actual-password>
+psql -h localhost -U fabt -d fabt
+
+# Option 2 — read into env var without echo, scoped to the session:
+read -s -p "fabt owner password: " PGPASSWORD; export PGPASSWORD
+psql -h localhost -U fabt -d fabt
+unset PGPASSWORD
 ```
 
-Then in psql:
+#### Important: FORCE RLS applies to the owner role too
+
+`audit_events` has `FORCE ROW LEVEL SECURITY` enabled (V69), with the
+predicate `tenant_id = fabt_current_tenant_id()`. The owner role has
+no automatic bypass under FORCE RLS — the `app.tenant_id` GUC must be
+set per query, otherwise the predicate evaluates to `tenant_id = NULL`
+and the SELECT returns zero rows. Set BOTH `app.tenant_id` AND
+`app.dv_access` per tenant being inspected.
 
 ```sql
--- Recent DV referral creates with the firing source_ip.
--- audit_events has FORCE RLS; SET LOCAL inside a tx for the duration
--- of the lookup. tenant_id is still scoped per row, so you'll see
--- whichever tenants the burst targeted.
+-- First: list the tenant ids you want to inspect. The tenant table is
+-- not RLS-restricted so this works without any GUC binding.
+SELECT id, slug FROM tenant WHERE slug LIKE 'dev-%';
+```
+
+For each `tenant_id` returned (typically 3 demo tenants), run:
+
+```sql
+-- Per-tenant DV referral creates in the last 15 minutes.
+-- SET LOCAL scopes both GUCs to the surrounding tx; COMMIT releases.
+-- Note: schema column names per V29 + V57 are `action` (NOT `event_type`)
+-- and `timestamp` (NOT `created_at`) — verified against the live migration.
 BEGIN;
+SET LOCAL app.tenant_id = '<tenant-uuid-from-above>';
 SET LOCAL app.dv_access = 'true';
 
 SELECT
-    created_at,
-    tenant_id,
+    timestamp,
     actor_user_id,
-    details->>'shelter_id'  AS shelter_id,
+    details->>'shelter_id'   AS shelter_id,
     details->>'shelter_name' AS shelter_name,
     details->>'urgency'      AS urgency
 FROM audit_events
-WHERE event_type = 'DV_REFERRAL_REQUESTED'
-  AND created_at > NOW() - INTERVAL '15 minutes'
-ORDER BY created_at DESC;
+WHERE action = 'DV_REFERRAL_REQUESTED'
+  AND timestamp > NOW() - INTERVAL '15 minutes'
+ORDER BY timestamp DESC;
 
 COMMIT;
 ```
@@ -134,6 +159,12 @@ Cross-reference the source IP from the nginx log against the
 `actor_user_id` column to find which authenticated user filed the
 referrals. (The current `audit_events` schema does not store the
 source IP directly — that pivot lives in nginx logs.)
+
+If you need a single-shot view across all demo tenants and don't want
+to iterate manually, the platform operator can request a
+SECURITY DEFINER lookup function (deferred — see runbook follow-ups
+section). Without it, the per-tenant iteration above is the supported
+path.
 
 ### Step 4 — Decide between the two failure modes
 
