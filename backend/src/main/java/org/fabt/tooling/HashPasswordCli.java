@@ -30,7 +30,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
  *
  * <pre>{@code
  *   docker exec -it fabt-backend \
- *     java -cp /app/finding-a-bed-tonight.jar \
+ *     java -cp /app/app.jar \
  *          -Dloader.main=org.fabt.tooling.HashPasswordCli \
  *          org.springframework.boot.loader.launch.PropertiesLauncher
  * }</pre>
