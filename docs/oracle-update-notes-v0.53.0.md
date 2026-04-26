@@ -439,18 +439,21 @@ All should succeed for COC_ADMIN-bearing accounts (the previous PLATFORM_ADMIN-b
 
 The G-4.6 endpoints ship behind `fabt.tenant.lifecycle.enabled=false` (default). DO NOT flip the flag in this deploy — surface check confirms the controller bean is gated off correctly so traffic continues hitting the existing psql break-glass path until operators rehearse the new flow against staging.
 
+The check uses the springdoc OpenAPI spec (publicly reachable) rather than an HTTP request to the endpoint itself. Reasoning: `@ConditionalOnProperty(matchIfMissing=false)` controls whether the bean is registered, which controls whether springdoc emits the path. An unauthenticated HTTP probe to the endpoint can't distinguish "bean absent (404)" from "bean present + auth-rejected (401)" — both look the same to a no-Bearer caller. The OpenAPI spec is the unambiguous contract.
+
 ```bash
-# Should return 404 (controller bean not registered when flag is false).
-# A 404 here = correct — the @ConditionalOnProperty gate is working.
-# A 401/403/405 here = the controller bean IS registered. Flag was flipped
-# accidentally OR the @ConditionalOnProperty annotation regressed. Investigate.
-curl -sk -o /dev/null -w "%{http_code}\n" \
-  -X POST https://findabed.org/api/v1/tenants/$(uuidgen)/suspend \
-  -H 'X-Platform-Justification: surface-check-must-404'
-# Expected: 404
+# springdoc only emits a path when the controller bean is registered.
+# v0.53 with flag=false → bean absent → path NOT in spec → grep count 0.
+# v0.53 with flag=true → bean present → path IN spec → grep count >= 1.
+curl -sk https://findabed.org/v3/api-docs \
+  | grep -c '/api/v1/tenants/{id}/suspend'
+# Expected: 0 (flag is OFF)
+# A non-zero result = the @ConditionalOnProperty gate regressed OR the flag
+# was flipped accidentally. Investigate before any operator traffic hits the
+# new endpoints.
 ```
 
-Confirms the gate is intact. When operators are ready to retire the psql break-glass path (post-deploy decision in §8), flip `fabt.tenant.lifecycle.enabled=true` in `prod-*.env` + restart backend + re-run §6.7 expecting 401 (justification + JWT required) rather than 404.
+Confirms the gate is intact. When operators are ready to retire the psql break-glass path (post-deploy decision in §8), flip `fabt.tenant.lifecycle.enabled=true` in `prod-*.env` + restart backend + re-run §6.7 expecting `>= 1` instead of `0`.
 
 ---
 
