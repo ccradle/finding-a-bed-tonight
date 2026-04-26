@@ -11,6 +11,7 @@ import org.fabt.auth.repository.UserRepository;
 import org.fabt.auth.service.JwtService;
 import org.fabt.auth.service.PasswordService;
 import org.fabt.auth.service.TotpService;
+import org.fabt.shared.security.KidRegistryService;
 import org.fabt.tenant.domain.Tenant;
 import org.fabt.tenant.service.TenantService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,6 +32,7 @@ public class TestAuthHelper {
     private final UserRepository userRepository;
     private final PasswordService passwordService;
     private final JwtService jwtService;
+    private final KidRegistryService kidRegistryService;
 
     private Tenant testTenant;
     private User adminUser;
@@ -41,11 +43,13 @@ public class TestAuthHelper {
     public TestAuthHelper(TenantService tenantService,
                           UserRepository userRepository,
                           PasswordService passwordService,
-                          JwtService jwtService) {
+                          JwtService jwtService,
+                          KidRegistryService kidRegistryService) {
         this.tenantService = tenantService;
         this.userRepository = userRepository;
         this.passwordService = passwordService;
         this.jwtService = jwtService;
+        this.kidRegistryService = kidRegistryService;
     }
 
     /**
@@ -145,6 +149,33 @@ public class TestAuthHelper {
     public Tenant setupSecondaryTenant(String slug) {
         return tenantService.findBySlug(slug)
                 .orElseGet(() -> tenantService.create("Secondary Tenant " + slug, slug));
+    }
+
+    /**
+     * Variant of {@link #setupSecondaryTenant(String)} that ALSO bootstraps
+     * the JWT key material (gen-1 row in {@code tenant_key_material} +
+     * fresh kid in {@code kid_to_tenant_key}) via
+     * {@link KidRegistryService#findOrCreateActiveKid(UUID)}.
+     *
+     * <p>Required by tests that exercise the {@code TenantLifecycleService}
+     * write paths (suspend / unsuspend / offboard / hardDelete) — the suspend
+     * flow calls {@code TenantKeyRotationService.bumpJwtKeyGeneration} which
+     * fails with {@code "no active key generation; cannot rotate"} if the
+     * tenant has no kid bootstrapped yet. The lazy-bootstrap path that
+     * {@code TenantService.create} relies on (first-login warm-up) does
+     * NOT fire under these tests because they bypass login entirely.
+     *
+     * <p>Encapsulates the bootstrap so each lifecycle IT does not have to
+     * inject {@link KidRegistryService} and remember the call. G-4.6 warroom
+     * MEDIUM (Sam): the previous pattern of inlining the call in each IT
+     * was a copy-paste smell — the helper makes the contract explicit and
+     * reduces the chance the next IT author forgets and gets a confusing
+     * "no active key generation" failure.
+     */
+    public Tenant setupSecondaryTenantWithKeyMaterial(String slug) {
+        Tenant tenant = setupSecondaryTenant(slug);
+        kidRegistryService.findOrCreateActiveKid(tenant.getId());
+        return tenant;
     }
 
     /**
