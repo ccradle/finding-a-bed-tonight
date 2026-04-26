@@ -108,7 +108,7 @@ jobs:
             GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO fabt_app;
             GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO fabt_app;
           "
-          PGPASSWORD=fabt psql -h localhost -U fabt -d fabt < infra/scripts/seed-data.sql
+          PGOPTIONS='-c fabt.seed_force=1' PGPASSWORD=fabt psql -h localhost -U fabt -d fabt < infra/scripts/seed-data.sql
 
       - name: Run DV canary tests
         working-directory: e2e/karate
@@ -211,7 +211,7 @@ jobs:
             GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO fabt_app;
             GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO fabt_app;
           "
-          PGPASSWORD=fabt psql -h localhost -U fabt -d fabt < infra/scripts/seed-data.sql
+          PGOPTIONS='-c fabt.seed_force=1' PGPASSWORD=fabt psql -h localhost -U fabt -d fabt < infra/scripts/seed-data.sql
 
       - name: Install frontend dependencies
         working-directory: frontend
@@ -348,7 +348,7 @@ jobs:
             GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO fabt_app;
             GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO fabt_app;
           "
-          PGPASSWORD=fabt psql -h localhost -U fabt -d fabt < infra/scripts/seed-data.sql
+          PGOPTIONS='-c fabt.seed_force=1' PGPASSWORD=fabt psql -h localhost -U fabt -d fabt < infra/scripts/seed-data.sql
 
       - name: Run Gatling simulations
         working-directory: e2e/gatling

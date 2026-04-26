@@ -471,7 +471,7 @@ The script starts PostgreSQL via Docker Compose, builds and launches the backend
 docker compose up -d postgres
 
 # 2. Load seed data
-docker compose exec -T postgres psql -U fabt -d fabt < infra/scripts/seed-data.sql
+docker compose exec -T -e PGOPTIONS='-c fabt.seed_force=1' postgres psql -U fabt -d fabt < infra/scripts/seed-data.sql
 
 # 3. Start backend
 cd backend && mvn spring-boot:run

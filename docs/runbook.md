@@ -54,7 +54,7 @@ When shelter structure changes (new shelters, renamed shelters, changed IDs), ru
 ./dev-start.sh --fresh --observability       # Fresh reload + observability stack
 # Or manually:
 docker compose exec -T postgres psql -U fabt -d fabt < infra/scripts/seed-reset.sql
-docker compose exec -T postgres psql -U fabt -d fabt < infra/scripts/seed-data.sql
+docker compose exec -T -e PGOPTIONS='-c fabt.seed_force=1' postgres psql -U fabt -d fabt < infra/scripts/seed-data.sql
 docker compose exec -T postgres psql -U fabt -d fabt < infra/scripts/demo-activity-seed.sql
 ```
 
