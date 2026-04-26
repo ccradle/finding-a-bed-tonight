@@ -84,7 +84,7 @@ When `--observability` is used, the backend starts with `management.server.port=
 
 ### Observability Tab (Admin Panel → Observability)
 
-The Observability tab allows PLATFORM_ADMIN users to configure monitoring at runtime without restart.
+The Observability tab allows PLATFORM_OPERATOR users (post-G-4.4 platform admin split, v0.53+) to configure monitoring at runtime without restart. Requires a platform-operator JWT (`iss=fabt-platform`) with `MFA_VERIFIED` authority and an `X-Platform-Justification` header (≥10 ASCII chars) on the PUT call.
 
 | Setting | Default | Effect |
 |---------|---------|--------|
@@ -383,7 +383,7 @@ Header: X-Confirm-Policy-Change: CONFIRM
 Body: {"policy": "ADMIN_AND_ASSIGNED"}
 ```
 
-**This endpoint should NOT be exposed outside the corporate firewall.** Requires PLATFORM_ADMIN role. Policy changes are logged at WARN level.
+**This endpoint should NOT be exposed outside the corporate firewall.** Requires PLATFORM_OPERATOR role (post-G-4.4) + `X-Platform-Justification` header (≥10 ASCII chars). Policy changes are logged at WARN level + emit a `PLATFORM_DV_ADDRESS_POLICY_CHANGED` audit_event row + a `platform_admin_access_log` chain entry.
 
 Valid policies: `ADMIN_AND_ASSIGNED` (default), `ADMIN_ONLY`, `ALL_DV_ACCESS`, `NONE`.
 
@@ -695,7 +695,7 @@ The two authentication paths are architecturally independent:
 
 **Three safeguards:**
 1. `@Profile("dev | test")` — bean doesn't exist in production
-2. `PLATFORM_ADMIN` role required
+2. `PLATFORM_OPERATOR` role required (post-G-4.4 — was PLATFORM_ADMIN pre-v0.53)
 3. `X-Confirm-Reset: DESTROY` header required
 
 **If this endpoint responds in an environment where it shouldn't:** The Spring profile configuration is wrong. Check `SPRING_PROFILES_ACTIVE` — it should NOT include `dev` or `test` in production.
