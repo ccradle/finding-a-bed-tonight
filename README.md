@@ -27,7 +27,7 @@ An open-source platform that shows real-time shelter bed availability across an 
 
 ## See It in Action
 
-- **[Platform Walkthrough](https://ccradle.github.io/findABed/demo/index.html)** — 18 annotated screenshots with story-driven narrative
+- **[Platform Walkthrough](https://ccradle.github.io/findABed/demo/index.html)** — 20 annotated screenshots with story-driven narrative
 - **[DV Referral Flow](https://ccradle.github.io/findABed/demo/dvindex.html)** — privacy-preserving referral for DV shelters
 - **[HMIS Bridge](https://ccradle.github.io/findABed/demo/hmisindex.html)** — automated data push to HMIS vendors
 - **[CoC Analytics](https://ccradle.github.io/findABed/demo/analyticsindex.html)** — utilization trends, demand signals, HIC/PIT export
