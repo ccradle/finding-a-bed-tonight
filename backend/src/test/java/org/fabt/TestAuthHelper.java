@@ -327,6 +327,41 @@ public class TestAuthHelper {
     }
 
     /**
+     * Convenience: activate the bootstrap platform_user and return a fully
+     * formed {@link HttpHeaders} with the platform JWT bearer + the
+     * {@code X-Platform-Justification} header populated. Designed for the
+     * G-4.4 IT triage pass where every {@code @PlatformAdminOnly} endpoint
+     * call needs both pieces.
+     *
+     * <p>The justification header MUST be ASCII (JDK 17+ http client rejects
+     * non-ASCII) and at least 10 characters after trim.
+     */
+    public HttpHeaders platformOperatorHeaders(String justification) {
+        PlatformOperatorFixture fixture = setupPlatformOperator();
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Authorization", fixture.bearer());
+        headers.set("X-Platform-Justification", justification);
+        headers.set("Content-Type", "application/json");
+        return headers;
+    }
+
+    /**
+     * Convenience: build a {@code X-Platform-Justification}-only header set
+     * for tests that want to exercise the security/aspect rejection path
+     * for non-platform-operator roles. Without the justification header the
+     * JustificationValidationFilter rejects with 400 before security can
+     * reach the role check; this helper builds the bypass for non-platform
+     * JWTs so the security/aspect rejection (401/403) is what the test
+     * actually observes.
+     */
+    public HttpHeaders withJustification(HttpHeaders headers, String justification) {
+        HttpHeaders copy = new HttpHeaders();
+        copy.putAll(headers);
+        copy.set("X-Platform-Justification", justification);
+        return copy;
+    }
+
+    /**
      * Resets the bootstrap platform_user to the V87 INSERTed state.
      * IT classes call this in {@code @AfterEach} to keep the shared
      * Spring context clean for sibling test classes.

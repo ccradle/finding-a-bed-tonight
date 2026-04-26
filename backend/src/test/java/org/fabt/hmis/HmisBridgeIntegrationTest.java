@@ -196,7 +196,9 @@ class HmisBridgeIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    void pushEndpoint_requiresPlatformAdmin() {
+    void pushEndpoint_requiresCocAdmin() {
+        // G-4.4 follow-up: HMIS push reverted to COC_ADMIN (tenant-scoped). A
+        // non-admin role like outreach must still 403.
         ResponseEntity<String> resp = restTemplate.exchange(
                 "/api/v1/hmis/push", HttpMethod.POST,
                 new HttpEntity<>(outreachHeaders), String.class);
@@ -204,7 +206,7 @@ class HmisBridgeIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    void vendorsEndpoint_requiresPlatformAdmin() {
+    void vendorsEndpoint_requiresCocAdmin() {
         ResponseEntity<String> resp = restTemplate.exchange(
                 "/api/v1/hmis/vendors", HttpMethod.GET,
                 new HttpEntity<>(outreachHeaders), String.class);
@@ -221,6 +223,8 @@ class HmisBridgeIntegrationTest extends BaseIntegrationTest {
 
     @Test
     void manualPush_succeeds() {
+        // G-4.4 follow-up: HMIS push is COC_ADMIN (tenant-scoped). Admin user
+        // has COC_ADMIN per V87 backfill, so adminHeaders is the right fixture.
         ResponseEntity<String> resp = restTemplate.exchange(
                 "/api/v1/hmis/push", HttpMethod.POST,
                 new HttpEntity<>(adminHeaders), String.class);

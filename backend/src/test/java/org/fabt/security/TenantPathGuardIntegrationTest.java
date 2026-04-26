@@ -85,28 +85,37 @@ class TenantPathGuardIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("PUT /tenants/{B} from Tenant A → 404 (display-name update)")
-    void crossTenantUpdateName_returns404() {
+    @DisplayName("PUT /tenants/{B} from Tenant A → 403 (G-4.4: now @PlatformAdminOnly)")
+    void crossTenantUpdateName_returnsForbidden() {
+        // G-4.4: PUT /tenants/{id} migrated to @PlatformAdminOnly, so a tenant-
+        // scoped JWT (even with COC_ADMIN/PLATFORM_ADMIN-legacy) cannot reach
+        // it — security rejects with 403 BEFORE any path guard could fire. The
+        // cross-tenant attack is structurally prevented by role separation:
+        // PLATFORM_OPERATOR is the only role that can manage tenants, and it
+        // is a platform-scoped role with no tenant context to "cross from".
+        // Justification header satisfies the JustificationValidationFilter
+        // (which fires pre-Security in this context); the 403 we expect comes
+        // from Spring Security after method @PreAuthorize evaluates.
         ResponseEntity<String> response = put(
                 "/api/v1/tenants/" + tenantB.getId(),
                 "{\"name\":\"Attacker-renamed\"}");
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
     }
 
     @Test
-    @DisplayName("PUT /tenants/{B}/observability from Tenant A → 404")
-    void crossTenantUpdateObservability_returns404() {
+    @DisplayName("PUT /tenants/{B}/observability from Tenant A → 403 (G-4.4: @PlatformAdminOnly)")
+    void crossTenantUpdateObservability_returnsForbidden() {
         ResponseEntity<String> response = put(
                 "/api/v1/tenants/" + tenantB.getId() + "/observability",
                 "{\"prometheus_enabled\":false}");
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
     }
 
     @Test
-    @DisplayName("GET /tenants/{B}/observability from Tenant A → 404 (reads are symmetric)")
-    void crossTenantGetObservability_returns404() {
+    @DisplayName("GET /tenants/{B}/observability from Tenant A → 403 (G-4.4: @PlatformAdminOnly)")
+    void crossTenantGetObservability_returnsForbidden() {
         ResponseEntity<String> response = get("/api/v1/tenants/" + tenantB.getId() + "/observability");
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
     }
 
     @Test
@@ -145,8 +154,8 @@ class TenantPathGuardIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("PUT /tenants/{B}/dv-address-policy from Tenant A → 404 (guard fires before CONFIRM header check)")
-    void crossTenantUpdateDvAddressPolicy_returns404() {
+    @DisplayName("PUT /tenants/{B}/dv-address-policy from Tenant A → 403 (G-4.4: @PlatformAdminOnly)")
+    void crossTenantUpdateDvAddressPolicy_returnsForbidden() {
         HttpHeaders headers = authHeaders();
         headers.set("X-Confirm-Policy-Change", "CONFIRM");
         ResponseEntity<String> response = restTemplate.exchange(
@@ -154,7 +163,7 @@ class TenantPathGuardIntegrationTest extends BaseIntegrationTest {
                 HttpMethod.PUT,
                 new HttpEntity<>("{\"policy\":\"NONE\"}", headers),
                 String.class);
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
     }
 
     /**
@@ -245,6 +254,12 @@ class TenantPathGuardIntegrationTest extends BaseIntegrationTest {
         HttpHeaders headers = new HttpHeaders();
         headers.setBearerAuth(tenantAToken);
         headers.setContentType(MediaType.APPLICATION_JSON);
+        // G-4.4: include justification so the JustificationValidationFilter
+        // doesn't 400 before security can evaluate role. Tests asserting 403
+        // (cross-tenant via tenant JWT) need security/aspect to be the gate
+        // that fires, not the filter.
+        headers.set("X-Platform-Justification",
+                "TenantPathGuard IT - cross-tenant attack scenario, tenant JWT must not reach platform endpoint");
         return headers;
     }
 

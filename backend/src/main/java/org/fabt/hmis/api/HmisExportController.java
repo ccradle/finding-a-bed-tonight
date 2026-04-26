@@ -119,15 +119,17 @@ public class HmisExportController {
     }
 
     @Operation(summary = "Trigger manual HMIS push",
-            description = "Initiates an immediate push to all enabled vendors. PLATFORM_OPERATOR only.")
+            description = "Initiates an immediate push to all enabled vendors. COC_ADMIN only — "
+                    + "tenant-scoped operation that exports the caller's tenant data.")
     @PostMapping("/push")
-    @PreAuthorize("hasRole('PLATFORM_OPERATOR')")
-    @org.fabt.auth.platform.PlatformAdminOnly(
-            reason = "Manual HMIS push exports tenant data to external vendor systems — platform authority required",
-            emits = org.fabt.shared.audit.AuditEventType.PLATFORM_HMIS_EXPORTED)
+    @PreAuthorize("hasRole('COC_ADMIN')")
     public ResponseEntity<Map<String, Object>> manualPush() throws Exception {
-        // D11: service pulls tenantId from TenantContext via
-        // createOutboxEntriesForCurrentTenant; no pass-through.
+        // G-4.4 follow-up: HMIS push is conceptually tenant-scoped — the
+        // service pulls tenantId from TenantContext, so a platform-operator
+        // JWT (no tenant context) cannot meaningfully invoke it. Revert to
+        // COC_ADMIN. A future change can introduce a separate
+        // /api/v1/admin/tenants/{id}/hmis/push for cross-tenant platform-
+        // operator use that takes tenantId in the path.
         int created = pushService.createOutboxEntriesForCurrentTenant();
         pushService.processOutbox();
         return ResponseEntity.ok(Map.of("outboxEntriesCreated", created, "status", "push initiated"));
@@ -136,7 +138,7 @@ public class HmisExportController {
     @Operation(summary = "List configured HMIS vendors",
             description = "Returns all HMIS vendor configurations for the tenant. API keys shown masked.")
     @GetMapping("/vendors")
-    @PreAuthorize("hasRole('PLATFORM_OPERATOR')")
+    @PreAuthorize("hasRole('COC_ADMIN')")
     public ResponseEntity<List<Map<String, Object>>> listVendors() {
         UUID tenantId = TenantContext.getTenantId();
         List<HmisVendorConfig> vendors = configService.getVendors(tenantId);
@@ -154,10 +156,7 @@ public class HmisExportController {
     @Operation(summary = "[STUB] Add HMIS vendor — not yet implemented",
             description = "Placeholder endpoint. Returns hardcoded response. Will be implemented in platform-hardening change.")
     @PostMapping("/vendors")
-    @PreAuthorize("hasRole('PLATFORM_OPERATOR')")
-    @org.fabt.auth.platform.PlatformAdminOnly(
-            reason = "Add HMIS vendor — platform authority required to configure external data export targets (stub; full impl in platform-hardening)",
-            emits = org.fabt.shared.audit.AuditEventType.PLATFORM_HMIS_EXPORTED)
+    @PreAuthorize("hasRole('COC_ADMIN')")
     public ResponseEntity<Map<String, Object>> addVendor(@RequestBody Map<String, Object> body) {
         return ResponseEntity.status(501).body(Map.of("error", "not_implemented",
                 "message", "HMIS vendor management is not yet implemented"));
@@ -167,10 +166,7 @@ public class HmisExportController {
     @Operation(summary = "[STUB] Update HMIS vendor — not yet implemented",
             description = "Placeholder endpoint. Returns 501. Will be implemented in platform-hardening change.")
     @PutMapping("/vendors/{vendorId}")
-    @PreAuthorize("hasRole('PLATFORM_OPERATOR')")
-    @org.fabt.auth.platform.PlatformAdminOnly(
-            reason = "Update HMIS vendor — platform authority required to mutate external data export configuration (stub; full impl in platform-hardening)",
-            emits = org.fabt.shared.audit.AuditEventType.PLATFORM_HMIS_EXPORTED)
+    @PreAuthorize("hasRole('COC_ADMIN')")
     public ResponseEntity<Map<String, Object>> updateVendor(
             @PathVariable String vendorId, @RequestBody Map<String, Object> body) {
         return ResponseEntity.status(501).body(Map.of("error", "not_implemented",
@@ -181,10 +177,7 @@ public class HmisExportController {
     @Operation(summary = "[STUB] Remove HMIS vendor — not yet implemented",
             description = "Placeholder endpoint. Returns 501. Will be implemented in platform-hardening change.")
     @DeleteMapping("/vendors/{vendorId}")
-    @PreAuthorize("hasRole('PLATFORM_OPERATOR')")
-    @org.fabt.auth.platform.PlatformAdminOnly(
-            reason = "Remove HMIS vendor — platform authority required to drop an external data export target (stub; full impl in platform-hardening)",
-            emits = org.fabt.shared.audit.AuditEventType.PLATFORM_HMIS_EXPORTED)
+    @PreAuthorize("hasRole('COC_ADMIN')")
     public ResponseEntity<Map<String, Object>> removeVendor(@PathVariable String vendorId) {
         return ResponseEntity.status(501).body(Map.of("error", "not_implemented",
                 "message", "HMIS vendor management is not yet implemented"));

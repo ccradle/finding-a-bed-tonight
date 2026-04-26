@@ -208,8 +208,12 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/batch/**").hasAnyRole("COC_ADMIN", "PLATFORM_ADMIN", "PLATFORM_OPERATOR")
                         .requestMatchers("/api/v1/batch/**").hasAnyRole("PLATFORM_OPERATOR", "PLATFORM_ADMIN")
 
-                        // Test reset — profile-gated (dev/test only), requires PLATFORM_ADMIN + confirmation header
-                        .requestMatchers("/api/v1/test/**").hasRole("PLATFORM_ADMIN")
+                        // Test reset — profile-gated (dev/test only). G-4.4: migrated to
+                        // PLATFORM_OPERATOR + @PlatformAdminOnly; URL rule kept inclusive of
+                        // PLATFORM_ADMIN for the deprecation window so legacy JWTs receive 403
+                        // from method @PreAuthorize, not 401 short-circuit. Method-level
+                        // @PreAuthorize + @PlatformAdminOnly are the real gates.
+                        .requestMatchers("/api/v1/test/**").hasAnyRole("PLATFORM_OPERATOR", "PLATFORM_ADMIN")
 
                         // Bed search queries — any authenticated role
                         .requestMatchers("/api/v1/queries/**").authenticated()

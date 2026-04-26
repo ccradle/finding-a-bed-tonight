@@ -13,7 +13,6 @@ import org.slf4j.LoggerFactory;
 import org.fabt.observability.ObservabilityConfigService;
 import org.fabt.observability.ObservabilityConfigService.ObservabilityConfig;
 import org.fabt.shared.web.TenantContext;
-import org.fabt.shared.web.TenantPathGuard;
 import org.fabt.tenant.domain.Tenant;
 import org.fabt.tenant.service.TenantLifecycleService;
 import org.fabt.tenant.service.TenantService;
@@ -135,7 +134,16 @@ public class TenantController {
     public ResponseEntity<TenantResponse> update(
             @Parameter(description = "UUID of the tenant to update") @PathVariable UUID id,
             @Valid @RequestBody UpdateTenantRequest request) {
-        TenantPathGuard.requireMatchingTenant(id);
+        // G-4.4: TenantPathGuard removed — endpoint is @PlatformAdminOnly, the
+        // platform-operator JWT carries NO tenantId (Decision 3 + 13), so the
+        // guard would 404 on every legitimate platform-scoped call. The
+        // @PlatformAdminOnly + MFA_VERIFIED + audit chain provide the
+        // cross-tenant authorization story; the guard's tenant-A-can't-touch-B
+        // invariant is now enforced by role separation (COC_ADMIN can't reach
+        // this method at all; only PLATFORM_OPERATOR can, and PLATFORM_OPERATOR
+        // is intentionally cross-tenant). Service layer still uses the
+        // path-supplied id for the lookup, so the audit chain captures the
+        // exact target tenant.
         Tenant tenant = tenantService.update(id, request.name());
         return ResponseEntity.ok(TenantResponse.from(tenant));
     }
@@ -150,7 +158,7 @@ public class TenantController {
     @PreAuthorize("hasRole('PLATFORM_OPERATOR')")
     public ResponseEntity<ObservabilityConfig> getObservabilityConfig(
             @Parameter(description = "UUID of the tenant") @PathVariable UUID id) {
-        TenantPathGuard.requireMatchingTenant(id);
+        // G-4.4: TenantPathGuard removed — see TenantController.update for rationale.
         return ResponseEntity.ok(observabilityConfigService.getConfig(id));
     }
 
@@ -168,7 +176,7 @@ public class TenantController {
     public ResponseEntity<ObservabilityConfig> updateObservabilityConfig(
             @Parameter(description = "UUID of the tenant") @PathVariable UUID id,
             @RequestBody Map<String, Object> observabilitySettings) {
-        TenantPathGuard.requireMatchingTenant(id);
+        // G-4.4: TenantPathGuard removed — see TenantController.update for rationale.
         Map<String, Object> currentConfig = tenantService.getConfig(id);
         currentConfig.put("observability", observabilitySettings);
         tenantService.updateConfig(id, currentConfig);
@@ -194,7 +202,7 @@ public class TenantController {
             @RequestHeader(value = "X-Confirm-Policy-Change", required = false) String confirmHeader,
             Authentication authentication) {
 
-        TenantPathGuard.requireMatchingTenant(id);
+        // G-4.4: TenantPathGuard removed — see TenantController.update for rationale.
 
         if (!"CONFIRM".equals(confirmHeader)) {
             return ResponseEntity.badRequest()

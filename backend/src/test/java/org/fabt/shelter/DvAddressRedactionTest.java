@@ -168,16 +168,24 @@ class DvAddressRedactionTest extends BaseIntegrationTest {
 
     @Test
     void policyChange_withoutConfirmation_rejected() {
+        // G-4.4: endpoint is PLATFORM_OPERATOR-only. Use platform-operator
+        // fixture so we exercise the missing-confirmation branch (400) rather
+        // than the missing-platform-justification branch.
+        HttpHeaders headers = authHelper.platformOperatorHeaders(
+                "DvAddressRedaction IT - missing confirmation should yield 400");
         ResponseEntity<String> resp = restTemplate.exchange(
                 "/api/v1/tenants/" + authHelper.getTestTenantId() + "/dv-address-policy",
-                HttpMethod.PUT, new HttpEntity<>("{\"policy\": \"NONE\"}", adminHeaders), String.class);
+                HttpMethod.PUT, new HttpEntity<>("{\"policy\": \"NONE\"}", headers), String.class);
         assertEquals(HttpStatus.BAD_REQUEST, resp.getStatusCode());
     }
 
     @Test
     void policyChange_nonAdmin_rejected() {
-        HttpHeaders headers = new HttpHeaders();
-        headers.addAll(outreachHeaders);
+        // G-4.4: outreach JWT cannot reach PLATFORM_OPERATOR endpoint. Provide
+        // justification so the JustificationValidationFilter doesn't 400 first;
+        // we want security/aspect to issue 403 here.
+        HttpHeaders headers = authHelper.withJustification(outreachHeaders,
+                "DvAddressRedaction IT - outreach must not change policy");
         headers.set("X-Confirm-Policy-Change", "CONFIRM");
         ResponseEntity<String> resp = restTemplate.exchange(
                 "/api/v1/tenants/" + authHelper.getTestTenantId() + "/dv-address-policy",
@@ -187,8 +195,11 @@ class DvAddressRedactionTest extends BaseIntegrationTest {
 
     @Test
     void policyChange_invalidValue_rejected() {
-        HttpHeaders headers = new HttpHeaders();
-        headers.addAll(adminHeaders);
+        // G-4.4: endpoint requires PLATFORM_OPERATOR; switch to platform-operator
+        // fixture so we exercise the invalid-policy branch (400 + valid list)
+        // rather than auth/filter rejection branches.
+        HttpHeaders headers = authHelper.platformOperatorHeaders(
+                "DvAddressRedaction IT - invalid policy must yield list of valid policies");
         headers.set("X-Confirm-Policy-Change", "CONFIRM");
         ResponseEntity<String> resp = restTemplate.exchange(
                 "/api/v1/tenants/" + authHelper.getTestTenantId() + "/dv-address-policy",
@@ -280,12 +291,17 @@ class DvAddressRedactionTest extends BaseIntegrationTest {
     }
 
     private void setPolicy(String policy) {
-        HttpHeaders headers = new HttpHeaders();
-        headers.addAll(adminHeaders);
+        // G-4.4: /dv-address-policy is @PlatformAdminOnly + PLATFORM_OPERATOR.
+        // Use the platform-operator fixture so the policy change actually
+        // applies (admin/tenant JWT now 403s here).
+        HttpHeaders headers = authHelper.platformOperatorHeaders(
+                "DvAddressRedaction IT - setting tenant policy to " + policy);
         headers.set("X-Confirm-Policy-Change", "CONFIRM");
-        restTemplate.exchange(
+        ResponseEntity<String> resp = restTemplate.exchange(
                 "/api/v1/tenants/" + authHelper.getTestTenantId() + "/dv-address-policy",
                 HttpMethod.PUT, new HttpEntity<>("{\"policy\": \"" + policy + "\"}", headers), String.class);
+        assertEquals(HttpStatus.OK, resp.getStatusCode(),
+                "setPolicy(" + policy + ") must succeed — body: " + resp.getBody());
     }
 
     private ResponseEntity<Map<String, Object>> getDetail(UUID shelterId, HttpHeaders headers) {
