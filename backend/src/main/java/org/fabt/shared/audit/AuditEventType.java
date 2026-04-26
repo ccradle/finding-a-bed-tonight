@@ -234,6 +234,27 @@ public enum AuditEventType {
      */
     BACKUP_CODES_REGENERATED,
 
+    // ─── HMIS export (tenant-scoped) ───
+
+    /**
+     * A COC_ADMIN triggered an HMIS export of their tenant's bed inventory
+     * via {@code POST /api/v1/hmis/push}. Tenant-scoped action — distinct
+     * from {@link #PLATFORM_HMIS_EXPORTED} (the platform-operator-driven
+     * cross-tenant flavour, deferred to F14). Detail blob:
+     * {@code {"vendorTypes": [...], "outboxEntriesCreated": N}}.
+     *
+     * <p>Phase G-4.4 §F16 mitigation: the HMIS push endpoint reverted from
+     * {@code @PlatformAdminOnly} to {@code COC_ADMIN}-only because its
+     * service contract reads {@code TenantContext}. The revert broadened
+     * authority (CoC admins who never had PLATFORM_ADMIN are now
+     * authorized) and dropped the platform_admin_access_log audit trail
+     * G-4.3 had attached. This audit_event row is the per-tenant
+     * replacement: every CoC admin's HMIS export attempt produces a row
+     * in {@code audit_events} with actor identity + vendor list, scoped
+     * to the calling tenant.
+     */
+    HMIS_EXPORT_TRIGGERED,
+
     /**
      * A platform admin forcibly disabled TOTP on another user's account via
      * {@code POST /api/v1/users/{id}/totp/disable}. Detail blob: {@code null}.

@@ -222,14 +222,31 @@ class HmisBridgeIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    void manualPush_succeeds() {
-        // G-4.4 follow-up: HMIS push is COC_ADMIN (tenant-scoped). Admin user
-        // has COC_ADMIN per V87 backfill, so adminHeaders is the right fixture.
+    void manualPush_succeeds_withConfirmHeader() {
+        // G-4.4 §F16: HMIS push is COC_ADMIN (tenant-scoped). Admin user has
+        // COC_ADMIN per V87 backfill. Requires X-Confirm-HMIS-Push: CONFIRM
+        // header to prevent accidental triggers.
+        HttpHeaders headers = new HttpHeaders();
+        headers.addAll(adminHeaders);
+        headers.set("X-Confirm-HMIS-Push", "CONFIRM");
+        ResponseEntity<String> resp = restTemplate.exchange(
+                "/api/v1/hmis/push", HttpMethod.POST,
+                new HttpEntity<>(headers), String.class);
+        assertEquals(HttpStatus.OK, resp.getStatusCode());
+        assertTrue(resp.getBody().contains("outboxEntriesCreated"));
+    }
+
+    @Test
+    void manualPush_withoutConfirmHeader_rejected() {
+        // G-4.4 §F16 mitigation: without X-Confirm-HMIS-Push: CONFIRM, the
+        // endpoint must 400 with missing_confirmation. Mirrors the
+        // X-Confirm-Policy-Change pattern on TenantController.
         ResponseEntity<String> resp = restTemplate.exchange(
                 "/api/v1/hmis/push", HttpMethod.POST,
                 new HttpEntity<>(adminHeaders), String.class);
-        assertEquals(HttpStatus.OK, resp.getStatusCode());
-        assertTrue(resp.getBody().contains("outboxEntriesCreated"));
+        assertEquals(HttpStatus.BAD_REQUEST, resp.getStatusCode());
+        assertTrue(resp.getBody().contains("missing_confirmation"),
+                "Body should signal missing_confirmation: " + resp.getBody());
     }
 
     private void createShelter(String name, boolean dvShelter) {
