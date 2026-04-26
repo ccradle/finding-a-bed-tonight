@@ -421,7 +421,7 @@
   "dvEscalations.policy.error.duration": "Use duración ISO-8601 (ej. PT1H, PT30M, PT2H30M)",
   "dvEscalations.policy.error.monotonic": "El umbral {index} debe ser posterior al umbral anterior",
   "dvEscalations.policy.error.severity": "La severidad debe ser INFO, ACTION_REQUIRED, o CRITICAL",
-  "dvEscalations.policy.error.role": "El destinatario debe ser COORDINATOR, COC_ADMIN, OUTREACH_WORKER, o PLATFORM_ADMIN",
+  "dvEscalations.policy.error.role": "El destinatario debe ser COORDINATOR, COC_ADMIN, o OUTREACH_WORKER",
   "dvEscalations.policy.error.recipientsEmpty": "Cada umbral necesita al menos un destinatario",
   "dvEscalations.policy.error.tooMany": "Máximo 50 umbrales por política",
   "dvEscalations.policy.error.empty": "La política debe contener al menos un umbral",

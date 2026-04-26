@@ -421,7 +421,7 @@
   "dvEscalations.policy.error.duration": "Use ISO-8601 duration (e.g. PT1H, PT30M, PT2H30M)",
   "dvEscalations.policy.error.monotonic": "Threshold {index} must be later than the threshold above it",
   "dvEscalations.policy.error.severity": "Severity must be INFO, ACTION_REQUIRED, or CRITICAL",
-  "dvEscalations.policy.error.role": "Recipient must be COORDINATOR, COC_ADMIN, OUTREACH_WORKER, or PLATFORM_ADMIN",
+  "dvEscalations.policy.error.role": "Recipient must be COORDINATOR, COC_ADMIN, or OUTREACH_WORKER",
   "dvEscalations.policy.error.recipientsEmpty": "Each threshold needs at least one recipient",
   "dvEscalations.policy.error.tooMany": "Maximum 50 thresholds per policy",
   "dvEscalations.policy.error.empty": "Policy must contain at least one threshold",
