@@ -372,6 +372,20 @@ public class ReferralTokenService {
         return repository.findAllPending(limit);
     }
 
+    /**
+     * Delete PENDING DV referrals for the given tenant whose
+     * {@code created_at} is older than the cutoff. Returns the number of
+     * rows deleted. Used by {@code DvReferralDemoCleanupJobConfig} (G-4.5
+     * §6.10). Caller is responsible for binding {@code TenantContext} with
+     * the target tenant + {@code dvAccess=true} before invoking; this
+     * method does not validate the binding because the batch job is the
+     * only legitimate caller.
+     */
+    @Transactional
+    public int deleteStalePendingForTenant(UUID tenantId, Instant olderThan) {
+        return repository.deleteStalePendingForTenant(tenantId, olderThan);
+    }
+
     @Transactional(readOnly = true)
     public int countPendingByShelterIds(List<UUID> shelterIds) {
         return repository.countPendingByShelterIds(shelterIds);

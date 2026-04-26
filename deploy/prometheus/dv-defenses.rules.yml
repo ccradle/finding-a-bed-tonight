@@ -1,0 +1,79 @@
+# Prometheus alert rules — G-4.5 §6.b DV-aware demo defenses (task §6.8).
+#
+# Mount into a Prometheus instance that already scrapes the backend
+# actuator (`fabt-backend` job in prometheus.yml):
+#
+#     rule_files:
+#       - /etc/prometheus/rules/dv-defenses.rules.yml
+#
+# Alerts here pair with:
+#   * application.yml bucket4j cache `rate-limit-dv-referral-create`
+#     (5/hour per IP, §6.7 — last-line throttle)
+#   * DvReferralCrossSiteFilter (§6.11 — abuse-cost browser hint check)
+#   * docs/security/dv-incident-response.md (§6.9 — operator triage)
+#
+# Marcus Webb's three-layer note: rate limit raises cost, header check
+# raises sophistication bar, alert routes to a human when both layers
+# are bypassed (e.g., distributed botnet rotating IPs faster than the
+# per-IP bucket can throttle, or determined attacker forging headers).
+#
+# Cardinality caveat: `source_ip` is unbounded by design. Acceptable for
+# the demo deployment where bucket4j caps each IP at 5/hour and audience
+# size is small. A multi-tenant production deployment must either drop
+# the source_ip label after the burst alert pages OR disable this scrape
+# series and rely on audit_events for forensics. See ObservabilityMetrics
+# `dvReferralCreateCounter` Javadoc and design.md F22.
+
+groups:
+  - name: fabt_dv_defenses
+    interval: 30s
+    rules:
+
+      # ---- WARN — DV referral create burst from a single source IP ----
+      # Detects a sustained burst of accepted DV referral creates from a
+      # single source address — i.e. the bucket4j 5/hour throttle was
+      # bypassed (botnet-rotating-IP, proxy chain, or per-IP throttle
+      # misconfigured). The alert fires when a single source_ip exceeds
+      # 10 creates per minute averaged over 2 minutes. Legitimate workers
+      # rarely file referrals at this rate, and the per-account/per-shelter
+      # dedupe at the service layer caps single-shelter spam separately,
+      # so a sustained 10/min from one IP is anomalous by construction.
+      - alert: FabtDvReferralBurstFromSingleIp
+        expr: |
+          sum by (source_ip) (
+            rate(fabt_dv_referrals_created_total[2m])
+          ) * 60 > 10
+        for: 2m
+        labels:
+          severity: warning
+          surface: dv-defenses
+          runbook: docs/security/dv-incident-response.md
+        annotations:
+          summary: "DV referral create burst from {{ $labels.source_ip }}"
+          description: |
+            Source IP {{ $labels.source_ip }} is creating DV referrals at
+            {{ $value | humanize }}/min sustained over the last 2 minutes
+            (threshold: 10/min). The bucket4j per-IP 5/hour throttle on
+            `/api/v1/dv-referrals` should normally prevent this — a sustained
+            breach indicates one of:
+              (a) Distributed/rotating IP attack — many distinct source_ip
+                  series each below the per-IP threshold but in aggregate
+                  high; the per-source_ip rate that triggers this alert
+                  identifies the worst offender, not the only one.
+              (b) Compromised legitimate account being driven by an
+                  attacker with access to the worker's session.
+              (c) Per-IP throttle misconfigured — confirm bucket4j
+                  `rate-limit-dv-referral-create` is loaded by checking
+                  `/actuator/configprops` for the bucket4j section.
+
+            Triage per docs/security/dv-incident-response.md:
+            1. Pull last 5 minutes of audit_events where event_type =
+               'DV_REFERRAL_REQUESTED' and details->>'shelter_id' is set;
+               correlate with the firing source_ip via nginx access log.
+            2. If creates target a single shelter, confirm the shelter is
+               not under a known abuse incident already.
+            3. If creates span many shelters, check whether the same
+               worker user_id is the actor across all rows — compromised
+               account vs. distributed attack.
+            4. Apply manual block via nginx if the source_ip resolves to
+               a confirmed abuse host. Document in audit incident log.

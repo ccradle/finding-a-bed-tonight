@@ -235,3 +235,22 @@ bucket4j:
             - capacity: 20
               time: 15
               unit: minutes
+    # Per-IP throttle on DV referral creation (G-4.5 §6.7). 5/hour caps the
+    # rate at which a single source IP can spam the create endpoint while
+    # leaving plenty of headroom for legitimate outreach work (a single worker
+    # rarely files more than a handful of new referrals per hour, and the
+    # per-account-per-shelter dedupe at the service layer already blocks
+    # exact-duplicate retries). Pairs with the Sec-Fetch-Site filter (§6.11)
+    # and per-tenant Prometheus alert (§6.8) — Marcus's three-layer note: rate
+    # limit raises cost, header check raises sophistication bar, alert routes
+    # to a human when both layers are bypassed.
+    - cache-name: rate-limit-dv-referral-create
+      url: /api/v1/dv-referrals
+      http-response-body: '{"error":"rate_limited","message":"Too many referral submissions from this address. Try again later.","status":429}'
+      http-content-type: application/json
+      rate-limits:
+        - cache-key: getRemoteAddr()
+          bandwidths:
+            - capacity: 5
+              time: 1
+              unit: hours

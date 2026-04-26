@@ -205,7 +205,8 @@ public class ReferralTokenController {
     @PreAuthorize("hasAnyRole('OUTREACH_WORKER', 'COORDINATOR', 'COC_ADMIN')")
     public ResponseEntity<ReferralTokenResponse> create(
             @Valid @RequestBody CreateReferralRequest request,
-            Authentication authentication) {
+            Authentication authentication,
+            jakarta.servlet.http.HttpServletRequest httpRequest) {
         UUID userId = UUID.fromString(authentication.getName());
         ReferralToken token = referralTokenService.createToken(
                 request.shelterId(), userId, request.householdSize(),
@@ -218,6 +219,12 @@ public class ReferralTokenController {
                 Map.of("shelter_id", request.shelterId().toString(),
                        "shelter_name", shelterName,
                        "urgency", request.urgency()));
+
+        // Per-source-IP create counter (G-4.5 §6.8). Increment only AFTER the
+        // service.createToken() returned successfully, so the counter reflects
+        // accepted creates — not duplicate-rejected (409) or validation-rejected
+        // (400) attempts. Paired with the FabtDvReferralBurstFromSingleIp alert.
+        observabilityMetrics.dvReferralCreateCounter(httpRequest.getRemoteAddr()).increment();
 
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ReferralTokenResponse.from(token, null, null));

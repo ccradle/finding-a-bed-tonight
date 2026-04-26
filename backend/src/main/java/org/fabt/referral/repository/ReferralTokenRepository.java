@@ -143,6 +143,31 @@ public class ReferralTokenRepository {
                 Timestamp.from(olderThan), Timestamp.from(olderThan));
     }
 
+    /**
+     * Delete PENDING DV referrals for the given tenant whose
+     * {@code created_at} is older than the cutoff. Returns the number of
+     * rows deleted.
+     *
+     * <p>Caller is responsible for binding {@link org.fabt.shared.web.TenantContext}
+     * with the target {@code tenantId} and {@code dvAccess=true} before
+     * invoking — referral_token's RLS policy filters by
+     * {@code app.dv_access='true'} so the connection must carry that GUC,
+     * and the {@code tenant_id} predicate on the DELETE is the explicit
+     * scope guard.</p>
+     *
+     * <p>Used by {@code DvReferralDemoCleanupJobConfig} (G-4.5 §6.10) to
+     * keep the public demo's PENDING queue from accumulating noise across
+     * visitor sessions. Not intended for general-purpose use — production
+     * tenants should never call this; expired pending tokens transition to
+     * EXPIRED via the existing expire tasklet.</p>
+     */
+    public int deleteStalePendingForTenant(UUID tenantId, Instant olderThan) {
+        return jdbcTemplate.update(
+                "DELETE FROM referral_token "
+                        + "WHERE tenant_id = ? AND status = 'PENDING' AND created_at < ?",
+                tenantId, Timestamp.from(olderThan));
+    }
+
     public int countAllPending() {
         Integer count = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM referral_token WHERE status = 'PENDING'",
