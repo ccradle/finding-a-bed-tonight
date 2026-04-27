@@ -8,6 +8,7 @@ import jakarta.validation.constraints.NotBlank;
 import org.fabt.auth.platform.PlatformAuthService;
 import org.fabt.auth.platform.PlatformJwtException;
 import org.fabt.auth.platform.PlatformJwtService;
+import org.fabt.auth.platform.PlatformOperatorAnonymizedException;
 import org.fabt.auth.platform.PlatformScopeMismatchException;
 import org.fabt.auth.platform.PlatformUser;
 import org.fabt.auth.platform.dto.PlatformOperatorMeDto;
@@ -130,14 +131,14 @@ public class PlatformAuthController {
     public ResponseEntity<?> getMe(@RequestHeader(value = "Authorization", required = false) String authHeader) {
         PlatformJwtService.PlatformJwtClaims claims = requireAccessToken(authHeader);
         PlatformOperatorMeRow row = userRepository.findMeMetadata(claims.sub())
-                .orElseThrow(() -> new PlatformJwtException(
-                        "Authenticated operator not found in platform_user (anonymized?)"));
+                .orElseThrow(() -> new PlatformOperatorAnonymizedException(
+                        "Authenticated operator's platform_user row is anonymized or missing"));
         return ResponseEntity.ok(new PlatformOperatorMeDto(
                 row.id(),
                 row.email(),
                 row.mfaEnabled(),
                 row.lastLoginAt(),
-                row.mfaEnabledAt(),
+                row.mfaEnrolledAt(),
                 row.backupCodesRemaining()));
     }
 
@@ -155,14 +156,21 @@ public class PlatformAuthController {
     }
 
     /**
-     * Validates a post-MFA access token (mfaVerified=true, no scope claim).
-     * Throws {@link PlatformJwtException} (→ HTTP 401 via
+     * Validates a post-MFA access token (no {@code scope} claim — only
+     * post-MFA-confirm and post-MFA-verify access tokens have null
+     * {@code scope}). Throws {@link PlatformJwtException} (→ HTTP 401 via
      * {@code PlatformAuthExceptionHandler}) for missing/malformed/invalid
      * tokens. Throws {@link PlatformScopeMismatchException} (→ HTTP 403 via
      * its {@code @ResponseStatus} annotation) if the token is otherwise
      * valid but is a scoped token (mfa-setup or mfa-verify) — the SPA's
      * 403 handler routes these back to the appropriate scoped endpoint
      * without wiping sessionStorage.
+     *
+     * <p>Note: we deliberately don't add a {@code claims.mfaVerified()}
+     * defensive check. {@code generateAccessToken} hard-codes the bit, so
+     * any code path that currently produces a null-scope claim necessarily
+     * has {@code mfaVerified=true}. A future change to the issuer that
+     * relaxes this would need its own test, not a dead-code defense here.
      */
     private PlatformJwtService.PlatformJwtClaims requireAccessToken(String authHeader) {
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
@@ -172,11 +180,7 @@ public class PlatformAuthController {
         PlatformJwtService.PlatformJwtClaims claims = jwtService.validateToken(token);
         if (claims.scope() != null) {
             throw new PlatformScopeMismatchException(
-                    "Access token required; presented scoped token (scope=" + claims.scope() + ")");
-        }
-        if (!claims.mfaVerified()) {
-            throw new PlatformScopeMismatchException(
-                    "Access token must have mfaVerified=true");
+                    "Access token required; presented scoped token");
         }
         return claims;
     }

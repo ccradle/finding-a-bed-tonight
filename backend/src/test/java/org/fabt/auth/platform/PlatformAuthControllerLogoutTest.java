@@ -70,14 +70,18 @@ class PlatformAuthControllerLogoutTest extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("authenticated logout returns 204 with empty body, no DB mutation")
+    @DisplayName("authenticated logout returns 204 with empty body, no platform_user mutation (warroom H4)")
     void logoutReturns204() {
         String accessToken = enrollAndGetAccessToken();
 
-        // Capture last_login_at before logout — must NOT change (no DB mutation)
-        Long lastLoginEpochBefore = jdbc.queryForObject(
-                "SELECT EXTRACT(EPOCH FROM (SELECT last_login_at FROM platform_user_get_me(?::uuid)))",
-                Long.class, BOOTSTRAP_ID);
+        // Snapshot the FULL platform_user row pre-logout (per warroom H4 —
+        // checking only last_login_at would let regressions like
+        // "logout flips account_locked=true" pass silently). Reading via
+        // SECURITY DEFINER function so we can compare without SELECT
+        // permission on the table.
+        String rowBefore = jdbc.queryForObject(
+                "SELECT row_to_json(t)::text FROM platform_user_get_me(?::uuid) t",
+                String.class, BOOTSTRAP_ID);
 
         HttpHeaders headers = new HttpHeaders();
         headers.setBearerAuth(accessToken);
@@ -90,10 +94,37 @@ class PlatformAuthControllerLogoutTest extends BaseIntegrationTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
         assertThat(response.getBody()).isNullOrEmpty();
 
-        Long lastLoginEpochAfter = jdbc.queryForObject(
-                "SELECT EXTRACT(EPOCH FROM (SELECT last_login_at FROM platform_user_get_me(?::uuid)))",
-                Long.class, BOOTSTRAP_ID);
-        assertThat(lastLoginEpochAfter).isEqualTo(lastLoginEpochBefore);
+        String rowAfter = jdbc.queryForObject(
+                "SELECT row_to_json(t)::text FROM platform_user_get_me(?::uuid) t",
+                String.class, BOOTSTRAP_ID);
+        assertThat(rowAfter)
+                .as("logout must be a server-side no-op — no platform_user mutation")
+                .isEqualTo(rowBefore);
+    }
+
+    @Test
+    @DisplayName("MFA-verify scoped token presented to /logout → 403 (warroom H2)")
+    void logoutWithMfaVerifyTokenReturns403() {
+        // Enroll once so subsequent login returns an mfa-verify scoped token
+        enrollAndGetAccessToken();
+
+        ResponseEntity<Map> login = restTemplate.postForEntity(
+                "/api/v1/auth/platform/login",
+                Map.of("email", OPERATOR_EMAIL, "password", OPERATOR_PASSWORD),
+                Map.class);
+        assertThat(login.getBody().get("scope"))
+                .isEqualTo(PlatformJwtService.SCOPE_MFA_VERIFY);
+        String verifyToken = (String) login.getBody().get("token");
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(verifyToken);
+        ResponseEntity<Map> response = restTemplate.exchange(
+                "/api/v1/auth/platform/logout",
+                HttpMethod.POST,
+                new HttpEntity<>(headers),
+                Map.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
     }
 
     @Test

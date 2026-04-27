@@ -21,6 +21,6 @@ public record PlatformOperatorMeDto(
         String email,
         boolean mfaEnabled,
         Instant lastLoginAt,
-        Instant mfaEnabledAt,
+        Instant mfaEnrolledAt,
         int backupCodesRemaining) {
 }

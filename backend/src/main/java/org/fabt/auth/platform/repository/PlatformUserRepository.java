@@ -250,13 +250,13 @@ public class PlatformUserRepository {
                     "SELECT * FROM platform_user_get_me(?)",
                     (rs, rowNum) -> {
                         Timestamp lastLogin = rs.getTimestamp("last_login_at");
-                        Timestamp mfaEnabled = rs.getTimestamp("mfa_enabled_at");
+                        Timestamp mfaEnrolled = rs.getTimestamp("mfa_enrolled_at");
                         return new PlatformOperatorMeRow(
                                 (UUID) rs.getObject("id"),
                                 rs.getString("email"),
                                 rs.getBoolean("mfa_enabled"),
                                 lastLogin == null ? null : lastLogin.toInstant(),
-                                mfaEnabled == null ? null : mfaEnabled.toInstant(),
+                                mfaEnrolled == null ? null : mfaEnrolled.toInstant(),
                                 rs.getInt("backup_codes_remaining"));
                     },
                     id);
@@ -284,7 +284,7 @@ public class PlatformUserRepository {
             String email,
             boolean mfaEnabled,
             Instant lastLoginAt,
-            Instant mfaEnabledAt,
+            Instant mfaEnrolledAt,
             int backupCodesRemaining) {
     }
 }
