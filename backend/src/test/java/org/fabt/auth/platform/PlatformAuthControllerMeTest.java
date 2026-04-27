@@ -231,16 +231,11 @@ class PlatformAuthControllerMeTest extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("operator's row not findable (anonymized or missing) → 410 Gone (warroom H1 + H5)")
-    void operatorRowNotFoundableReturns410() {
+    @DisplayName("operator's row missing entirely (synthetic UUID) → 410 Gone (warroom H1, missing branch)")
+    void missingOperatorRowReturns410() {
         // Mint a structurally-valid platform access token for a UUID that
-        // does NOT exist in platform_user. The SECURITY DEFINER function
-        // platform_user_get_me filters BOTH "row missing" AND "anonymized_at
-        // IS NOT NULL" cases identically (both yield zero rows); the
-        // controller's Optional.empty() → 410 path is the same for either.
-        // We use this synthetic-UUID approach because direct UPDATE on
-        // platform_user is REVOKEd from fabt_app (the test connection role)
-        // and there's no anonymize SECURITY DEFINER function to wrap it.
+        // does NOT exist in platform_user. Exercises the `id != p_id`
+        // branch of platform_user_get_me's WHERE clause.
         PlatformUser ghost = new PlatformUser();
         ghost.setId(UUID.randomUUID());
         ghost.setEmail("ghost@example.com");
@@ -255,6 +250,43 @@ class PlatformAuthControllerMeTest extends BaseIntegrationTest {
                 Map.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.GONE);
+    }
+
+    @Test
+    @DisplayName("operator's row anonymized after token issued → 410 Gone (warroom H5, anonymized branch)")
+    void anonymizedOperatorReturns410() {
+        // Distinct from the synthetic-UUID test above: this exercises the
+        // `anonymized_at IS NULL` branch of platform_user_get_me's WHERE
+        // clause specifically. A regression that DROPPED that filter would
+        // pass the synthetic-UUID test (because the row would still be
+        // missing under that scenario) but fail HERE — the bootstrap row
+        // exists, only its anonymized_at flag distinguishes it.
+        EnrolledOperator op = enrollAndGetAccessToken();
+
+        // Anonymize via the V90 SECURITY DEFINER primitive (REVOKE on
+        // platform_user blocks direct UPDATE from fabt_app).
+        Boolean anonymized = jdbc.queryForObject(
+                "SELECT platform_user_anonymize(?::uuid)",
+                Boolean.class, BOOTSTRAP_ID);
+        assertThat(anonymized).isTrue();
+
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.setBearerAuth(op.accessToken());
+            ResponseEntity<Map> response = restTemplate.exchange(
+                    "/api/v1/auth/platform/me",
+                    HttpMethod.GET,
+                    new HttpEntity<>(headers),
+                    Map.class);
+
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.GONE);
+        } finally {
+            // Restore so @AfterEach's reset_to_bootstrap (which only
+            // matches WHERE anonymized_at IS NULL) can find the row.
+            jdbc.queryForObject(
+                    "SELECT platform_user_restore(?::uuid)",
+                    Boolean.class, BOOTSTRAP_ID);
+        }
     }
 
     // ------------------------------------------------------------------

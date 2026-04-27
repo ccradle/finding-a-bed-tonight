@@ -105,17 +105,27 @@ class MigrationLintTest {
             //   warroom 2026-04-25 (Marcus M1: TOTP replay; Alex A1: atomic MFA setup)
             "V88__platform_user_lockout_columns.sql",
 
-            // V90 — single SECURITY DEFINER function `platform_user_get_me()`
-            // returning operator-self metadata for the F11 platform-operator
-            // dashboard (id, email, mfa_enabled, last_login_at, mfa_enabled_at
-            // derived from MIN(platform_user_backup_code.created_at),
-            // backup_codes_remaining derived from COUNT WHERE used_at IS NULL).
+            // V90 — 4 SECURITY DEFINER functions for the F11 platform-operator
+            // metadata + GDPR Art-17 primitives:
+            //   - CREATE OR REPLACE platform_user_update_credentials (V87
+            //     refresh): also sets mfa_enrolled_at on first false→true
+            //     MFA transition (warroom round 3 C1 — fixes the
+            //     MIN(backup_code.created_at) drift on regenerate-codes)
+            //   - platform_user_get_me: returns operator-self metadata for
+            //     the F11 dashboard (id, email, mfa_enabled, last_login_at,
+            //     mfa_enrolled_at, backup_codes_remaining)
+            //   - platform_user_anonymize / _restore: GDPR Art-17 primitives
+            //     used by F11 ITs (warroom round 4 T3) to exercise the
+            //     anonymized branch of get_me's WHERE clause + planned
+            //     Phase H+ tooling
             // Same Phase B exemption as V87/V88: platform_user has no
             // tenant_id column, so there is no RLS-protected tenant scope to
             // bypass; REVOKE ALL on direct table access from fabt_app + access
-            // via this SECURITY DEFINER function matches the V87 pattern.
-            // Function body is short (single SELECT + 2 correlated subqueries),
-            // SET search_path = pg_catalog (anti-injection). See:
+            // via these SECURITY DEFINER functions matches the V87 pattern.
+            // All function bodies are short, single-purpose, with
+            // SET search_path = pg_catalog (anti-injection). Defensive
+            // ownership transfer to `fabt` via DO-block at end (mirrors
+            // V87 lines 365-379). See:
             //   openspec/changes/platform-operator-ui/design.md
             //     Decision D5 (narrow backend un-freeze for /me + /logout)
             //   openspec/changes/platform-operator-ui/specs/platform-operator-identity/spec.md

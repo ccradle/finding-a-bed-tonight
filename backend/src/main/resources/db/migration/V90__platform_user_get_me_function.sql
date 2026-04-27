@@ -119,6 +119,59 @@ GRANT EXECUTE ON FUNCTION platform_user_get_me(UUID) TO fabt_app;
 
 
 -- ---------------------------------------------------------------------------
+-- anonymize / restore: low-level Phase H+ recovery primitives
+-- ---------------------------------------------------------------------------
+-- Same UNAUTHORIZED-relies-on-caller-side-gating posture as V88's
+-- platform_user_reset_to_bootstrap. The functions exist now so:
+--   (a) F11 integration tests can exercise the anonymized-row branch of
+--       platform_user_get_me's WHERE clause (without these primitives, the
+--       fabt_app test connection role has no way to set anonymized_at —
+--       V87 REVOKEs ALL on the table).
+--   (b) Phase H+ GDPR-Art-17 tooling (per V87 PlatformUser javadoc lines
+--       30-34) has the schema-level primitive ready to wrap in an
+--       authorized REST flow without another migration round-trip.
+-- The corresponding restore function is also gated server-side to a single
+-- column update; both functions only mutate platform_user.anonymized_at,
+-- not credentials or backup codes (those are separately rotated through
+-- the existing primitives).
+CREATE OR REPLACE FUNCTION platform_user_anonymize(p_id UUID)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $$
+BEGIN
+    UPDATE public.platform_user
+       SET anonymized_at = NOW()
+     WHERE id = p_id
+       AND anonymized_at IS NULL;
+    RETURN FOUND;
+END;
+$$;
+GRANT EXECUTE ON FUNCTION platform_user_anonymize(UUID) TO fabt_app;
+COMMENT ON FUNCTION platform_user_anonymize(UUID) IS
+    'Sets platform_user.anonymized_at = NOW() on a row that is not already anonymized. UNAUTHORIZED — relies on caller-side gating. Currently used by F11 integration tests + planned Phase H+ GDPR Art-17 tooling. Do NOT call from psql except in incident response with explicit operator authorization. The corresponding un-anonymize primitive is platform_user_restore.';
+
+CREATE OR REPLACE FUNCTION platform_user_restore(p_id UUID)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $$
+BEGIN
+    UPDATE public.platform_user
+       SET anonymized_at = NULL
+     WHERE id = p_id
+       AND anonymized_at IS NOT NULL;
+    RETURN FOUND;
+END;
+$$;
+GRANT EXECUTE ON FUNCTION platform_user_restore(UUID) TO fabt_app;
+COMMENT ON FUNCTION platform_user_restore(UUID) IS
+    'Clears platform_user.anonymized_at on a row that was previously anonymized. UNAUTHORIZED — relies on caller-side gating. Currently used by F11 integration tests for cleanup after exercising the anonymized branch of platform_user_get_me; Phase H+ may use it for restore-from-soft-delete recovery flows.';
+
+
+-- ---------------------------------------------------------------------------
 -- Defensive ownership transfer (mirrors V87 lines 365-379)
 -- ---------------------------------------------------------------------------
 DO $$
@@ -126,6 +179,8 @@ BEGIN
     IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'fabt') THEN
         ALTER FUNCTION platform_user_update_credentials(UUID, TEXT, TEXT, BOOLEAN, BOOLEAN) OWNER TO fabt;
         ALTER FUNCTION platform_user_get_me(UUID) OWNER TO fabt;
+        ALTER FUNCTION platform_user_anonymize(UUID) OWNER TO fabt;
+        ALTER FUNCTION platform_user_restore(UUID) OWNER TO fabt;
     END IF;
 END
 $$;
