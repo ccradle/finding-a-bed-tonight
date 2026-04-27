@@ -5,7 +5,10 @@ import { AuthProvider } from './auth/AuthContext';
 import { AuthGuard } from './auth/AuthGuard';
 import { getDefaultRouteForRoles } from './auth/AuthGuard';
 import { PlatformAuthProvider } from './auth/PlatformAuthContext';
-import { PlatformProtectedRoute } from './pages/platform/PlatformProtectedRoute';
+import {
+  PlatformProtectedRoute,
+  PlatformRedirectIfAuthenticated,
+} from './pages/platform/PlatformProtectedRoute';
 import { useAuth } from './auth/useAuth';
 import { Layout } from './components/Layout';
 import { LoginPage } from './pages/LoginPage';
@@ -26,6 +29,18 @@ import { LoginPage } from './pages/LoginPage';
 const PlatformLayout =
   import.meta.env.VITE_PLATFORM_UI_ENABLED === 'true'
     ? lazy(() => import('./pages/platform/PlatformLayout'))
+    : null;
+const PlatformLogin =
+  import.meta.env.VITE_PLATFORM_UI_ENABLED === 'true'
+    ? lazy(() => import('./pages/platform/PlatformLogin'))
+    : null;
+const PlatformMfaEnroll =
+  import.meta.env.VITE_PLATFORM_UI_ENABLED === 'true'
+    ? lazy(() => import('./pages/platform/PlatformMfaEnroll'))
+    : null;
+const PlatformMfaVerify =
+  import.meta.env.VITE_PLATFORM_UI_ENABLED === 'true'
+    ? lazy(() => import('./pages/platform/PlatformMfaVerify'))
     : null;
 const PlatformPlaceholder =
   import.meta.env.VITE_PLATFORM_UI_ENABLED === 'true'
@@ -114,30 +129,66 @@ function AppRoutes({ locale, onLocaleChange }: { locale: string; onLocaleChange:
           </AuthGuard>
         }
       />
-      {PlatformLayout && PlatformPlaceholder && (
+      {PlatformLayout && PlatformLogin && PlatformMfaEnroll && PlatformMfaVerify && PlatformPlaceholder && (
         <Route
           path="/platform"
           element={
-            <PlatformProtectedRoute allowMfaSetupScope>
-              <Suspense fallback={
-                <div
-                  role="status"
-                  aria-live="polite"
-                  style={{
-                    padding: '2rem',
-                    textAlign: 'center',
-                    color: 'var(--color-text-secondary)',
-                  }}
-                >
-                  Loading platform operator console…
-                </div>
-              }>
-                <PlatformLayout />
-              </Suspense>
-            </PlatformProtectedRoute>
+            <Suspense fallback={
+              <div
+                role="status"
+                aria-live="polite"
+                style={{
+                  padding: '2rem',
+                  textAlign: 'center',
+                  color: 'var(--color-text-secondary)',
+                }}
+              >
+                Loading platform operator console…
+              </div>
+            }>
+              <PlatformLayout />
+            </Suspense>
           }
         >
-          <Route path="*" element={<PlatformPlaceholder />} />
+          {/* Login: open to anyone NOT yet authenticated; if already
+              authenticated, kick to the natural next step. */}
+          <Route
+            path="login"
+            element={
+              <PlatformRedirectIfAuthenticated>
+                <PlatformLogin />
+              </PlatformRedirectIfAuthenticated>
+            }
+          />
+          {/* MFA enroll: requires a freshly-issued mfa-setup-scoped token. */}
+          <Route
+            path="mfa-enroll"
+            element={
+              <PlatformProtectedRoute requiredScope="mfa-setup">
+                <PlatformMfaEnroll />
+              </PlatformProtectedRoute>
+            }
+          />
+          {/* MFA verify: requires a freshly-issued mfa-verify-scoped token. */}
+          <Route
+            path="mfa-verify"
+            element={
+              <PlatformProtectedRoute requiredScope="mfa-verify">
+                <PlatformMfaVerify />
+              </PlatformProtectedRoute>
+            }
+          />
+          {/* Dashboard + everything else: require post-MFA access token.
+              §4 slice C ships /mfa-enroll; slice D ships /dashboard.
+              Until then, the catch-all routes to a placeholder. */}
+          <Route
+            path="*"
+            element={
+              <PlatformProtectedRoute>
+                <PlatformPlaceholder />
+              </PlatformProtectedRoute>
+            }
+          />
         </Route>
       )}
       <Route path="/" element={<RoleRedirect />} />

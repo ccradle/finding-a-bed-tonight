@@ -21,16 +21,28 @@ import type { ReactNode } from 'react';
 import { usePlatformAuth } from '../../auth/PlatformAuthContext';
 import { isExpired } from './helpers/platformJwt';
 
+/**
+ * Scope tier required to render the guarded route.
+ *   - 'access'     — fully-authenticated post-MFA token (no scope claim,
+ *                    mfaVerified=true). Default. Used by dashboard +
+ *                    /me-bound routes.
+ *   - 'mfa-setup'  — first-login scoped token only. Used by /mfa-enroll.
+ *   - 'mfa-verify' — subsequent-login scoped token only. Used by /mfa-verify.
+ */
+export type RequiredScope = 'access' | 'mfa-setup' | 'mfa-verify';
+
 interface Props {
   children: ReactNode;
   /**
-   * If true, accept tokens with `scope=mfa-setup` (used by the
-   * /platform/mfa-enroll route). Default false (dashboard requires post-MFA).
+   * Required scope tier. Defaults to 'access'. Mismatched-scope tokens
+   * are routed back to their natural completion page (mfa-setup tokens
+   * → /mfa-enroll; mfa-verify tokens → /mfa-verify) rather than dumped
+   * back at /login, so the operator can finish what they started.
    */
-  allowMfaSetupScope?: boolean;
+  requiredScope?: RequiredScope;
 }
 
-export function PlatformProtectedRoute({ children, allowMfaSetupScope = false }: Props) {
+export function PlatformProtectedRoute({ children, requiredScope = 'access' }: Props) {
   // Subscribe to context so a child-triggered logout() (e.g. banner countdown
   // hits zero, dashboard logout button, cross-tab storage event) re-renders
   // this guard and triggers the redirect. Mirrors the existing tenant
@@ -42,22 +54,14 @@ export function PlatformProtectedRoute({ children, allowMfaSetupScope = false }:
     return <Navigate to="/platform/login" replace />;
   }
 
-  // 4: synchronous expiry — runs BEFORE any child fetch
+  // 3: synchronous expiry — runs BEFORE any child fetch
   if (isExpired(jwt)) {
     return <Navigate to="/platform/login" replace />;
   }
 
-  // 3: scope/mfaVerified gating
-  if (allowMfaSetupScope) {
-    // Accept either a fresh access token (post-MFA) OR an mfa-setup-scoped
-    // token. Reject mfa-verify-scoped (those route through verify, not enroll).
-    if (claims.scope && claims.scope !== 'mfa-setup') {
-      return <Navigate to="/platform/login" replace />;
-    }
-  } else {
-    // Default: require fully-authenticated access token (mfaVerified=true,
-    // no scope claim). MFA-setup or mfa-verify scoped tokens are routed
-    // back to their respective enroll/verify pages.
+  // 4: scope-tier gating
+  if (requiredScope === 'access') {
+    // Reject scoped tokens — route them to their natural completion page.
     if (claims.scope === 'mfa-setup') {
       return <Navigate to="/platform/mfa-enroll" replace />;
     }
@@ -67,7 +71,37 @@ export function PlatformProtectedRoute({ children, allowMfaSetupScope = false }:
     if (claims.mfaVerified !== true) {
       return <Navigate to="/platform/login" replace />;
     }
+  } else if (requiredScope === 'mfa-setup') {
+    if (claims.scope !== 'mfa-setup') {
+      return <Navigate to="/platform/login" replace />;
+    }
+  } else if (requiredScope === 'mfa-verify') {
+    if (claims.scope !== 'mfa-verify') {
+      return <Navigate to="/platform/login" replace />;
+    }
   }
 
+  return <>{children}</>;
+}
+
+/**
+ * Inverse guard for the /platform/login page itself: if the operator is
+ * already authenticated (any platform JWT, valid or scoped), redirect
+ * to the natural next step. Prevents the login page from being a dead
+ * end when the operator hits Back after MFA enrollment.
+ */
+export function PlatformRedirectIfAuthenticated({ children }: { children: ReactNode }) {
+  const { jwt, claims } = usePlatformAuth();
+  if (jwt && claims && claims.iss === 'fabt-platform' && !isExpired(jwt)) {
+    if (claims.scope === 'mfa-setup') {
+      return <Navigate to="/platform/mfa-enroll" replace />;
+    }
+    if (claims.scope === 'mfa-verify') {
+      return <Navigate to="/platform/mfa-verify" replace />;
+    }
+    if (claims.mfaVerified === true) {
+      return <Navigate to="/platform/dashboard" replace />;
+    }
+  }
   return <>{children}</>;
 }
