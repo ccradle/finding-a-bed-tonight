@@ -1,5 +1,7 @@
 package org.fabt.auth.platform.repository;
 
+import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -234,10 +236,55 @@ public class PlatformUserRepository {
     }
 
     /**
+     * Operator-self metadata for the F11 platform-operator dashboard
+     * ({@code GET /api/v1/auth/platform/me}). Populated from V90's
+     * {@code platform_user_get_me} SECURITY DEFINER function in a single
+     * round-trip.
+     *
+     * <p>Returns empty if the row is not found OR is anonymized — the
+     * function-side WHERE clause filters {@code anonymized_at IS NOT NULL}.
+     */
+    public Optional<PlatformOperatorMeRow> findMeMetadata(UUID id) {
+        try {
+            PlatformOperatorMeRow row = jdbc.queryForObject(
+                    "SELECT * FROM platform_user_get_me(?)",
+                    (rs, rowNum) -> {
+                        Timestamp lastLogin = rs.getTimestamp("last_login_at");
+                        Timestamp mfaEnabled = rs.getTimestamp("mfa_enabled_at");
+                        return new PlatformOperatorMeRow(
+                                (UUID) rs.getObject("id"),
+                                rs.getString("email"),
+                                rs.getBoolean("mfa_enabled"),
+                                lastLogin == null ? null : lastLogin.toInstant(),
+                                mfaEnabled == null ? null : mfaEnabled.toInstant(),
+                                rs.getInt("backup_codes_remaining"));
+                    },
+                    id);
+            return Optional.ofNullable(row);
+        } catch (EmptyResultDataAccessException e) {
+            return Optional.empty();
+        }
+    }
+
+    /**
      * Backup code row as returned by {@code platform_user_backup_codes_for}.
      * Used by the auth flow to verify a presented code: hash the candidate
      * with the row's salt, compare to {@code codeHash}.
      */
     public record BackupCodeRow(UUID id, String codeHash, byte[] codeSalt) {
+    }
+
+    /**
+     * Operator-self metadata row as returned by {@code platform_user_get_me}.
+     * Domain-shaped types (Instant, not Timestamp) so the controller can
+     * map directly to {@link org.fabt.auth.platform.dto.PlatformOperatorMeDto}.
+     */
+    public record PlatformOperatorMeRow(
+            UUID id,
+            String email,
+            boolean mfaEnabled,
+            Instant lastLoginAt,
+            Instant mfaEnabledAt,
+            int backupCodesRemaining) {
     }
 }

@@ -103,7 +103,24 @@ class MigrationLintTest {
             //     Decision 8 (REVOKE+SECURITY DEFINER mirrors V87 / G-1 pattern)
             //     Decision 5 (5-fail/15-min lockout, cron auto-unlock)
             //   warroom 2026-04-25 (Marcus M1: TOTP replay; Alex A1: atomic MFA setup)
-            "V88__platform_user_lockout_columns.sql"
+            "V88__platform_user_lockout_columns.sql",
+
+            // V90 — single SECURITY DEFINER function `platform_user_get_me()`
+            // returning operator-self metadata for the F11 platform-operator
+            // dashboard (id, email, mfa_enabled, last_login_at, mfa_enabled_at
+            // derived from MIN(platform_user_backup_code.created_at),
+            // backup_codes_remaining derived from COUNT WHERE used_at IS NULL).
+            // Same Phase B exemption as V87/V88: platform_user has no
+            // tenant_id column, so there is no RLS-protected tenant scope to
+            // bypass; REVOKE ALL on direct table access from fabt_app + access
+            // via this SECURITY DEFINER function matches the V87 pattern.
+            // Function body is short (single SELECT + 2 correlated subqueries),
+            // SET search_path = pg_catalog (anti-injection). See:
+            //   openspec/changes/platform-operator-ui/design.md
+            //     Decision D5 (narrow backend un-freeze for /me + /logout)
+            //   openspec/changes/platform-operator-ui/specs/platform-operator-identity/spec.md
+            //     Requirement: Platform operator metadata endpoint
+            "V90__platform_user_get_me_function.sql"
     );
 
     private static final Pattern SECURITY_DEFINER = Pattern.compile(

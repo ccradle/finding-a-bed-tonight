@@ -8,8 +8,13 @@ import jakarta.validation.constraints.NotBlank;
 import org.fabt.auth.platform.PlatformAuthService;
 import org.fabt.auth.platform.PlatformJwtException;
 import org.fabt.auth.platform.PlatformJwtService;
+import org.fabt.auth.platform.PlatformScopeMismatchException;
 import org.fabt.auth.platform.PlatformUser;
+import org.fabt.auth.platform.dto.PlatformOperatorMeDto;
+import org.fabt.auth.platform.repository.PlatformUserRepository;
+import org.fabt.auth.platform.repository.PlatformUserRepository.PlatformOperatorMeRow;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -47,10 +52,14 @@ public class PlatformAuthController {
 
     private final PlatformAuthService authService;
     private final PlatformJwtService jwtService;
+    private final PlatformUserRepository userRepository;
 
-    public PlatformAuthController(PlatformAuthService authService, PlatformJwtService jwtService) {
+    public PlatformAuthController(PlatformAuthService authService,
+                                   PlatformJwtService jwtService,
+                                   PlatformUserRepository userRepository) {
         this.authService = authService;
         this.jwtService = jwtService;
+        this.userRepository = userRepository;
     }
 
     @PostMapping("/login")
@@ -109,6 +118,67 @@ public class PlatformAuthController {
         return ResponseEntity.ok(Map.of(
                 "token", jwtService.generateAccessToken(user),
                 "expiresInSeconds", jwtService.getAccessTokenExpirySeconds()));
+    }
+
+    /**
+     * Returns the authenticated operator's self-metadata for the F11
+     * dashboard header (operator email, last login, MFA enrollment date,
+     * backup-codes-remaining badge). Requires a post-MFA access token —
+     * scoped tokens (mfa-setup, mfa-verify) are rejected with 403.
+     */
+    @GetMapping("/me")
+    public ResponseEntity<?> getMe(@RequestHeader(value = "Authorization", required = false) String authHeader) {
+        PlatformJwtService.PlatformJwtClaims claims = requireAccessToken(authHeader);
+        PlatformOperatorMeRow row = userRepository.findMeMetadata(claims.sub())
+                .orElseThrow(() -> new PlatformJwtException(
+                        "Authenticated operator not found in platform_user (anonymized?)"));
+        return ResponseEntity.ok(new PlatformOperatorMeDto(
+                row.id(),
+                row.email(),
+                row.mfaEnabled(),
+                row.lastLoginAt(),
+                row.mfaEnabledAt(),
+                row.backupCodesRemaining()));
+    }
+
+    /**
+     * No-op server-side logout for v0.54. The 15-minute access-token TTL +
+     * client-side {@code sessionStorage} clear is the actual revocation
+     * mechanism; this endpoint exists so the SPA has a clean affordance and
+     * so a future Phase H+ {@code token_invalidation_at} column has a
+     * natural hook to plug into. Returns 204 on success.
+     */
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(@RequestHeader(value = "Authorization", required = false) String authHeader) {
+        requireAccessToken(authHeader);
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Validates a post-MFA access token (mfaVerified=true, no scope claim).
+     * Throws {@link PlatformJwtException} (→ HTTP 401 via
+     * {@code PlatformAuthExceptionHandler}) for missing/malformed/invalid
+     * tokens. Throws {@link PlatformScopeMismatchException} (→ HTTP 403 via
+     * its {@code @ResponseStatus} annotation) if the token is otherwise
+     * valid but is a scoped token (mfa-setup or mfa-verify) — the SPA's
+     * 403 handler routes these back to the appropriate scoped endpoint
+     * without wiping sessionStorage.
+     */
+    private PlatformJwtService.PlatformJwtClaims requireAccessToken(String authHeader) {
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            throw new PlatformJwtException("Missing or malformed Authorization header");
+        }
+        String token = authHeader.substring("Bearer ".length()).trim();
+        PlatformJwtService.PlatformJwtClaims claims = jwtService.validateToken(token);
+        if (claims.scope() != null) {
+            throw new PlatformScopeMismatchException(
+                    "Access token required; presented scoped token (scope=" + claims.scope() + ")");
+        }
+        if (!claims.mfaVerified()) {
+            throw new PlatformScopeMismatchException(
+                    "Access token must have mfaVerified=true");
+        }
+        return claims;
     }
 
     private PlatformJwtService.PlatformJwtClaims requireScopedToken(String authHeader,
