@@ -23,6 +23,10 @@ import { LoginPage } from './pages/LoginPage';
  * fall through to the catch-all NotFound. See OpenSpec
  * platform-operator-ui design.md Decision D7.
  */
+const PlatformLayout =
+  import.meta.env.VITE_PLATFORM_UI_ENABLED === 'true'
+    ? lazy(() => import('./pages/platform/PlatformLayout'))
+    : null;
 const PlatformPlaceholder =
   import.meta.env.VITE_PLATFORM_UI_ENABLED === 'true'
     ? lazy(() => import('./pages/platform/PlatformPlaceholder'))
@@ -110,9 +114,9 @@ function AppRoutes({ locale, onLocaleChange }: { locale: string; onLocaleChange:
           </AuthGuard>
         }
       />
-      {PlatformPlaceholder && (
+      {PlatformLayout && PlatformPlaceholder && (
         <Route
-          path="/platform/*"
+          path="/platform"
           element={
             <PlatformProtectedRoute allowMfaSetupScope>
               <Suspense fallback={
@@ -128,11 +132,13 @@ function AppRoutes({ locale, onLocaleChange }: { locale: string; onLocaleChange:
                   Loading platform operator console…
                 </div>
               }>
-                <PlatformPlaceholder />
+                <PlatformLayout />
               </Suspense>
             </PlatformProtectedRoute>
           }
-        />
+        >
+          <Route path="*" element={<PlatformPlaceholder />} />
+        </Route>
       )}
       <Route path="/" element={<RoleRedirect />} />
       <Route path="*" element={<Navigate to="/" replace />} />

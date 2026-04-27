@@ -21,17 +21,8 @@ export default function PlatformPlaceholder() {
       }}
       data-testid="platform-placeholder"
     >
-      <header
-        style={{
-          backgroundColor: color.platform,
-          color: color.textInverse,
-          padding: '0.75rem 1.25rem',
-          fontWeight: 'bold',
-        }}
-        data-testid="platform-banner-stub"
-      >
-        PLATFORM OPERATOR MODE
-      </header>
+      {/* Banner is rendered by PlatformLayout; this page is just the
+          page content. */}
       <main style={{ padding: '2rem', maxWidth: '720px' }}>
         <h1>Platform operator console — coming soon</h1>
         <p>
