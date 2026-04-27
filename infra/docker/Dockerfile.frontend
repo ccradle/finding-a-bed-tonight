@@ -1,6 +1,16 @@
 # Multi-stage build for React PWA frontend
 FROM node:20-alpine AS build
 
+# Build-time gate for the F11 platform-operator UI (`/platform/*` routes).
+# Default 'true' — production builds include the platform SPA chunk. Set
+# to 'false' in the build pipeline to dead-code-eliminate the platform
+# chunk for emergency rollback (rebuild + redeploy frontend, no DB or
+# backend impact, ~6 minute RTO). See OpenSpec change platform-operator-ui
+# design.md Decision D7. Vite reads VITE_* env vars at build time and
+# substitutes them as string literals into the bundle.
+ARG VITE_PLATFORM_UI_ENABLED=true
+ENV VITE_PLATFORM_UI_ENABLED=$VITE_PLATFORM_UI_ENABLED
+
 WORKDIR /app
 COPY frontend/package*.json ./
 RUN npm ci

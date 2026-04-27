@@ -112,9 +112,11 @@
   /* Platform-operator mode (F11 v0.54)
    * Burnt orange — distinct from --color-warning (amber #92400e) and
    * --color-dv (purple #7c3aed). Used for the persistent banner across
-   * /platform/* routes; white banner text on this fill is contrast 5.4:1
-   * (WCAG AA). Selected by operator decision 9.1 in change
-   * platform-operator-ui from a 4-option warroom palette. */
+   * /platform/* routes; white banner text on this fill is contrast
+   * 5.18:1 (WCAG2 AA pass for normal text — threshold 4.5:1; computed
+   * via the standard sRGB→linear→Y formula). Selected by operator
+   * decision 9.1 in change platform-operator-ui from a 4-option warroom
+   * palette. */
   --color-platform: #c2410c;
 
   /* Header (always dark bg + light text in both modes) */
@@ -183,7 +185,7 @@
     /* Platform-operator mode — same fill in dark mode (burnt orange has
      * comparable contrast against white text in either theme; banner is
      * always burnt-orange-on-white-text by design). */
-    --color-platform: #c2410c;       /* white on this = 5.4:1 ✓ */
+    --color-platform: #c2410c;       /* white on this = 5.18:1 ✓ AA */
 
     /* Header */
     --color-header-bg: #1e293b;

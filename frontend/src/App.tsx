@@ -115,7 +115,19 @@ function AppRoutes({ locale, onLocaleChange }: { locale: string; onLocaleChange:
           path="/platform/*"
           element={
             <PlatformProtectedRoute allowMfaSetupScope>
-              <Suspense fallback={null}>
+              <Suspense fallback={
+                <div
+                  role="status"
+                  aria-live="polite"
+                  style={{
+                    padding: '2rem',
+                    textAlign: 'center',
+                    color: 'var(--color-text-secondary)',
+                  }}
+                >
+                  Loading platform operator console…
+                </div>
+              }>
                 <PlatformPlaceholder />
               </Suspense>
             </PlatformProtectedRoute>

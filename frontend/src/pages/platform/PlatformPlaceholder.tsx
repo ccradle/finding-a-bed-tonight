@@ -1,12 +1,12 @@
 /**
- * Stub renderer for `/platform/*` routes that don't yet have a real
- * component (tasks 4.1-4.10 in OpenSpec change `platform-operator-ui`).
+ * Operator-facing landing for `/platform/*` between the §3 foundation
+ * landing and §4 page components landing. Section 4 replaces this with
+ * real login / MFA / dashboard routes.
  *
- * This file is the Section 3 "frontend foundation" placeholder so the
- * route wiring + build-time tree-shaking + protected-route guard can
- * be verified end-to-end before the page components are written. It
- * will be DELETED in Section 4 once PlatformLogin / PlatformMfaEnroll /
- * PlatformMfaVerify / PlatformDashboard are landed.
+ * If §3 ships standalone (not recommended; see runbook), an operator
+ * who tunnels in sees this page rather than dev-grade "Section 3
+ * placeholder" text. Copy is operator-appropriate and points at the
+ * runbook for what to do until §4 lands.
  */
 
 import { color } from '../../theme/colors';
@@ -15,7 +15,6 @@ export default function PlatformPlaceholder() {
   return (
     <div
       style={{
-        padding: '2rem',
         backgroundColor: color.bg,
         color: color.text,
         minHeight: '100vh',
@@ -27,18 +26,27 @@ export default function PlatformPlaceholder() {
           backgroundColor: color.platform,
           color: color.textInverse,
           padding: '0.75rem 1.25rem',
-          marginBottom: '1.5rem',
           fontWeight: 'bold',
         }}
         data-testid="platform-banner-stub"
       >
-        PLATFORM OPERATOR MODE — placeholder banner
+        PLATFORM OPERATOR MODE
       </header>
-      <h1>Platform routes are wired up.</h1>
-      <p>
-        This is a Section 3 placeholder. Section 4 ships the real
-        login / MFA / dashboard pages.
-      </p>
+      <main style={{ padding: '2rem', maxWidth: '720px' }}>
+        <h1>Platform operator console — coming soon</h1>
+        <p>
+          The platform-operator dashboard is being delivered in stages.
+          Login, MFA enrollment, and tenant lifecycle actions land in the
+          next release.
+        </p>
+        <p>
+          Until then, platform-operator activations are performed via the
+          documented procedure in the deploy runbook (SSH tunnel + curl
+          flow). Refer to{' '}
+          <code>docs/operations/oracle-update-notes-v0.53.0.md §5.10</code>
+          {' '}for the activation path.
+        </p>
+      </main>
     </div>
   );
 }

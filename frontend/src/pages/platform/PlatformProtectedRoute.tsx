@@ -18,20 +18,24 @@
 
 import { Navigate } from 'react-router-dom';
 import type { ReactNode } from 'react';
-import { isExpired, parseClaims, readPlatformJwt } from './helpers/platformJwt';
+import { usePlatformAuth } from '../../auth/PlatformAuthContext';
+import { isExpired } from './helpers/platformJwt';
 
 interface Props {
   children: ReactNode;
   /**
-   * If `mfaSetupOnly`, accept tokens with `scope=mfa-setup` (used by the
+   * If true, accept tokens with `scope=mfa-setup` (used by the
    * /platform/mfa-enroll route). Default false (dashboard requires post-MFA).
    */
   allowMfaSetupScope?: boolean;
 }
 
 export function PlatformProtectedRoute({ children, allowMfaSetupScope = false }: Props) {
-  const jwt = readPlatformJwt();
-  const claims = parseClaims(jwt);
+  // Subscribe to context so a child-triggered logout() (e.g. banner countdown
+  // hits zero, dashboard logout button, cross-tab storage event) re-renders
+  // this guard and triggers the redirect. Mirrors the existing tenant
+  // {@link AuthGuard} pattern at frontend/src/auth/AuthGuard.tsx:25.
+  const { jwt, claims } = usePlatformAuth();
 
   // 1 + 2: must have a structurally-parseable platform JWT
   if (!jwt || !claims || claims.iss !== 'fabt-platform') {

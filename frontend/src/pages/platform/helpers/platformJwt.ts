@@ -43,12 +43,22 @@ export function clearPlatformJwt(): void {
 }
 
 /**
+ * Maximum accepted token length, in characters. A real platform JWT is
+ * ~600-800 chars (HMAC-SHA256 with our payload shape). The cap defends
+ * against a same-origin XSS that already has page access trying to feed
+ * a 50MB string into atob/JSON.parse and block the main thread for
+ * seconds. 8KB is generous (10× normal) but sub-millisecond to parse.
+ */
+const MAX_JWT_LENGTH = 8192;
+
+/**
  * Parses a JWT's payload segment without verifying the signature. Returns
- * null on any structural failure (not 3 segments, payload not base64url,
- * payload not JSON). Never throws.
+ * null on any structural failure (token too long, not 3 segments, payload
+ * not base64url, payload not JSON, payload not object-shaped). Never throws.
  */
 export function parseClaims(token: string | null): PlatformJwtClaims | null {
   if (!token) return null;
+  if (token.length > MAX_JWT_LENGTH) return null;
   const parts = token.split('.');
   if (parts.length !== 3) return null;
   try {

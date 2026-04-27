@@ -19,11 +19,23 @@
 
 import { readPlatformJwt, clearPlatformJwt } from './platformJwt';
 
-let isHandling401 = false;
+/**
+ * Coalescing flag for auth redirects. Two states:
+ *   'none'        — no redirect in flight
+ *   'mfa-enroll'  — a 403/me handler queued an enrollment redirect
+ *   'login'       — a 401 handler queued a login redirect (force-clear)
+ * 401 ALWAYS wins over 403: if a 403 already set the flag to 'mfa-enroll'
+ * and a parallel 401 arrives, the 401 wipes sessionStorage and overrides
+ * the navigation target to /platform/login. Otherwise the operator could
+ * land on /mfa-enroll holding a revoked token.
+ */
+type AuthRedirectState = 'none' | 'mfa-enroll' | 'login';
+let authRedirectState: AuthRedirectState = 'none';
 
 function navigateToLogin(): void {
-  if (isHandling401) return;
-  isHandling401 = true;
+  // 401 always wins — overrides any prior 'mfa-enroll' state.
+  if (authRedirectState === 'login') return;
+  authRedirectState = 'login';
   clearPlatformJwt();
   // Use window.location instead of react-router because the wrapper has
   // no router context. Triggers a full reload, which also clears any
@@ -32,12 +44,28 @@ function navigateToLogin(): void {
 }
 
 function navigateToMfaEnroll(): void {
+  // 403 yields if a 401 has already won the race.
+  if (authRedirectState !== 'none') return;
+  authRedirectState = 'mfa-enroll';
   // Don't wipe sessionStorage — the MFA-setup-scoped token is still
-  // valid for the enrollment flow. Set the same coalescing flag because
-  // multiple components shouldn't all kick off enrollment redirects.
-  if (isHandling401) return;
-  isHandling401 = true;
+  // valid for the enrollment flow.
   window.location.href = '/platform/mfa-enroll';
+}
+
+/**
+ * Tightened path check for the /me-only 403 redirect. Substring matching
+ * (`input.includes('/auth/platform/me')`) would also match `/me-history`,
+ * `/messages`, query strings containing the substring, etc. Use URL
+ * parsing so only the exact `/api/v1/auth/platform/me` pathname matches.
+ */
+function isPlatformMePath(input: string): boolean {
+  try {
+    // Resolve against window.location for relative URLs (the typical case).
+    const url = new URL(input, window.location.origin);
+    return url.pathname === '/api/v1/auth/platform/me';
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -62,7 +90,7 @@ export async function platformFetch(
     return response;
   }
 
-  if (response.status === 403 && input.includes('/auth/platform/me')) {
+  if (response.status === 403 && isPlatformMePath(input)) {
     navigateToMfaEnroll();
     return response;
   }
@@ -71,10 +99,11 @@ export async function platformFetch(
 }
 
 /**
- * Test-only reset for the module-level isHandling401 flag. Real navigation
- * triggers a full page reload (which resets the flag implicitly) but unit
- * tests don't actually navigate, so they need a manual reset between cases.
+ * Test-only reset for the module-level authRedirectState. Real navigation
+ * triggers a full page reload (which resets module state implicitly) but
+ * unit tests don't actually navigate, so they need a manual reset between
+ * cases.
  */
-export function __resetIsHandling401ForTests(): void {
-  isHandling401 = false;
+export function __resetAuthRedirectStateForTests(): void {
+  authRedirectState = 'none';
 }
