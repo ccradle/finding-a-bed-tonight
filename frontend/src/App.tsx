@@ -1,12 +1,32 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { IntlProvider } from 'react-intl';
 import { AuthProvider } from './auth/AuthContext';
 import { AuthGuard } from './auth/AuthGuard';
 import { getDefaultRouteForRoles } from './auth/AuthGuard';
+import { PlatformAuthProvider } from './auth/PlatformAuthContext';
+import { PlatformProtectedRoute } from './pages/platform/PlatformProtectedRoute';
 import { useAuth } from './auth/useAuth';
 import { Layout } from './components/Layout';
 import { LoginPage } from './pages/LoginPage';
+
+/**
+ * Build-time gate for the F11 platform-operator UI (`/platform/*` routes).
+ *
+ * The `if (... === 'true')` guard at module top-level lets Rollup
+ * dead-code-eliminate the dynamic `import()` literal when
+ * VITE_PLATFORM_UI_ENABLED is not 'true' at build time. Without this
+ * top-level guard, React.lazy still emits the chunk; the env-var check
+ * inside the lazy callback is too late.
+ *
+ * When false, `PlatformPlaceholder` is null and the `/platform/*` routes
+ * fall through to the catch-all NotFound. See OpenSpec
+ * platform-operator-ui design.md Decision D7.
+ */
+const PlatformPlaceholder =
+  import.meta.env.VITE_PLATFORM_UI_ENABLED === 'true'
+    ? lazy(() => import('./pages/platform/PlatformPlaceholder'))
+    : null;
 import { CoordinatorDashboard } from './pages/CoordinatorDashboard';
 import { OutreachSearch } from './pages/OutreachSearch';
 import { MyPastHoldsPage } from './pages/MyPastHoldsPage';
@@ -90,6 +110,18 @@ function AppRoutes({ locale, onLocaleChange }: { locale: string; onLocaleChange:
           </AuthGuard>
         }
       />
+      {PlatformPlaceholder && (
+        <Route
+          path="/platform/*"
+          element={
+            <PlatformProtectedRoute allowMfaSetupScope>
+              <Suspense fallback={null}>
+                <PlatformPlaceholder />
+              </Suspense>
+            </PlatformProtectedRoute>
+          }
+        />
+      )}
       <Route path="/" element={<RoleRedirect />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
@@ -115,9 +147,11 @@ export default function App() {
   return (
     <IntlProvider locale={locale} messages={messages[locale]} defaultLocale="en">
       <AuthProvider>
-        <BrowserRouter>
-          <AppRoutes locale={locale} onLocaleChange={handleLocaleChange} />
-        </BrowserRouter>
+        <PlatformAuthProvider>
+          <BrowserRouter>
+            <AppRoutes locale={locale} onLocaleChange={handleLocaleChange} />
+          </BrowserRouter>
+        </PlatformAuthProvider>
       </AuthProvider>
     </IntlProvider>
   );

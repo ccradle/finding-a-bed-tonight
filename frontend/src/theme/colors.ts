@@ -73,6 +73,10 @@ export const color = {
   dvBg: 'var(--color-dv-bg)',
   dvBorder: 'var(--color-dv-border)',
 
+  // Platform-operator mode (F11 v0.54) — banner fill on /platform/* routes.
+  // Burnt orange #C2410C; pair with textInverse (white) for AA contrast.
+  platform: 'var(--color-platform)',
+
   // Header (always dark bg + light text in both modes)
   headerBg: 'var(--color-header-bg)',
   headerText: 'var(--color-header-text)',
