@@ -20,6 +20,8 @@ lesson. The test: "would a future runbook author need to know this?"
 - `feedback_stale_sw_on_deploy.md` — old service worker serves cached JS post-deploy; test in incognito or clear site data.
 - `feedback_deploy_checklist_v031.md` — post-deploy checklist: verify JAR version, actuator :9091, class verification, image prune.
 - `feedback_cleanup_old_artifacts.md` — remove stale JARs and Docker images after each Oracle deploy.
+- `feedback_runbook_compose_chain.md` — prod uses a 5-FILE compose chain (base + 4 prod overrides); missing any file = service crash loop (v0.50 postgres lesson).
+- `feedback_deploy_rehearsal_lessons.md` — `make rehearse-deploy` first runs catch 3-4 bugs (test skip, rate-limit overlay, amtool spaces, nflog repeat_interval). Run within 72h of tag.
 
 ## Pre-deploy safety
 
@@ -47,6 +49,9 @@ lesson. The test: "would a future runbook author need to know this?"
 
 - `feedback_verify_doc_facts_against_source.md` — grep source before naming rules/slugs/metrics; v0.49 had 7/9 wrong rule names + invented slugs.
 - `feedback_no_ssh_tunnels.md` — share SSH tunnel commands, don't execute them; confirm operator SSH session before starting deploy.
+- `feedback_runbook_groundtruth_vm.md` — **CRITICAL**: ground-truth runbook commands against the live VM (`docker ps`, `docker exec ls`); don't mirror dev-start naming. v0.53 caught 6 wrong references this way.
+- `feedback_runbook_template_v1.md` — every `oracle-update-notes-vX.Y.Z.md` from v0.50+ MUST follow `docs/runbook-template.md`'s 8-section shape. CI lints the `consulted:` block.
+- `feedback_platform_login_via_ssh_tunnel.md` — platform-operator login on prod uses an SSH tunnel; demoguard bypass details MUST NEVER appear in committed runbooks (op-sec). Share at deploy time out-of-band.
 
 ## Process & tooling
 
@@ -55,3 +60,4 @@ lesson. The test: "would a future runbook author need to know this?"
 - `feedback_maven_not_gradle.md` — build tool is Maven (`pom.xml`); never use gradle/gradlew.
 - `feedback_build_before_commit.md` — **CRITICAL**: run `npm run build` (tsc + vite) before committing any frontend change.
 - `feedback_no_brute_force.md` — fix the script itself, don't hack around broken scripts.
+- `feedback_periodic_resume_save.md` — after every commit, update the relevant `project_*_resume_point.md` memory + tasks.md `[x]`. Defends against window close losing context.

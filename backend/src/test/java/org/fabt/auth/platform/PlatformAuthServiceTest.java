@@ -243,29 +243,33 @@ class PlatformAuthServiceTest {
         verify(userRepository).recordTotpUse(u.getId(), "123456");
         verify(userRepository).clearFailures(u.getId());
         verify(userRepository).recordLogin(u.getId());
-        verify(userRepository, never()).recordFailure(any(), anyInt(), anyInt());
+        // Service migrated to recordFailureWithState in warroom round 6
+        // (richer return type to drive the SPA error UI). Old method
+        // remains in repo for backward compat.
+        verify(userRepository, never()).recordFailureWithState(any(), anyInt(), anyInt());
     }
 
     @Test
-    @DisplayName("verifyMfa with replay rejection: same TOTP within 90s window → false + recordFailure")
+    @DisplayName("verifyMfa with replay rejection: same TOTP within 90s window → false + recordFailureWithState")
     void verifyMfaReplayRejected() {
         PlatformUser u = userWith(false, true, "hash");
         u.setMfaSecret("SECRET");
         when(userRepository.findById(u.getId())).thenReturn(Optional.of(u));
         when(userRepository.wasTotpRecentlyUsed(eq(u.getId()), eq("123456"), anyInt()))
                 .thenReturn(true);
-        when(userRepository.recordFailure(eq(u.getId()), anyInt(), anyInt())).thenReturn(false);
+        when(userRepository.recordFailureWithState(eq(u.getId()), anyInt(), anyInt()))
+                .thenReturn(new PlatformUserRepository.RecordFailureState(false, false, 1));
 
         boolean ok = authService.verifyMfa(u.getId(), "123456");
 
         assertThat(ok).isFalse();
-        verify(userRepository).recordFailure(u.getId(), 15, 5);
+        verify(userRepository).recordFailureWithState(u.getId(), 15, 5);
         verify(totpService, never()).verifyCode(anyString(), anyString());
         verify(userRepository, never()).recordLogin(any());
     }
 
     @Test
-    @DisplayName("verifyMfa with bad code increments failure; returns true on threshold-crossing")
+    @DisplayName("verifyMfa with bad code increments failure; nowLocked=true on threshold-crossing")
     void verifyMfaBadCodeIncrementsAndLocks() {
         PlatformUser u = userWith(false, true, "hash");
         u.setMfaSecret("SECRET");
@@ -274,13 +278,15 @@ class PlatformAuthServiceTest {
                 .thenReturn(false);
         when(totpService.verifyCode("SECRET", "999999")).thenReturn(false);
         when(userRepository.findUnusedBackupCodes(u.getId())).thenReturn(List.of());
-        // Simulate the 5th failed attempt — record_failure returns true
-        when(userRepository.recordFailure(eq(u.getId()), anyInt(), anyInt())).thenReturn(true);
+        // Simulate the 5th failed attempt — nowLocked=true, accountLocked=true,
+        // attemptsUsed at threshold.
+        when(userRepository.recordFailureWithState(eq(u.getId()), anyInt(), anyInt()))
+                .thenReturn(new PlatformUserRepository.RecordFailureState(true, true, 5));
 
         boolean ok = authService.verifyMfa(u.getId(), "999999");
 
         assertThat(ok).isFalse();
-        verify(userRepository).recordFailure(u.getId(), 15, 5);
+        verify(userRepository).recordFailureWithState(u.getId(), 15, 5);
         // Lockout transition was reached — caller does NOT recordLogin
         verify(userRepository, never()).recordLogin(any());
     }
@@ -313,7 +319,7 @@ class PlatformAuthServiceTest {
         verify(userRepository).markBackupCodeUsed(codeId);
         verify(userRepository).clearFailures(u.getId());
         verify(userRepository).recordLogin(u.getId());
-        verify(userRepository, never()).recordFailure(any(), anyInt(), anyInt());
+        verify(userRepository, never()).recordFailureWithState(any(), anyInt(), anyInt());
     }
 
     @Test
@@ -435,10 +441,18 @@ class PlatformAuthServiceTest {
         when(userRepository.wasTotpRecentlyUsed(eq(userId), anyString(), anyInt())).thenReturn(false);
         when(totpService.verifyCode(anyString(), anyString())).thenReturn(false);
         when(userRepository.findUnusedBackupCodes(userId)).thenReturn(List.of());
-        // recordFailure returns true on the lockout transition; the counter
-        // should fire exactly once even if verifyMfa is called many times.
-        when(userRepository.recordFailure(eq(userId), anyInt(), anyInt()))
-                .thenReturn(false, false, false, false, true);
+        // recordFailureWithState's nowLocked=true on the lockout transition;
+        // the counter should fire exactly once even if verifyMfa is called
+        // many times. accountLocked tracks the cumulative state; attemptsUsed
+        // climbs each call. Sequential returns mirror what the SECURITY
+        // DEFINER function would emit on 5 consecutive failures.
+        when(userRepository.recordFailureWithState(eq(userId), anyInt(), anyInt()))
+                .thenReturn(
+                        new PlatformUserRepository.RecordFailureState(false, false, 1),
+                        new PlatformUserRepository.RecordFailureState(false, false, 2),
+                        new PlatformUserRepository.RecordFailureState(false, false, 3),
+                        new PlatformUserRepository.RecordFailureState(false, false, 4),
+                        new PlatformUserRepository.RecordFailureState(true, true, 5));
 
         for (int i = 0; i < 5; i++) {
             authService.verifyMfa(userId, "999999");

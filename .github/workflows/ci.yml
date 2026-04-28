@@ -108,6 +108,9 @@ jobs:
       - name: Build
         working-directory: frontend
         run: npm run build
+      - name: Verify platform-chunk tree-shake (F11 v0.54)
+        working-directory: frontend
+        run: bash scripts/verify-platform-chunk-tree-shake.sh
 
   legal-language:
     name: Legal Language Scan

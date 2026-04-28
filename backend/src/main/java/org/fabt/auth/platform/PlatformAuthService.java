@@ -113,6 +113,15 @@ public class PlatformAuthService {
     private final Counter userLockedOutCount;
 
     /**
+     * F11 §5.1 — per-outcome MFA-verify counter (success | failure).
+     * Drives the {@code FabtPlatformMfaFailureSpike} alert (rate > 1/min
+     * sustained 5min). Bounded cardinality (2 outcomes); safe to keep
+     * raw labels. Built once at construction; per-call lookup avoided.
+     */
+    private final Counter mfaVerifySuccess;
+    private final Counter mfaVerifyFailure;
+
+    /**
      * Decoy bcrypt hash used to equalize timing on the "bad email" /
      * "account locked" rejection paths (warroom M2). The decoy is generated
      * at construction time over a random secret no caller will ever know;
@@ -150,6 +159,10 @@ public class PlatformAuthService {
                 .tag("reason", "mfa_disabled").register(meterRegistry);
         this.userLockedOutCount = Counter.builder("fabt.platform.user.locked_out")
                 .register(meterRegistry);
+        this.mfaVerifySuccess = Counter.builder("fabt.platform.mfa.verify")
+                .tag("outcome", "success").register(meterRegistry);
+        this.mfaVerifyFailure = Counter.builder("fabt.platform.mfa.verify")
+                .tag("outcome", "failure").register(meterRegistry);
     }
 
     /**
@@ -290,7 +303,12 @@ public class PlatformAuthService {
      *
      * @return true iff TOTP-or-backup-code verified
      */
-    public boolean verifyMfa(UUID userId, String code) {
+    /**
+     * Verifies an MFA challenge and returns the richer state the SPA's
+     * error UI needs (warroom round 6 A1 fix). Callers that only need
+     * the boolean success can use the legacy {@link #verifyMfa(UUID, String)}.
+     */
+    public VerifyMfaResult verifyMfaWithState(UUID userId, String code) {
         PlatformUser user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalStateException(
                         "platform_user not found: " + userId));
@@ -299,33 +317,50 @@ public class PlatformAuthService {
             // enrollment, which is a different failure mode (operator
             // process gap) than a bad code (attacker brute force).
             loginFailureMfaDisabled.increment();
-            recordFailureAndMaybeLock(userId);
-            return false;
+            return failureWithState(userId);
         }
         if (userRepository.wasTotpRecentlyUsed(userId, code, TOTP_REPLAY_WINDOW_SECONDS)) {
             log.warn("Platform operator TOTP replay rejected userId={}", userId);
-            recordFailureAndMaybeLock(userId);
-            return false;
+            return failureWithState(userId);
         }
         if (totpService.verifyCode(user.getMfaSecret(), code)) {
             userRepository.recordTotpUse(userId, code);
             userRepository.clearFailures(userId);
             userRepository.recordLogin(userId);
-            return true;
+            mfaVerifySuccess.increment();
+            return new VerifyMfaResult(true, false, LOCKOUT_THRESHOLD);
         }
         if (verifyBackupCode(userId, code)) {
             userRepository.clearFailures(userId);
             userRepository.recordLogin(userId);
-            return true;
+            mfaVerifySuccess.increment();
+            return new VerifyMfaResult(true, false, LOCKOUT_THRESHOLD);
         }
-        recordFailureAndMaybeLock(userId);
-        return false;
+        return failureWithState(userId);
     }
 
-    private void recordFailureAndMaybeLock(UUID userId) {
-        boolean nowLocked = userRepository.recordFailure(
-                userId, LOCKOUT_WINDOW_MIN, LOCKOUT_THRESHOLD);
-        if (nowLocked) {
+    /**
+     * Backward-compatible boolean wrapper around {@link #verifyMfaWithState}.
+     * Existing callers (tests, audit integrations) that only need the
+     * success bit can keep using this; the new SPA controller path uses
+     * the richer return.
+     */
+    public boolean verifyMfa(UUID userId, String code) {
+        return verifyMfaWithState(userId, code).success();
+    }
+
+    private VerifyMfaResult failureWithState(UUID userId) {
+        // F11 §5.1 — bump the per-outcome counter regardless of which
+        // failure branch led here (no MFA enrolled, replay, bad code,
+        // bad backup code). Granular reasons are already captured in
+        // log + audit; the metric stays at the outcome-only level
+        // because the alert (FabtPlatformMfaFailureSpike) cares about
+        // sustained failure rate, not per-reason cardinality.
+        mfaVerifyFailure.increment();
+        PlatformUserRepository.RecordFailureState state =
+                userRepository.recordFailureWithState(
+                        userId, LOCKOUT_WINDOW_MIN, LOCKOUT_THRESHOLD);
+        if (state.nowLocked()) {
             // §6.17: counter increments only on the lock TRANSITION (not on
             // every failure within the window). Drives FabtPlatformUserLockedOut
             // info-level alert. Increment before the audit write so a future
@@ -340,6 +375,26 @@ public class PlatformAuthService {
             // by the writer so the operator's 401 is not blocked.
             adminAccessLogger.logLockout(userId);
         }
+        int attemptsRemaining = Math.max(0, LOCKOUT_THRESHOLD - state.attemptsUsed());
+        return new VerifyMfaResult(false, state.accountLocked(), attemptsRemaining);
+    }
+
+    /**
+     * Result of {@link #verifyMfaWithState}.
+     *
+     * <ul>
+     *   <li>{@code success} — true iff TOTP-or-backup-code verified.</li>
+     *   <li>{@code accountLocked} — current account_locked flag AFTER
+     *       this attempt. True both on the just-now lockout transition
+     *       AND on attempts presented after a prior lockout.</li>
+     *   <li>{@code attemptsRemaining} — for failure cases, the count of
+     *       further attempts permitted in the rolling window before
+     *       lockout. 0 when {@code accountLocked} is true. For success
+     *       cases this is set to {@link #LOCKOUT_THRESHOLD} (UI ignores
+     *       it on success but a non-negative value avoids surprises).</li>
+     * </ul>
+     */
+    public record VerifyMfaResult(boolean success, boolean accountLocked, int attemptsRemaining) {
     }
 
     private boolean verifyBackupCode(UUID userId, String presentedCode) {

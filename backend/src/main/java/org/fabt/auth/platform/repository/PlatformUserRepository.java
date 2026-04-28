@@ -1,5 +1,7 @@
 package org.fabt.auth.platform.repository;
 
+import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -190,6 +192,25 @@ public class PlatformUserRepository {
         return Boolean.TRUE.equals(result);
     }
 
+    /**
+     * Extended variant of {@link #recordFailure} that returns the failure
+     * state the F11 PlatformMfaVerify SPA needs to render attempts-remaining
+     * + account-locked copy. See V90 migration
+     * {@code platform_user_record_failure_with_state}.
+     */
+    public RecordFailureState recordFailureWithState(UUID userId, int windowMin, int threshold) {
+        // Caller side: jdbc.queryForObject with the function's TABLE return.
+        // Column names use `out_` prefix to avoid shadowing platform_user
+        // columns inside the SECURITY DEFINER body (see V90 comment).
+        return jdbc.queryForObject(
+                "SELECT * FROM platform_user_record_failure_with_state(?, ?, ?)",
+                (rs, rowNum) -> new RecordFailureState(
+                        rs.getBoolean("out_now_locked"),
+                        rs.getBoolean("out_account_locked"),
+                        rs.getInt("out_attempts_used")),
+                userId, windowMin, threshold);
+    }
+
     /** Clears the failure window on a successful authentication. */
     public void clearFailures(UUID userId) {
         // queryForObject (not update) for void-returning SELECT — see recordLogin.
@@ -234,10 +255,73 @@ public class PlatformUserRepository {
     }
 
     /**
+     * Operator-self metadata for the F11 platform-operator dashboard
+     * ({@code GET /api/v1/auth/platform/me}). Populated from V90's
+     * {@code platform_user_get_me} SECURITY DEFINER function in a single
+     * round-trip.
+     *
+     * <p>Returns empty if the row is not found OR is anonymized — the
+     * function-side WHERE clause filters {@code anonymized_at IS NOT NULL}.
+     */
+    public Optional<PlatformOperatorMeRow> findMeMetadata(UUID id) {
+        try {
+            PlatformOperatorMeRow row = jdbc.queryForObject(
+                    "SELECT * FROM platform_user_get_me(?)",
+                    (rs, rowNum) -> {
+                        Timestamp lastLogin = rs.getTimestamp("last_login_at");
+                        Timestamp mfaEnrolled = rs.getTimestamp("mfa_enrolled_at");
+                        return new PlatformOperatorMeRow(
+                                (UUID) rs.getObject("id"),
+                                rs.getString("email"),
+                                rs.getBoolean("mfa_enabled"),
+                                lastLogin == null ? null : lastLogin.toInstant(),
+                                mfaEnrolled == null ? null : mfaEnrolled.toInstant(),
+                                rs.getInt("backup_codes_remaining"));
+                    },
+                    id);
+            return Optional.ofNullable(row);
+        } catch (EmptyResultDataAccessException e) {
+            return Optional.empty();
+        }
+    }
+
+    /**
      * Backup code row as returned by {@code platform_user_backup_codes_for}.
      * Used by the auth flow to verify a presented code: hash the candidate
      * with the row's salt, compare to {@code codeHash}.
      */
     public record BackupCodeRow(UUID id, String codeHash, byte[] codeSalt) {
+    }
+
+    /**
+     * Result of {@link #recordFailureWithState}.
+     *
+     * <ul>
+     *   <li>{@code nowLocked} — true ONLY on the failure that triggered the
+     *       lockout transition. False on subsequent attempts after lockout
+     *       AND on attempts before threshold is reached.
+     *   <li>{@code accountLocked} — current {@code account_locked} flag
+     *       AFTER this failure. True both for "just locked this attempt"
+     *       and "already locked from a prior attempt."
+     *   <li>{@code attemptsUsed} — count of attempts in the current rolling
+     *       window after this failure was recorded. Used by the SPA to
+     *       compute {@code attemptsRemaining = max(0, threshold - attemptsUsed)}.
+     * </ul>
+     */
+    public record RecordFailureState(boolean nowLocked, boolean accountLocked, int attemptsUsed) {
+    }
+
+    /**
+     * Operator-self metadata row as returned by {@code platform_user_get_me}.
+     * Domain-shaped types (Instant, not Timestamp) so the controller can
+     * map directly to {@link org.fabt.auth.platform.dto.PlatformOperatorMeDto}.
+     */
+    public record PlatformOperatorMeRow(
+            UUID id,
+            String email,
+            boolean mfaEnabled,
+            Instant lastLoginAt,
+            Instant mfaEnrolledAt,
+            int backupCodesRemaining) {
     }
 }
