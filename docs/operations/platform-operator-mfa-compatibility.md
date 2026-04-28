@@ -3,7 +3,7 @@
 **F11 §6.10.** Manual cross-authenticator QA results for the platform-operator MFA enrollment flow.
 
 The platform-operator backend issues TOTP / RFC 6238 secrets. Any
-standards-compliant authenticator app should work. This matrix
+authenticator app that implements RFC 6238 should work. This matrix
 captures the team's hands-on QA against the v0.54 enrollment flow
 on real devices.
 

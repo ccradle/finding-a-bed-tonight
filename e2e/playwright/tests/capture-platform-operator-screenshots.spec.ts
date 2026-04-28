@@ -153,7 +153,7 @@ test.describe('F11 platform-operator user guide — screenshot capture', () => {
     });
 
     await page.goto('/platform/mfa-enroll');
-    // Wait for the QR canvas to render — guarantees the scan phase
+    // Wait for the QR canvas to render — ensures the scan phase
     // is fully painted before we capture.
     await page.waitForSelector('[data-testid="platform-mfa-qr-canvas"]');
     await page.waitForSelector('[data-testid="platform-mfa-manual-secret"]');

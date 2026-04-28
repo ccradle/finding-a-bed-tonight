@@ -27,8 +27,8 @@ v0.54 platform-operator UI is deployed (see
 The first time you sign in as a platform operator, the application
 walks you through TOTP enrollment. You will need two things:
 
-1. An authenticator app on your phone. Any standards-compliant
-   TOTP / RFC 6238 application should work — common choices are
+1. An authenticator app on your phone. Any app that implements
+   the TOTP / RFC 6238 algorithm should work — common choices are
    Google Authenticator, Microsoft Authenticator, 1Password, Authy,
    and Bitwarden. The team's manual cross-authenticator QA matrix
    (when it lands) will be in

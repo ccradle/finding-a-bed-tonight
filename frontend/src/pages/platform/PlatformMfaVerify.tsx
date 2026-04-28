@@ -180,7 +180,8 @@ export default function PlatformMfaVerify() {
               // Round-11 #1 — removed `opacity: locked ? 0.5 : 1`. Same
               // anti-pattern that bit `PlatformActionCard` (round 11
               // Wave 2 caught): opacity blends the foreground/background
-              // tokens to a non-WCAG-compliant rendered color. The
+              // tokens to a rendered color below the WCAG 4.5:1 contrast
+              // threshold for normal text. The
               // `disabled` HTML attr at line 158 already provides
               // browser-native dimming on the input, and the lockout
               // copy in {@link errorMsg} signals the state to the
