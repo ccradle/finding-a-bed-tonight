@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [Unreleased] — Phase F F-11: platform-operator UI
+## [v0.54.0] — 2026-04-28 — Phase F F-11: platform-operator UI
 
 Backend JAR `0.53.0 → 0.54.0`. Flyway HWM advances `V89 → V90`.
 Operator action required: review `docs/oracle-update-notes-v0.54.0.md`
