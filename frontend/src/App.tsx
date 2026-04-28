@@ -42,9 +42,9 @@ const PlatformMfaVerify =
   import.meta.env.VITE_PLATFORM_UI_ENABLED === 'true'
     ? lazy(() => import('./pages/platform/PlatformMfaVerify'))
     : null;
-const PlatformPlaceholder =
+const PlatformDashboard =
   import.meta.env.VITE_PLATFORM_UI_ENABLED === 'true'
-    ? lazy(() => import('./pages/platform/PlatformPlaceholder'))
+    ? lazy(() => import('./pages/platform/PlatformDashboard'))
     : null;
 import { CoordinatorDashboard } from './pages/CoordinatorDashboard';
 import { OutreachSearch } from './pages/OutreachSearch';
@@ -129,7 +129,7 @@ function AppRoutes({ locale, onLocaleChange }: { locale: string; onLocaleChange:
           </AuthGuard>
         }
       />
-      {PlatformLayout && PlatformLogin && PlatformMfaEnroll && PlatformMfaVerify && PlatformPlaceholder && (
+      {PlatformLayout && PlatformLogin && PlatformMfaEnroll && PlatformMfaVerify && PlatformDashboard && (
         <Route
           path="/platform"
           element={
@@ -178,14 +178,22 @@ function AppRoutes({ locale, onLocaleChange }: { locale: string; onLocaleChange:
               </PlatformProtectedRoute>
             }
           />
-          {/* Dashboard + everything else: require post-MFA access token.
-              §4 slice C ships /mfa-enroll; slice D ships /dashboard.
-              Until then, the catch-all routes to a placeholder. */}
+          {/* Dashboard: requires post-MFA access token (default scope). */}
+          <Route
+            path="dashboard"
+            element={
+              <PlatformProtectedRoute>
+                <PlatformDashboard />
+              </PlatformProtectedRoute>
+            }
+          />
+          {/* Catch-all under /platform/* — route guard kicks unauthenticated
+              operators to /platform/login; otherwise lands on dashboard. */}
           <Route
             path="*"
             element={
               <PlatformProtectedRoute>
-                <PlatformPlaceholder />
+                <PlatformDashboard />
               </PlatformProtectedRoute>
             }
           />
