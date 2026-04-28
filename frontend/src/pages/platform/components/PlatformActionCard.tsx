@@ -29,6 +29,15 @@ const TOOLTIP_DISABLED =
 
 export function PlatformActionCard({ action, enabled, onActivate }: Props) {
   const isDisabled = !enabled;
+  // Wave 2 / §6.9 axe — `opacity: 0.6` for disabled cards effectively
+  // blended `--color-text-secondary` to ~#878d97 over `--color-bg`,
+  // which axe correctly flagged as 3.25:1 contrast (needs 4.5:1).
+  // Same opacity→token anti-pattern the project resolved elsewhere
+  // (see memory `project_accessibility_contrast_failures.md`). Disabled
+  // state is now communicated by the disabled button (browser-native
+  // styling + `disabled` attr blocks click), the tooltip on the
+  // button, and the cursor:not-allowed — all of which axe accepts.
+  // Text stays at full token contrast in both themes.
   return (
     <div
       style={{
@@ -36,7 +45,6 @@ export function PlatformActionCard({ action, enabled, onActivate }: Props) {
         borderRadius: '8px',
         padding: '1rem',
         backgroundColor: color.bgSecondary,
-        opacity: isDisabled ? 0.6 : 1,
       }}
       data-testid={`platform-action-${action.id}`}
     >
@@ -74,7 +82,7 @@ export function PlatformActionCard({ action, enabled, onActivate }: Props) {
           color: color.textInverse,
         }}
       >
-        {action.dangerLevel === 'destructive' ? 'Open' : 'Run'} {action.title.toLowerCase()}
+        {action.buttonLabel}
       </button>
     </div>
   );

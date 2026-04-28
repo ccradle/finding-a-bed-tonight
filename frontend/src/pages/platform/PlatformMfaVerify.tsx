@@ -37,7 +37,7 @@ type Mode = 'totp' | 'backup-code';
 
 export default function PlatformMfaVerify() {
   const navigate = useNavigate();
-  const { login } = usePlatformAuth();
+  const { login, logout } = usePlatformAuth();
 
   const [mode, setMode] = useState<Mode>('totp');
   const [code, setCode] = useState('');
@@ -84,7 +84,13 @@ export default function PlatformMfaVerify() {
       // the session-expired toast key set, rather than show "Code invalid"
       // which is confusing UX.
       if (errCode === 'invalid_platform_token') {
+        // Round 8 fix: clear the JWT explicitly. Previously platformFetch
+        // auto-cleared on 401 before we got here; now that it skips
+        // auto-redirect for auth-flow paths, the page owns the wipe.
+        // Without this, PlatformRedirectIfAuthenticated on /login would
+        // see the still-present scoped JWT and bounce back to /mfa-verify.
         sessionStorage.setItem('fabt.platform.toast.session-expired', 'true');
+        logout();
         navigate('/platform/login', { replace: true });
         return;
       }
@@ -171,7 +177,17 @@ export default function PlatformMfaVerify() {
               border: `1px solid ${color.border}`,
               backgroundColor: color.bg,
               color: color.text,
-              opacity: locked && mode === 'totp' ? 0.5 : 1,
+              // Round-11 #1 — removed `opacity: locked ? 0.5 : 1`. Same
+              // anti-pattern that bit `PlatformActionCard` (round 11
+              // Wave 2 caught): opacity blends the foreground/background
+              // tokens to a non-WCAG-compliant rendered color. The
+              // `disabled` HTML attr at line 158 already provides
+              // browser-native dimming on the input, and the lockout
+              // copy in {@link errorMsg} signals the state to the
+              // operator. axe doesn't currently scan the locked path
+              // (no spec exhausts the 5-attempt bucket) so this fix is
+              // defensive against a future scan + the same memory
+              // anti-pattern flagged in `project_accessibility_contrast_failures.md`.
             }}
           />
         </label>

@@ -24,6 +24,15 @@ export interface PlatformAction {
   title: string;
   /** One-sentence description of what this action does. */
   description: string;
+  /**
+   * Verb-first label shown ON the action button (e.g. "Suspend",
+   * "View", "Open"). Round 7 fix: prior version concatenated
+   * `${dangerLevel === 'destructive' ? 'Open' : 'Run'} ${title.toLowerCase()}`,
+   * which produced incoherent strings like "Open hard-delete tenant"
+   * and "Run system health". Per-action labels are operator-readable
+   * and avoid the off-by-grammar trap.
+   */
+  buttonLabel: string;
   /** UI category — drives the heading the card renders under. */
   category: ActionCategory;
   /** HTTP method on the backing API endpoint. */
@@ -51,9 +60,17 @@ export const PLATFORM_ACTIONS: PlatformAction[] = [
     id: 'tenant-list',
     title: 'List tenants',
     description: 'View all CoC tenants and their current state.',
+    buttonLabel: 'View',
     category: 'lifecycle',
     method: 'GET',
     endpoint: '/api/v1/tenants',
+    // Round 7 ground-truth: /api/v1/tenants requires PLATFORM_OPERATOR
+    // (SecurityConfig.java:179). A new-tab `window.open` strips the
+    // sessionStorage JWT and gets a 401. Until slice E ships an in-page
+    // result viewer with platformFetch, gate this with the lifecycle
+    // flag so it renders disabled-with-tooltip alongside the other
+    // tenant-lifecycle cards (matches D3 — render disabled, not hidden).
+    flagGate: 'fabt.tenant.lifecycle.enabled',
     dangerLevel: 'safe',
   },
   {
@@ -61,6 +78,7 @@ export const PLATFORM_ACTIONS: PlatformAction[] = [
     title: 'Suspend tenant',
     description:
       'Block all tenant logins and mutations. Reversible via Unsuspend. Audit-logged.',
+    buttonLabel: 'Suspend',
     category: 'lifecycle',
     method: 'POST',
     endpoint: '/api/v1/tenants/:tenantId/suspend',
@@ -71,6 +89,7 @@ export const PLATFORM_ACTIONS: PlatformAction[] = [
     id: 'tenant-unsuspend',
     title: 'Unsuspend tenant',
     description: 'Re-enable a previously suspended tenant. Audit-logged.',
+    buttonLabel: 'Unsuspend',
     category: 'lifecycle',
     method: 'POST',
     endpoint: '/api/v1/tenants/:tenantId/unsuspend',
@@ -82,6 +101,7 @@ export const PLATFORM_ACTIONS: PlatformAction[] = [
     title: 'Offboard tenant',
     description:
       'Begin tenant data export + retention countdown. Reversible only via DBA before hard-delete.',
+    buttonLabel: 'Offboard',
     category: 'lifecycle',
     method: 'POST',
     endpoint: '/api/v1/tenants/:tenantId/offboard',
@@ -93,6 +113,7 @@ export const PLATFORM_ACTIONS: PlatformAction[] = [
     title: 'Hard-delete tenant',
     description:
       'Crypto-shred tenant data via DEK destruction. NOT REVERSIBLE. Requires offboarded state.',
+    buttonLabel: 'Hard-delete',
     category: 'lifecycle',
     method: 'DELETE',
     endpoint: '/api/v1/tenants/:tenantId',
@@ -104,6 +125,7 @@ export const PLATFORM_ACTIONS: PlatformAction[] = [
     id: 'system-health',
     title: 'System health',
     description: 'Open the health endpoint in a new tab. Read-only.',
+    buttonLabel: 'Open',
     category: 'system',
     method: 'GET',
     endpoint: '/actuator/health',
@@ -113,6 +135,7 @@ export const PLATFORM_ACTIONS: PlatformAction[] = [
     id: 'system-version',
     title: 'Platform version',
     description: 'Show the running platform version and build commit.',
+    buttonLabel: 'View',
     category: 'system',
     method: 'GET',
     endpoint: '/api/v1/version',

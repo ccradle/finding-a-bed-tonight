@@ -15,6 +15,7 @@
 import { Suspense } from 'react';
 import { Outlet } from 'react-router-dom';
 import { PlatformOperatorBanner } from './components/PlatformOperatorBanner';
+import { PlatformMetadataProvider } from './PlatformMetadataContext';
 import { usePlatformAuth } from '../../auth/PlatformAuthContext';
 import { color } from '../../theme/colors';
 
@@ -27,29 +28,50 @@ import { color } from '../../theme/colors';
  * (Chrome/Firefox) or thrown error (some React versions). This inner
  * Suspense wraps the Outlet so cold-load of any nested route shows the
  * fallback content, not blank.
+ *
+ * Round 7 H4 / round 8 N2: PlatformMetadataProvider is mounted ONLY
+ * after MFA-verify completes (i.e. when the JWT has `mfaVerified=true`).
+ * Gating on bare `jwt` was wrong — operators on `/platform/mfa-enroll`
+ * or `/platform/mfa-verify` hold scoped tokens that 403 against `/me`,
+ * which `platformFetch` then turns into a `window.location.href`
+ * redirect (full page reload, wrong destination on mfa-verify). Gating
+ * on `isMfaVerified` keeps the provider scoped to the dashboard subtree
+ * where /me is legitimate. The banner is also gated this way because it
+ * lives inside the provider — the banner's countdown wasn't useful on
+ * mfa-* routes anyway (those tokens are short-lived, not 15-min).
  */
+function Fallback() {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      style={{
+        padding: '2rem',
+        textAlign: 'center',
+        color: 'var(--color-text-secondary)',
+      }}
+    >
+      Loading…
+    </div>
+  );
+}
+
 export default function PlatformLayout() {
-  const { jwt } = usePlatformAuth();
+  const { isMfaVerified } = usePlatformAuth();
   return (
     <div style={{ minHeight: '100vh', backgroundColor: color.bg }}>
-      {jwt && <PlatformOperatorBanner />}
-      <Suspense
-        fallback={
-          <div
-            role="status"
-            aria-live="polite"
-            style={{
-              padding: '2rem',
-              textAlign: 'center',
-              color: 'var(--color-text-secondary)',
-            }}
-          >
-            Loading…
-          </div>
-        }
-      >
-        <Outlet />
-      </Suspense>
+      {isMfaVerified ? (
+        <PlatformMetadataProvider>
+          <PlatformOperatorBanner />
+          <Suspense fallback={<Fallback />}>
+            <Outlet />
+          </Suspense>
+        </PlatformMetadataProvider>
+      ) : (
+        <Suspense fallback={<Fallback />}>
+          <Outlet />
+        </Suspense>
+      )}
     </div>
   );
 }

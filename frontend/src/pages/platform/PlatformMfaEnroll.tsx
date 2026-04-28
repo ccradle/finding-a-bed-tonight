@@ -28,6 +28,7 @@ import { color } from '../../theme/colors';
 import { usePlatformAuth } from '../../auth/PlatformAuthContext';
 import { platformFetch } from './helpers/platformApi';
 import { BackupCodesDisplay } from './components/BackupCodesDisplay';
+import { PLATFORM_OPERATOR_USER_GUIDE_URL } from './constants';
 
 interface SetupResponse {
   secret: string;
@@ -47,7 +48,7 @@ const SUPPORTED_AUTHENTICATORS =
 
 export default function PlatformMfaEnroll() {
   const navigate = useNavigate();
-  const { login } = usePlatformAuth();
+  const { login, logout } = usePlatformAuth();
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const [phase, setPhase] = useState<Phase>('loading');
@@ -57,6 +58,15 @@ export default function PlatformMfaEnroll() {
   const [totpCode, setTotpCode] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  // Wave 3 fix — hold the post-MFA access token in component state
+  // through the codes phase. We CANNOT call login() here because that
+  // would swap the sessionStorage JWT from mfa-setup-scoped to
+  // post-MFA-access-scoped, which causes PlatformProtectedRoute on
+  // /mfa-enroll (requiredScope='mfa-setup') to re-evaluate and
+  // navigate the operator away — they would never see their backup
+  // codes. login() runs in handleCodesContinue when the operator
+  // clicks Continue.
+  const [pendingAccessToken, setPendingAccessToken] = useState<string | null>(null);
 
   // Step 1: fetch setup material on mount. Idempotent per backend
   // contract — re-mount returns the same secret if mfa not yet confirmed.
@@ -69,7 +79,25 @@ export default function PlatformMfaEnroll() {
         });
         if (cancelled) return;
         if (response.status !== 200) {
-          // 401 routed by platformFetch; this branch is the unexpected case.
+          // Round 8 Bug A + round 9 #1: platformFetch no longer
+          // auto-redirects on 401 from auth-flow paths (the page used
+          // to lean on that for the scoped-token-expired case).
+          // Inspect the response body so the operator gets routed to
+          // /login when their mfa-setup token is genuinely dead,
+          // rather than stuck on a dead-end "enrollment unavailable"
+          // page with no escape.
+          if (response.status === 401) {
+            let parsed: { error?: string } = {};
+            try { parsed = (await response.json()) as { error?: string }; } catch {
+              /* body not JSON — fall through to dead-end UX */
+            }
+            if (parsed.error === 'invalid_platform_token') {
+              sessionStorage.setItem('fabt.platform.toast.session-expired', 'true');
+              logout();
+              navigate('/platform/login', { replace: true });
+              return;
+            }
+          }
           setPhase('error');
           setErrorMsg('Could not start MFA enrollment. Please sign in again.');
           return;
@@ -89,7 +117,7 @@ export default function PlatformMfaEnroll() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [logout, navigate]);
 
   // Render QR onto canvas whenever qrUri changes.
   useEffect(() => {
@@ -110,6 +138,23 @@ export default function PlatformMfaEnroll() {
         body: JSON.stringify({ code: totpCode }),
       });
       if (response.status !== 200) {
+        // Same scoped-token-expired escape as the /mfa-setup branch
+        // above. /mfa-confirm 401 with `invalid_platform_token`
+        // means the mfa-setup token died between enroll and confirm
+        // (10-min window) — kick to login with the toast rather than
+        // looping the operator on "Code invalid."
+        if (response.status === 401) {
+          let parsed: { error?: string } = {};
+          try { parsed = (await response.json()) as { error?: string }; } catch {
+            /* body not JSON */
+          }
+          if (parsed.error === 'invalid_platform_token') {
+            sessionStorage.setItem('fabt.platform.toast.session-expired', 'true');
+            logout();
+            navigate('/platform/login', { replace: true });
+            return;
+          }
+        }
         setErrorMsg('Code invalid. Please try again with a fresh code from your app.');
         setTotpCode('');
         return;
@@ -122,7 +167,11 @@ export default function PlatformMfaEnroll() {
         setErrorMsg('Server returned an unexpected response. Please try signing in again.');
         return;
       }
-      login(body.token);
+      // Wave 3 fix — defer login() until the operator clicks Continue
+      // on the codes display. See pendingAccessToken state declaration
+      // above for the route-guard race rationale. login() runs in
+      // handleCodesContinue.
+      setPendingAccessToken(body.token);
       // Now that MFA is enrolled, display backup codes (one-shot — they
       // were returned at /mfa-setup, kept in component state through
       // confirm). Operator confirms saving them, then we navigate.
@@ -157,7 +206,25 @@ export default function PlatformMfaEnroll() {
         <h1 style={{ marginTop: 0 }}>Save your backup codes</h1>
         <BackupCodesDisplay
           codes={backupCodes}
-          onContinue={() => navigate('/platform/dashboard', { replace: true })}
+          onContinue={() => {
+            // Wave 3 fix — promote the deferred post-MFA token to
+            // sessionStorage NOW (not at /mfa-confirm time) so the
+            // route guard kept seeing an mfa-setup-scoped JWT
+            // throughout the codes display. Without this defer the
+            // operator would be navigated away before they could
+            // save their codes. The `if` guard is defensive — under
+            // normal flow `pendingAccessToken` IS set when the
+            // codes phase mounts (see handleConfirm). If somehow
+            // null, fall back to navigating to /platform/login so
+            // the operator re-authenticates rather than landing on
+            // a dashboard with no usable session.
+            if (pendingAccessToken) {
+              login(pendingAccessToken);
+              navigate('/platform/dashboard', { replace: true });
+            } else {
+              navigate('/platform/login', { replace: true });
+            }
+          }}
         />
       </main>
     );
@@ -173,6 +240,21 @@ export default function PlatformMfaEnroll() {
       </p>
       <p style={{ fontSize: '0.875rem', color: color.textSecondary }}>
         {SUPPORTED_AUTHENTICATORS}
+      </p>
+      {/* §7.3 — first-time help link to the user guide. URL pinned in
+          constants.ts so a future doc-tree move only needs one edit. */}
+      <p style={{ fontSize: '0.875rem', color: color.textSecondary }}>
+        First time enrolling? See the{' '}
+        <a
+          href={PLATFORM_OPERATOR_USER_GUIDE_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          data-testid="platform-mfa-enroll-user-guide-link"
+          style={{ color: color.primaryText }}
+        >
+          Platform Operator User Guide
+        </a>
+        .
       </p>
       <div
         style={{

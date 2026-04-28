@@ -30,9 +30,18 @@ function fakeAccessJwt(opts: { expSeconds?: number } = {}): string {
 test.describe('Platform-operator UI — banner', () => {
   test.beforeEach(async ({ page }) => {
     const jwt = fakeAccessJwt();
-    await page.addInitScript(([key, value]) => {
+    // Round 8 fix: addInitScript fires on EVERY page load, including
+    // the post-logout navigation. Without this guard, the post-logout
+    // sessionStorage assertion `toBeNull()` would fail because the
+    // script re-injects the JWT after `clearPlatformJwt()` removed it.
+    // Track injection via a separate sessionStorage marker that is
+    // NOT cleared by `clearPlatformJwt` (which removes only the JWT
+    // key). One-shot per test.
+    await page.addInitScript(([key, value, markerKey]) => {
+      if (window.sessionStorage.getItem(markerKey) === '1') return;
       window.sessionStorage.setItem(key, value);
-    }, [PLATFORM_JWT_KEY, jwt]);
+      window.sessionStorage.setItem(markerKey, '1');
+    }, [PLATFORM_JWT_KEY, jwt, 'fabt.test.platform-jwt.injected']);
   });
 
   test('renders masked email + countdown + logout button', async ({ page }) => {
@@ -42,7 +51,7 @@ test.describe('Platform-operator UI — banner', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           id: '00000000-0000-0000-0000-000000000fab',
-          email: 'ccradle@gmail.com',
+          email: 'test-op@example.com',
           mfaEnabled: true,
           lastLoginAt: '2026-04-28T12:00:00Z',
           mfaEnrolledAt: '2026-04-26T12:00:00Z',
@@ -57,9 +66,9 @@ test.describe('Platform-operator UI — banner', () => {
     await expect(banner).toBeVisible();
     await expect(banner).toContainText('PLATFORM OPERATOR MODE');
 
-    // Operator decision 9.2 — email is masked: c***@gmail.com
+    // Operator decision 9.2 — email is masked: t***@example.com
     const emailEl = page.getByTestId('platform-banner-email');
-    await expect(emailEl).toHaveText('c***@gmail.com');
+    await expect(emailEl).toHaveText('t***@example.com');
 
     // Countdown is present + non-zero (15-min token; should show ~14:5x or 15:00)
     const countdown = page.getByTestId('platform-banner-countdown');
@@ -77,7 +86,7 @@ test.describe('Platform-operator UI — banner', () => {
         contentType: 'application/json',
         body: JSON.stringify({
           id: '00000000-0000-0000-0000-000000000fab',
-          email: 'ccradle@gmail.com',
+          email: 'test-op@example.com',
           mfaEnabled: true,
           lastLoginAt: '2026-04-28T12:00:00Z',
           mfaEnrolledAt: '2026-04-26T12:00:00Z',

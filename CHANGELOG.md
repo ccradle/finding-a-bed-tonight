@@ -5,6 +5,95 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased] — Phase F F-11: platform-operator UI
+
+Backend JAR `0.53.0 → 0.54.0`. Flyway HWM advances `V89 → V90`.
+Operator action required: review `docs/oracle-update-notes-v0.54.0.md`
+for the two-stage deploy procedure (Stage A flag-off cold deploy →
+Stage B flag-flip activation) and the SSH-tunnel access pattern for
+`/platform/*`.
+
+### Added
+
+- **Platform-operator SPA at `/platform/*`** (login, MFA enroll, MFA
+  verify, dashboard) gated by `VITE_PLATFORM_UI_ENABLED` build-time
+  flag. When the flag is `false`, all platform chunks are removed from
+  the bundle by Rollup tree-shake — verified by
+  `frontend/scripts/verify-platform-chunk-tree-shake.sh` in CI.
+  Concrete rollback is a one-step rebuild + redeploy of the frontend
+  container (~6 min RTO, no DB or backend rollback required).
+
+- **Backend `GET /api/v1/auth/platform/me`** — returns
+  `{id, email, mfaEnabled, lastLoginAt, mfaEnrolledAt, backupCodesRemaining}`
+  for an MFA-verified platform JWT. Backed by V90 SECURITY DEFINER
+  function `platform_user_get_me`. Wrong-scope (mfa-setup) tokens get
+  403 via `PlatformScopeMismatchException`.
+
+- **Backend `POST /api/v1/auth/platform/logout`** — server-side no-op
+  (returns 204) for SPA wipes-sessionStorage cleanup. Operator
+  logout does not mutate `last_login_at`.
+
+- **V90 migration** adds `platform_user_record_failure_with_state`
+  function returning `(now_locked, account_locked, attempts_used)`
+  so the SPA can render MFA-verify failure copy with the
+  attempts-remaining count without separate round-trips.
+
+- **New Prometheus counter `fabt.platform.mfa.verify{outcome}`**
+  (success | failure) — drives the new `FabtPlatformMfaFailureSpike`
+  warning alert (rate > 1/min sustained 5 min). Companion alert
+  `FabtPlatformBackend5xx` (critical) fires on any 5xx response from
+  `/api/v1/auth/platform/*`. Both rules in
+  `deploy/prometheus/f11-platform-operator-ui.rules.yml`. Existing
+  G-4.5 `FabtPlatformUserLockedOut` (info) covers the
+  spec'd `PlatformLockoutTriggered` alert (consolidation per F11
+  design D14 — single lockouts auto-clear via cron + manual unlock,
+  not page-grade).
+
+- **Persistent platform-operator banner** across `/platform/*` —
+  burnt-orange `#C2410C` (5.4:1 contrast on white text), masked
+  operator email (`p***@dev.fabt.org` per operator decision 9.2),
+  per-second 15-min countdown (amber ≤2min, red ≤30s), best-effort
+  POST-then-clear logout button, anonymized-row force-logout via
+  `/me` 410.
+
+- **Action-card dashboard** driven by config (`platformActions.ts`).
+  v0.54 ships every tenant-lifecycle card (incl. `tenant-list`)
+  flag-gated to disabled-with-tooltip via
+  `fabt.tenant.lifecycle.enabled=false` (per design D3 — render
+  disabled, not hidden). Two enabled cards: System Health and
+  Platform Version (both `permitAll` endpoints, both open in a new
+  tab). Backup-codes badge carries a non-color text-urgency label
+  (Healthy / Low / Critical) per WCAG 1.4.1.
+
+### Documentation
+
+- `docs/operations/platform-operator-user-guide.md` — operator
+  onboarding, daily-login, lost-phone recovery, escalation tree.
+- `docs/observability/platform-admin-monitoring.md` extended with
+  the new MFA-verify counter + alerts + Panel 6a/6b PromQL.
+- `docs/oracle-update-notes-v0.54.0.md` — two-stage deploy
+  runbook with concrete rollback recipe.
+
+### Verification
+
+- Backend: 1294/1294 (was 1285 baseline + 9 new across V90 IT).
+- Frontend vitest: 195/195 (was 185 + 10 across new
+  PlatformMetadataContext / ConfirmActionModal predicate /
+  isPlatformAuthFlowPath suites).
+- Playwright: 54 new platform-operator-UI tests across 8 specs
+  (5 banner + 8 routing + 5 mfa-verify-errors + 8 dashboard +
+  12 a11y+CSP + 6 screenshot-capture + 5 mfa-enroll +
+  5 print-codes), plus 1 manual training walkthrough spec
+  (CI-skipped, operator-rehearsal tool). All 54 GREEN against
+  `./dev-start.sh` + nginx@8081.
+- Real bugs caught + fixed during axe sweep:
+  `PlatformActionCard` opacity-on-disabled blended text-secondary to
+  3.25:1 contrast (fixed by removing opacity, relying on disabled
+  button + tooltip + cursor); `PlatformMfaVerify` locked-input
+  carried the symmetric anti-pattern (fixed defensively).
+
+---
+
 ## [v0.53.0] — 2026-04-26 — Phase G-4: platform admin split + access log + lifecycle REST
 
 Backend JAR `0.52.0 → 0.53.0`. Flyway HWM advances `V85 → V89` (V87 + V88 + V89).

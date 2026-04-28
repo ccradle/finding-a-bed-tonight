@@ -101,24 +101,49 @@ test.describe('Platform-operator UI — routing + login flow', () => {
   });
 
   test('failed login displays generic "Invalid credentials" without leaking', async ({ page }) => {
+    // Round 7 M6 ground-truth: the prior version asserted
+    // `error.not.toContainText(/email/)` / `/password/` against an
+    // error string the SPA hard-codes as "Invalid credentials" — those
+    // negative regexes could never trip and gave us false coverage.
+    // We now exercise three concrete leak shapes that have actually
+    // appeared in similar SPAs and should NEVER appear here:
+    //   1. Echo of the typed email (e.g. "Unknown user x@y.z")
+    //   2. Backend discriminator copy ("user not found" /
+    //      "wrong password" / "account doesn't exist")
+    //   3. Status code disclosure (e.g. "401" / "403")
+    // The route mock returns the same 401 the real backend emits, and
+    // we simulate a backend that DID leak in its body — the SPA must
+    // ignore that body and still render only "Invalid credentials".
     await page.route('**/api/v1/auth/platform/login', async (route) => {
       await route.fulfill({
         status: 401,
         contentType: 'application/json',
-        body: JSON.stringify({ error: 'invalid_credentials' }),
+        body: JSON.stringify({
+          error: 'invalid_credentials',
+          // Adversarial payload — even if a future backend leaks
+          // these, the SPA must not surface them.
+          message: 'User not found: typed-email-leak@example.com',
+        }),
       });
     });
 
     await page.goto('/platform/login');
-    await page.getByTestId('platform-login-email').fill('test-op@example.com');
-    await page.getByTestId('platform-login-password').fill('wrong');
+    await page.getByTestId('platform-login-email').fill('typed-email-leak@example.com');
+    await page.getByTestId('platform-login-password').fill('typed-password-leak-123');
     await page.getByTestId('platform-login-submit').click();
 
     const error = page.getByTestId('platform-login-error');
     await expect(error).toBeVisible();
-    await expect(error).toHaveText(/Invalid credentials/);
-    await expect(error).not.toContainText(/email/);
-    await expect(error).not.toContainText(/password/);
+    // Exact text — guards against future PRs adding subtle suffixes
+    // like "Invalid credentials (user not found)".
+    await expect(error).toHaveText('Invalid credentials');
+    // Specific anti-leak checks against the values we typed + adversary payload
+    await expect(error).not.toContainText('typed-email-leak');
+    await expect(error).not.toContainText('typed-password-leak');
+    await expect(error).not.toContainText('User not found');
+    await expect(error).not.toContainText(/not\s*found/i);
+    await expect(error).not.toContainText(/wrong\s*password/i);
+    await expect(error).not.toContainText(/401|403/);
     // Critically: still on /login (no leak via redirect)
     await expect(page).toHaveURL('/platform/login');
   });

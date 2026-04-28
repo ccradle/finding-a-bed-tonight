@@ -85,10 +85,20 @@ public class PlatformAuthController {
         PlatformJwtService.PlatformJwtClaims claims = requireScopedToken(
                 authHeader, PlatformJwtService.SCOPE_MFA_SETUP);
         PlatformAuthService.MfaSetup setup = authService.setupMfa(claims.sub());
-        return ResponseEntity.ok(Map.of(
-                "secret", setup.secret(),
-                "qrUri", setup.qrUri(),
-                "backupCodes", setup.plaintextBackupCodes()));
+        // F11 §6.3 — Cache-Control: no-store prevents the browser back-
+        // button (or any caching proxy) from resurrecting the plaintext
+        // backup codes after the operator navigates away from the
+        // enrollment page. `BackupCodesDisplay.tsx` JSDoc references
+        // this header by name; pre-fix it was an unimplemented contract.
+        // Pragma + Expires belt-and-braces for legacy intermediaries.
+        return ResponseEntity.ok()
+                .header("Cache-Control", "no-store, no-cache, must-revalidate, private")
+                .header("Pragma", "no-cache")
+                .header("Expires", "0")
+                .body(Map.of(
+                        "secret", setup.secret(),
+                        "qrUri", setup.qrUri(),
+                        "backupCodes", setup.plaintextBackupCodes()));
     }
 
     @PostMapping("/mfa-confirm")

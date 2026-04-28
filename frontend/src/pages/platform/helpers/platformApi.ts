@@ -5,12 +5,18 @@
  * every request to /api/v1/auth/platform/* or /api/v1/platform/*.
  *
  * Response handling:
- * - 401: any in-flight request that gets 401 from the platform layer
- *   means the token is bad (revoked, malformed, signature mismatch, or
- *   server-side invalidation). Wipe sessionStorage and redirect to
- *   /platform/login. Concurrent 401s are coalesced via a module-level
- *   `isHandling401` flag so multiple tabs/cards firing simultaneously
- *   don't double-navigate (some routers throw on duplicate navigations).
+ * - 401 from authenticated endpoints: token is bad (revoked, malformed,
+ *   signature mismatch, server-side invalidation). Wipe sessionStorage
+ *   and redirect to /platform/login. Concurrent 401s are coalesced via a
+ *   module-level `authRedirectState` flag so multiple tabs/cards firing
+ *   simultaneously don't double-navigate.
+ * - 401 from auth-flow endpoints (/login/mfa-verify, /mfa-setup,
+ *   /mfa-confirm): pass through to the caller. 401 here is the legit
+ *   "wrong TOTP code / lockout reached / scoped token expired" signal,
+ *   which the page renders inline. Auto-redirecting would race with the
+ *   page's own UX and dump the operator at /login mid-flow without an
+ *   error message. The page may explicitly call logout() + navigate
+ *   when the body contains `invalid_platform_token`.
  * - 403 from /me specifically: indicates a wrong-scope token (typically
  *   MFA-setup-only). Redirect to /platform/mfa-enroll WITHOUT wiping
  *   sessionStorage — the MFA-setup token remains valid for enrollment.
@@ -69,6 +75,41 @@ function isPlatformMePath(input: string): boolean {
 }
 
 /**
+ * Auth-flow endpoints whose 401 means "your auth-flow request failed"
+ * (wrong code, lockout, or scoped-token-expired) rather than "your
+ * session is dead." These pages handle 401 inline; auto-redirecting
+ * would clobber the operator's mid-flow UX. /login itself uses raw
+ * `fetch` (not platformFetch) so it never hits this wrapper, but the
+ * /login/mfa-verify / /mfa-setup / /mfa-confirm endpoints do.
+ *
+ * Round 9 #5 (note): this list duplicates routes that live in the
+ * backend's `PlatformAuthController.java` (`@RequestMapping`
+ * "/api/v1/auth/platform" + per-method "/login", "/login/mfa-verify",
+ * "/mfa-setup", "/mfa-confirm"). A future refactor that renames an
+ * endpoint MUST update this allowlist or auth-flow operators get
+ * silently logged out mid-form. Pre-Slice-E follow-up: generate from
+ * OpenAPI or pin via a contract test.
+ *
+ * Round 9 #6: trailing slashes are stripped before matching so
+ * `/api/v1/auth/platform/login/` matches the canonical no-slash form
+ * (browsers treat the two as different URLs but same resource).
+ */
+function isPlatformAuthFlowPath(input: string): boolean {
+  try {
+    const url = new URL(input, window.location.origin);
+    const pathname = url.pathname.replace(/\/$/, '');
+    return (
+      pathname === '/api/v1/auth/platform/login' ||
+      pathname === '/api/v1/auth/platform/login/mfa-verify' ||
+      pathname === '/api/v1/auth/platform/mfa-setup' ||
+      pathname === '/api/v1/auth/platform/mfa-confirm'
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Wraps `fetch()` with platform-JWT injection and centralized 401/403
  * handling. Returns the raw Response for callers that need status codes
  * outside the auth flow (e.g., 410 → "operator gone, contact support").
@@ -86,6 +127,12 @@ export async function platformFetch(
   const response = await fetch(input, { ...init, headers });
 
   if (response.status === 401) {
+    // Auth-flow paths handle 401 inline (wrong code, lockout, scoped-
+    // token-expired) — don't auto-redirect or the page never gets to
+    // render its error.
+    if (isPlatformAuthFlowPath(input)) {
+      return response;
+    }
     navigateToLogin();
     return response;
   }

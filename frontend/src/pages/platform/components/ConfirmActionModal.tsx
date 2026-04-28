@@ -17,10 +17,25 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { color } from '../../../theme/colors';
 
-type Variant =
+export type Variant =
   | { kind: 'print' }
   | { kind: 'copy' }
   | { kind: 'destructive'; expectedSlug: string; actionLabel: string };
+
+/**
+ * Round 9 #7 — extracted predicate so the empty-slug refusal contract
+ * can be unit-tested without rendering JSX (no RTL/jsdom in this tree).
+ * Returns true iff the modal must early-return rather than mount.
+ *
+ * The contract: a destructive variant with a falsy `expectedSlug` would
+ * make the typed-confirm match logic vacuous (`'' === ''` enables the
+ * confirm button on first paint), so the modal refuses to render. The
+ * caller is misconfigured; surfacing as a no-render + console.error is
+ * loud enough to catch in dev without leaking destructive UX in prod.
+ */
+export function shouldRefuseDestructiveRender(variant: Variant): boolean {
+  return variant.kind === 'destructive' && !variant.expectedSlug;
+}
 
 interface Props {
   open: boolean;
@@ -47,6 +62,15 @@ function defaultBody(variant: Variant): string {
     case 'copy':
       return COPY_BODY;
     case 'destructive':
+      // Round 7 M8: prior versions interpolated `expectedSlug` even when
+      // empty, producing the literal copy `Type the tenant slug "" to
+      // confirm.` which is both confusing and (with the typed-slug
+      // match logic) rendered the typed-confirm a no-op (`'' === ''`).
+      // Defensively coerce missing-slug to a body that does not promise
+      // a typed-confirm flow.
+      if (!variant.expectedSlug) {
+        return 'This action cannot be undone.';
+      }
       return `Type the tenant slug "${variant.expectedSlug}" to confirm. This action cannot be undone.`;
   }
 }
@@ -95,6 +119,26 @@ export function ConfirmActionModal({
   }, [open]);
 
   if (!open) return null;
+
+  // Round 8 N3 / round 9 #7 — refuse to render a destructive modal
+  // with an empty expectedSlug. The typed-slug match logic
+  // (`'' === ''`) would otherwise enable the confirm button on first
+  // paint with no input. Surface a runtime error so the
+  // misconfiguration is loud, not silently bypassable. Belt-and-
+  // braces against future regressions: the dashboard-side fix
+  // removed the only known broken caller (round 7 CRITICAL #1), this
+  // is the component-side fix that prevents a new caller from
+  // re-introducing the bug. Logic extracted to
+  // {@link shouldRefuseDestructiveRender} so vitest can pin the
+  // contract without RTL.
+  if (shouldRefuseDestructiveRender(variant)) {
+    if (typeof console !== 'undefined') {
+      console.error(
+        'ConfirmActionModal: destructive variant requires a non-empty expectedSlug',
+      );
+    }
+    return null;
+  }
 
   const slugMatches =
     variant.kind !== 'destructive' || typedSlug === variant.expectedSlug;

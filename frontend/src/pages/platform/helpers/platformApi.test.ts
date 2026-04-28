@@ -186,6 +186,48 @@ describe('platformFetch', () => {
     expect(sessionStorage.getItem(PLATFORM_JWT_STORAGE_KEY)).toBe('valid-token');
   });
 
+  /**
+   * Round 8 Bug A — auth-flow paths (POST /login, /login/mfa-verify,
+   * /mfa-setup, /mfa-confirm) return 401 for legitimate "wrong code /
+   * lockout / scoped-token-expired" responses. The page-specific
+   * handlers render those inline. platformFetch must not auto-redirect
+   * for these paths or the page never gets to render its error.
+   *
+   * /me 401 still redirects (load-bearing — the dashboard relies on it
+   * when the post-MFA token is bad). The test at line 105 above pins
+   * that boundary.
+   */
+  it.each([
+    '/api/v1/auth/platform/login',
+    '/api/v1/auth/platform/login/mfa-verify',
+    '/api/v1/auth/platform/mfa-setup',
+    '/api/v1/auth/platform/mfa-confirm',
+  ])('401 from auth-flow path %s passes through (no redirect, JWT preserved)', async (path) => {
+    writePlatformJwt('scoped-token');
+    mockFetch(401, { error: 'invalid_mfa_code', attemptsRemaining: 4 });
+
+    const response = await platformFetch(path, { method: 'POST' });
+
+    expect(response.status).toBe(401);
+    // Page handler must see the response body to render the inline error.
+    expect(locationHref).toBe('');
+    // JWT preserved — page may decide to logout() explicitly on
+    // invalid_platform_token, but that's the page's call, not ours.
+    expect(sessionStorage.getItem(PLATFORM_JWT_STORAGE_KEY)).toBe('scoped-token');
+  });
+
+  it('401 from /me STILL redirects (boundary check vs auth-flow paths)', async () => {
+    // Defends against a refactor that broadens the auth-flow allowlist
+    // too far and breaks the dashboard's post-MFA token-revocation path.
+    writePlatformJwt('revoked-post-mfa-token');
+    mockFetch(401, { error: 'invalid_platform_token' });
+
+    await platformFetch('/api/v1/auth/platform/me');
+
+    expect(locationHref).toBe('/platform/login');
+    expect(sessionStorage.getItem(PLATFORM_JWT_STORAGE_KEY)).toBeNull();
+  });
+
   it('401 wins the race against a prior 403 (warroom H2)', async () => {
     // Set up: a 403 from /me has already kicked off the mfa-enroll redirect.
     // Now a 401 arrives on a parallel request. The 401 must override —

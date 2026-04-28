@@ -22,7 +22,7 @@ import { color } from '../../../theme/colors';
 import { usePlatformAuth } from '../../../auth/PlatformAuthContext';
 import { secondsUntilExpiry } from '../helpers/platformJwt';
 import { platformFetch } from '../helpers/platformApi';
-import { useOperatorMetadata } from '../helpers/useOperatorMetadata';
+import { usePlatformMetadata } from '../PlatformMetadataContext';
 import { maskEmail } from '../helpers/maskEmail';
 
 const SESSION_EXPIRED_TOAST_KEY = 'fabt.platform.toast.session-expired';
@@ -42,7 +42,7 @@ function countdownColor(seconds: number): string {
 
 export function PlatformOperatorBanner() {
   const { jwt, logout } = usePlatformAuth();
-  const { data: operator, anonymized } = useOperatorMetadata();
+  const { data: operator, anonymized } = usePlatformMetadata();
   const [secondsLeft, setSecondsLeft] = useState<number>(() => secondsUntilExpiry(jwt));
 
   // J2: if /me returned 410, force logout. This is a distinct UX from

@@ -5,22 +5,29 @@
  *
  * Reached after successful login + MFA verify. Renders:
  *   - Page header with operator email + last-login + MFA-enrolled date
- *     + backup-codes-remaining badge (color-coded amber@3 / red@1)
+ *     + backup-codes-remaining badge (color-coded amber@3 / red@1, with
+ *     a text urgency label so the warning is conveyed without color —
+ *     WCAG 1.4.1)
  *   - Action cards grouped by category (Tenant Lifecycle, Operator
  *     Management, System Status), driven by the `platformActions.ts`
  *     config so adding new actions is a one-line config change
  *   - Lifecycle actions disabled with tooltip when the
  *     `fabt.tenant.lifecycle.enabled` flag is off (per design D3)
- *   - Destructive actions go through ConfirmActionModal with
- *     typed-slug confirmation (per design D10)
  *
  * Heading hierarchy h1 / h2 / h3 per warroom round 2 (Sam) — supports
  * screen-reader heading navigation.
+ *
+ * Round 7 fixes (warroom): the prior version mounted a
+ * {@link ConfirmActionModal} with `expectedSlug: ''` (typed-slug bypass)
+ * and a no-op `onConfirm` (silent-success timebomb). With all destructive
+ * cards flag-gated disabled in v0.54, the modal never legitimately
+ * fires — so we remove the wiring entirely. Slice E will re-introduce
+ * the destructive flow with a real `expectedSlug` (the tenant slug the
+ * operator is acting on) and a real POST handler.
  */
 
-import { useState } from 'react';
 import { color } from '../../theme/colors';
-import { useOperatorMetadata } from './helpers/useOperatorMetadata';
+import { usePlatformMetadata } from './PlatformMetadataContext';
 import {
   CATEGORY_LABELS,
   CATEGORY_ORDER,
@@ -29,7 +36,7 @@ import {
   type PlatformAction,
 } from './platformActions';
 import { PlatformActionCard } from './components/PlatformActionCard';
-import { ConfirmActionModal } from './components/ConfirmActionModal';
+import { PLATFORM_OPERATOR_USER_GUIDE_URL } from './constants';
 
 /**
  * Spring property `fabt.tenant.lifecycle.enabled` is currently NOT
@@ -48,10 +55,15 @@ function actionEnabled(action: PlatformAction): boolean {
   return true;
 }
 
-function backupCodesBadgeColor(remaining: number): string {
-  if (remaining <= 1) return color.error;
-  if (remaining <= 3) return color.warning;
-  return color.successMid;
+interface BackupCodesUrgency {
+  background: string;
+  label: string;
+}
+
+function backupCodesUrgency(remaining: number): BackupCodesUrgency {
+  if (remaining <= 1) return { background: color.error, label: 'Critical' };
+  if (remaining <= 3) return { background: color.warning, label: 'Low' };
+  return { background: color.successMid, label: 'Healthy' };
 }
 
 function formatTimestamp(iso: string | null | undefined): string {
@@ -64,29 +76,51 @@ function formatTimestamp(iso: string | null | undefined): string {
 }
 
 export default function PlatformDashboard() {
-  const { data: operator, loading } = useOperatorMetadata();
-  const [pendingDestructive, setPendingDestructive] = useState<PlatformAction | null>(null);
+  const { data: operator, loading } = usePlatformMetadata();
 
   const handleActivate = (action: PlatformAction) => {
+    // v0.54 ground truth: the only enabled cards in this deployment are
+    // safe + permitAll (`/actuator/health`, `/api/v1/version`) — both
+    // open cleanly in a new tab without an Authorization header. All
+    // other actions are flag-gated disabled, so this branch is the only
+    // one that ever fires. Slice E adds an in-page result viewer +
+    // destructive-action POST handler.
+    //
+    // Round 8 N1: defensive guard so a future flag-flip on Slice E
+    // can't silently mis-fire. `window.open` would issue a navigation
+    // GET against a destructive POST/DELETE endpoint and return 405
+    // in a new tab with no audit trail. Throw loudly so the broken
+    // state is visible in monitoring + console immediately rather
+    // than 3am-paged.
     if (action.dangerLevel === 'destructive') {
-      setPendingDestructive(action);
-    } else {
-      // Safe actions just open the endpoint in a new tab. v0.54 doesn't
-      // ship inline result rendering — operator clicks "List tenants"
-      // and gets the JSON in a new tab. Slice E adds a real result UI.
-      window.open(action.endpoint, '_blank', 'noopener,noreferrer');
+      const msg =
+        `PlatformDashboard: destructive action "${action.id}" is not wired ` +
+        `for activation in v0.54. The flag-gate must remain false until ` +
+        `Slice E ships the typed-confirmation modal + POST handler.`;
+      if (typeof console !== 'undefined') {
+        console.error(msg);
+      }
+      throw new Error(msg);
     }
+    // Same defense for safe actions whose endpoint requires auth — the
+    // new-tab navigation strips the Authorization header and the
+    // operator would see a 401 JSON body in the new tab. Today no
+    // such action is enabled (tenant-list is flag-gated; system-* are
+    // permitAll), but Slice E may add new entries; refuse early.
+    if (action.flagGate) {
+      const msg =
+        `PlatformDashboard: action "${action.id}" has a flagGate but reached ` +
+        `handleActivate. Flag-gated actions should remain disabled in v0.54.`;
+      if (typeof console !== 'undefined') {
+        console.error(msg);
+      }
+      throw new Error(msg);
+    }
+    window.open(action.endpoint, '_blank', 'noopener,noreferrer');
   };
 
-  const handleConfirmDestructive = () => {
-    // v0.54 ships the dashboard with destructive cards DISABLED via the
-    // flag gate (lifecycle endpoints land behind the flag in v0.55+).
-    // The confirm flow exists for when operators have tenant-id-bound
-    // tooling running OR for the manual psql break-glass that Phase H+
-    // operator runbook references. For now the modal closes without
-    // submitting; the F43 follow-up wires the actual POST.
-    setPendingDestructive(null);
-  };
+  const backupCodes = operator?.backupCodesRemaining ?? null;
+  const urgency = backupCodes !== null ? backupCodesUrgency(backupCodes) : null;
 
   return (
     <main
@@ -98,6 +132,27 @@ export default function PlatformDashboard() {
       data-testid="platform-dashboard-main"
     >
       <h1 style={{ fontSize: '1.5rem' }}>Platform Operator Dashboard</h1>
+      {/* §7.3 — first-time help link to the user guide. URL pinned in
+          constants.ts so a future doc-tree move only needs one edit. */}
+      <p
+        style={{
+          margin: '0.25rem 0 1rem',
+          fontSize: '0.875rem',
+          color: color.textSecondary,
+        }}
+      >
+        First time? See the{' '}
+        <a
+          href={PLATFORM_OPERATOR_USER_GUIDE_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          data-testid="platform-dashboard-user-guide-link"
+          style={{ color: color.primaryText }}
+        >
+          Platform Operator User Guide
+        </a>
+        .
+      </p>
 
       {/* Header: operator metadata. Loading and 410 are handled by the
           banner above; this section just renders what we have. */}
@@ -159,10 +214,19 @@ export default function PlatformDashboard() {
                 borderRadius: '4px',
                 fontWeight: 600,
                 color: color.textInverse,
-                backgroundColor: backupCodesBadgeColor(operator?.backupCodesRemaining ?? 10),
+                backgroundColor: urgency?.background ?? color.successMid,
               }}
             >
-              {operator?.backupCodesRemaining ?? '—'} remaining
+              {backupCodes ?? '—'} remaining
+              {urgency && (
+                /* WCAG 1.4.1 — backup-codes urgency must not be
+                   conveyed by color alone. The text label
+                   (Healthy / Low / Critical) is the non-color signal. */
+                <span data-testid="platform-dashboard-backup-codes-urgency">
+                  {' · '}
+                  {urgency.label}
+                </span>
+              )}
             </span>
           </div>
         </section>
@@ -175,26 +239,6 @@ export default function PlatformDashboard() {
           onActivate={handleActivate}
         />
       ))}
-
-      <ConfirmActionModal
-        open={!!pendingDestructive}
-        variant={
-          pendingDestructive
-            ? {
-                kind: 'destructive',
-                expectedSlug: '',
-                actionLabel: pendingDestructive.title,
-              }
-            : { kind: 'destructive', expectedSlug: '', actionLabel: '' }
-        }
-        body={
-          pendingDestructive
-            ? `Confirm: ${pendingDestructive.title}. ${pendingDestructive.description}`
-            : undefined
-        }
-        onCancel={() => setPendingDestructive(null)}
-        onConfirm={handleConfirmDestructive}
-      />
     </main>
   );
 }
@@ -248,7 +292,8 @@ function CategorySection({
           }}
         >
           Operator self-management coming v0.55 — until then, operator
-          additions go through the documented psql bootstrap procedure.
+          additions go through the documented psql bootstrap procedure
+          in the platform-operator runbook.
         </p>
       </section>
     );

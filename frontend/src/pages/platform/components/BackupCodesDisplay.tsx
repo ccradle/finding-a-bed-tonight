@@ -10,9 +10,19 @@
  * my backup codes." Print + Copy each go through ConfirmActionModal.
  *
  * After Continue, the parent transitions away (typically to dashboard);
- * the Cache-Control: no-store header on /auth/platform/mfa-confirm (set
- * by the backend) prevents the browser back-button from re-rendering
+ * the Cache-Control: no-store header on /auth/platform/mfa-setup (set
+ * by the backend — the codes are returned in the /mfa-setup response,
+ * NOT /mfa-confirm) prevents the browser back-button from re-rendering
  * the codes via cached response.
+ *
+ * F11 §5.3 — NO client-side analytics, no Sentry / observability
+ * breadcrumb, no console.log, no `fetch` to anything but the local
+ * platform endpoints. Marcus condition #3 prohibits emitting code
+ * material into ANY downstream telemetry surface. If you are adding
+ * a third-party SDK to this codebase, audit its event handlers for
+ * implicit DOM scraping (e.g. session-replay tools that capture
+ * `<input>` values) and ensure this component's subtree is excluded
+ * via the SDK's redaction-class or `data-private` convention.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';

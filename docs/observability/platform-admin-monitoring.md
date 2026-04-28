@@ -24,6 +24,12 @@ building when an observability pass lands (Phase H+).
 | `fabt.platform.action.without_justification` | `action` (the `AuditEventType` of the would-be platform action) | `PlatformAdminLogger.aroundPlatformAdminOnly` | Defense-in-depth: aspect saw a request without `X-Platform-Justification`. Should always be 0 — non-zero means `JustificationValidationFilter` is offline / mis-ordered. |
 | `fabt.platform.admin.action` | `action`, `outcome` ∈ {committed, method_failed_after_audit, aspect_failed} | `PlatformAdminLogger.emitMetric` (G-4.3) | Per-action audit-write outcome; existing G-4.3 metric, listed here for completeness. |
 
+### Counters added in v0.54 (F11 §5.1)
+
+| Metric | Tags | Source | When it fires |
+|---|---|---|---|
+| `fabt.platform.mfa.verify` | `outcome` ∈ {success, failure} | `PlatformAuthService.verifyMfaWithState` | Every MFA-verify attempt: increments success on TOTP-or-backup-code accept; increments failure on any rejection (no enrollment, replay, bad TOTP, bad backup code, including the just-now-locked-out branch). Drives `FabtPlatformMfaFailureSpike` warning alert. |
+
 ### Log MDC marker
 
 All log lines emitted during a `@PlatformAdminOnly` invocation carry
@@ -53,13 +59,32 @@ psql pattern from `docs/security/dv-incident-response.md` step 3
 
 ---
 
-## Active alert rules (phase-g-platform-admin.rules.yml)
+## Active alert rules
+
+### `phase-g-platform-admin.rules.yml` (G-4.5)
 
 | Alert | Severity | Threshold | Runbook anchor |
 |---|---|---|---|
 | `FabtPlatformLoginFailureBurst` | warning | rate > 5/min sustained 2 min | This file → "Login failure burst" |
 | `FabtPlatformUserLockedOut` | info | rate > 0 over 5 min | This file → "Account lockout" |
 | `FabtPlatformActionWithoutJustification` | critical | rate > 0 over 5 min | This file → "Filter chain broken" |
+
+### `f11-platform-operator-ui.rules.yml` (F11 §5.4 v0.54)
+
+| Alert | Severity | Threshold | Runbook anchor |
+|---|---|---|---|
+| `FabtPlatformMfaFailureSpike` | warning | mfa-verify failure rate > 1/min sustained 5 min | Below → "MFA failure spike" |
+| `FabtPlatformBackend5xx` | critical | any 5xx on `/api/v1/auth/platform/*` over 2 min | Below → "Backend 5xx storm" |
+
+F11 §5.4 originally listed a third alert `PlatformLockoutTriggered`
+at severity=critical/page. The existing G-4.5 rule
+`FabtPlatformUserLockedOut` (above) ALREADY fires on the same
+counter at severity=info, with a documented rationale that a single
+lockout is not page-grade (auto-clears via cron, manual unlock
+available via `platform_user_reset_to_bootstrap`). F11 adopts the
+existing rule rather than duplicating with critical severity. See
+the comment block at the top of `f11-platform-operator-ui.rules.yml`
+for the trade-off discussion.
 
 The fourth spec'd alert — `FabtPlatformUserDelayedActivation` — is
 deferred to F28 because it requires a new SECURITY DEFINER function
@@ -129,7 +154,33 @@ sum by (action) (rate(fabt_platform_action_without_justification_total[1h])) * 3
 value means `JustificationValidationFilter` is offline — pair with
 the `FabtPlatformActionWithoutJustification` critical alert.
 
-### Panel 6 — DV-defense bridge (cross-reference)
+### Panel 6a — Platform MFA-verify outcome rate (F11 §5.2)
+```promql
+sum by (outcome) (rate(fabt_platform_mfa_verify_total[5m])) * 60
+```
+**Visualization:** dual-line (success / failure) over a 24h window.
+Sustained failure rate above 1/min triggers the new
+`FabtPlatformMfaFailureSpike` warning alert (see
+`f11-platform-operator-ui.rules.yml`). Healthy baseline: near-zero
+failure with occasional success spikes when an operator logs in.
+
+### Panel 6b — Platform-operator backend HTTP status (F11 §5.2)
+```promql
+sum by (uri, status) (
+  rate(http_server_requests_seconds_count{
+    uri=~"/api/v1/auth/platform/.*"
+  }[5m])
+) * 60
+```
+**Visualization:** stacked area chart by `(uri, status)`. The 5xx
+band should be flat-zero in steady state; any non-zero band drives
+the `FabtPlatformBackend5xx` critical alert. The 401 / 403 bands are
+expected non-zero (auth-flow rejection signals) but should NOT
+correlate with operator-reported login failures — if 4xx spikes
+without operator reports, suspect a route mis-config or filter chain
+issue.
+
+### Panel 7 — DV-defense bridge (cross-reference)
 ```promql
 sum by (source_ip) (rate(fabt_dv_referrals_created_total[5m])) * 60
 ```
@@ -163,4 +214,65 @@ Save as `infra/grafana/dashboards/platform-admin.json`. Structure:
 
 The skeleton is intentionally not committed yet — Grafana JSON is
 verbose, version-controlled separately when we have a Grafana
-instance to source-of-truth against.
+instance to source-of-truth against. F11 panel additions (6a, 6b)
+follow the same convention — the PromQL above is the source of
+truth; a JSON commit will land alongside the first Grafana
+provisioning pass.
+
+---
+
+## Runbook anchors — F11 alerts
+
+### MFA failure spike (`FabtPlatformMfaFailureSpike`, warning)
+
+**What it means:** Platform-operator MFA-verify failures running
+above 1/min averaged over 5 min. Could be brute-force against an
+operator whose password is already compromised (MFA is the last
+gate), an operator cycling backup codes incorrectly during
+lost-phone, or device-clock skew pushing TOTP windows out of sync.
+
+**Triage:**
+1. Pull operator's current backup-code count via /me or psql:
+   ```sql
+   SELECT id, email, backup_code_remaining_count FROM platform_user;
+   ```
+2. If the operator confirms lost-phone: walk them through backup-
+   code use (8-char codes; one-shot; switching to backup mode in
+   `/platform/mfa-verify` is the same form input).
+3. If clock skew suspected: check NTP on operator's device. TOTP
+   tolerates ±30s skew per `TotpService` config.
+4. If brute-force suspected: rotate the operator's password
+   out-of-band. Per existing `FabtPlatformUserLockedOut`, if the
+   bucket fills, that info-level alert will fire separately and
+   confirm.
+
+### Backend 5xx storm (`FabtPlatformBackend5xx`, critical)
+
+**What it means:** One or more `/api/v1/auth/platform/*` endpoints
+returned a 5xx in the last 2 minutes. Platform operators are
+typically 1-3 people company-wide and CANNOT self-recover from a
+backend error — this is page-grade.
+
+**Common causes:**
+- (a) Postgres unreachable / connection pool exhausted. Check
+  `fabt_db_connections_active` gauge.
+- (b) Flyway migration in flight blocking a SECURITY DEFINER
+  function. Check `/actuator/flyway`.
+- (c) PlatformAuthService bean failed to wire (NPE on startup
+  cascading to a 500). Check backend.log for "PlatformAuthService"
+  + Spring Boot startup banner.
+
+**Triage:**
+1. Pull the affected URI:
+   ```promql
+   sum by (uri) (
+     rate(http_server_requests_seconds_count{
+       uri=~"/api/v1/auth/platform/.*",status=~"5.."
+     }[5m])
+   )
+   ```
+2. Pull the corresponding stack trace from backend.log filtered on
+   `platform_action=true`.
+3. Operator-visible UX is a generic "Couldn't reach server" toast on
+   the SPA. They may retry; if persistent, escalate to on-call
+   backend engineer.

@@ -1,0 +1,153 @@
+# Prometheus alert rules — F11 §5.4 Platform-operator UI v0.54.
+#
+# Mount into the same Prometheus instance that loads
+# phase-g-platform-admin.rules.yml:
+#
+#     rule_files:
+#       - /etc/prometheus/rules/f11-platform-operator-ui.rules.yml
+#
+# Backing metrics introduced or used by F11:
+#   * fabt.platform.mfa.verify{outcome=success|failure}  — Counter,
+#       PlatformAuthService (added by F11 §5.1). Drives the
+#       FabtPlatformMfaFailureSpike alert below.
+#   * http.server.requests.count{uri=~"/api/v1/auth/platform/.*",status} —
+#       Spring Boot Actuator default; drives FabtPlatformBackend5xx.
+#
+# Lockout coverage note: F11 §5.4 originally requested a third alert
+# `PlatformLockoutTriggered` with severity=critical/page. The existing
+# G-4.5 rule {@code FabtPlatformUserLockedOut} (in
+# phase-g-platform-admin.rules.yml) ALREADY fires on the same
+# {@code fabt.platform.user.locked_out} counter at severity=info, with
+# a documented rationale that a single lockout is not page-grade
+# (auto-clears via cron, manual unlock available). F11 adopts the
+# existing rule rather than duplicating with critical severity — the
+# G-4.5 design decision came after the F11 spec text was written.
+# See F11 design.md Decision D14 for the trade-off discussion.
+#
+# Cardinality posture: both metrics here are bounded.
+#   * mfa.verify: 2 outcomes × 1 = 2 series.
+#   * Actuator http.server.requests: ~6 platform URIs × 5 status families
+#       = ≤30 series in steady state. The expr filters to status=~"5.."
+#       so only the failure subset is alerted on.
+#
+# Companion runbook: docs/observability/platform-admin-monitoring.md
+# (extends the G-4.5 runbook with the F11 surfaces).
+
+groups:
+  - name: fabt_f11_platform_operator_ui
+    interval: 30s
+    rules:
+
+      # ---- WARN — sustained MFA-verify failure rate ------------------
+      # Legitimate operators fail MFA occasionally (mistyped digit, code
+      # rotation race). Sustained failure rate above 1/min over 5 min is
+      # well above mistake-rate baseline and indicates either:
+      #   (a) Brute-force against an operator who passed password gate
+      #       (i.e. password is leaked, MFA is the last barrier).
+      #   (b) Operator lost-phone scenario where they're cycling backup
+      #       codes incorrectly — operator-visible signal but not
+      #       attack-grade.
+      # Both warrant warning-level paging so a human triages within ~15
+      # min. Critical-page is reserved for actual lockout (covered by
+      # G-4.5's FabtPlatformUserLockedOut) and 5xx storms (below).
+      #
+      # Threshold rationale: 1/min sustained over 5 min = 5 failures
+      # over 5 min. The MFA bucket4j throttle is 5 fails / 15 min per
+      # account; this alert fires BEFORE the lockout transition, giving
+      # the on-call a chance to act preemptively.
+      - alert: FabtPlatformMfaFailureSpike
+        # env="prod" filter mirrors phase-g-chain-verify pattern — CI
+        # platform-totp-lockout.spec.ts intentionally exhausts the MFA
+        # bucket and would false-page without this label.
+        expr: |
+          sum(
+            rate(fabt_platform_mfa_verify_total{env="prod",outcome="failure"}[5m])
+          ) * 60 > 1
+        for: 5m
+        labels:
+          severity: warning
+          surface: f11-platform-operator-ui
+          runbook: docs/observability/platform-admin-monitoring.md
+        annotations:
+          summary: "Platform MFA-verify failure rate {{ $value | humanize }}/min sustained 5min"
+          description: |
+            Platform-operator MFA-verify failures are running at
+            {{ $value | humanize }} per minute averaged over 5 minutes —
+            above the mistake-rate baseline. Possible causes:
+              (a) Brute-force against an operator whose password is
+                  already compromised; MFA is the last gate.
+              (b) Operator lost their phone and is mistyping backup
+                  codes faster than usual.
+              (c) Time-skew on the operator's device pushing TOTP
+                  windows out of sync.
+
+            Triage:
+            1. Check operator's backup-code remaining count via the
+               dashboard /me endpoint or psql:
+                 SELECT id, email, backup_code_remaining_count
+                 FROM platform_user;
+            2. Check NTP / clock-skew on the operator's device if (c)
+               is suspected (TOTP allows ±30s tolerance per spec).
+            3. If (a) is suspected: rotate the operator's password
+               out-of-band before the lockout fires. Per G-4.5
+               FabtPlatformUserLockedOut, if lockout DOES fire it will
+               surface as a separate info alert.
+
+      # ---- CRITICAL — any 5xx response from a /platform endpoint -----
+      # Backend errors on the platform-operator surface are ALWAYS
+      # operator-blocking — there are typically 1-3 platform operators
+      # company-wide and they cannot self-heal a 500 like a tenant user
+      # could (no support channel except direct engineering ping).
+      # A single 5xx within a 2-min window pages because the cost of a
+      # false page (low; rare endpoint) is far less than the cost of a
+      # silent-down auth surface during a tenant lifecycle incident.
+      #
+      # Threshold: any non-zero rate in 2 min. Tighter than typical 5xx
+      # alerts (which usually require >1% error rate) because these
+      # endpoints are very-low-traffic — even one error is signal.
+      - alert: FabtPlatformBackend5xx
+        expr: |
+          sum(
+            rate(http_server_requests_seconds_count{
+              env="prod",
+              uri=~"/api/v1/auth/platform/.*",
+              status=~"5.."
+            }[2m])
+          ) > 0
+        for: 2m
+        labels:
+          severity: critical
+          surface: f11-platform-operator-ui
+          runbook: docs/observability/platform-admin-monitoring.md
+        annotations:
+          summary: "Platform-operator backend returning 5xx — {{ $value | humanize }}/sec"
+          description: |
+            One or more /api/v1/auth/platform/* endpoints returned a 5xx
+            response within the last 2 minutes. Platform operators
+            cannot self-recover from a backend error — this is
+            page-grade.
+
+            Common causes:
+              (a) Database unreachable (Postgres restart / connection
+                  pool exhaustion). Cross-check
+                  fabt_db_connections_active gauge.
+              (b) Flyway migration in flight blocking a SECURITY
+                  DEFINER function. Check Flyway HWM via
+                  /actuator/flyway.
+              (c) PlatformAuthService bean failed to wire (NPE on
+                  startup that fell through to a 500 instead of a
+                  502). Check backend logs for "PlatformAuthService"
+                  + Spring Boot startup banner.
+
+            Triage:
+            1. Pull the affected URI label off the rate vector:
+                 sum by (uri) (
+                   rate(http_server_requests_seconds_count{
+                     uri=~"/api/v1/auth/platform/.*",status=~"5.."
+                   }[5m])
+                 )
+            2. Pull the corresponding stack trace from backend.log.
+            3. If (a)/(b): operator-visible UX is a generic
+               "Couldn't reach server" toast on the SPA. Operator may
+               retry; if persistent, escalate to on-call backend
+               engineer.

@@ -289,6 +289,43 @@ class PlatformAuthControllerMeTest extends BaseIntegrationTest {
         }
     }
 
+    @Test
+    @DisplayName("F11 §6.3 — /mfa-setup response carries Cache-Control: no-store")
+    void mfaSetupResponseHasNoStoreCacheControl() {
+        // Plaintext backup codes ship in this response. Without
+        // Cache-Control: no-store, the browser back-button (or a
+        // caching proxy) could resurrect the codes after the operator
+        // navigated away. The header set ALSO covers the warroom
+        // round-12 user-guide claim that the no-store header exists.
+        ResponseEntity<Map> login = restTemplate.postForEntity(
+                "/api/v1/auth/platform/login",
+                Map.of("email", OPERATOR_EMAIL, "password", OPERATOR_PASSWORD),
+                Map.class);
+        assertThat(login.getStatusCode()).isEqualTo(HttpStatus.OK);
+        String setupToken = (String) login.getBody().get("token");
+
+        HttpHeaders setupHeaders = new HttpHeaders();
+        setupHeaders.setBearerAuth(setupToken);
+        ResponseEntity<Map> setup = restTemplate.exchange(
+                "/api/v1/auth/platform/mfa-setup",
+                HttpMethod.POST,
+                new HttpEntity<>(null, setupHeaders),
+                Map.class);
+
+        assertThat(setup.getStatusCode()).isEqualTo(HttpStatus.OK);
+        // Spring's HttpHeaders treats "Cache-Control" case-insensitively;
+        // we test the canonical form.
+        String cacheControl = setup.getHeaders().getFirst("Cache-Control");
+        assertThat(cacheControl)
+                .as("Cache-Control header must be set on /mfa-setup response")
+                .isNotNull();
+        assertThat(cacheControl).contains("no-store");
+        // Belt-and-braces directives the controller sets for legacy
+        // proxies (Pragma + Expires).
+        assertThat(setup.getHeaders().getFirst("Pragma")).isEqualTo("no-cache");
+        assertThat(setup.getHeaders().getFirst("Expires")).isEqualTo("0");
+    }
+
     // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------

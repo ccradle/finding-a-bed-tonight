@@ -113,6 +113,15 @@ public class PlatformAuthService {
     private final Counter userLockedOutCount;
 
     /**
+     * F11 §5.1 — per-outcome MFA-verify counter (success | failure).
+     * Drives the {@code FabtPlatformMfaFailureSpike} alert (rate > 1/min
+     * sustained 5min). Bounded cardinality (2 outcomes); safe to keep
+     * raw labels. Built once at construction; per-call lookup avoided.
+     */
+    private final Counter mfaVerifySuccess;
+    private final Counter mfaVerifyFailure;
+
+    /**
      * Decoy bcrypt hash used to equalize timing on the "bad email" /
      * "account locked" rejection paths (warroom M2). The decoy is generated
      * at construction time over a random secret no caller will ever know;
@@ -150,6 +159,10 @@ public class PlatformAuthService {
                 .tag("reason", "mfa_disabled").register(meterRegistry);
         this.userLockedOutCount = Counter.builder("fabt.platform.user.locked_out")
                 .register(meterRegistry);
+        this.mfaVerifySuccess = Counter.builder("fabt.platform.mfa.verify")
+                .tag("outcome", "success").register(meterRegistry);
+        this.mfaVerifyFailure = Counter.builder("fabt.platform.mfa.verify")
+                .tag("outcome", "failure").register(meterRegistry);
     }
 
     /**
@@ -314,11 +327,13 @@ public class PlatformAuthService {
             userRepository.recordTotpUse(userId, code);
             userRepository.clearFailures(userId);
             userRepository.recordLogin(userId);
+            mfaVerifySuccess.increment();
             return new VerifyMfaResult(true, false, LOCKOUT_THRESHOLD);
         }
         if (verifyBackupCode(userId, code)) {
             userRepository.clearFailures(userId);
             userRepository.recordLogin(userId);
+            mfaVerifySuccess.increment();
             return new VerifyMfaResult(true, false, LOCKOUT_THRESHOLD);
         }
         return failureWithState(userId);
@@ -335,6 +350,13 @@ public class PlatformAuthService {
     }
 
     private VerifyMfaResult failureWithState(UUID userId) {
+        // F11 §5.1 — bump the per-outcome counter regardless of which
+        // failure branch led here (no MFA enrolled, replay, bad code,
+        // bad backup code). Granular reasons are already captured in
+        // log + audit; the metric stays at the outcome-only level
+        // because the alert (FabtPlatformMfaFailureSpike) cares about
+        // sustained failure rate, not per-reason cardinality.
+        mfaVerifyFailure.increment();
         PlatformUserRepository.RecordFailureState state =
                 userRepository.recordFailureWithState(
                         userId, LOCKOUT_WINDOW_MIN, LOCKOUT_THRESHOLD);
