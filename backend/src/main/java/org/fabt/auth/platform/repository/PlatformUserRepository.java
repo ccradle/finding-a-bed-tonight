@@ -192,6 +192,25 @@ public class PlatformUserRepository {
         return Boolean.TRUE.equals(result);
     }
 
+    /**
+     * Extended variant of {@link #recordFailure} that returns the failure
+     * state the F11 PlatformMfaVerify SPA needs to render attempts-remaining
+     * + account-locked copy. See V90 migration
+     * {@code platform_user_record_failure_with_state}.
+     */
+    public RecordFailureState recordFailureWithState(UUID userId, int windowMin, int threshold) {
+        // Caller side: jdbc.queryForObject with the function's TABLE return.
+        // Column names use `out_` prefix to avoid shadowing platform_user
+        // columns inside the SECURITY DEFINER body (see V90 comment).
+        return jdbc.queryForObject(
+                "SELECT * FROM platform_user_record_failure_with_state(?, ?, ?)",
+                (rs, rowNum) -> new RecordFailureState(
+                        rs.getBoolean("out_now_locked"),
+                        rs.getBoolean("out_account_locked"),
+                        rs.getInt("out_attempts_used")),
+                userId, windowMin, threshold);
+    }
+
     /** Clears the failure window on a successful authentication. */
     public void clearFailures(UUID userId) {
         // queryForObject (not update) for void-returning SELECT — see recordLogin.
@@ -272,6 +291,24 @@ public class PlatformUserRepository {
      * with the row's salt, compare to {@code codeHash}.
      */
     public record BackupCodeRow(UUID id, String codeHash, byte[] codeSalt) {
+    }
+
+    /**
+     * Result of {@link #recordFailureWithState}.
+     *
+     * <ul>
+     *   <li>{@code nowLocked} — true ONLY on the failure that triggered the
+     *       lockout transition. False on subsequent attempts after lockout
+     *       AND on attempts before threshold is reached.
+     *   <li>{@code accountLocked} — current {@code account_locked} flag
+     *       AFTER this failure. True both for "just locked this attempt"
+     *       and "already locked from a prior attempt."
+     *   <li>{@code attemptsUsed} — count of attempts in the current rolling
+     *       window after this failure was recorded. Used by the SPA to
+     *       compute {@code attemptsRemaining = max(0, threshold - attemptsUsed)}.
+     * </ul>
+     */
+    public record RecordFailureState(boolean nowLocked, boolean accountLocked, int attemptsUsed) {
     }
 
     /**

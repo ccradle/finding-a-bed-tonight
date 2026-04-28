@@ -17,7 +17,7 @@
  *     - clears sessionStorage + redirects to /platform/login
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { color } from '../../../theme/colors';
 import { usePlatformAuth } from '../../../auth/PlatformAuthContext';
 import { secondsUntilExpiry } from '../helpers/platformJwt';
@@ -42,8 +42,23 @@ function countdownColor(seconds: number): string {
 
 export function PlatformOperatorBanner() {
   const { jwt, logout } = usePlatformAuth();
-  const { data: operator } = useOperatorMetadata();
+  const { data: operator, anonymized } = useOperatorMetadata();
   const [secondsLeft, setSecondsLeft] = useState<number>(() => secondsUntilExpiry(jwt));
+
+  // J2: if /me returned 410, force logout. This is a distinct UX from
+  // session-expired — the operator's row is anonymized, so re-login
+  // would also fail. Surface a one-time toast on the way out via the
+  // session-expired toast key (operator-facing copy is identical at
+  // this layer; the difference matters only for the SPA flow).
+  useEffect(() => {
+    if (anonymized) {
+      logout();
+      window.location.href = '/platform/login';
+    }
+  }, [anonymized, logout]);
+  // M1: gate the tick-zero redirect so subsequent ticks don't re-fire
+  // logout + window.location racing the platformFetch 401 handler.
+  const redirectFiredRef = useRef(false);
 
   // Tick the countdown every 1s. Cheap (single setInterval per banner
   // instance) and the spec requires per-second update. The session
@@ -54,7 +69,8 @@ export function PlatformOperatorBanner() {
     const tick = () => {
       const remaining = secondsUntilExpiry(jwt);
       setSecondsLeft(remaining);
-      if (remaining <= 0) {
+      if (remaining <= 0 && !redirectFiredRef.current) {
+        redirectFiredRef.current = true;
         sessionStorage.setItem(SESSION_EXPIRED_TOAST_KEY, 'true');
         logout();
         window.location.href = '/platform/login';
@@ -101,8 +117,13 @@ export function PlatformOperatorBanner() {
         )}
       </span>
       <span style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+        {/* S5: aria-live="polite" announces the entire countdown text
+            every second to screen readers (~14 minutes of noise). Only
+            announce when the threshold crosses into the urgent window
+            (≤2min) so AT users get the warning once, not the whole
+            countdown. The visual color change still happens every tick. */}
         <span
-          aria-live="polite"
+          aria-live={secondsLeft <= 120 ? 'polite' : 'off'}
           style={{ color: countdownColor(secondsLeft), fontVariantNumeric: 'tabular-nums' }}
           data-testid="platform-banner-countdown"
         >

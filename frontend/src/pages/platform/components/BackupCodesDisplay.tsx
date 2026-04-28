@@ -15,7 +15,7 @@
  * the codes via cached response.
  */
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { color } from '../../../theme/colors';
 import { ConfirmActionModal } from './ConfirmActionModal';
 import { PrintFriendlyCodes } from './PrintFriendlyCodes';
@@ -34,6 +34,14 @@ export function BackupCodesDisplay({ codes, onContinue }: Props) {
   const [printOpen, setPrintOpen] = useState(false);
   const [copyOpen, setCopyOpen] = useState(false);
   const [copyToast, setCopyToast] = useState(false);
+  // M3: surface clipboard-write failures as an inline error instead of
+  // silently swallowing — operator clicks Copy, sees nothing, gives up.
+  const [copyError, setCopyError] = useState<string | null>(null);
+  // M2/S1: track the auto-clear timer ID so a second Copy click cancels
+  // the first timer (otherwise the first 30s timer would fire later and
+  // wipe whatever the operator copied next — password manager paste,
+  // different password, etc.). Also cleared on unmount.
+  const clearTimerRef = useRef<number | null>(null);
 
   // Print-friendly markup is conditionally added to the DOM only while
   // print is invoked, then removed. Done here (not as a sibling component)
@@ -41,40 +49,69 @@ export function BackupCodesDisplay({ codes, onContinue }: Props) {
   const [readyToPrint, setReadyToPrint] = useState(false);
   useEffect(() => {
     if (!readyToPrint) return;
-    // Defer one frame so the print-friendly DOM mounts before window.print
-    // captures.
+    // M4 (Safari async print): use the `afterprint` event to know when
+    // to tear down the print-friendly DOM. window.print() is synchronous
+    // on Chrome/Firefox but asynchronous on Safari (returns immediately
+    // while the system dialog is still open). Pre-fix: we removed the
+    // print DOM right after window.print() returned, which on Safari
+    // happened BEFORE the spooler captured.
+    const onAfterPrint = () => setReadyToPrint(false);
+    window.addEventListener('afterprint', onAfterPrint);
+    // Defer one frame so the print-friendly DOM mounts + the @media
+    // print stylesheet attaches before window.print() captures.
     const id = window.setTimeout(() => {
       window.print();
-      setReadyToPrint(false);
     }, 50);
-    return () => window.clearTimeout(id);
+    return () => {
+      window.clearTimeout(id);
+      window.removeEventListener('afterprint', onAfterPrint);
+    };
   }, [readyToPrint]);
+
+  // M2/S1: cancel any in-flight clipboard-clear timer on unmount.
+  useEffect(() => {
+    return () => {
+      if (clearTimerRef.current !== null) {
+        window.clearTimeout(clearTimerRef.current);
+      }
+    };
+  }, []);
 
   const onPrintConfirm = () => {
     setPrintOpen(false);
     setReadyToPrint(true);
   };
 
-  const onCopyConfirm = async () => {
+  const onCopyConfirm = useCallback(async () => {
     setCopyOpen(false);
+    setCopyError(null);
     try {
       await navigator.clipboard.writeText(codes.join('\n'));
       setCopyToast(true);
-      // Auto-clear clipboard 30s later (warroom Marcus condition for /copy
-      // mirroring print). Fire-and-forget; failures are swallowed (a denied
-      // permission is identical UX to a successful auto-clear).
-      window.setTimeout(() => {
+      // M2/S1: cancel any prior auto-clear timer before scheduling a
+      // new one. Without this guard, a re-copy at t=15s would leave
+      // BOTH timers active; T1 fires at t=30s and wipes whatever the
+      // operator pasted (their password-manager-saved codes, or some
+      // other secret they copied in the interim).
+      if (clearTimerRef.current !== null) {
+        window.clearTimeout(clearTimerRef.current);
+      }
+      clearTimerRef.current = window.setTimeout(() => {
         navigator.clipboard.writeText('').catch(() => {
-          /* ignore */
+          /* ignore — denied permission is a no-op */
         });
         setCopyToast(false);
+        clearTimerRef.current = null;
       }, COPY_AUTO_CLEAR_MS);
     } catch {
-      // Clipboard permission denied or no API — operator must Print or
-      // hand-copy. Surface a small inline error.
-      setCopyToast(false);
+      // M3: surface failure inline so the operator knows to try Print
+      // or hand-copy. Acceptable in dev (clipboard requires HTTPS or
+      // localhost), real surface is a permission denied in prod.
+      setCopyError(
+        'Copy failed — your browser denied clipboard access. Use Print, or copy each code by hand.',
+      );
     }
-  };
+  }, [codes]);
 
   return (
     <>
@@ -151,6 +188,22 @@ export function BackupCodesDisplay({ codes, onContinue }: Props) {
             }}
           >
             Codes copied — clipboard will auto-clear in 30 seconds.
+          </div>
+        )}
+        {copyError && (
+          <div
+            role="alert"
+            data-testid="platform-backup-codes-copy-error"
+            style={{
+              marginTop: '0.75rem',
+              backgroundColor: color.errorBg,
+              color: color.error,
+              padding: '0.5rem 0.75rem',
+              borderRadius: '4px',
+              fontSize: '0.875rem',
+            }}
+          >
+            {copyError}
           </div>
         )}
         <label

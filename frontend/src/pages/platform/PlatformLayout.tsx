@@ -12,17 +12,44 @@
  * login screen is uncluttered.
  */
 
+import { Suspense } from 'react';
 import { Outlet } from 'react-router-dom';
 import { PlatformOperatorBanner } from './components/PlatformOperatorBanner';
 import { usePlatformAuth } from '../../auth/PlatformAuthContext';
 import { color } from '../../theme/colors';
 
+/**
+ * A2 (warroom round 6): the parent App.tsx Suspense covers the layout
+ * chunk only. Once the layout is mounted, nested route chunks (Login,
+ * MfaEnroll, MfaVerify, Placeholder, Dashboard) are still lazy — without
+ * an inner Suspense, React's nearest already-resolved boundary above the
+ * Layout will not re-catch the inner pending-promise → blank screen
+ * (Chrome/Firefox) or thrown error (some React versions). This inner
+ * Suspense wraps the Outlet so cold-load of any nested route shows the
+ * fallback content, not blank.
+ */
 export default function PlatformLayout() {
   const { jwt } = usePlatformAuth();
   return (
     <div style={{ minHeight: '100vh', backgroundColor: color.bg }}>
       {jwt && <PlatformOperatorBanner />}
-      <Outlet />
+      <Suspense
+        fallback={
+          <div
+            role="status"
+            aria-live="polite"
+            style={{
+              padding: '2rem',
+              textAlign: 'center',
+              color: 'var(--color-text-secondary)',
+            }}
+          >
+            Loading…
+          </div>
+        }
+      >
+        <Outlet />
+      </Suspense>
     </div>
   );
 }

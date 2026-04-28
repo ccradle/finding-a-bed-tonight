@@ -111,9 +111,26 @@ public class PlatformAuthController {
                                         @Valid @RequestBody CodeRequest body) {
         PlatformJwtService.PlatformJwtClaims claims = requireScopedToken(
                 authHeader, PlatformJwtService.SCOPE_MFA_VERIFY);
-        if (!authService.verifyMfa(claims.sub(), body.code())) {
+        PlatformAuthService.VerifyMfaResult result =
+                authService.verifyMfaWithState(claims.sub(), body.code());
+        if (!result.success()) {
+            // F11 spec round 3 H7 + warroom round 6 A1: the SPA needs to
+            // distinguish "wrong code, N attempts remaining" from "account
+            // locked, do not retry" so the error UI can render the correct
+            // copy. The {@code error} string drives the SPA's branch:
+            //   account_locked   → "Too many failed attempts. Account locked
+            //                       for 15 minutes…"
+            //   invalid_mfa_code → "Code invalid. N attempts remaining…"
+            // attemptsRemaining is omitted from the locked-out body
+            // (frontend treats it as 0 by branch).
+            if (result.accountLocked()) {
+                return ResponseEntity.status(401)
+                        .body(Map.of("error", "account_locked"));
+            }
             return ResponseEntity.status(401)
-                    .body(Map.of("error", "invalid_mfa_code"));
+                    .body(Map.of(
+                            "error", "invalid_mfa_code",
+                            "attemptsRemaining", result.attemptsRemaining()));
         }
         PlatformUser user = authService.lookupForToken(claims.sub());
         return ResponseEntity.ok(Map.of(

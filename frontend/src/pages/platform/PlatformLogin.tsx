@@ -75,7 +75,11 @@ export default function PlatformLogin() {
       } else {
         navigate('/platform/mfa-verify', { replace: true });
       }
-    } catch {
+    } catch (err) {
+      // J5: log to console for ops diagnostics. CORS rejections look
+      // identical to network failures from the user's POV; without a
+      // log, root-cause is opaque. console.error is CSP-allowed.
+      console.error('Platform login network error', err);
       setErrorMsg("Couldn't reach server. Check your connection and try again.");
     } finally {
       setSubmitting(false);

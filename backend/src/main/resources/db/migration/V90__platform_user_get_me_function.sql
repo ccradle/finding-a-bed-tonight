@@ -172,6 +172,99 @@ COMMENT ON FUNCTION platform_user_restore(UUID) IS
 
 
 -- ---------------------------------------------------------------------------
+-- record_failure_with_state: extended variant of V88 record_failure that
+-- returns the data the F11 PlatformMfaVerify SPA needs to render the
+-- "X attempts remaining before lockout" + "Account locked for 15
+-- minutes" copy from spec round 3 H7.
+--
+-- The V88 record_failure returns a single BOOLEAN (was-this-the-lock
+-- transition), which is sufficient for the audit-log emission path but
+-- not for an SPA error UI. Rather than DROP+CREATE the V88 function
+-- (which would break already-deployed v0.53 backend if it co-exists with
+-- a v0.54 DB during a deploy window), we add a SIBLING function and
+-- migrate the v0.54 service layer to call the new one.
+--
+-- Returned fields:
+--   now_locked    — true ONLY on the failure that triggered lockout
+--                   (same semantic as V88 record_failure boolean)
+--   account_locked — current account_locked flag AFTER this failure;
+--                    distinguishes "just locked" (now_locked=true,
+--                    account_locked=true) from "already locked"
+--                    (now_locked=false, account_locked=true)
+--   attempts_used  — count of attempts in the current rolling window
+--                    AFTER this failure was recorded; the SPA computes
+--                    `attemptsRemaining = max(0, threshold - attempts_used)`
+--
+-- The function also auto-locks at threshold, identical to V88's
+-- contract; the only difference is the richer return type.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION platform_user_record_failure_with_state(
+    p_id          UUID,
+    p_window_min  INT,
+    p_threshold   INT
+)
+RETURNS TABLE (
+    out_now_locked     BOOLEAN,
+    out_account_locked BOOLEAN,
+    out_attempts_used  INTEGER
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $$
+-- OUT-param names use `out_` prefix to avoid name shadowing with the
+-- `account_locked` column on `platform_user` — plpgsql resolves naked
+-- identifiers in DML against OUT params before columns under TABLE
+-- return, which silently broke the UPDATE...RETURNING below until this
+-- test surfaced it as a "bad SQL grammar" runtime error.
+DECLARE
+    v_recent      TIMESTAMPTZ[];
+    v_was_locked  BOOLEAN;
+    v_now_locked  BOOLEAN := false;
+    v_attempts    INTEGER;
+BEGIN
+    UPDATE public.platform_user
+       SET failed_mfa_attempts_at = (
+            SELECT COALESCE(array_agg(t), '{}'::TIMESTAMPTZ[])
+              FROM unnest(failed_mfa_attempts_at || ARRAY[NOW()]) AS t
+             WHERE t > NOW() - make_interval(mins => p_window_min)
+       )
+     WHERE id = p_id AND anonymized_at IS NULL
+    RETURNING failed_mfa_attempts_at, account_locked
+        INTO v_recent, v_was_locked;
+
+    IF v_recent IS NULL THEN
+        -- Row not found / anonymized — surface as "not locked, 0 attempts"
+        -- so the caller's UX is unaffected (the auth flow returns generic
+        -- 401 in this case anyway).
+        out_now_locked := false;
+        out_account_locked := false;
+        out_attempts_used := 0;
+        RETURN NEXT;
+        RETURN;
+    END IF;
+
+    v_attempts := COALESCE(array_length(v_recent, 1), 0);
+
+    IF NOT v_was_locked AND v_attempts >= p_threshold THEN
+        UPDATE public.platform_user
+           SET account_locked = true,
+               locked_out_at  = NOW()
+         WHERE id = p_id;
+        v_now_locked := true;
+        v_was_locked := true;
+    END IF;
+
+    out_now_locked := v_now_locked;
+    out_account_locked := v_was_locked;
+    out_attempts_used := v_attempts;
+    RETURN NEXT;
+END;
+$$;
+GRANT EXECUTE ON FUNCTION platform_user_record_failure_with_state(UUID, INT, INT) TO fabt_app;
+
+
+-- ---------------------------------------------------------------------------
 -- Defensive ownership transfer (mirrors V87 lines 365-379)
 -- ---------------------------------------------------------------------------
 DO $$
@@ -181,6 +274,7 @@ BEGIN
         ALTER FUNCTION platform_user_get_me(UUID) OWNER TO fabt;
         ALTER FUNCTION platform_user_anonymize(UUID) OWNER TO fabt;
         ALTER FUNCTION platform_user_restore(UUID) OWNER TO fabt;
+        ALTER FUNCTION platform_user_record_failure_with_state(UUID, INT, INT) OWNER TO fabt;
     END IF;
 END
 $$;

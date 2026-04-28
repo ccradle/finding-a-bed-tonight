@@ -105,8 +105,8 @@ class MigrationLintTest {
             //   warroom 2026-04-25 (Marcus M1: TOTP replay; Alex A1: atomic MFA setup)
             "V88__platform_user_lockout_columns.sql",
 
-            // V90 — 4 SECURITY DEFINER functions for the F11 platform-operator
-            // metadata + GDPR Art-17 primitives:
+            // V90 — 5 SECURITY DEFINER functions for the F11 platform-operator
+            // metadata + GDPR Art-17 primitives + MFA verify state:
             //   - CREATE OR REPLACE platform_user_update_credentials (V87
             //     refresh): also sets mfa_enrolled_at on first false→true
             //     MFA transition (warroom round 3 C1 — fixes the
@@ -118,6 +118,12 @@ class MigrationLintTest {
             //     used by F11 ITs (warroom round 4 T3) to exercise the
             //     anonymized branch of get_me's WHERE clause + planned
             //     Phase H+ tooling
+            //   - platform_user_record_failure_with_state: extended variant
+            //     of V88 record_failure that also returns account_locked +
+            //     attempts_used; drives the F11 PlatformMfaVerify SPA's
+            //     "X attempts remaining" / "Account locked" copy (warroom
+            //     round 6 A1 — backend response-shape contract was
+            //     previously absent from the wire)
             // Same Phase B exemption as V87/V88: platform_user has no
             // tenant_id column, so there is no RLS-protected tenant scope to
             // bypass; REVOKE ALL on direct table access from fabt_app + access
@@ -130,6 +136,8 @@ class MigrationLintTest {
             //     Decision D5 (narrow backend un-freeze for /me + /logout)
             //   openspec/changes/platform-operator-ui/specs/platform-operator-identity/spec.md
             //     Requirement: Platform operator metadata endpoint
+            //   openspec/changes/platform-operator-ui/specs/platform-operator-ui/spec.md
+            //     Requirement: MFA verify error states
             "V90__platform_user_get_me_function.sql"
     );
 

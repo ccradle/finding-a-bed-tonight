@@ -115,6 +115,13 @@ export default function PlatformMfaEnroll() {
         return;
       }
       const body = (await response.json()) as ConfirmResponse;
+      // J3: validate token field is present + non-empty. Without this
+      // check we'd write the literal "undefined" to sessionStorage on a
+      // backend partial-migration / mock-server bug.
+      if (typeof body.token !== 'string' || body.token.length === 0) {
+        setErrorMsg('Server returned an unexpected response. Please try signing in again.');
+        return;
+      }
       login(body.token);
       // Now that MFA is enrolled, display backup codes (one-shot — they
       // were returned at /mfa-setup, kept in component state through

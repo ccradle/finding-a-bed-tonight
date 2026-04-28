@@ -58,11 +58,19 @@ export default function PlatformMfaVerify() {
       });
       if (response.status === 200) {
         const body = (await response.json()) as VerifyResponse;
+        // J3: validate token field is present + non-empty before login()
+        // — guards against backend 200 with no token field (partial
+        // migration / mock-server bug). Without this check we'd write
+        // the literal string "undefined" to sessionStorage.
+        if (typeof body.token !== 'string' || body.token.length === 0) {
+          setErrorMsg('Server returned an unexpected response. Please try again.');
+          return;
+        }
         login(body.token);
         navigate('/platform/dashboard', { replace: true });
         return;
       }
-      // 401 paths: invalid code or lockout
+      // 401 paths: invalid code, lockout, or scoped-token expired
       let parsed: BackendError = {};
       try {
         parsed = (await response.json()) as BackendError;
@@ -70,10 +78,20 @@ export default function PlatformMfaVerify() {
         // Body not JSON — treat as generic invalid
       }
       const errCode = parsed.error ?? '';
-      if (errCode === 'account_locked' || errCode === 'invalid_credentials_locked') {
+      // A6: distinguish "your scoped token expired between presenting and
+      // verifying" (PlatformJwtException → invalid_platform_token) from
+      // "your code is wrong." On expired token we redirect to login with
+      // the session-expired toast key set, rather than show "Code invalid"
+      // which is confusing UX.
+      if (errCode === 'invalid_platform_token') {
+        sessionStorage.setItem('fabt.platform.toast.session-expired', 'true');
+        navigate('/platform/login', { replace: true });
+        return;
+      }
+      if (errCode === 'account_locked') {
         setLocked(true);
         setErrorMsg(
-          'Too many failed attempts. Account locked for 15 minutes. If you\'ve lost your phone, use a backup code.',
+          "Too many failed attempts. Account locked for 15 minutes. If you've lost your phone, use a backup code.",
         );
       } else if (typeof parsed.attemptsRemaining === 'number') {
         const label = mode === 'totp' ? 'Code' : 'Backup code';
