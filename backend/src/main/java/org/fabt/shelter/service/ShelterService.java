@@ -157,6 +157,13 @@ public class ShelterService {
      * and is authorized to any authenticated tenant member.
      */
     public List<String> getActiveCounties(UUID tenantId) {
+        // All four return branches yield an immutable list (warroom-3 N1).
+        // `NcCountyDefaults.COUNTIES` is a `List.of(...)` constant — already
+        // immutable. The explicit-list branch wraps the locally-built
+        // ArrayList in `Collections.unmodifiableList` so the caller sees
+        // identical mutation semantics regardless of which branch fired.
+        // A future caller that does `.add(...)` will get
+        // `UnsupportedOperationException` on every input, not just some.
         try {
             return tenantService.findById(tenantId)
                     .filter(t -> t.getConfig() != null && t.getConfig().value() != null)
@@ -174,8 +181,17 @@ public class ShelterService {
                             for (JsonNode entry : active) {
                                 if (entry.isTextual()) out.add(entry.asText());
                             }
-                            return out;
+                            return java.util.Collections.unmodifiableList(out);
                         } catch (tools.jackson.core.JacksonException e) {
+                            // Defensive: tenant.config value passes Postgres
+                            // JSONB validation on write, so this catch is
+                            // unreachable through the public API. It guards
+                            // against future migration bugs that bypass
+                            // validation. Mocked-readTree tests would prove
+                            // nothing about real data flow — skip and rely
+                            // on the fallback semantics being trivially safe
+                            // (NC defaults is the same fallback as branch (c)
+                            // above).
                             log.warn("Failed to parse active_counties; falling back to NC defaults: {}",
                                 e.getMessage());
                             return org.fabt.shelter.county.NcCountyDefaults.COUNTIES;

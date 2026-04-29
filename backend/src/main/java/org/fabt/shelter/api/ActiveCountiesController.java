@@ -29,7 +29,18 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>Authorization: any authenticated user of the caller's own tenant.
  * Tenant scoping is enforced via {@link TenantContext#getTenantId()} —
  * there is no path-tenantId, so cross-tenant abuse is structurally
- * impossible (verify-round-2 C1 lesson).
+ * impossible (verify-round-2 C1 lesson). <strong>Deliberate omission
+ * (warroom-3 S3):</strong> if a future PR adds a path-tenantId variant
+ * for "platform operator wants to peek at another tenant's counties,"
+ * the cross-tenant guard from verify-round-2 C1 must be re-applied —
+ * this no-path design is what makes the safety property structural
+ * rather than guarded.
+ *
+ * <p>Rate-limit posture (warroom-3 M3): no dedicated Bucket4j tag.
+ * Read-only response with at-most-100-entry payload, low DoS risk.
+ * Falls back to whatever default per-user authenticated rate limits
+ * the platform applies elsewhere. If a future profiler shows this
+ * endpoint as a hot path, add a dedicated Bucket4j key.
  *
  * <p>Response shape: {@code {"activeCounties": ["..."]}}. Wrapping the
  * array in an object is forward-compatible — a future "validation
