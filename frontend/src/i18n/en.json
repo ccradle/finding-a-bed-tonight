@@ -735,5 +735,18 @@
   "shelter.detail.shelterType": "Shelter type",
   "shelter.detail.county": "County",
   "shelter.form.dvShelterRequiredForDvType": "Set the DV Shelter toggle to enable DV type",
-  "shelter.form.dvShelterForcesDvType": "DV shelters are always type DV"
+  "shelter.form.dvShelterForcesDvType": "DV shelters are always type DV",
+  "common.notSpecified": "Not specified",
+  "common.optional": "Optional",
+  "common.add": "Add",
+  "common.remove": "Remove",
+  "shelter.eligibility.section": "Eligibility Criteria",
+  "shelter.eligibility.criminalRecordPolicy": "Criminal record policy",
+  "shelter.eligibility.individualizedAssessment": "Conducts individualized assessment",
+  "shelter.eligibility.vawaProtectionsApply": "Applies VAWA protections",
+  "shelter.eligibility.notes": "Policy notes",
+  "shelter.eligibility.programRequirements": "Program requirements",
+  "shelter.eligibility.documentationRequired": "Documentation required",
+  "shelter.eligibility.intakeHours": "Intake hours",
+  "shelter.eligibility.tagInputPlaceholder": "Type a value and press Add"
 }

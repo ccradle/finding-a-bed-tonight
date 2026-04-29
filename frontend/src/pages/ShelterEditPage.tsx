@@ -6,6 +6,7 @@ import { useAuth } from '../auth/useAuth';
 import { ShelterForm, type ShelterInitialData } from './ShelterForm';
 import { text } from '../theme/typography';
 import { color } from '../theme/colors';
+import { parseEligibilityCriteria } from '../types/eligibilityCriteria';
 
 export function ShelterEditPage() {
   const { id } = useParams<{ id: string }>();
@@ -43,6 +44,10 @@ export function ShelterEditPage() {
             sobrietyRequired: boolean; idRequired: boolean; referralRequired: boolean;
             petsAllowed: boolean; wheelchairAccessible: boolean;
             populationTypesServed: string[];
+            // Slice 4 §10 — eligibility_criteria is a JsonString on the
+            // wire; we parse to structured EligibilityCriteria below
+            // before handing to the form.
+            eligibilityCriteria: string | null;
           } | null;
           capacities: { populationType: string; bedsTotal: number }[];
         }>(`/api/v1/shelters/${id}`);
@@ -61,7 +66,12 @@ export function ShelterEditPage() {
           shelterType: detail.shelter.shelterType,
           county: detail.shelter.county,
           requiresVerificationCall: detail.shelter.requiresVerificationCall,
-          constraints: detail.constraints || undefined,
+          // Slice 4 §10 — parse the JsonString once here so ShelterForm
+          // works in structured space.
+          constraints: detail.constraints ? {
+            ...detail.constraints,
+            eligibilityCriteria: parseEligibilityCriteria(detail.constraints.eligibilityCriteria),
+          } : undefined,
           capacities: detail.capacities && detail.capacities.length > 0
             ? detail.capacities
             : [{ populationType: '', bedsTotal: 0 }],

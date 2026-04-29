@@ -735,5 +735,18 @@
   "shelter.detail.shelterType": "Tipo de refugio",
   "shelter.detail.county": "Condado",
   "shelter.form.dvShelterRequiredForDvType": "Active el interruptor de Refugio DV para habilitar el tipo DV",
-  "shelter.form.dvShelterForcesDvType": "Los refugios DV son siempre del tipo DV"
+  "shelter.form.dvShelterForcesDvType": "Los refugios DV son siempre del tipo DV",
+  "common.notSpecified": "No especificado",
+  "common.optional": "Opcional",
+  "common.add": "Agregar",
+  "common.remove": "Quitar",
+  "shelter.eligibility.section": "Criterios de elegibilidad",
+  "shelter.eligibility.criminalRecordPolicy": "Política sobre antecedentes penales",
+  "shelter.eligibility.individualizedAssessment": "Realiza evaluación individualizada",
+  "shelter.eligibility.vawaProtectionsApply": "Aplica protecciones de VAWA",
+  "shelter.eligibility.notes": "Notas de política",
+  "shelter.eligibility.programRequirements": "Requisitos del programa",
+  "shelter.eligibility.documentationRequired": "Documentación requerida",
+  "shelter.eligibility.intakeHours": "Horario de admisión",
+  "shelter.eligibility.tagInputPlaceholder": "Escriba un valor y presione Agregar"
 }

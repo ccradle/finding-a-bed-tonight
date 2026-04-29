@@ -9,6 +9,11 @@ import { enqueueAction } from '../services/offlineQueue';
 import { text, weight } from '../theme/typography';
 import { color } from '../theme/colors';
 import { CoordinatorCombobox, type CoordinatorOption } from '../components/CoordinatorCombobox';
+import { EligibilityCriteriaSection } from '../components/EligibilityCriteriaSection';
+import {
+  type EligibilityCriteria,
+  normalizeEligibilityCriteria,
+} from '../types/eligibilityCriteria';
 
 // transitional-reentry-support slice 4 §8.2 — same taxonomy used by
 // OutreachSearch filter chips. Order: high-frequency types first; DV
@@ -63,6 +68,11 @@ export interface ShelterInitialData {
     petsAllowed: boolean;
     wheelchairAccessible: boolean;
     populationTypesServed: string[];
+    // Slice 4 §10 — eligibility_criteria parsed from JsonString into
+    // structured form by ShelterEditPage. The form works in structured
+    // space; normalize on save back to JsonString-compatible shape via
+    // normalizeEligibilityCriteria helper.
+    eligibilityCriteria?: EligibilityCriteria | null;
   };
   capacities: Capacity[];
 }
@@ -99,11 +109,33 @@ export function ShelterForm({ initialData, readOnlyFields = [], onSaveComplete }
     initialData?.shelterType || (initialData?.dvShelter ? 'DV' : 'EMERGENCY')
   );
   const [county, setCounty] = useState<string>(initialData?.county || '');
-  // requiresVerificationCall has NO write UI yet (§10.6 task — slice 4
-  // eligibility-criteria edit form). For now we read the existing value
-  // and round-trip it on save so an edit doesn't clobber it. State
-  // (instead of inlining initialData) is unnecessary here; we read
-  // directly from initialData in the payload assembly.
+  // Slice 4 §10.6 write surface — toggle in the form. Couples
+  // operationally with the eligibility-criteria branch (c) evaluator:
+  // a shelter with null eligibility_criteria + requires_verification_call=true
+  // surfaces in acceptsFelonies=true searches with the "call to verify"
+  // badge; setting it false hides null-eligibility shelters from those
+  // searches. Operators see this toggle adjacent to the criminal record
+  // policy fields so the relationship is legible.
+  const [requiresVerificationCall, setRequiresVerificationCall] = useState(
+    initialData?.requiresVerificationCall || false
+  );
+  // Slice 4 §10 — structured eligibility_criteria state. Parent (ShelterEditPage)
+  // parses JsonString into EligibilityCriteria | null; we work in
+  // structured space and normalize on save (warroom H1 — empty save
+  // returns null so BedSearchService branch (c) stays reachable).
+  const [eligibilityCriteria, setEligibilityCriteria] = useState<EligibilityCriteria | null>(
+    initialData?.constraints?.eligibilityCriteria || null
+  );
+
+  // Role gating per §10.1 — visible to COC_ADMIN (and PLATFORM_ADMIN
+  // legacy alias) only. ShelterEditPage already passes readOnlyFields
+  // for COORDINATOR-only users (which strips dvShelter et al.); we
+  // reuse the same role check at the section level. The eligibility
+  // section is more sensitive than other shelter fields — even a
+  // coordinator with edit access should not see/edit policy data.
+  const canEditEligibility = !!user?.roles && (
+    user.roles.includes('COC_ADMIN') || user.roles.includes('PLATFORM_ADMIN')
+  );
 
   const [sobrietyRequired, setSobrietyRequired] = useState(initialData?.constraints?.sobrietyRequired || false);
   const [idRequired, setIdRequired] = useState(initialData?.constraints?.idRequired || false);
@@ -234,8 +266,8 @@ export function ShelterForm({ initialData, readOnlyFields = [], onSaveComplete }
       // applies (always valid).
       shelterType,
       county: county.trim() || null,
-      // Round-trip without modification — §10.6 will add the write UI.
-      requiresVerificationCall: initialData?.requiresVerificationCall ?? false,
+      // §10.6 write surface — operator toggle is now wired.
+      requiresVerificationCall,
       constraints: {
         sobrietyRequired,
         idRequired,
@@ -243,6 +275,12 @@ export function ShelterForm({ initialData, readOnlyFields = [], onSaveComplete }
         petsAllowed,
         wheelchairAccessible,
         populationTypesServed,
+        // Slice 4 §10 — normalize on save (warroom H1). Empty/default
+        // state → null so BedSearchService branch (c) stays reachable.
+        // Backend ShelterConstraintsDto.eligibilityCriteria is a
+        // JsonString; sending the structured object is fine — Jackson
+        // serializes it to the same JSONB row Postgres validates.
+        eligibilityCriteria: normalizeEligibilityCriteria(eligibilityCriteria),
       },
       capacities: capacities.filter((c) => c.populationType),
     };
@@ -637,6 +675,41 @@ export function ShelterForm({ initialData, readOnlyFields = [], onSaveComplete }
             </select>
           )}
         </div>
+
+        {/* Slice 4 §10.6 — requires_verification_call toggle. Operationally
+            paired with the eligibility criteria below: the H1 three-way
+            evaluator branch (c) only includes a null-eligibility shelter
+            in acceptsFelonies=true searches when this is true. Operators
+            see this toggle adjacent to the eligibility section so the
+            relationship is legible. */}
+        <div style={{ ...fieldGroup, marginTop: '24px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <label
+              htmlFor="requires-verification-call-toggle"
+              style={{ ...labelStyle, marginBottom: 0, cursor: 'pointer' }}
+            >
+              <FormattedMessage id="shelter.requiresVerificationCall" />
+            </label>
+            <input
+              id="requires-verification-call-toggle"
+              data-testid="requires-verification-call-toggle"
+              type="checkbox"
+              checked={requiresVerificationCall}
+              onChange={(e) => setRequiresVerificationCall(e.target.checked)}
+              style={{ width: 20, height: 20, cursor: 'pointer' }}
+            />
+          </div>
+        </div>
+
+        {/* Slice 4 §10.1-§10.5 — Eligibility Criteria section.
+            Role gating per §10.1: visible only to COC_ADMIN /
+            PLATFORM_ADMIN (legacy alias). The component renders nothing
+            when `visible={false}`. */}
+        <EligibilityCriteriaSection
+          value={eligibilityCriteria}
+          onChange={setEligibilityCriteria}
+          visible={canEditEligibility}
+        />
 
         {/* DV Confirmation Dialog */}
         {showDvConfirm && (

@@ -11,6 +11,8 @@ import { SSE_REFERRAL_UPDATE, SSE_AVAILABILITY_UPDATE } from '../hooks/useNotifi
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { useAuth } from '../auth/useAuth';
 import { useActiveCounties } from '../hooks/useActiveCounties';
+import { EligibilityCriteriaDisplay } from '../components/EligibilityCriteriaDisplay';
+import { parseEligibilityCriteria } from '../types/eligibilityCriteria';
 
 const POPULATION_TYPES = [
   { value: '', labelId: 'search.allTypes' },
@@ -130,6 +132,10 @@ interface ShelterConstraints {
   curfewTime: string | null;
   maxStayDays: number | null;
   populationTypesServed: string[];
+  // Slice 4 §10.7 — eligibility_criteria as raw JSON string from
+  // ShelterConstraintsDto. Parsed via parseEligibilityCriteria into
+  // structured form when rendered by EligibilityCriteriaDisplay.
+  eligibilityCriteria?: string | null;
 }
 
 interface ShelterCapacity {
@@ -1019,6 +1025,26 @@ export function OutreachSearch() {
                     📍 {r.county}
                   </span>
                 ) : null}
+                {/* Slice 4 §10.6 — "Requires verification call" badge.
+                    Renders only when sentinel is true. The H1 three-way
+                    evaluator branch (c) uses this same flag to decide
+                    whether a null-eligibility shelter shows up under an
+                    acceptsFelonies=true filter; the badge on the card
+                    tells the navigator "this is an unknown-policy
+                    shelter — call before referring." */}
+                {r.requiresVerificationCall ? (
+                  <span
+                    data-testid={`requires-verification-call-badge-${r.shelterId}`}
+                    style={{
+                      padding: '2px 8px', borderRadius: 6,
+                      backgroundColor: color.warningBg, color: color.warning,
+                      fontSize: text.xs, fontWeight: weight.semibold,
+                      border: `1px solid ${color.warning}`,
+                    }}
+                  >
+                    📞 {intl.formatMessage({ id: 'shelter.requiresVerificationCall' })}
+                  </span>
+                ) : null}
               </div>
             )}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1280,6 +1306,22 @@ export function OutreachSearch() {
                     </div>
                   </div>
                 )}
+              </Section>
+            )}
+
+            {/* Slice 4 §10.7 — eligibility criteria display in expanded
+                shelter modal. The component renders <CriminalRecordPolicyDisclaimer>
+                first per the §7 CI guard's co-rendering rule
+                (criminal_record_policy is referenced inside the
+                EligibilityCriteriaDisplay component, which renders the
+                disclaimer in its own DOM — guard sees the disclaimer
+                inside this file because the JSX <EligibilityCriteriaDisplay
+                /> is here. See §10.5 + the CI fixture analysis. */}
+            {selectedShelter.constraints && (
+              <Section title={intl.formatMessage({ id: 'shelter.eligibility.section' })}>
+                <EligibilityCriteriaDisplay
+                  value={parseEligibilityCriteria(selectedShelter.constraints.eligibilityCriteria)}
+                />
               </Section>
             )}
 
