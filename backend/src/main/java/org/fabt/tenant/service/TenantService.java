@@ -95,11 +95,21 @@ public class TenantService {
     }
 
     /**
-     * Partial config update for {@code tenant.config.holdDurationMinutes}
+     * Partial config update for {@code tenant.config.hold_duration_minutes}
      * (transitional-reentry-support task 4.5, slice 2C). Reads the existing
      * config, sets the one key, writes back — preserves any other keys
      * (e.g. {@code dv_address_visibility}, {@code features.reentryMode},
      * {@code active_counties}) without clobbering them.
+     *
+     * <p><b>JSON key casing:</b> the persisted key is snake_case
+     * ({@code hold_duration_minutes}) to match the convention established
+     * by the seed migrations (V76, V77) and consumed by
+     * {@code ReservationService.getHoldDurationMinutes}. The DTO field
+     * ({@link org.fabt.shelter.api.HoldDurationRequest#holdDurationMinutes()})
+     * stays camelCase per Java + REST convention; the rename happens only
+     * at the JSONB-write boundary. Initial slice-2C draft used camelCase
+     * here, which silently no-op'd because the read path looked for the
+     * snake_case key — caught by §13.7 integration test 2026-04-29.
      *
      * <p>Range enforced at the {@link org.fabt.shelter.api.HoldDurationRequest}
      * DTO layer (30-480 minutes) per design D5. This method does NOT
@@ -126,14 +136,14 @@ public class TenantService {
             } else {
                 config = new java.util.HashMap<>();
             }
-            config.put("holdDurationMinutes", holdDurationMinutes);
+            config.put("hold_duration_minutes", holdDurationMinutes);
 
             String configJson = objectMapper.writeValueAsString(config);
             tenant.setConfig(JsonString.of(configJson));
             tenant.setUpdatedAt(Instant.now());
             return tenantRepository.save(tenant);
         } catch (JacksonException e) {
-            throw new IllegalStateException("Failed to merge holdDurationMinutes into tenant.config", e);
+            throw new IllegalStateException("Failed to merge hold_duration_minutes into tenant.config", e);
         }
     }
 
