@@ -257,7 +257,9 @@ public class BedSearchService {
                     constraintsSummary,
                     surgeActive,
                     shelter.isDvShelter(),
-                    shelter.getShelterType() != null ? shelter.getShelterType().name() : null
+                    shelter.getShelterType() != null ? shelter.getShelterType().name() : null,
+                    shelter.getCounty(),
+                    shelter.isRequiresVerificationCall()
             ));
         }
 

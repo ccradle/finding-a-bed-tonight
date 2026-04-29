@@ -130,7 +130,9 @@ class OperationalMonitorServiceTest {
         BedSearchResult dvResult = new BedSearchResult(
                 dvShelterId, "DV Safe House", "123 Main St", "555-0001",
                 null, null, List.of(), null, "FRESH", null, null, false, true,
-                "DV");  // shelterType (slice 2D verify S3)
+                "DV",          // shelterType
+                null,          // county (slice 4 prereq §5.2)
+                false);        // requiresVerificationCall
         BedSearchResponse response = new BedSearchResponse(List.of(dvResult), 1);
         when(bedSearchService.search(any(BedSearchRequest.class))).thenReturn(response);
 
@@ -153,7 +155,9 @@ class OperationalMonitorServiceTest {
         BedSearchResult normalResult = new BedSearchResult(
                 shelterId, "Safe Haven", "456 Oak Ave", "555-0002",
                 null, null, List.of(), null, "FRESH", null, null, false, false,
-                "EMERGENCY");  // shelterType (slice 2D verify S3)
+                "EMERGENCY",   // shelterType
+                null,          // county
+                false);        // requiresVerificationCall
         BedSearchResponse response = new BedSearchResponse(List.of(normalResult), 1);
         when(bedSearchService.search(any(BedSearchRequest.class))).thenReturn(response);
 

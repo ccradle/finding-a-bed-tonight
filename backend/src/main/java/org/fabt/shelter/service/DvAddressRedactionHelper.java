@@ -91,7 +91,10 @@ public class DvAddressRedactionHelper {
                 response.deactivatedBy(),
                 response.deactivationReason(),
                 response.createdAt(),
-                response.updatedAt()
+                response.updatedAt(),
+                response.shelterType(),               // safe to expose — taxonomy, not address
+                response.county(),                    // safe — jurisdictional, less sensitive than street
+                response.requiresVerificationCall()
         );
     }
 }

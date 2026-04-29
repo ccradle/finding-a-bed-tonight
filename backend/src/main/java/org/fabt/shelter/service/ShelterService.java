@@ -132,6 +132,62 @@ public class ShelterService {
      * appears in the list. {@code null} county is always valid (no constraint
      * on null).
      */
+    /**
+     * Read the resolved {@code active_counties} list for a tenant — the list
+     * a UI dropdown should populate from. Mirrors {@link #isValidCounty} on
+     * the four-branch state machine but RETURNS the list rather than
+     * answering yes/no for a single value:
+     * <ul>
+     *   <li>{@code active_counties} key absent → return
+     *       {@link org.fabt.shelter.county.NcCountyDefaults#COUNTIES}
+     *       (NC defaults — D3 fallback).</li>
+     *   <li>{@code active_counties} explicitly {@code []} → return empty
+     *       list (validation explicitly disabled — UI should render a
+     *       free-text county input instead of a dropdown).</li>
+     *   <li>{@code active_counties} non-empty → return that list verbatim.</li>
+     *   <li>Tenant absent / parse failure → fall back to NC defaults
+     *       (loud failure would block legitimate UI loads).</li>
+     * </ul>
+     *
+     * <p>transitional-reentry-support slice 4 prereq, warroom H1: the
+     * existing {@code GET /api/v1/tenants/{tenantId}/config} endpoint is
+     * COC_ADMIN-only, so an OUTREACH_WORKER hitting that endpoint to
+     * populate the bed-search county filter dropdown got 403. The new
+     * {@code GET /api/v1/active-counties} endpoint reads via this method
+     * and is authorized to any authenticated tenant member.
+     */
+    public List<String> getActiveCounties(UUID tenantId) {
+        try {
+            return tenantService.findById(tenantId)
+                    .filter(t -> t.getConfig() != null && t.getConfig().value() != null)
+                    .map(t -> {
+                        try {
+                            JsonNode node = objectMapper.readTree(t.getConfig().value());
+                            JsonNode active = node.get("active_counties");
+                            if (active == null || !active.isArray()) {
+                                return org.fabt.shelter.county.NcCountyDefaults.COUNTIES;
+                            }
+                            if (active.isEmpty()) {
+                                return java.util.Collections.<String>emptyList();
+                            }
+                            List<String> out = new ArrayList<>();
+                            for (JsonNode entry : active) {
+                                if (entry.isTextual()) out.add(entry.asText());
+                            }
+                            return out;
+                        } catch (tools.jackson.core.JacksonException e) {
+                            log.warn("Failed to parse active_counties; falling back to NC defaults: {}",
+                                e.getMessage());
+                            return org.fabt.shelter.county.NcCountyDefaults.COUNTIES;
+                        }
+                    })
+                    .orElse(org.fabt.shelter.county.NcCountyDefaults.COUNTIES);
+        } catch (Exception e) {
+            log.warn("Failed to read active_counties; falling back to NC defaults: {}", e.getMessage());
+            return org.fabt.shelter.county.NcCountyDefaults.COUNTIES;
+        }
+    }
+
     public boolean isValidCounty(UUID tenantId, String county) {
         if (county == null) return true;
         try {

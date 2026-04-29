@@ -218,6 +218,79 @@ class ShelterIntegrationTest extends BaseIntegrationTest {
         assertThat(detail.constraints()).isNotNull();
         assertThat(detail.capacities()).isNotNull();
         assertThat(detail.capacities()).hasSizeGreaterThanOrEqualTo(1);
+
+        // Slice 4 prereq §5.3 (warroom C1) — the slice-2 entity additions
+        // MUST round-trip through the GET surface so the admin shelter-edit
+        // form can pre-populate. Without these the form silently loses the
+        // user's saved value on the next save.
+        assertThat(detail.shelter().shelterType())
+                .as("shelterType must be on the GET response — admin form pre-populates from this")
+                .isEqualTo("EMERGENCY"); // default for non-DV via lockstep
+        assertThat(detail.shelter().requiresVerificationCall())
+                .as("requiresVerificationCall must be on the GET response — sentinel toggle "
+                        + "needs current state to render correctly")
+                .isFalse(); // entity default
+        // county is null in this fixture (createTestShelter doesn't set it),
+        // but the field MUST be present on the response — null is a valid
+        // value, the absence of the field is the regression we're guarding
+        // against.
+        assertThat(detail.shelter())
+                .as("ShelterResponse record must declare county; null value is fine, missing field is not")
+                .extracting("county")
+                .isNull();
+    }
+
+    @Test
+    void test_getShelterDetail_includesNonNullSliceTwoFields() {
+        // Companion to the above: this time CREATE the shelter with the new
+        // slice-2 fields populated, and assert they round-trip back. Together
+        // the two tests cover both the "default values" path and the
+        // "user-supplied values" path through the GET surface.
+        HttpHeaders headers = authHelper.cocAdminHeaders();
+
+        String body = """
+                {
+                    "name": "Reentry Test Shelter %s",
+                    "addressStreet": "1 Reentry Way",
+                    "addressCity": "Raleigh",
+                    "addressState": "NC",
+                    "addressZip": "27601",
+                    "phone": "919-555-0200",
+                    "dvShelter": false,
+                    "shelterType": "REENTRY_TRANSITIONAL",
+                    "county": "Wake",
+                    "requiresVerificationCall": true,
+                    "constraints": {
+                        "sobrietyRequired": false,
+                        "idRequired": false,
+                        "referralRequired": false,
+                        "petsAllowed": false,
+                        "wheelchairAccessible": true,
+                        "populationTypesServed": ["SINGLE_ADULT"]
+                    },
+                    "capacities": [{"populationType": "SINGLE_ADULT", "bedsTotal": 5}]
+                }
+                """.formatted(UUID.randomUUID().toString().substring(0, 8));
+
+        ResponseEntity<ShelterResponse> created = restTemplate.exchange(
+                "/api/v1/shelters", HttpMethod.POST,
+                new HttpEntity<>(body, headers), ShelterResponse.class);
+        assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        UUID id = created.getBody().id();
+
+        // Verify the create response itself echoed the values back.
+        assertThat(created.getBody().shelterType()).isEqualTo("REENTRY_TRANSITIONAL");
+        assertThat(created.getBody().county()).isEqualTo("Wake");
+        assertThat(created.getBody().requiresVerificationCall()).isTrue();
+
+        // Round-trip through GET — this is the path the admin edit form takes.
+        ResponseEntity<ShelterDetailResponse> detail = restTemplate.exchange(
+                "/api/v1/shelters/" + id, HttpMethod.GET,
+                new HttpEntity<>(headers), ShelterDetailResponse.class);
+
+        assertThat(detail.getBody().shelter().shelterType()).isEqualTo("REENTRY_TRANSITIONAL");
+        assertThat(detail.getBody().shelter().county()).isEqualTo("Wake");
+        assertThat(detail.getBody().shelter().requiresVerificationCall()).isTrue();
     }
 
     @Test

@@ -364,6 +364,50 @@ class BedSearchFilterIntegrationTest extends BaseIntegrationTest {
                 .as("response row must echo the shelter's shelter_type so the filter UI "
                         + "can render type-specific badges (verify S3)")
                 .isEqualTo("TRANSITIONAL");
+
+        // Slice 4 prereq §5.2 (warroom H2) — county + requiresVerificationCall
+        // also flow through. Without these on the response, the §9.2
+        // expanded-card county display and §10.6 verification-call badge
+        // can't be rendered.
+        assertThat(transitWakeRow.get("county"))
+                .as("response row must echo the shelter's county for §9.2 expanded-card display")
+                .isEqualTo("Wake");
+        assertThat(transitWakeRow.get("requiresVerificationCall"))
+                .as("response row must echo requires_verification_call for §10.6 badge — "
+                        + "shelterTransitWakeAcceptYes was created with sentinel=false")
+                .isEqualTo(false);
+    }
+
+    @Test
+    @DisplayName("§13.4 sentinel-included shelter shows requiresVerificationCall=true on response (verify H2)")
+    void searchResponse_sentinelShelterCarriesRequiresVerificationCallTrue() {
+        // Pair test: shelterTransitMecklenburgSentinel was created with
+        // sentinel=true to exercise branch (c) inclusion. The badge that
+        // surfaces this in the UI needs the field on the response row.
+        Map<String, Object> body = Map.of("acceptsFelonies", true);
+
+        ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                "/api/v1/queries/beds",
+                HttpMethod.POST,
+                new HttpEntity<>(body, authHelper.outreachWorkerHeaders()),
+                new ParameterizedTypeReference<>() {});
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> results = (List<Map<String, Object>>) response.getBody().get("results");
+
+        Map<String, Object> sentinelRow = results.stream()
+                .filter(r -> shelterTransitMecklenburgSentinel.toString().equals(r.get("shelterId")))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError(
+                        "sentinel-included shelter missing from acceptsFelonies=true response"));
+
+        assertThat(sentinelRow.get("requiresVerificationCall"))
+                .as("the very shelter that branch (c) included MUST carry sentinel=true on the response — "
+                        + "without this, the UI 'call to verify' badge cannot render and the operator "
+                        + "loses the cue that this is a confirm-with-shelter shelter")
+                .isEqualTo(true);
+        assertThat(sentinelRow.get("county")).isEqualTo("Mecklenburg");
     }
 
     @Test
