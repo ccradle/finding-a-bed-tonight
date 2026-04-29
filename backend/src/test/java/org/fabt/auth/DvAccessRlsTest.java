@@ -51,8 +51,9 @@ class DvAccessRlsTest extends BaseIntegrationTest {
                     UUID.randomUUID(), tenantId
             );
             jdbcTemplate.update(
-                    "INSERT INTO shelter (id, tenant_id, name, dv_shelter, created_at, updated_at) " +
-                            "VALUES (?, ?, 'DV Shelter RLS', true, NOW(), NOW())",
+                    // V91 CHECK constraint requires shelter_type='DV' when dv_shelter=true.
+                    "INSERT INTO shelter (id, tenant_id, name, dv_shelter, shelter_type, created_at, updated_at) " +
+                            "VALUES (?, ?, 'DV Shelter RLS', true, 'DV', NOW(), NOW())",
                     UUID.randomUUID(), tenantId
             );
         });

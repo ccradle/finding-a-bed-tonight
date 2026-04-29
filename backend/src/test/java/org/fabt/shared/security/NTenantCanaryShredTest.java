@@ -227,6 +227,21 @@ class NTenantCanaryShredTest extends BaseIntegrationTest {
             case HMIS_API_KEY -> keyDerivation.deriveHmisApiKey(tenantId);
             case JWT_SIGN -> throw new IllegalStateException(
                     "JWT_SIGN is not a data-encryption purpose");
+            // RESERVATION_PII (V93): random-DEK only by design (task 2.3a) —
+            // there is intentionally no `deriveReservationPiiKey` HKDF method.
+            // This switch case is only here to satisfy Java's exhaustive-enum
+            // requirement; it is unreachable today because RESERVATION_PII is
+            // NOT in `dataPurposes` (line 112-115). The crypto-shred property
+            // for this purpose IS load-bearing and MUST be verified —
+            // TODO(transitional-reentry-support task 13.13): extend canary
+            // coverage to RESERVATION_PII via the round-trip + cross-tenant-
+            // ciphertext invariant test. The HKDF-adversary half of THIS
+            // canary won't apply (no HKDF key exists for the purpose), so
+            // task 13.13 uses a different proof shape (ciphertext != plaintext
+            // at the byte level + CrossTenantCiphertextException on
+            // wrong-tenant decrypt).
+            case RESERVATION_PII -> throw new IllegalStateException(
+                    "RESERVATION_PII not in dataPurposes; reaching this branch indicates a future test extension landed without updating the adversary model — see TODO above and task 13.13");
         };
         javax.crypto.Cipher cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding");
         cipher.init(javax.crypto.Cipher.DECRYPT_MODE, hkdfKey,

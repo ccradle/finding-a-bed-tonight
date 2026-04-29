@@ -93,7 +93,8 @@ class DvShelterConcurrentIsolationTest extends BaseIntegrationTest {
         TenantContext.runWithContext(tenantId, true, () -> {
             dvShelterId = UUID.randomUUID();
             jdbcTemplate.update(
-                    "INSERT INTO shelter (id, tenant_id, name, dv_shelter, created_at, updated_at) VALUES (?, ?, ?, true, NOW(), NOW())",
+                    // V91 CHECK constraint requires shelter_type='DV' when dv_shelter=true.
+                    "INSERT INTO shelter (id, tenant_id, name, dv_shelter, shelter_type, created_at, updated_at) VALUES (?, ?, ?, true, 'DV', NOW(), NOW())",
                     dvShelterId, tenantId, dvShelterName);
             regularShelterId = UUID.randomUUID();
             jdbcTemplate.update(

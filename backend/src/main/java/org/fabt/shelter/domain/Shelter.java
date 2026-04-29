@@ -21,6 +21,16 @@ public class Shelter {
     private Double latitude;
     private Double longitude;
     private boolean dvShelter;
+    /**
+     * Controlled vocabulary classification (transitional-reentry-support task 3.2,
+     * V91 column). Coupled to {@link #dvShelter} via the V91
+     * {@code shelter_dv_implies_dv_type} CHECK constraint:
+     * {@code dvShelter=true} implies {@code shelterType=ShelterType.DV}.
+     * {@link org.fabt.shelter.service.ShelterService} keeps the two fields in
+     * lockstep on every write. Defaults to {@link ShelterType#EMERGENCY} for new
+     * non-DV shelters per V91's column DEFAULT.
+     */
+    private ShelterType shelterType = ShelterType.EMERGENCY;
     /** When false, shelter is hidden from bed search but still loaded for DV referral safety checks. */
     private boolean active = true;
     private Instant deactivatedAt;
@@ -118,6 +128,14 @@ public class Shelter {
 
     public void setDvShelter(boolean dvShelter) {
         this.dvShelter = dvShelter;
+    }
+
+    public ShelterType getShelterType() {
+        return shelterType;
+    }
+
+    public void setShelterType(ShelterType shelterType) {
+        this.shelterType = shelterType;
     }
 
     public boolean isActive() {

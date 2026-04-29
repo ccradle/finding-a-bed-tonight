@@ -29,6 +29,7 @@ import org.fabt.shelter.domain.DeactivationReason;
 import org.fabt.shelter.domain.DvAddressPolicy;
 import org.fabt.shelter.domain.Shelter;
 import org.fabt.shelter.domain.ShelterConstraints;
+import org.fabt.shelter.domain.ShelterType;
 import org.fabt.shelter.repository.ShelterConstraintsRepository;
 import org.fabt.shelter.repository.ShelterRepository;
 import org.fabt.shared.audit.AuditEventRecord;
@@ -164,6 +165,12 @@ public class ShelterService {
         shelter.setLatitude(req.latitude());
         shelter.setLongitude(req.longitude());
         shelter.setDvShelter(req.dvShelter());
+        // V91 lockstep: keep shelter_type aligned with dv_shelter at write time so
+        // the DB CHECK (shelter_dv_implies_dv_type) can never reject the INSERT.
+        // Slice 1 of transitional-reentry-support keeps the relationship narrow:
+        // DV → DV, anything else → EMERGENCY default. Slice 2 task 4.3 expands
+        // this to accept an explicit shelter_type from the request DTO.
+        shelter.setShelterType(req.dvShelter() ? ShelterType.DV : ShelterType.EMERGENCY);
         shelter.setActive(true);
         shelter.setCreatedAt(Instant.now());
         shelter.setUpdatedAt(Instant.now());
@@ -251,7 +258,13 @@ public class ShelterService {
         if (req.phone() != null) shelter.setPhone(req.phone());
         if (req.latitude() != null) shelter.setLatitude(req.latitude());
         if (req.longitude() != null) shelter.setLongitude(req.longitude());
-        if (req.dvShelter() != null) shelter.setDvShelter(req.dvShelter());
+        if (req.dvShelter() != null) {
+            shelter.setDvShelter(req.dvShelter());
+            // V91 lockstep — see create() comment. The flip must happen in the
+            // same transaction as the dv_shelter change, otherwise the CHECK
+            // constraint rejects mid-update.
+            shelter.setShelterType(req.dvShelter() ? ShelterType.DV : ShelterType.EMERGENCY);
+        }
         shelter.setUpdatedAt(Instant.now());
 
         Shelter saved = shelterRepository.save(shelter);

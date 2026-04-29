@@ -653,10 +653,14 @@ class AnalyticsIntegrationTest extends BaseIntegrationTest {
 
     private void createTestShelter(String name, boolean dvShelter) {
         UUID shelterId = UUID.randomUUID();
+        // V91 CHECK constraint requires shelter_type='DV' when dv_shelter=true.
+        // We pass the matching shelter_type explicitly so the constraint is
+        // satisfied regardless of the dvShelter flag.
+        String shelterType = dvShelter ? "DV" : "EMERGENCY";
         jdbcTemplate.update(
-                "INSERT INTO shelter (id, tenant_id, name, address_street, address_city, address_state, address_zip, dv_shelter, latitude, longitude) "
-                        + "VALUES (?, ?, ?, '100 Main St', 'Raleigh', 'NC', '27601', ?, 35.78, -78.64)",
-                shelterId, tenantId, name, dvShelter);
+                "INSERT INTO shelter (id, tenant_id, name, address_street, address_city, address_state, address_zip, dv_shelter, shelter_type, latitude, longitude) "
+                        + "VALUES (?, ?, ?, '100 Main St', 'Raleigh', 'NC', '27601', ?, ?::varchar, 35.78, -78.64)",
+                shelterId, tenantId, name, dvShelter, shelterType);
         jdbcTemplate.update(
                 "INSERT INTO shelter_constraints (shelter_id, population_types_served) VALUES (?, ARRAY['SINGLE_ADULT']::text[])",
                 shelterId);
