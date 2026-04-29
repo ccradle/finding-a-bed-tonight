@@ -195,19 +195,22 @@ class V95SeedDemoShelterTest extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("WEST OVERFLOW: Boone/Watauga, requires_verification_call=false, NULL eligibility_criteria")
-    void westOverflow_hasNullEligibility() {
+    @DisplayName("WEST surge site: Boone/Watauga EMERGENCY (OVERFLOW deferred), NULL eligibility_criteria")
+    void westSurgeSite_hasNullEligibility() {
         TenantContext.runWithContext(TENANT_WEST, true, () -> {
             Map<String, Object> row = jdbc.queryForMap(
                 "SELECT s.shelter_type, s.county, sc.eligibility_criteria "
                 + "FROM shelter s JOIN shelter_constraints sc ON s.id = sc.shelter_id "
                 + "WHERE s.id = ?::uuid",
                 WEST_OVERFLOW.toString());
-            assertThat(row.get("shelter_type")).isEqualTo("OVERFLOW");
+            // Surge concept rides EMERGENCY + bed_availability.overflow_beds.
+            // True OVERFLOW shelter_type is deferred per
+            // project_deferred_openspecs_required.md (Java enum doesn't admit it).
+            assertThat(row.get("shelter_type")).isEqualTo("EMERGENCY");
             assertThat(row.get("county")).isEqualTo("Watauga");
             assertThat(row.get("eligibility_criteria"))
-                .as("OVERFLOW shelters intentionally have NULL eligibility_criteria "
-                    + "to exercise the §10 'Not specified' empty-state UI")
+                .as("Surge site keeps NULL eligibility_criteria to exercise "
+                    + "the §10 'Not specified' empty-state UI")
                 .isNull();
         });
     }
@@ -251,15 +254,15 @@ class V95SeedDemoShelterTest extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("EAST OVERFLOW: Greenville/Pitt, NULL eligibility_criteria")
-    void eastOverflow_hasNullEligibility() {
+    @DisplayName("EAST surge site: Greenville/Pitt EMERGENCY (OVERFLOW deferred), NULL eligibility_criteria")
+    void eastSurgeSite_hasNullEligibility() {
         TenantContext.runWithContext(TENANT_EAST, true, () -> {
             Map<String, Object> row = jdbc.queryForMap(
                 "SELECT s.shelter_type, s.county, sc.eligibility_criteria "
                 + "FROM shelter s JOIN shelter_constraints sc ON s.id = sc.shelter_id "
                 + "WHERE s.id = ?::uuid",
                 EAST_OVERFLOW.toString());
-            assertThat(row.get("shelter_type")).isEqualTo("OVERFLOW");
+            assertThat(row.get("shelter_type")).isEqualTo("EMERGENCY");
             assertThat(row.get("county")).isEqualTo("Pitt");
             assertThat(row.get("eligibility_criteria")).isNull();
         });

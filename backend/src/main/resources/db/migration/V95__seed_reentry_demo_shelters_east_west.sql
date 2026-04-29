@@ -2,8 +2,19 @@
 --
 -- transitional-reentry-support post-§14, pre-deploy demo expansion. The
 -- reentry-spec UI (slice 4 §7-§12) is unusable on demo without realistic
--- coverage of the new V91 shelter_type values: TRANSITIONAL,
--- REENTRY_TRANSITIONAL, OVERFLOW. V76/V77 only seeded EMERGENCY + DV.
+-- coverage of the new V91 shelter_type values: TRANSITIONAL and
+-- REENTRY_TRANSITIONAL. V76/V77 only seeded EMERGENCY + DV.
+--
+-- OVERFLOW shelter_type was considered but is a DEFERRED feature
+-- requiring its own OpenSpec (per project memory
+-- `project_deferred_openspecs_required.md`) — the ShelterType Java enum
+-- does not include OVERFLOW yet, so persisting OVERFLOW rows would
+-- crash the row mapper at read time (caught locally as a 400 on
+-- cocadmin GET /api/v1/shelters before deploy). The "surge capacity"
+-- demo story rides the existing `bed_availability.overflow_beds`
+-- mechanism instead — an EMERGENCY shelter with overflow_beds > 0
+-- during an active surge event. The 2 surge sites in this migration
+-- are labeled EMERGENCY accordingly.
 --
 -- Why a Flyway migration (not seed-data.sql): seed-data.sql has a
 -- runtime guard refusing to run on prod-named DBs because it ships
@@ -118,7 +129,7 @@ VALUES
     -- during cold-weather surge"). Drop-in intake, short stay.
     ('d0000001-0000-0000-0000-000000000006', 'a0000000-0000-0000-0000-000000000002',
      'Boone Overflow Site (demo)', '203 Fictional Way', 'Boone', 'NC', '28607',
-     '000-555-0106', 36.2168, -81.6745, false, 'OVERFLOW', 'Watauga', false,
+     '000-555-0106', 36.2168, -81.6745, false, 'EMERGENCY', 'Watauga', false,
      NOW(), NOW())
 ON CONFLICT (id) DO UPDATE SET
     name = EXCLUDED.name,
@@ -165,7 +176,7 @@ VALUES
     -- empty-state UI.
     ('d0000002-0000-0000-0000-000000000006', 'a0000000-0000-0000-0000-000000000003',
      'Pitt County Overflow Site (demo)', '206 Fictional Way', 'Greenville', 'NC', '27858',
-     '000-555-0206', 35.6010, -77.3680, false, 'OVERFLOW', 'Pitt', false,
+     '000-555-0206', 35.6010, -77.3680, false, 'EMERGENCY', 'Pitt', false,
      NOW(), NOW())
 ON CONFLICT (id) DO UPDATE SET
     name = EXCLUDED.name,
