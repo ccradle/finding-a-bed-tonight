@@ -4,6 +4,9 @@ import java.util.UUID;
 
 import org.fabt.BaseIntegrationTest;
 import org.fabt.shared.web.TenantContext;
+import org.fabt.shelter.domain.Shelter;
+import org.fabt.shelter.domain.ShelterType;
+import org.fabt.shelter.repository.ShelterRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -44,6 +47,9 @@ class V91MigrationVerificationTest extends BaseIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @Autowired
+    private ShelterRepository shelterRepository;
 
     /**
      * Insert a tenant directly via JDBC (the {@code tenant} table itself has
@@ -207,12 +213,20 @@ class V91MigrationVerificationTest extends BaseIntegrationTest {
     // tenant.config.features.reentryMode seed (no RLS on tenant table)
     // -------------------------------------------------------------------------
 
+    /**
+     * Tests the V91 seed UPDATE expression in isolation — does NOT prove that
+     * V91 ran against tenants pre-existing at migration time (Flyway runs V91
+     * once before tests start; we have no pre-V91 tenant to backfill against
+     * mid-test). This test asserts the EXPRESSION's correctness; the
+     * "did the migration actually fire" guarantee comes from Flyway's
+     * atomic-apply contract (V91 marked success in flyway_schema_history
+     * means the UPDATE ran successfully).
+     *
+     * Renamed from `v91_seed_applies_features_reentry_mode_false_to_existing_tenants`
+     * per warroom B1 — the original name overclaimed.
+     */
     @Test
-    void v91_seed_applies_features_reentry_mode_false_to_existing_tenants() {
-        // The V91 UPDATE seeds every tenant that lacks a features.reentryMode
-        // value. Insert a fresh tenant with empty config, then re-apply the
-        // exact V91 seed expression — the post-state should have
-        // features.reentryMode = false.
+    void v91_seed_pattern_produces_expected_features_reentry_mode_false_shape() {
         UUID tenantId = createTenant("reentry-seed-" + UUID.randomUUID().toString().substring(0, 8));
 
         // Verify pre-state: no features.reentryMode key
@@ -221,7 +235,7 @@ class V91MigrationVerificationTest extends BaseIntegrationTest {
             Boolean.class, tenantId);
         assertThat(preExists).isFalse();
 
-        // Apply V91 seed UPDATE (mirrors migration line 109 verbatim)
+        // Apply V91 seed UPDATE (mirrors migration verbatim)
         jdbc.update("""
             UPDATE tenant
                SET config = config || jsonb_build_object(
@@ -238,5 +252,142 @@ class V91MigrationVerificationTest extends BaseIntegrationTest {
         assertThat(reentryMode)
             .as("V91 seed expression must produce config.features.reentryMode = false")
             .isFalse();
+    }
+
+    /**
+     * V91 seed must be idempotent — running it twice on a tenant must not flip
+     * the operator-set value. Specifically: PLATFORM_OPERATOR sets
+     * features.reentryMode = true, then a re-run of the V91 UPDATE must NOT
+     * reset it to false. Verifies the WHERE clause `(config #> '{features,reentryMode}') IS NULL`
+     * actually skips already-seeded tenants. Warroom B1 follow-up.
+     */
+    @Test
+    void v91_seed_pattern_is_idempotent_does_not_overwrite_existing_value() {
+        UUID tenantId = createTenant("reentry-idempotent-" + UUID.randomUUID().toString().substring(0, 8));
+
+        // Operator sets reentryMode=true (post-V91, post-creation). Use the
+        // same `||` concat pattern V91 uses — `jsonb_set` with create_missing
+        // does NOT create intermediate path objects (only the final key), so
+        // it would silently no-op against a `'{}'` config that lacks the
+        // `features` parent. The concat pattern handles missing intermediates.
+        jdbc.update("""
+            UPDATE tenant
+               SET config = config || jsonb_build_object(
+                    'features',
+                    coalesce(config -> 'features', '{}'::jsonb) || jsonb_build_object('reentryMode', true)
+                 )
+             WHERE id = ?
+            """, tenantId);
+
+        // Pre-condition for the test
+        Boolean before = jdbc.queryForObject(
+            "SELECT (config #>> '{features,reentryMode}')::boolean FROM tenant WHERE id = ?",
+            Boolean.class, tenantId);
+        assertThat(before).isTrue();
+
+        // Re-run the V91 seed. The WHERE clause MUST exclude this tenant
+        // because features.reentryMode is already set (to true, but value
+        // doesn't matter — the clause checks key presence not value).
+        jdbc.update("""
+            UPDATE tenant
+               SET config = config || jsonb_build_object(
+                    'features',
+                    coalesce(config -> 'features', '{}'::jsonb) || jsonb_build_object('reentryMode', false)
+                 )
+             WHERE (config #> '{features,reentryMode}') IS NULL
+               AND id = ?
+            """, tenantId);
+
+        Boolean after = jdbc.queryForObject(
+            "SELECT (config #>> '{features,reentryMode}')::boolean FROM tenant WHERE id = ?",
+            Boolean.class, tenantId);
+        assertThat(after)
+            .as("V91 seed must be idempotent — operator-set true must NOT be reset to false on re-run")
+            .isTrue();
+    }
+
+    /**
+     * Backfill regression guard (warroom B2): assert that NO row in the shelter
+     * table violates the `dv_shelter=true → shelter_type='DV'` invariant. After
+     * V91 this is structurally guaranteed by the CHECK constraint (any
+     * pre-existing diverged row would have caused the ADD CONSTRAINT step to
+     * fail and Flyway to mark V91 as failed). This direct test catches the
+     * regression where a future migration re-orders V91's steps such that the
+     * CHECK is added BEFORE the backfill UPDATE — at which point a fresh DB
+     * with no pre-V91 rows still passes (WHERE matches 0) but a prod DB with
+     * pre-existing dv_shelter=true rows would fail the constraint.
+     */
+    @Test
+    void v91_no_diverged_shelter_rows_post_migration() {
+        Integer divergedCount = jdbc.queryForObject(
+            "SELECT count(*)::int FROM shelter WHERE dv_shelter = TRUE AND shelter_type <> 'DV'",
+            Integer.class);
+
+        assertThat(divergedCount)
+            .as("Post-V91 invariant: no shelter row may have dv_shelter=TRUE and shelter_type != 'DV' "
+                + "(if this fails, V91's UPDATE backfill ran in the wrong order relative to the CHECK ADD, "
+                + "or a later migration introduced divergent rows)")
+            .isZero();
+    }
+
+    // -------------------------------------------------------------------------
+    // Spring Data JDBC entity round-trip (warroom H1)
+    //
+    // The Shelter entity gained a `shelterType` ShelterType enum field.
+    // Spring Data JDBC's default mapper converts the PG VARCHAR column ↔ Java
+    // enum via Enum.valueOf(name). Production code relies on this; this test
+    // makes the contract explicit so a future Spring upgrade that changes
+    // enum-handling fails LOUDLY here rather than silently producing null
+    // shelterType on every read.
+    // -------------------------------------------------------------------------
+
+    @Test
+    void shelter_entity_round_trips_shelterType_DV_through_spring_data_jdbc() {
+        UUID tenantId = createTenant("round-trip-dv-" + UUID.randomUUID().toString().substring(0, 8));
+
+        UUID id = TenantContext.callWithContext(tenantId, true, () -> {
+            Shelter shelter = new Shelter();
+            shelter.setTenantId(tenantId);
+            shelter.setName("Round-trip DV Shelter");
+            shelter.setDvShelter(true);
+            shelter.setShelterType(ShelterType.DV);
+            shelter.setCreatedAt(java.time.Instant.now());
+            shelter.setUpdatedAt(java.time.Instant.now());
+            Shelter saved = shelterRepository.save(shelter);
+            return saved.getId();
+        });
+
+        Shelter loaded = TenantContext.callWithContext(tenantId, true,
+            () -> shelterRepository.findById(id).orElseThrow());
+
+        assertThat(loaded.getShelterType())
+            .as("Shelter entity must round-trip shelter_type='DV' as ShelterType.DV enum value")
+            .isEqualTo(ShelterType.DV);
+        assertThat(loaded.isDvShelter()).isTrue();
+    }
+
+    @Test
+    void shelter_entity_round_trips_shelterType_EMERGENCY_through_spring_data_jdbc() {
+        UUID tenantId = createTenant("round-trip-em-" + UUID.randomUUID().toString().substring(0, 8));
+
+        UUID id = TenantContext.callWithContext(tenantId, true, () -> {
+            Shelter shelter = new Shelter();
+            shelter.setTenantId(tenantId);
+            shelter.setName("Round-trip EMERGENCY Shelter");
+            shelter.setDvShelter(false);
+            // Leave shelterType unset — entity default is EMERGENCY, V91 column
+            // default is also EMERGENCY. Either way the round-trip should
+            // produce ShelterType.EMERGENCY.
+            shelter.setCreatedAt(java.time.Instant.now());
+            shelter.setUpdatedAt(java.time.Instant.now());
+            Shelter saved = shelterRepository.save(shelter);
+            return saved.getId();
+        });
+
+        Shelter loaded = TenantContext.callWithContext(tenantId, true,
+            () -> shelterRepository.findById(id).orElseThrow());
+
+        assertThat(loaded.getShelterType()).isEqualTo(ShelterType.EMERGENCY);
+        assertThat(loaded.isDvShelter()).isFalse();
     }
 }

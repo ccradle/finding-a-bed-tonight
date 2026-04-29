@@ -91,15 +91,13 @@ class DvShelterConcurrentIsolationTest extends BaseIntegrationTest {
         regularShelterName = "Regular-Concurrent-Shelter-" + suffix;
 
         TenantContext.runWithContext(tenantId, true, () -> {
+            // Use shared fixture so the V91 dv_shelter ↔ shelter_type lockstep is centrally enforced.
             dvShelterId = UUID.randomUUID();
-            jdbcTemplate.update(
-                    // V91 CHECK constraint requires shelter_type='DV' when dv_shelter=true.
-                    "INSERT INTO shelter (id, tenant_id, name, dv_shelter, shelter_type, created_at, updated_at) VALUES (?, ?, ?, true, 'DV', NOW(), NOW())",
-                    dvShelterId, tenantId, dvShelterName);
+            org.fabt.shelter.fixtures.TestShelterFixture.insertShelterWithId(
+                jdbcTemplate, dvShelterId, tenantId, dvShelterName, true);
             regularShelterId = UUID.randomUUID();
-            jdbcTemplate.update(
-                    "INSERT INTO shelter (id, tenant_id, name, dv_shelter, created_at, updated_at) VALUES (?, ?, ?, false, NOW(), NOW())",
-                    regularShelterId, tenantId, regularShelterName);
+            org.fabt.shelter.fixtures.TestShelterFixture.insertShelterWithId(
+                jdbcTemplate, regularShelterId, tenantId, regularShelterName, false);
         });
     }
 
