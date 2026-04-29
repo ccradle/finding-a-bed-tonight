@@ -10,10 +10,12 @@ import jakarta.validation.Valid;
 import org.fabt.shared.audit.AuditEventRecord;
 import org.fabt.shared.audit.AuditEventType;
 import org.fabt.shelter.api.HoldDurationRequest;
+import org.fabt.shared.web.TenantContext;
 import org.fabt.tenant.domain.Tenant;
 import org.fabt.tenant.service.TenantService;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -47,6 +49,12 @@ import tools.jackson.databind.ObjectMapper;
  * {@code JustificationValidationFilter} does NOT apply (no
  * {@code X-Platform-Justification} header required). COC_ADMIN's role
  * is sufficient.
+ *
+ * <p>Tenant scoping (slice 2D verify C1): the path's {@code tenantId}
+ * MUST equal the caller's JWT-bound {@code TenantContext.getTenantId()}.
+ * A COC_ADMIN from Tenant A who learns Tenant B's UUID would otherwise
+ * be able to modify Tenant B's config — role-only authorization is
+ * insufficient for this in-tenant config endpoint.
  *
  * <p>Demo-mode behavior: DemoGuardFilter explicitly blocks this endpoint
  * with a friendly message branch (see DemoGuardFilter.getBlockMessage,
@@ -82,6 +90,26 @@ public class ReservationConfigController {
             @PathVariable UUID tenantId,
             @Valid @RequestBody HoldDurationRequest request,
             Authentication authentication) {
+        // Tenant-scoping guard (slice 2D verify C1): COC_ADMIN role alone is
+        // not sufficient — a COC_ADMIN from Tenant A must NOT be able to
+        // PATCH Tenant B's config by knowing/guessing Tenant B's UUID. The
+        // path's tenantId MUST equal the caller's JWT-bound tenant. 403 with
+        // no body so a probe doesn't learn whether the target tenant exists
+        // (no existence-leak), matching the
+        // reservation-hold-duration-config "scoped to caller's tenant"
+        // scenario.
+        UUID callerTenantId = TenantContext.getTenantId();
+        if (callerTenantId == null || !callerTenantId.equals(tenantId)) {
+            // AccessDeniedException is the Spring Security idiom for 403 and
+            // is already routed through GlobalExceptionHandler with the right
+            // status code (Spring's default catch-all maps generic
+            // ResponseStatusException to 500 when the project's catch-all
+            // @ExceptionHandler(Exception.class) preempts it — verified in
+            // verify-round-2 by an initial 500 response on this path).
+            throw new AccessDeniedException(
+                    "Hold-duration changes are scoped to the caller's tenant");
+        }
+
         // Capture old value BEFORE the write so the audit row can record the
         // pre-change state (slice 2D warroom B1). Look up via the read-side
         // path to avoid coupling to the write-path JSON-key casing decision.

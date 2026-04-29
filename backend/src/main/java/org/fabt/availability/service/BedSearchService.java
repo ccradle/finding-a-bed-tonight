@@ -256,7 +256,8 @@ public class BedSearchService {
                     null, // distanceMiles — placeholder until geo-search change
                     constraintsSummary,
                     surgeActive,
-                    shelter.isDvShelter()
+                    shelter.isDvShelter(),
+                    shelter.getShelterType() != null ? shelter.getShelterType().name() : null
             ));
         }
 

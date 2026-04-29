@@ -112,9 +112,18 @@ public class GlobalExceptionHandler {
         log.warn("Bad request (IllegalArgumentException): {}", ex.getMessage(), ex);
         Locale locale = LocaleContextHolder.getLocale();
         String message = messageSource.getMessage("error.bad_request", null, ex.getMessage(), locale);
+        // Preserve the exception's specific detail in `context.detail` so
+        // callers (operators + AI agents) get the actionable info even when
+        // the i18n message is the generic "Invalid request" canned text.
+        // (Slice 2D verify-round-2 W2: validateShelterTypes returns a
+        // detailed message that listed valid enum values; without this
+        // context relay the operator only saw the canned text.)
+        java.util.Map<String, Object> context = ex.getMessage() != null
+                ? java.util.Map.of("detail", ex.getMessage())
+                : java.util.Map.of();
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
-                .body(new ErrorResponse("bad_request", message, 400));
+                .body(new ErrorResponse("bad_request", message, 400, context));
     }
 
     @ExceptionHandler(IllegalStateException.class)

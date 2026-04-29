@@ -157,6 +157,54 @@ class BedSearchFilterIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
+    @DisplayName("§13.1 invalid shelterType value returns 400 with list of valid values (verify W2)")
+    void invalidShelterType_returns400() {
+        // shelter-type-taxonomy spec scenario "Invalid shelter type value
+        // returns 400" — previously the filter silently matched nothing,
+        // surfacing as an empty result and confusing UX. Verify W2 added a
+        // controller-boundary check; the response should now be 400 with a
+        // message that includes the list of valid ShelterType enum values.
+        Map<String, Object> body = Map.of("shelterTypes", List.of("INVALID_VALUE"));
+
+        ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                "/api/v1/queries/beds",
+                HttpMethod.POST,
+                new HttpEntity<>(body, authHelper.outreachWorkerHeaders()),
+                new ParameterizedTypeReference<>() {});
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        // GlobalExceptionHandler returns a generic i18n "message" plus the
+        // specific detail in context.detail (slice 2D verify-round-2 W2).
+        @SuppressWarnings("unchecked")
+        Map<String, Object> ctx = (Map<String, Object>) response.getBody().get("context");
+        assertThat(ctx)
+                .as("response context must carry the actionable detail for operators")
+                .isNotNull();
+        assertThat(ctx.get("detail"))
+                .as("400 detail must include the bad value AND list valid shelter types")
+                .asString()
+                .contains("INVALID_VALUE")
+                .contains("EMERGENCY")
+                .contains("TRANSITIONAL");
+    }
+
+    @Test
+    @DisplayName("§13.1 valid shelterType values still accepted alongside invalid-rejection (negative control)")
+    void validShelterTypes_stillAccepted() {
+        // Negative control for the W2 fix: confirm the validator doesn't
+        // reject all enum values along with the typo case.
+        Map<String, Object> body = Map.of("shelterTypes", List.of("TRANSITIONAL"));
+
+        ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                "/api/v1/queries/beds",
+                HttpMethod.POST,
+                new HttpEntity<>(body, authHelper.outreachWorkerHeaders()),
+                new ParameterizedTypeReference<>() {});
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+
+    @Test
     @DisplayName("§13.1 no shelterTypes filter returns ALL shelter types (negative control)")
     void noShelterTypeFilter_returnsAll() {
         // Proves the filter is opt-in. If a future change accidentally filtered
@@ -286,6 +334,37 @@ class BedSearchFilterIntegrationTest extends BaseIntegrationTest {
     // ---------------------------------------------------------------------
     // §13.4 — combined filter: shelter passes acceptsFelonies + has both flags
     // ---------------------------------------------------------------------
+
+    @Test
+    @DisplayName("§13.1 search response includes shelterType field (verify S3)")
+    void searchResponse_includesShelterType() {
+        // shelter-type-taxonomy "Filter by TRANSITIONAL returns shelters where
+        // shelterType field equals TRANSITIONAL in the response" — verify
+        // S3 added shelterType to BedSearchResult. Without this assertion the
+        // field could regress to null silently and the frontend filter UI
+        // would show empty badges with no test catching it.
+        Map<String, Object> body = Map.of("shelterTypes", List.of("TRANSITIONAL"));
+
+        ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                "/api/v1/queries/beds",
+                HttpMethod.POST,
+                new HttpEntity<>(body, authHelper.outreachWorkerHeaders()),
+                new ParameterizedTypeReference<>() {});
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> results = (List<Map<String, Object>>) response.getBody().get("results");
+
+        Map<String, Object> transitWakeRow = results.stream()
+                .filter(r -> shelterTransitWakeAcceptYes.toString().equals(r.get("shelterId")))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Transit Wake shelter missing from filtered response"));
+
+        assertThat(transitWakeRow.get("shelterType"))
+                .as("response row must echo the shelter's shelter_type so the filter UI "
+                        + "can render type-specific badges (verify S3)")
+                .isEqualTo("TRANSITIONAL");
+    }
 
     @Test
     @DisplayName("§13.4 acceptsFelonies=true filtered shelter has both accepts_felonies=true AND can be confirmed via DB")

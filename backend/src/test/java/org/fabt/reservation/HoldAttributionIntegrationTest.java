@@ -189,6 +189,45 @@ class HoldAttributionIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
+    @DisplayName("§13.6 DOB before 1900-01-01 rejected with 400 (service-layer floor, verify W1)")
+    void dobBefore1900_isRejected400() {
+        // The DTO's @Past lets "1850-01-01" through (it IS a past date). The
+        // service-layer guard ReservationService.validateHoldClientDob enforces
+        // the > 1900-01-01 floor that catches the silently-invalid "1850" typo
+        // case Marcus warroom flagged. Spec scenario "heldForClientDob
+        // validation rejects implausible dates" includes BOTH future-date AND
+        // before-1900-01-01; without this test the service-layer half is
+        // unenforced.
+        String body = """
+                {
+                    "shelterId": "%s",
+                    "populationType": "SINGLE_ADULT",
+                    "heldForClientName": "Probe Person",
+                    "heldForClientDob": "1850-01-01"
+                }
+                """.formatted(shelterId);
+
+        ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                "/api/v1/reservations",
+                HttpMethod.POST,
+                new HttpEntity<>(body, headers("application/json", authHelper.outreachWorkerHeaders())),
+                new ParameterizedTypeReference<>() {});
+
+        assertThat(response.getStatusCode())
+                .as("DOB before 1900-01-01 must be rejected with 400 by the service-layer floor")
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+
+        // Negative control: confirm no row landed.
+        Integer leakRows = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM reservation WHERE shelter_id = ? AND held_for_client_name_encrypted IS NOT NULL "
+                + "AND notes IS NULL",  // our test body has no top-level notes
+                Integer.class, shelterId);
+        assertThat(leakRows)
+                .as("rejected request must not have written a partial reservation")
+                .isZero();
+    }
+
+    @Test
     @DisplayName("§13.6 today's DOB also rejected (@Past requires strictly past)")
     void todayDob_isRejected400() {
         // Negative control sibling for the future-date test: today fails the same
@@ -216,6 +255,25 @@ class HoldAttributionIntegrationTest extends BaseIntegrationTest {
     // ---------------------------------------------------------------------
     // §13.7 — hold-duration change applies forward only
     // ---------------------------------------------------------------------
+
+    @Test
+    @DisplayName("§13.7 fresh tenant with no holdDuration config defaults to 90 minutes (verify S2)")
+    void freshTenant_defaultsTo90Minutes() {
+        // reservation-hold-duration-config "Default is 90 minutes" spec
+        // scenario. Direct assertion: this test's @BeforeEach already creates
+        // a fresh tenant with empty config; create one hold, assert
+        // expires_at - created_at ≈ 90 min ±10s. A regression that bumped
+        // DEFAULT_HOLD_DURATION_MINUTES would fail this test even though
+        // the in-flight half of §13.7 might still pass.
+        UUID hold = postHold("Default Probe", "1990-01-01", "default-90");
+        Instant created = createdAtOf(hold);
+        Instant expires = expiresAtOf(hold);
+
+        long durationSeconds = (expires.toEpochMilli() - created.toEpochMilli()) / 1000;
+        assertThat(durationSeconds)
+                .as("default duration must be 90 min (±10s) when tenant.config has no hold_duration_minutes key")
+                .isBetween(90L * 60 - 10, 90L * 60 + 10);
+    }
 
     @Test
     @DisplayName("§13.7 in-flight holds retain original expires_at; subsequent holds use new duration")
@@ -338,6 +396,40 @@ class HoldAttributionIntegrationTest extends BaseIntegrationTest {
                 .as("audit details must capture config_key + new_value")
                 .contains("hold_duration_minutes")
                 .contains("120");
+    }
+
+    @Test
+    @DisplayName("§13.8 cross-tenant PATCH returns 403; target tenant config unchanged (verify C1)")
+    void crossTenantPatch_isRejected_andTargetUnchanged() {
+        // Stand up a SECOND tenant and try to PATCH its hold-duration with the
+        // first tenant's COC_ADMIN. Per the
+        // reservation-hold-duration-config "scoped to caller's tenant"
+        // spec scenario, this MUST return 403 and Tenant B's config must
+        // be unchanged.
+        UUID otherTenantId = authHelper.setupSecondaryTenantWithKeyMaterial(
+                "ht-cross-tenant-" + UUID.randomUUID().toString().substring(0, 8)).getId();
+
+        // Snapshot Tenant B's current config (or absence of the key) BEFORE
+        // the cross-tenant attempt so we can assert "unchanged" afterwards.
+        String configBefore = jdbcTemplate.queryForObject(
+                "SELECT config::text FROM tenant WHERE id = ?", String.class, otherTenantId);
+
+        ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                "/api/v1/admin/tenants/" + otherTenantId + "/hold-duration",
+                HttpMethod.PATCH,
+                new HttpEntity<>("{\"holdDurationMinutes\": 200}",
+                        headers("application/json", authHelper.cocAdminHeaders())),
+                new ParameterizedTypeReference<>() {});
+
+        assertThat(response.getStatusCode())
+                .as("cross-tenant PATCH must be 403 even though caller has COC_ADMIN role")
+                .isEqualTo(HttpStatus.FORBIDDEN);
+
+        String configAfter = jdbcTemplate.queryForObject(
+                "SELECT config::text FROM tenant WHERE id = ?", String.class, otherTenantId);
+        assertThat(configAfter)
+                .as("Tenant B's config must be byte-for-byte unchanged after a rejected cross-tenant PATCH")
+                .isEqualTo(configBefore);
     }
 
     @Test
