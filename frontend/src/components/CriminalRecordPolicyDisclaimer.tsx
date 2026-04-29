@@ -7,8 +7,8 @@ import { text } from '../theme/typography';
  * displays a shelter's criminal record policy fields
  * (`criminal_record_policy`, `accepts_felonies`, `excluded_offense_types`).
  *
- * Required by transitional-reentry-support task 7.1 (design D6, Casey
- * Drummond legal review 2026-04-28). The CI guard at
+ * Required by transitional-reentry-support task 7.1 (design D6,
+ * internal legal review 2026-04-28). The CI guard at
  * `scripts/ci/check-criminal-record-disclaimer-co-rendering.sh` enforces
  * the co-rendering requirement: any frontend file that names one of
  * those tokens in non-comment code MUST also render

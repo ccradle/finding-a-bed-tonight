@@ -69,4 +69,4 @@ COMMENT ON COLUMN reservation.held_for_client_dob_encrypted IS
     'Base64 v1 EncryptionEnvelope of the third-party client date of birth (ISO-8601 string format before encryption). Used for shelter check-in confirmation. Same purge schedule as held_for_client_name_encrypted.';
 
 COMMENT ON COLUMN reservation.hold_notes_encrypted IS
-    'Base64 v1 EncryptionEnvelope of free-text coordination notes from navigator to shelter coordinator. May contain names and contact information of supervision officers (Casey Drummond warroom). Same purge schedule as held_for_client_name_encrypted — NOT a permanent record.';
+    'Base64 v1 EncryptionEnvelope of free-text coordination notes from navigator to shelter coordinator. May contain names and contact information of supervision officers. Same purge schedule as held_for_client_name_encrypted — NOT a permanent record.';

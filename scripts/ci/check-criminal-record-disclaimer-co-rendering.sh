@@ -5,8 +5,8 @@
 # Enforces design D6: any frontend .tsx/.jsx file that references a
 # `criminal_record_policy` field (also `accepts_felonies` or
 # `excluded_offense_types`) in non-comment code MUST also render
-# `<CriminalRecordPolicyDisclaimer>`. Casey Drummond's legal review
-# concluded that the disclaimer is load-bearing for navigator UX; the
+# `<CriminalRecordPolicyDisclaimer>`. Internal legal review concluded
+# that the disclaimer is load-bearing for navigator UX; the
 # co-rendering rule is the only mechanism that prevents a future
 # refactor from drifting the data + disclaimer apart.
 #
@@ -122,8 +122,8 @@ if (( ${#VIOLATIONS[@]} > 0 )); then
     done
     cat <<EOF
 
-Per design D6 (transitional-reentry-support / Casey Drummond legal
-review 2026-04-28), any UI surface that displays criminal_record_policy
+Per design D6 (transitional-reentry-support / internal legal review
+2026-04-28), any UI surface that displays criminal_record_policy
 data MUST co-render <CriminalRecordPolicyDisclaimer>. Import:
 
     import { CriminalRecordPolicyDisclaimer } from '../components/CriminalRecordPolicyDisclaimer';

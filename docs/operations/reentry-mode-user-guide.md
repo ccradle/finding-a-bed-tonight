@@ -17,7 +17,7 @@ turning the feature on for a tenant for the first time:
 3. Populating shelter `eligibility_criteria` via the guided form.
 4. The outreach worker advanced-filters surface and the
    hold-with-attribution flow.
-5. The 24-hour PII purge promise for hold-attribution columns.
+5. The 24-hour PII purge behavior for hold-attribution columns.
 6. `requires_verification_call=true` semantics for navigators.
 
 The guide assumes the v0.55.0 backend + frontend are deployed (see
@@ -220,7 +220,7 @@ enforces the co-rendering: any frontend file that names
 `excluded_offense_types` in non-comment code must also render the
 disclaimer. The text itself is i18n-keyed
 (`shelter.criminalRecordPolicyDisclaimer`) and is reworded only
-through a Casey Drummond legal re-review — operators must not edit
+through an internal legal re-review — operators must not edit
 it inline.
 
 ### 3.2 VAWA note
@@ -379,7 +379,7 @@ is intentionally terse to limit incidental PII exposure.
 
 ---
 
-## 5. The 24-hour PII purge promise
+## 5. The 24-hour PII purge behavior
 
 The hold-attribution PII columns are nulled 24 hours after a
 reservation reaches a resolved state. This is the

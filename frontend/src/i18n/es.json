@@ -720,7 +720,7 @@
   "hold.heldForClientDob": "Fecha de nacimiento (para que el refugio confirme la llegada)",
   "hold.heldForClientDobSublabel": "Opcional",
   "hold.notes": "Nota para el coordinador del refugio",
-  "hold.clientAttributionPrivacyNote": "El nombre, la fecha de nacimiento y las notas del cliente se almacenan cifrados. Se eliminan automáticamente 24 horas después de que esta reserva expire, sea confirmada, o sea cancelada. Use estos campos únicamente para la coordinación del registro en el refugio.",
+  "hold.clientAttributionPrivacyNote": "El nombre, la fecha de nacimiento y las notas del cliente se almacenan cifrados. Se borran dentro de 24 horas después de que esta reserva expire, sea confirmada, o sea cancelada. Use estos campos únicamente para la coordinación del registro en el refugio.",
 
   "admin.holdDurationMinutes": "Duración de la reserva (minutos)",
   "admin.eligibilityCriteria": "Criterios de elegibilidad",

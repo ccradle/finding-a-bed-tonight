@@ -14,10 +14,10 @@ import {
  *
  * <p>Editable section for `shelter_constraints.eligibility_criteria`.
  * Renders {@link CriminalRecordPolicyDisclaimer} FIRST in DOM order
- * (Casey-reviewed legal requirement: disclaimer must precede the data
- * it annotates so screen readers announce it before the criminal-record
+ * (legal-review requirement: disclaimer must precede the data it
+ * annotates so screen readers announce it before the criminal-record
  * policy fields). The §7 CI guard checks this co-rendering at the
- * file-scope, but rendering it first is the load-bearing UX guarantee.
+ * file-scope, but rendering it first is the load-bearing UX rule.
  *
  * <p>Role gating (§10.1): visible to COC_ADMIN only — passed in via
  * the {@code visibleToRole} prop. The parent (ShelterForm) decides;
