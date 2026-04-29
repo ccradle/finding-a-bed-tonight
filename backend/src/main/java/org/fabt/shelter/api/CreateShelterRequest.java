@@ -15,6 +15,12 @@ public record CreateShelterRequest(
         Double longitude,
         boolean dvShelter,
         ShelterConstraintsDto constraints,
-        List<ShelterCapacityDto> capacities
+        List<ShelterCapacityDto> capacities,
+        // transitional-reentry-support task 4.3 (slice 2B). Optional —
+        // nullable means "not provided" / entity defaults. Note:
+        // eligibilityCriteria lives inside `constraints` (it persists on
+        // shelter_constraints.eligibility_criteria per V92).
+        String county,
+        Boolean requiresVerificationCall
 ) {
 }

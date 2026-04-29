@@ -114,6 +114,60 @@ public class ShelterService {
     }
 
     /**
+     * Read the per-tenant {@code active_counties} list from {@code tenant.config}
+     * (transitional-reentry-support task 4.3 / design D3 H2 revision). Returns
+     * an empty list when:
+     * <ul>
+     *   <li>Tenant config is null or empty (defensive fallback).</li>
+     *   <li>The {@code active_counties} key is absent (means "use NC defaults"
+     *       — caller decides how to apply that fallback; this method just
+     *       returns the literal stored list).</li>
+     *   <li>The {@code active_counties} key is explicitly {@code []} (means
+     *       "validation disabled" — caller distinguishes this from "absent"
+     *       via a separate signal if needed).</li>
+     * </ul>
+     *
+     * <p>Validation policy: county is valid if (a) {@code active_counties} is
+     * empty / absent (validation disabled), OR (b) the supplied county string
+     * appears in the list. {@code null} county is always valid (no constraint
+     * on null).
+     */
+    public boolean isValidCounty(UUID tenantId, String county) {
+        if (county == null) return true;
+        try {
+            return tenantService.findById(tenantId)
+                    .filter(t -> t.getConfig() != null && t.getConfig().value() != null)
+                    .map(t -> {
+                        try {
+                            JsonNode node = objectMapper.readTree(t.getConfig().value());
+                            JsonNode active = node.get("active_counties");
+                            if (active == null || !active.isArray()) {
+                                // Key absent — fall back to NC default list.
+                                return org.fabt.shelter.county.NcCountyDefaults.COUNTIES.contains(county);
+                            }
+                            if (active.isEmpty()) {
+                                // Explicit empty array — validation disabled, accept any.
+                                return true;
+                            }
+                            for (JsonNode entry : active) {
+                                if (entry.isTextual() && entry.asText().equals(county)) return true;
+                            }
+                            return false;
+                        } catch (tools.jackson.core.JacksonException e) {
+                            log.warn("Failed to parse active_counties from tenant config; "
+                                + "falling back to NC defaults: {}", e.getMessage());
+                            return org.fabt.shelter.county.NcCountyDefaults.COUNTIES.contains(county);
+                        }
+                    })
+                    .orElse(org.fabt.shelter.county.NcCountyDefaults.COUNTIES.contains(county));
+        } catch (Exception e) {
+            log.warn("Failed to read active_counties from tenant config; falling back to NC defaults: {}",
+                e.getMessage());
+            return org.fabt.shelter.county.NcCountyDefaults.COUNTIES.contains(county);
+        }
+    }
+
+    /**
      * Read the DV address visibility policy from tenant config.
      */
     public DvAddressPolicy getDvAddressPolicy(UUID tenantId) {
@@ -171,6 +225,18 @@ public class ShelterService {
         // DV → DV, anything else → EMERGENCY default. Slice 2 task 4.3 expands
         // this to accept an explicit shelter_type from the request DTO.
         shelter.setShelterType(req.dvShelter() ? ShelterType.DV : ShelterType.EMERGENCY);
+        // transitional-reentry-support task 4.3 (slice 2B): persist county /
+        // requiresVerificationCall / eligibilityCriteria from the request DTO.
+        if (req.county() != null) {
+            if (!isValidCounty(tenantId, req.county())) {
+                throw new IllegalArgumentException(
+                    "Invalid county '" + req.county() + "' for tenant; not in active_counties");
+            }
+            shelter.setCounty(req.county());
+        }
+        if (req.requiresVerificationCall() != null) {
+            shelter.setRequiresVerificationCall(req.requiresVerificationCall());
+        }
         shelter.setActive(true);
         shelter.setCreatedAt(Instant.now());
         shelter.setUpdatedAt(Instant.now());
@@ -264,6 +330,18 @@ public class ShelterService {
             // same transaction as the dv_shelter change, otherwise the CHECK
             // constraint rejects mid-update.
             shelter.setShelterType(req.dvShelter() ? ShelterType.DV : ShelterType.EMERGENCY);
+        }
+        // transitional-reentry-support task 4.3 (slice 2B): PATCH semantics —
+        // null req fields leave existing entity values unchanged.
+        if (req.county() != null) {
+            if (!isValidCounty(tenantId, req.county())) {
+                throw new IllegalArgumentException(
+                    "Invalid county '" + req.county() + "' for tenant; not in active_counties");
+            }
+            shelter.setCounty(req.county());
+        }
+        if (req.requiresVerificationCall() != null) {
+            shelter.setRequiresVerificationCall(req.requiresVerificationCall());
         }
         shelter.setUpdatedAt(Instant.now());
 
@@ -613,6 +691,10 @@ public class ShelterService {
         // Alex Chen + Elena Vasquez: fix at the service layer to protect ALL callers.
         constraints.setPopulationTypesServed(
                 dto.populationTypesServed() != null ? dto.populationTypesServed() : new String[0]);
+        // transitional-reentry-support task 4.3 (slice 2B): persist
+        // eligibilityCriteria JSONB. Null-safe: null DTO field → null entity
+        // field → null DB column (V92 column is nullable).
+        constraints.setEligibilityCriteria(dto.eligibilityCriteria());
         return constraints;
     }
 

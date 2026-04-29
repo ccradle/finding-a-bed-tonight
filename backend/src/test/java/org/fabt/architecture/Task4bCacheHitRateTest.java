@@ -119,7 +119,7 @@ class Task4bCacheHitRateTest extends BaseIntegrationTest {
                             // wrapper is key-agnostic, so an empty List written + read
                             // back increments the hit counter exactly as a non-empty
                             // one would. Per Riley slice-2 fold-in: seed not required.
-                            BedSearchRequest req = new BedSearchRequest(null, null, null, 10);
+                            BedSearchRequest req = new BedSearchRequest(null, null, null, 10, null, null, null);
                             ctx.bedSearch().search(req);
                         }));
     }

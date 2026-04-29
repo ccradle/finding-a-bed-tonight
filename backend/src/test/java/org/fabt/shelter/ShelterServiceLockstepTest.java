@@ -78,7 +78,9 @@ class ShelterServiceLockstepTest extends BaseIntegrationTest {
             -78.64,
             dv,
             null,   // constraints
-            null    // capacities
+            null,   // capacities
+            null,   // county
+            null    // requiresVerificationCall
         );
     }
 
@@ -135,11 +137,13 @@ class ShelterServiceLockstepTest extends BaseIntegrationTest {
         assertThat(preType).isEqualTo("EMERGENCY");
 
         // UpdateShelterRequest record signature: (name, addressStreet, addressCity, addressState,
-        // addressZip, phone, latitude, longitude, dvShelter Boolean, constraints, capacities)
+        // addressZip, phone, latitude, longitude, dvShelter Boolean, constraints, capacities,
+        // county, requiresVerificationCall, eligibilityCriteria)
         UpdateShelterRequest req = new UpdateShelterRequest(
             null, null, null, null, null, null, null, null,
             Boolean.TRUE,  // flip dvShelter to true
-            null, null);
+            null, null,
+            null, null);  // county / requiresVerificationCall / eligibilityCriteria
 
         TenantContext.runWithContext(tenantId, true, () ->
             shelterService.update(created.getId(), req));
@@ -169,6 +173,7 @@ class ShelterServiceLockstepTest extends BaseIntegrationTest {
         UpdateShelterRequest req = new UpdateShelterRequest(
             null, null, null, null, null, null, null, null,
             Boolean.FALSE,  // flip dvShelter to false
+            null, null,
             null, null);
 
         TenantContext.runWithContext(tenantId, true, () ->
@@ -200,6 +205,7 @@ class ShelterServiceLockstepTest extends BaseIntegrationTest {
             "DV Passthrough Renamed",
             null, null, null, null, null, null, null,
             null,  // dvShelter omitted
+            null, null,
             null, null);
 
         TenantContext.runWithContext(tenantId, true, () ->

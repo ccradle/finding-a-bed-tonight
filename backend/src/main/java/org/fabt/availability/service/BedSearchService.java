@@ -29,11 +29,17 @@ import org.fabt.shelter.repository.ShelterConstraintsRepository;
 import org.fabt.shelter.service.ShelterService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Service
 public class BedSearchService {
 
     public record BedSearchResponse(List<BedSearchResult> results, int totalCount) {}
+
+    private static final Logger log = LoggerFactory.getLogger(BedSearchService.class);
 
     private final BedAvailabilityRepository availabilityRepository;
     private final ShelterService shelterService;
@@ -41,19 +47,53 @@ public class BedSearchService {
     private final TenantScopedCacheService cacheService;
     private final ObservabilityMetrics metrics;
     private final BedSearchLogger bedSearchLogger;
+    private final ObjectMapper objectMapper;
 
     public BedSearchService(BedAvailabilityRepository availabilityRepository,
                             ShelterService shelterService,
                             ShelterConstraintsRepository constraintsRepository,
                             TenantScopedCacheService cacheService,
                             ObservabilityMetrics metrics,
-                            BedSearchLogger bedSearchLogger) {
+                            BedSearchLogger bedSearchLogger,
+                            ObjectMapper objectMapper) {
         this.availabilityRepository = availabilityRepository;
         this.shelterService = shelterService;
         this.constraintsRepository = constraintsRepository;
         this.cacheService = cacheService;
         this.metrics = metrics;
         this.bedSearchLogger = bedSearchLogger;
+        this.objectMapper = objectMapper;
+    }
+
+    /**
+     * Parse {@code eligibility_criteria.criminal_record_policy.accepts_felonies}
+     * from the constraints JSONB. Returns:
+     * <ul>
+     *   <li>{@code Boolean.TRUE}  — explicit true at the leaf path</li>
+     *   <li>{@code Boolean.FALSE} — explicit false at the leaf path</li>
+     *   <li>{@code null}          — any node along the path is missing,
+     *       parse fails, or constraints itself is null</li>
+     * </ul>
+     *
+     * <p>Used by the warroom-H1 three-way {@code acceptsFelonies} filter
+     * (transitional-reentry-support task 4.2). Note: this is JSON-extraction
+     * via Jackson at the Java layer. The V92 GIN index is for a future SQL
+     * containment query (warroom H4 / slice 5 pilot-scale verification);
+     * the current in-memory filter doesn't touch the index.
+     */
+    private Boolean readAcceptsFeloniesFromConstraints(ShelterConstraints constraints) {
+        if (constraints == null || constraints.getEligibilityCriteria() == null) return null;
+        try {
+            JsonNode root = objectMapper.readTree(constraints.getEligibilityCriteria().value());
+            JsonNode policy = root.get("criminal_record_policy");
+            if (policy == null) return null;
+            JsonNode accepts = policy.get("accepts_felonies");
+            if (accepts == null || !accepts.isBoolean()) return null;
+            return accepts.asBoolean();
+        } catch (tools.jackson.core.JacksonException e) {
+            log.warn("Failed to parse eligibility_criteria for shelter constraints: {}", e.getMessage());
+            return null;
+        }
     }
 
     @Transactional(readOnly = true)
@@ -115,6 +155,42 @@ public class BedSearchService {
             }
             // Get constraints
             ShelterConstraints constraints = constraintsRepository.findById(shelter.getId()).orElse(null);
+
+            // transitional-reentry-support task 4.1 (slice 2B):
+            // shelterTypes filter (multi-value, exact enum-name match).
+            // Null/empty = no filter; otherwise shelter must match one entry.
+            if (request.shelterTypes() != null && !request.shelterTypes().isEmpty()) {
+                String typeName = shelter.getShelterType() != null
+                    ? shelter.getShelterType().name() : null;
+                if (typeName == null || !request.shelterTypes().contains(typeName)) continue;
+            }
+
+            // transitional-reentry-support task 4.1 (slice 2B):
+            // county filter (case-insensitive exact match). Null = no filter;
+            // otherwise shelter must match (null county is excluded — caller
+            // asked for a specific county and the shelter doesn't have one).
+            if (request.county() != null) {
+                if (shelter.getCounty() == null
+                    || !shelter.getCounty().equalsIgnoreCase(request.county())) continue;
+            }
+
+            // transitional-reentry-support task 4.2 (slice 2B):
+            // three-way `acceptsFelonies` filter (design D1 H1 revision).
+            //   (a) explicit eligibility_criteria.criminal_record_policy.accepts_felonies = false
+            //       → EXCLUDE
+            //   (b) explicit accepts_felonies = true → INCLUDE
+            //   (c) any-null path → INCLUDE if requires_verification_call = true,
+            //       else EXCLUDE
+            if (Boolean.TRUE.equals(request.acceptsFelonies())) {
+                Boolean acceptsExplicit = readAcceptsFeloniesFromConstraints(constraints);
+                if (Boolean.FALSE.equals(acceptsExplicit)) continue;          // (a)
+                if (Boolean.TRUE.equals(acceptsExplicit)) {                    // (b)
+                    // include — fall through to amenity / population checks
+                } else {
+                    // (c) — sentinel-driven inclusion
+                    if (!shelter.isRequiresVerificationCall()) continue;
+                }
+            }
 
             // Apply constraint filters — match the caller's needs against shelter constraints.
             //

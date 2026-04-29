@@ -46,7 +46,7 @@ public class BedSearchController {
     @PostMapping("/beds")
     public ResponseEntity<BedSearchResponse> searchBeds(@RequestBody(required = false) BedSearchRequest request) {
         if (request == null) {
-            request = new BedSearchRequest(null, null, null, null);
+            request = new BedSearchRequest(null, null, null, null, null, null, null);
         }
         boolean surgeActive = surgeEventService.getActive().isPresent();
         BedSearchResponse response = bedSearchService.search(request, surgeActive);
