@@ -263,13 +263,20 @@ INSERT INTO shelter (id, tenant_id, name, address_street, address_city, address_
 ('d0000000-0000-0000-0000-000000000007', 'a0000000-0000-0000-0000-000000000001', 'Wake County Veterans Home', '200 Fayetteville St', 'Raleigh', 'NC', '27601', '919-555-0107', 35.7780, -78.6389, false, NOW(), NOW()),
 ('d0000000-0000-0000-0000-000000000008', 'a0000000-0000-0000-0000-000000000001', 'Youth Hope Center', '110 S McDowell St', 'Raleigh', 'NC', '27601', '919-555-0108', 35.7748, -78.6406, false, NOW(), NOW()),
 ('d0000000-0000-0000-0000-000000000009', 'a0000000-0000-0000-0000-000000000001', 'Women of Hope Shelter', '501 W Cabarrus St', 'Raleigh', 'NC', '27603', '919-555-0109', 35.7822, -78.6477, false, NOW(), NOW()),
-('d0000000-0000-0000-0000-000000000010', 'a0000000-0000-0000-0000-000000000001', 'Helping Hand Recovery Center', '615 Chapanoke Rd', 'Raleigh', 'NC', '27603', '919-555-0110', 35.7504, -78.6566, false, NOW(), NOW()),
+('d0000000-0000-0000-0000-000000000010', 'a0000000-0000-0000-0000-000000000001', 'Helping Hand Recovery Center', '615 Chapanoke Rd', 'Raleigh', 'NC', '27603', '919-555-0110', 35.7504, -78.6566, false, NOW(), NOW())
+ON CONFLICT DO NOTHING;
+
 -- DV shelters (invisible to non-DV-authorized users)
 -- 3 DV shelters required: dual-threshold suppression (DV_MIN_SHELTER_COUNT=3, DV_MIN_CELL_SIZE=5)
 -- prevents small-cell inference in HMIS export and analytics aggregation
-('d0000000-0000-0000-0000-000000000011', 'a0000000-0000-0000-0000-000000000001', 'Safe Haven DV Shelter', '999 Undisclosed Ave', 'Raleigh', 'NC', '27601', '919-555-0199', 35.7800, -78.6400, true, NOW(), NOW()),
-('d0000000-0000-0000-0000-000000000012', 'a0000000-0000-0000-0000-000000000001', 'Harbor House', '998 Undisclosed Ave', 'Raleigh', 'NC', '27601', '919-555-0198', 35.7810, -78.6410, true, NOW(), NOW()),
-('d0000000-0000-0000-0000-000000000013', 'a0000000-0000-0000-0000-000000000001', 'Bridges to Safety', '997 Undisclosed Ave', 'Raleigh', 'NC', '27601', '919-555-0197', 35.7820, -78.6420, true, NOW(), NOW())
+--
+-- Slice 4 §11/§12: V91 shelter_dv_implies_dv_type CHECK constraint requires
+-- shelter_type='DV' whenever dv_shelter=TRUE. Separate INSERT with explicit
+-- shelter_type column so the constraint is satisfied at INSERT time.
+INSERT INTO shelter (id, tenant_id, name, address_street, address_city, address_state, address_zip, phone, latitude, longitude, dv_shelter, shelter_type, created_at, updated_at) VALUES
+('d0000000-0000-0000-0000-000000000011', 'a0000000-0000-0000-0000-000000000001', 'Safe Haven DV Shelter', '999 Undisclosed Ave', 'Raleigh', 'NC', '27601', '919-555-0199', 35.7800, -78.6400, true, 'DV', NOW(), NOW()),
+('d0000000-0000-0000-0000-000000000012', 'a0000000-0000-0000-0000-000000000001', 'Harbor House', '998 Undisclosed Ave', 'Raleigh', 'NC', '27601', '919-555-0198', 35.7810, -78.6410, true, 'DV', NOW(), NOW()),
+('d0000000-0000-0000-0000-000000000013', 'a0000000-0000-0000-0000-000000000001', 'Bridges to Safety', '997 Undisclosed Ave', 'Raleigh', 'NC', '27601', '919-555-0197', 35.7820, -78.6420, true, 'DV', NOW(), NOW())
 ON CONFLICT DO NOTHING;
 
 -- Shelter constraints
@@ -633,17 +640,18 @@ ON CONFLICT (tenant_id, email) DO UPDATE SET
 -- Waynesville) so the map/search surface feels realistic. DV shelter address
 -- is intentionally undisclosed. No real-address geocode — lat/lon approximate
 -- the town centroid.
-INSERT INTO shelter (id, tenant_id, name, address_street, address_city, address_state, address_zip, phone, latitude, longitude, dv_shelter, created_at, updated_at)
+INSERT INTO shelter (id, tenant_id, name, address_street, address_city, address_state, address_zip, phone, latitude, longitude, dv_shelter, shelter_type, created_at, updated_at)
 VALUES
     ('d0000001-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000002',
      'Example House North (demo)', '101 Fictional Way', 'Boone', 'NC', '28607', '000-555-0101',
-     36.22, -81.67, false, NOW(), NOW()),
+     36.22, -81.67, false, 'EMERGENCY', NOW(), NOW()),
     ('d0000001-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000002',
      'Blue Ridge Example Shelter (demo)', '102 Fictional Way', 'Waynesville', 'NC', '28786', '000-555-0102',
-     35.49, -82.99, false, NOW(), NOW()),
+     35.49, -82.99, false, 'EMERGENCY', NOW(), NOW()),
+    -- V91 shelter_dv_implies_dv_type CHECK requires shelter_type='DV' when dv_shelter=TRUE.
     ('d0000001-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000002',
      'Safe Haven Demo DV West', '999 Undisclosed Demo', 'Undisclosed', 'NC', '00000', '000-555-0103',
-     35.7, -82.7, true, NOW(), NOW())
+     35.7, -82.7, true, 'DV', NOW(), NOW())
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO shelter_constraints (shelter_id, sobriety_required, id_required, referral_required, pets_allowed, wheelchair_accessible, curfew_time, max_stay_days, population_types_served)
@@ -712,17 +720,18 @@ ON CONFLICT (tenant_id, email) DO UPDATE SET
 -- ("Fictional Way") per D12, but cities use real coastal-NC towns (New Bern,
 -- Washington) so the map/search surface feels realistic. DV shelter address
 -- is intentionally undisclosed.
-INSERT INTO shelter (id, tenant_id, name, address_street, address_city, address_state, address_zip, phone, latitude, longitude, dv_shelter, created_at, updated_at)
+INSERT INTO shelter (id, tenant_id, name, address_street, address_city, address_state, address_zip, phone, latitude, longitude, dv_shelter, shelter_type, created_at, updated_at)
 VALUES
     ('d0000002-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000003',
      'Example Coastal House (demo)', '201 Fictional Way', 'New Bern', 'NC', '28560', '000-555-0201',
-     35.11, -77.04, false, NOW(), NOW()),
+     35.11, -77.04, false, 'EMERGENCY', NOW(), NOW()),
     ('d0000002-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000003',
      'Pamlico Example Shelter (demo)', '202 Fictional Way', 'Washington', 'NC', '27889', '000-555-0202',
-     35.55, -77.05, false, NOW(), NOW()),
+     35.55, -77.05, false, 'EMERGENCY', NOW(), NOW()),
+    -- V91 shelter_dv_implies_dv_type CHECK requires shelter_type='DV' when dv_shelter=TRUE.
     ('d0000002-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000003',
      'Safe Haven Demo DV East', '999 Undisclosed Demo', 'Undisclosed', 'NC', '00000', '000-555-0203',
-     35.4, -76.4, true, NOW(), NOW())
+     35.4, -76.4, true, 'DV', NOW(), NOW())
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO shelter_constraints (shelter_id, sobriety_required, id_required, referral_required, pets_allowed, wheelchair_accessible, curfew_time, max_stay_days, population_types_served)
