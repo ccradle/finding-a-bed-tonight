@@ -7,12 +7,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [v0.55.0] — UNRELEASED — transitional-reentry-support (slice 4)
 
-Backend JAR `0.54.0 -> 0.55.0`. Flyway HWM advances `V90 -> V94`
-(four migrations: V91 shelter_type + county + requires_verification_call
+Backend JAR `0.54.0 -> 0.55.0`. Flyway HWM advances `V90 -> V95`
+(five migrations: V91 shelter_type + county + requires_verification_call
 + CHECK constraint, V92 GIN index on `shelter_constraints.eligibility_criteria`,
 V93 reservation _encrypted columns + `tenant_dek.purpose` extension for
-`RESERVATION_PII`, V94 `features.reentryMode` config flag). No breaking
-API changes.
+`RESERVATION_PII`, V94 `features.reentryMode` config flag, V95 demo
+shelter seed expansion for dev-coc-east + dev-coc-west tenants — adds
+TRANSITIONAL/REENTRY_TRANSITIONAL/OVERFLOW shelters with realistic
+eligibility_criteria, county backfill on existing rows, active_counties
+in tenant config, and coordinator_assignment rows). No breaking API
+changes.
 
 ### Added
 
