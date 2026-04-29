@@ -748,5 +748,12 @@
   "shelter.eligibility.programRequirements": "Program requirements",
   "shelter.eligibility.documentationRequired": "Documentation required",
   "shelter.eligibility.intakeHours": "Intake hours",
-  "shelter.eligibility.tagInputPlaceholder": "Type a value and press Add"
+  "shelter.eligibility.tagInputPlaceholder": "Type a value and press Add",
+  "hold.dialog.title": "Hold a bed",
+  "hold.dialog.confirm": "Confirm hold",
+  "hold.dialog.cancel": "Cancel",
+  "hold.dialog.addClientDetails": "Add client details (optional)",
+  "hold.dialog.dobInvalidFloor": "Date of birth must be after 1900-01-01",
+  "hold.dialog.dobInvalidFuture": "Date of birth cannot be in the future",
+  "coord.heldForClient": "Held for"
 }

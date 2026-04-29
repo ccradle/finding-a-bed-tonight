@@ -13,6 +13,7 @@ import { useAuth } from '../auth/useAuth';
 import { useActiveCounties } from '../hooks/useActiveCounties';
 import { EligibilityCriteriaDisplay } from '../components/EligibilityCriteriaDisplay';
 import { parseEligibilityCriteria } from '../types/eligibilityCriteria';
+import { HoldDialog, type HoldAttribution } from '../components/HoldDialog';
 
 const POPULATION_TYPES = [
   { value: '', labelId: 'search.allTypes' },
@@ -219,6 +220,14 @@ export function OutreachSearch() {
   const [holdingShelterId, setHoldingShelterId] = useState<string | null>(null);
   const [holdPopType, setHoldPopType] = useState<string | null>(null);
   const [showReservations, setShowReservations] = useState(false);
+  // Slice 4 §11 — hold-creation dialog state. Replaces the prior
+  // instant-POST flow on chip-button click. Click → open dialog →
+  // Confirm submits with optional attribution. Operators placing
+  // routine no-attribution holds can hit Enter to confirm
+  // immediately (warroom H2 — Confirm is auto-focused).
+  const [holdDialog, setHoldDialog] = useState<{
+    shelterId: string; shelterName: string; populationType: string;
+  } | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const detailModalRef = useRef<HTMLDivElement>(null);
   const referralModalRef = useRef<HTMLDivElement>(null);
@@ -450,15 +459,30 @@ export function OutreachSearch() {
     if (referralModal) referralModalRef.current?.focus();
   }, [referralModal]);
 
-  const holdBed = async (shelterId: string, popType: string) => {
+  // Slice 4 §11 refactor — was: instant POST on chip-button click.
+  // Now: chip-button opens HoldDialog; Confirm calls submitHold with
+  // the optional attribution. The offline path replays the same body
+  // shape verbatim (warroom M1) — adding the optional fields is
+  // transparent to enqueueAction.
+  const openHoldDialog = (shelterId: string, popType: string, shelterName: string) => {
+    setHoldDialog({ shelterId, shelterName, populationType: popType });
+  };
+
+  const submitHold = async (attribution: HoldAttribution): Promise<void> => {
+    if (!holdDialog) return;
+    const { shelterId, populationType: popType } = holdDialog;
     setHoldingShelterId(shelterId);
     setHoldPopType(popType);
+    // Body assembled with attribution mixed in — null/undefined fields
+    // elided so the wire shape stays identical to pre-§11 calls when
+    // no attribution is entered.
+    const body: Record<string, unknown> = { shelterId, populationType: popType };
+    if (attribution.heldForClientName) body.heldForClientName = attribution.heldForClientName;
+    if (attribution.heldForClientDob) body.heldForClientDob = attribution.heldForClientDob;
+    if (attribution.holdNotes) body.holdNotes = attribution.holdNotes;
     try {
       if (!navigator.onLine) {
-        const key = await enqueueAction('HOLD_BED', '/api/v1/reservations', 'POST', {
-          shelterId,
-          populationType: popType,
-        });
+        const key = await enqueueAction('HOLD_BED', '/api/v1/reservations', 'POST', body);
         setQueuedHolds(prev => [...prev, {
           shelterId,
           populationType: popType,
@@ -467,23 +491,28 @@ export function OutreachSearch() {
           status: 'QUEUED',
         }]);
         setShowReservations(true);
+        setHoldDialog(null);
         return;
       }
-      await api.post('/api/v1/reservations', {
-        shelterId,
-        populationType: popType,
-      });
+      await api.post('/api/v1/reservations', body);
       await fetchReservations();
       await fetchBeds();
       setShowReservations(true);
-    } catch {
-      // Online but request failed (navigator.onLine lied, or network is flaky).
-      // Enqueue as fallback rather than showing error — replay will handle it.
+      setHoldDialog(null);
+    } catch (err) {
+      // Online but request failed. If it's a 4xx (validation) re-throw
+      // so the dialog can surface the server detail (warroom H3 —
+      // server-side 1900 floor lands here). For network-flaky 5xx /
+      // ApiError without status, fall back to offline-queue replay.
+      const apiErr = err as { status?: number; context?: { detail?: string }; message?: string };
+      if (apiErr.status && apiErr.status >= 400 && apiErr.status < 500) {
+        // Bean Validation / service-layer rejection — let the dialog
+        // render the detail. Don't enqueue a request that will fail
+        // identically on replay.
+        throw err;
+      }
       try {
-        const key = await enqueueAction('HOLD_BED', '/api/v1/reservations', 'POST', {
-          shelterId,
-          populationType: popType,
-        });
+        const key = await enqueueAction('HOLD_BED', '/api/v1/reservations', 'POST', body);
         setQueuedHolds(prev => [...prev, {
           shelterId,
           populationType: popType,
@@ -492,9 +521,11 @@ export function OutreachSearch() {
           status: 'QUEUED',
         }]);
         setShowReservations(true);
+        setHoldDialog(null);
       } catch {
         // IndexedDB also failed — show error as last resort
         setError(intl.formatMessage({ id: 'search.holdFailed' }));
+        setHoldDialog(null);
       }
     } finally {
       setHoldingShelterId(null);
@@ -1079,7 +1110,7 @@ export function OutreachSearch() {
                     {effectiveAvail > 0 && !r.dvShelter && (
                       <button
                         data-testid={`hold-bed-${r.shelterId}-${a.populationType}`}
-                        onClick={(e) => { e.stopPropagation(); holdBed(r.shelterId, a.populationType); }}
+                        onClick={(e) => { e.stopPropagation(); openHoldDialog(r.shelterId, a.populationType, r.shelterName); }}
                         disabled={holdingShelterId === r.shelterId && holdPopType === a.populationType}
                         style={{
                           padding: '6px 12px', borderRadius: 6, border: 'none',
@@ -1331,6 +1362,21 @@ export function OutreachSearch() {
             }}><FormattedMessage id="search.close" /></button>
           </div>
         </div>
+      )}
+
+      {/* Slice 4 §11 — Hold creation dialog. Opened via openHoldDialog;
+          submitHold runs on Confirm. The dialog itself handles its
+          own validation; submitHold throws on backend 400 so the
+          dialog can render server-side detail (warroom H3). */}
+      {holdDialog && (
+        <HoldDialog
+          isOpen
+          shelterName={holdDialog.shelterName}
+          populationType={holdDialog.populationType}
+          populationTypeLabel={getPopulationTypeLabel(holdDialog.populationType, intl)}
+          onSubmit={submitHold}
+          onCancel={() => setHoldDialog(null)}
+        />
       )}
 
       {/* DV Referral Request Modal */}

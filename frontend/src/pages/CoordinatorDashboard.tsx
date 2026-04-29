@@ -43,6 +43,20 @@ interface Shelter {
   deactivatedAt?: string | null;
 }
 
+interface HeldReservation {
+  id: string;
+  populationType: string;
+  status: string;
+  expiresAt: string;
+  remainingSeconds: number;
+  // Slice 4 §11.5 — optional attribution PII. Backend returns these
+  // plaintext after the row mapper decrypts; null when the outreach
+  // worker placed a no-attribution hold (most pre-§11 holds).
+  heldForClientName: string | null;
+  heldForClientDob: string | null;
+  holdNotes: string | null;
+}
+
 interface PendingReferral {
   id: string;
   householdSize: number;
@@ -124,6 +138,12 @@ export function CoordinatorDashboard() {
   const [availSaving, setAvailSaving] = useState<string | null>(null);
   const [availSaved, setAvailSaved] = useState<string | null>(null);
   const [pendingReferrals, setPendingReferrals] = useState<PendingReferral[]>([]);
+  // Slice 4 §11.5 — per-hold details for the expanded shelter. Surfaces
+  // the optional client-attribution PII (heldForClientName / Dob /
+  // holdNotes) that the outreach worker may have entered via the
+  // §11 hold dialog. Endpoint: GET /api/v1/shelters/{id}/reservations
+  // (slice 4 §11 backend).
+  const [activeHolds, setActiveHolds] = useState<HeldReservation[]>([]);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [surgeActive, setSurgeActive] = useState(false);
@@ -263,6 +283,16 @@ export function CoordinatorDashboard() {
         const refs = await api.get<PendingReferral[]>(`/api/v1/dv-referrals/pending?shelterId=${id}`);
         setPendingReferrals(refs || []);
       } catch { setPendingReferrals([]); /* DV referral fetch — silent fail for non-DV shelters */ }
+
+      // Slice 4 §11.5 — fetch active HELD reservations for this shelter
+      // so the hold-list below the aggregated indicator can render
+      // per-hold detail including the optional client-attribution PII.
+      // Silent fail = empty list (e.g., backend roll-back where the
+      // endpoint isn't deployed yet, or a coordinator with no holds).
+      try {
+        const holds = await api.get<HeldReservation[]>(`/api/v1/shelters/${id}/reservations`);
+        setActiveHolds(holds || []);
+      } catch { setActiveHolds([]); /* hold-list fetch — silent fail; aggregated indicator still shows */ }
     } catch (err: unknown) {
       const apiErr = err as { message?: string };
       setError(apiErr.message || intl.formatMessage({ id: 'coord.error' }));
@@ -1161,6 +1191,61 @@ export function CoordinatorDashboard() {
                         </span>
                       ))}
                     </div>
+
+                    {/* Slice 4 §11.5 — per-hold detail rows below the aggregated
+                        chip list. Surfaces the optional client-attribution PII
+                        (heldForClientName) when the outreach worker entered it
+                        via the §11 hold dialog. When the field is null (the
+                        common no-attribution path), the label+value pair is
+                        omitted entirely — NOT rendered as "N/A" or an empty
+                        string (§11.5 wording). The aggregated chips above
+                        always render when bedsOnHold > 0; these per-hold rows
+                        render only when the slice 4 endpoint returned a list. */}
+                    {activeHolds.length > 0 && (
+                      <div
+                        data-testid="coordinator-hold-list"
+                        style={{
+                          marginTop: 10, paddingTop: 10,
+                          borderTop: `1px solid ${color.primaryLight}`,
+                        }}
+                      >
+                        {activeHolds.map(hold => (
+                          <div
+                            key={hold.id}
+                            data-testid={`coordinator-hold-row-${hold.id}`}
+                            style={{
+                              padding: '6px 0',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'flex-start',
+                              gap: 8,
+                            }}
+                          >
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: text.xs, fontWeight: weight.semibold, color: color.text }}>
+                                {getPopulationTypeLabel(hold.populationType, intl)}
+                              </div>
+                              {hold.heldForClientName && (
+                                <div
+                                  data-testid={`coordinator-hold-client-${hold.id}`}
+                                  style={{ fontSize: text['2xs'], color: color.textTertiary, marginTop: 2 }}
+                                >
+                                  <FormattedMessage id="coord.heldForClient" />: {hold.heldForClientName}
+                                </div>
+                              )}
+                            </div>
+                            <div style={{ fontSize: text['2xs'], color: color.textTertiary, whiteSpace: 'nowrap' }}>
+                              {hold.remainingSeconds > 0
+                                ? intl.formatMessage(
+                                    { id: 'referral.remainingMinutes' },
+                                    { minutes: Math.max(1, Math.floor(hold.remainingSeconds / 60)) },
+                                  )
+                                : <FormattedMessage id="referral.expired" />}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
 

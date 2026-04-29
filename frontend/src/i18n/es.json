@@ -748,5 +748,12 @@
   "shelter.eligibility.programRequirements": "Requisitos del programa",
   "shelter.eligibility.documentationRequired": "Documentación requerida",
   "shelter.eligibility.intakeHours": "Horario de admisión",
-  "shelter.eligibility.tagInputPlaceholder": "Escriba un valor y presione Agregar"
+  "shelter.eligibility.tagInputPlaceholder": "Escriba un valor y presione Agregar",
+  "hold.dialog.title": "Reservar una cama",
+  "hold.dialog.confirm": "Confirmar reserva",
+  "hold.dialog.cancel": "Cancelar",
+  "hold.dialog.addClientDetails": "Agregar datos del cliente (opcional)",
+  "hold.dialog.dobInvalidFloor": "La fecha de nacimiento debe ser posterior al 1 de enero de 1900",
+  "hold.dialog.dobInvalidFuture": "La fecha de nacimiento no puede estar en el futuro",
+  "coord.heldForClient": "Reservado para"
 }
