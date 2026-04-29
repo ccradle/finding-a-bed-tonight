@@ -91,7 +91,17 @@ public class BedSearchService {
             if (accepts == null || !accepts.isBoolean()) return null;
             return accepts.asBoolean();
         } catch (tools.jackson.core.JacksonException e) {
-            log.warn("Failed to parse eligibility_criteria for shelter constraints: {}", e.getMessage());
+            // Slice-2 warroom B2 (2026-04-29): emit a counter so ops can alert
+            // on rate-of-increase. Per-shelter log.warn was log spam at scale
+            // (50 shelters × every bed search). The counter is the observable
+            // signal; we still log at debug level for operator-driven
+            // investigation. Filter behavior fail-open: returning null routes
+            // to the (c) any-null branch where requires_verification_call
+            // gates inclusion. Documented decision (not a coincidence of
+            // code structure) — see design D1 H1 + tasks.md §16.B2 carryover.
+            metrics.eligibilityCriteriaParseFailureCounter().increment();
+            log.debug("Failed to parse eligibility_criteria for shelter constraints (parse-failure counter incremented): {}",
+                e.getMessage());
             return null;
         }
     }

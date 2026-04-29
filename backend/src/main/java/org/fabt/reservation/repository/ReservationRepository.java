@@ -113,11 +113,24 @@ public class ReservationRepository {
 
     /**
      * Helper: encrypt with RESERVATION_PII purpose if the plaintext is
-     * non-null and the tenant id is non-null. Returns null otherwise so
-     * the SQL receives an honest NULL parameter (no empty-string sentinel).
+     * non-null. Returns null when plaintext is null so the SQL receives an
+     * honest NULL parameter (no empty-string sentinel).
+     *
+     * <p>Throws on null tenantId rather than silently returning null —
+     * tenantId being null at this point is a programming error (the entity's
+     * tenant_id column has NOT NULL constraint; this should already be set
+     * by the caller). Throwing here surfaces the bug at the encryption
+     * boundary rather than letting it manifest as silent data loss when the
+     * row inserts with NULL PII columns despite the caller intending to
+     * encrypt. Slice-2 warroom B1 (2026-04-29).
      */
     private String encryptIfPresent(UUID tenantId, String plaintext) {
-        if (plaintext == null || tenantId == null) return null;
+        if (plaintext == null) return null;
+        if (tenantId == null) {
+            throw new IllegalStateException(
+                "Cannot encrypt reservation PII: entity tenantId is null. "
+                + "Reservation.tenantId must be set before insert.");
+        }
         return encryptionService.encryptForTenant(tenantId, KeyPurpose.RESERVATION_PII, plaintext);
     }
 

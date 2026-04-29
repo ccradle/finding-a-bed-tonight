@@ -13,6 +13,33 @@
 -- the index is critical for performance at deployment scale; at demo
 -- scale (dozens of shelters) it is imperceptible.
 --
+-- ** STATUS — currently un-consumed (slice-2 warroom H4, 2026-04-29) **
+--
+-- Slice 2B's BedSearchService implements the `acceptsFelonies` three-way
+-- filter logic in-memory (loads all-shelters-per-tenant from cache, then
+-- filters in Java). Nothing in the SQL path queries `eligibility_criteria`
+-- via `@>` containment yet, so this index sits idle in prod, paying
+-- write-side overhead with zero read-side benefit.
+--
+-- The index becomes load-bearing in slice 5 when BedSearchService refactors
+-- to a SQL-side filter at pilot-scale. Per warroom H4 + V92IndexVerificationTest
+-- JavaDoc, the canonical SQL form MUST use containment:
+--
+--   WHERE eligibility_criteria @> '{"criminal_record_policy": {"accepts_felonies": true}}'::jsonb
+--
+-- (NOT `eligibility_criteria->'criminal_record_policy'->>'accepts_felonies'` —
+-- the default `jsonb_ops` op-class doesn't index extraction operators.)
+--
+-- Slice 5 verification: `pg_stat_statements` shows GIN bitmap-index-scan
+-- hits on the canonical query at pilot-shape data volumes, per
+-- `feedback_pgstat_for_index_validation.md`.
+--
+-- We keep the index now (rather than ship it in slice 5) for two reasons:
+-- (1) write-side overhead is small (sparse partial index, mostly null at
+-- launch); (2) re-adding it later means a CONCURRENTLY-or-not migration
+-- on populated shelter_constraints data, which is more risk than carrying
+-- the unused index from V92 onward.
+--
 -- Why NOT CONCURRENTLY:
 --   The change spec (task 2.2) suggested CONCURRENTLY with `mixed=true`,
 --   but FABT's established precedent (V55 lines 54-59) is the opposite:

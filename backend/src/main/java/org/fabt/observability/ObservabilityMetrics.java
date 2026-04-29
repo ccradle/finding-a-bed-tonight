@@ -37,6 +37,26 @@ public class ObservabilityMetrics {
                 .register(registry);
     }
 
+    /**
+     * Counts shelters whose {@code eligibility_criteria} JSONB failed to
+     * parse during a bed search. Fires per-shelter inside the search loop
+     * (transitional-reentry-support task 4.2) — increment-only signal that
+     * data quality on a tenant's shelter constraints is degrading.
+     *
+     * <p>Slice-2 warroom B2 (2026-04-29): replaced unbounded per-shelter
+     * {@code log.warn} spam with this observable counter so ops can alert
+     * on rate-of-increase rather than tail individual logs.
+     *
+     * <p>Cardinality: tenant-tagged only (no shelter_id) — high-cardinality
+     * shelter_id tags break Prometheus retention budgets at deployment
+     * scale per `feedback_d16_cardinality.md` precedent.
+     */
+    public Counter eligibilityCriteriaParseFailureCounter() {
+        return Counter.builder("fabt.shelter.eligibility_criteria.parse_failure.count")
+                .tag("tenant_id", TenantContext.tenantTag())
+                .register(registry);
+    }
+
     public Timer bedSearchTimer(String populationType) {
         return Timer.builder("fabt.bed.search.duration")
                 .tag("populationType", populationType != null ? populationType : "all")
