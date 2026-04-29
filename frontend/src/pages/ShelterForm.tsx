@@ -276,11 +276,22 @@ export function ShelterForm({ initialData, readOnlyFields = [], onSaveComplete }
         wheelchairAccessible,
         populationTypesServed,
         // Slice 4 §10 — normalize on save (warroom H1). Empty/default
-        // state → null so BedSearchService branch (c) stays reachable.
-        // Backend ShelterConstraintsDto.eligibilityCriteria is a
-        // JsonString; sending the structured object is fine — Jackson
-        // serializes it to the same JSONB row Postgres validates.
-        eligibilityCriteria: normalizeEligibilityCriteria(eligibilityCriteria),
+        // state -> null so BedSearchService branch (c) stays reachable.
+        //
+        // Wire format: backend ShelterConstraintsDto.eligibilityCriteria
+        // is `JsonString` (a String wrapper for JSONB columns). Jackson
+        // can serialize the wrapper via @JsonValue but cannot deserialize
+        // an object literal into it -- the wrapper's only constructor
+        // takes a String. So write-side MUST send the JSON encoded as a
+        // string, mirroring what the read path already returns
+        // (parseEligibilityCriteria on the frontend handles either form
+        // defensively). Without JSON.stringify here, POST /api/v1/shelters
+        // 500s with a Jackson "cannot deserialize" error -- caught by §14
+        // E2E setup which had to stringify in its API helper.
+        eligibilityCriteria: (() => {
+          const normalized = normalizeEligibilityCriteria(eligibilityCriteria);
+          return normalized ? JSON.stringify(normalized) : null;
+        })(),
       },
       capacities: capacities.filter((c) => c.populationType),
     };
