@@ -687,5 +687,44 @@
   "subscription.delivery.time": "Hora",
   "subscription.delivery.event": "Evento",
   "subscription.delivery.status": "Estado",
-  "subscription.delivery.time_ms": "Respuesta"
+  "subscription.delivery.time_ms": "Respuesta",
+
+  "shelter.type.EMERGENCY": "Albergue de emergencia",
+  "shelter.type.DV": "Refugio para violencia doméstica",
+  "shelter.type.TRANSITIONAL": "Vivienda transitoria",
+  "shelter.type.SUBSTANCE_USE_TREATMENT": "Tratamiento por uso de sustancias",
+  "shelter.type.MENTAL_HEALTH_TREATMENT": "Tratamiento de salud mental",
+  "shelter.type.REENTRY_TRANSITIONAL": "Vivienda transitoria de reingreso",
+  "shelter.type.PERMANENT_SUPPORTIVE": "Vivienda de apoyo permanente",
+  "shelter.type.RAPID_REHOUSING": "Realojamiento rápido",
+
+  "shelter.acceptsFelonies": "Acepta a personas con condenas por delitos graves",
+  "shelter.excludedOffenseTypes": "Categorías de delitos excluidas",
+  "shelter.requiresVerificationCall": "Requiere llamada de verificación",
+  "shelter.county": "Condado",
+  "shelter.criminalRecordPolicyDisclaimer": "Las políticas sobre antecedentes penales mostradas aquí son auto-reportadas por el refugio y pueden cambiar sin aviso. Confirme siempre la elegibilidad directamente con el refugio antes de referir o transportar a un cliente.",
+  "shelter.vawaNoteDisclaimer": "Este refugio indica que las protecciones federales de la Ley contra la Violencia hacia las Mujeres (VAWA) pueden aplicarse a sobrevivientes de violencia doméstica cuyos antecedentes penales se relacionan con la violencia que experimentaron. Confirme con el refugio cómo aplican esto en su proceso de admisión.",
+  "shelter.vawaProtectionsApplyNote": "Active esto si su refugio reconoce las protecciones de VAWA: las sobrevivientes de violencia doméstica cuyos antecedentes penales se relacionan con la violencia que experimentaron pueden ser admitidas independientemente de exclusiones categóricas. La plataforma no verifica cómo aplica esto en la práctica.",
+
+  "offenseType.SEX_OFFENSE": "Delito sexual",
+  "offenseType.ARSON": "Incendio provocado",
+  "offenseType.DRUG_MANUFACTURING": "Fabricación de drogas",
+  "offenseType.VIOLENT_FELONY": "Delito violento grave",
+  "offenseType.PENDING_CHARGES": "Cargos pendientes",
+  "offenseType.OPEN_WARRANTS": "Órdenes de arresto activas",
+
+  "hold.heldForClientName": "¿Para quién es esta reserva?",
+  "hold.heldForClientNameSublabel": "Nombre (para el registro en el refugio)",
+  "hold.heldForClientDob": "Fecha de nacimiento (para que el refugio confirme la llegada)",
+  "hold.heldForClientDobSublabel": "Opcional",
+  "hold.notes": "Nota para el coordinador del refugio",
+  "hold.clientAttributionPrivacyNote": "El nombre, la fecha de nacimiento y las notas del cliente se almacenan cifrados. Se eliminan automáticamente 24 horas después de que esta reserva expire, sea confirmada, o sea cancelada. Use estos campos únicamente para la coordinación del registro en el refugio.",
+
+  "admin.holdDurationMinutes": "Duración de la reserva (minutos)",
+  "admin.eligibilityCriteria": "Criterios de elegibilidad",
+  "admin.requiresVerificationCall": "Requiere llamada de verificación",
+  "search.filterByCounty": "Filtrar por condado",
+  "search.filterByShelterType": "Filtrar por tipo de refugio",
+  "search.acceptsFelonies": "Acepta condenas por delitos graves",
+  "search.advancedFilters": "Filtros avanzados"
 }

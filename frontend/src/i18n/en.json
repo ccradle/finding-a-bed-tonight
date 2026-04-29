@@ -687,5 +687,44 @@
   "subscription.delivery.time": "Time",
   "subscription.delivery.event": "Event",
   "subscription.delivery.status": "Status",
-  "subscription.delivery.time_ms": "Response"
+  "subscription.delivery.time_ms": "Response",
+
+  "shelter.type.EMERGENCY": "Emergency Shelter",
+  "shelter.type.DV": "Domestic Violence Shelter",
+  "shelter.type.TRANSITIONAL": "Transitional Housing",
+  "shelter.type.SUBSTANCE_USE_TREATMENT": "Substance Use Treatment",
+  "shelter.type.MENTAL_HEALTH_TREATMENT": "Mental Health Treatment",
+  "shelter.type.REENTRY_TRANSITIONAL": "Reentry Transitional Housing",
+  "shelter.type.PERMANENT_SUPPORTIVE": "Permanent Supportive Housing",
+  "shelter.type.RAPID_REHOUSING": "Rapid Rehousing",
+
+  "shelter.acceptsFelonies": "Accepts individuals with felony convictions",
+  "shelter.excludedOffenseTypes": "Excluded offense categories",
+  "shelter.requiresVerificationCall": "Requires verification call",
+  "shelter.county": "County",
+  "shelter.criminalRecordPolicyDisclaimer": "Criminal record policies shown here are self-reported by the shelter and may change without notice. Always confirm eligibility directly with the shelter before referring or transporting a client.",
+  "shelter.vawaNoteDisclaimer": "This shelter indicates that federal Violence Against Women Act (VAWA) protections may apply to survivors of domestic violence whose criminal record relates to the violence they experienced. Confirm with the shelter how this is applied in their intake.",
+  "shelter.vawaProtectionsApplyNote": "Enable this if your shelter recognizes VAWA protections: survivors of domestic violence whose criminal record relates to the violence they experienced may be admitted regardless of categorical exclusions. The platform does not verify how you apply this in practice.",
+
+  "offenseType.SEX_OFFENSE": "Sex offense",
+  "offenseType.ARSON": "Arson",
+  "offenseType.DRUG_MANUFACTURING": "Drug manufacturing",
+  "offenseType.VIOLENT_FELONY": "Violent felony",
+  "offenseType.PENDING_CHARGES": "Pending charges",
+  "offenseType.OPEN_WARRANTS": "Open warrants",
+
+  "hold.heldForClientName": "Who is this hold for?",
+  "hold.heldForClientNameSublabel": "Name (for shelter check-in)",
+  "hold.heldForClientDob": "Date of birth (for shelter to confirm arrival)",
+  "hold.heldForClientDobSublabel": "Optional",
+  "hold.notes": "Note for shelter coordinator",
+  "hold.clientAttributionPrivacyNote": "Client name, date of birth, and notes are stored encrypted. They are automatically deleted 24 hours after this hold expires, is confirmed, or is cancelled. Use these fields only for shelter check-in coordination.",
+
+  "admin.holdDurationMinutes": "Hold duration (minutes)",
+  "admin.eligibilityCriteria": "Eligibility criteria",
+  "admin.requiresVerificationCall": "Requires verification call",
+  "search.filterByCounty": "Filter by county",
+  "search.filterByShelterType": "Filter by shelter type",
+  "search.acceptsFelonies": "Accepts felony convictions",
+  "search.advancedFilters": "Advanced filters"
 }
