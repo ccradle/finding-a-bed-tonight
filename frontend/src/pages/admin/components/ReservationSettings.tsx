@@ -49,6 +49,13 @@ export function ReservationSettings() {
   const { user } = useContext(AuthContext);
   const tenantId = user?.tenantId;
   const [holdDuration, setHoldDuration] = useState(HOLD_DURATION_DEFAULT);
+  // §12 warroom H1 — track GET success separately. Without this, a silent
+  // fetch failure would leave the panel rendered with the default 90, and
+  // a Save click would PATCH the server with 90 — overwriting the actual
+  // value. The prior PUT-config-blob path failed transitively when the
+  // GET failed; the new PATCH-only-duration path doesn't, so we gate Save
+  // explicitly on a successful read.
+  const [loadFailed, setLoadFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -62,7 +69,10 @@ export function ReservationSettings() {
           setHoldDuration(Number(config.hold_duration_minutes) || HOLD_DURATION_DEFAULT);
         }
         setLoaded(true);
-      } catch { setLoaded(true); }
+      } catch {
+        setLoadFailed(true);
+        setLoaded(true);
+      }
     })();
   }, [tenantId]);
 
@@ -78,6 +88,10 @@ export function ReservationSettings() {
 
   const handleSave = async () => {
     if (!tenantId) return;
+    // §12 warroom H1 — never write back when we never read. The button is
+    // visually disabled in this state but a defense-in-depth guard here
+    // protects against any code path that bypasses the disabled prop.
+    if (loadFailed) return;
     // §12.2 — range guard before network call. The HTML5 min/max already
     // clamps the spinner UI, but a paste of "9999" or a manual edit can
     // bypass that. JS guard surfaces the localized message immediately.
@@ -123,6 +137,23 @@ export function ReservationSettings() {
   return (
     <div style={{ background: color.bg, borderRadius: 12, padding: 16, marginBottom: 16, border: `1px solid ${color.border}`, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}
       data-testid="reservation-settings">
+      {/* §12 warroom H1 — explicit failure banner so the operator knows
+          the rendered value (default 90) is NOT the server's current
+          value, and Save is disabled to prevent overwriting. */}
+      {loadFailed && (
+        <div
+          role="alert"
+          data-testid="hold-duration-load-failed"
+          style={{
+            marginBottom: 12, padding: '10px 14px', borderRadius: 8,
+            backgroundColor: color.errorBg, color: color.error,
+            border: `1px solid ${color.errorBorder}`,
+            fontSize: text.sm, fontWeight: weight.semibold,
+          }}
+        >
+          <FormattedMessage id="admin.holdDuration.loadFailed" />
+        </div>
+      )}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <label htmlFor="hold-duration-input" style={{ fontSize: text.base, fontWeight: weight.semibold, color: color.text }}>
           <FormattedMessage id="admin.holdDuration.label" defaultMessage="Bed Hold Duration" />
@@ -154,12 +185,14 @@ export function ReservationSettings() {
         </span>
         <button
           onClick={handleSave}
-          disabled={saving}
+          disabled={saving || loadFailed}
           data-testid="hold-duration-save"
           style={{
-            padding: '8px 16px', backgroundColor: color.primary, color: color.textInverse,
+            padding: '8px 16px',
+            backgroundColor: (saving || loadFailed) ? color.borderMedium : color.primary,
+            color: color.textInverse,
             border: 'none', borderRadius: 8, fontSize: text.sm, fontWeight: weight.bold,
-            cursor: saving ? 'default' : 'pointer', minHeight: 44,
+            cursor: (saving || loadFailed) ? 'not-allowed' : 'pointer', minHeight: 44,
           }}
         >
           {saving ? '...' : intl.formatMessage({ id: 'common.save' })}
