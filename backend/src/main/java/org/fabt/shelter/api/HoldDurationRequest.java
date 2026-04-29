@@ -22,6 +22,18 @@ import jakarta.validation.constraints.NotNull;
  * <p>The Bean Validation constraints below produce a 400 Bad Request with
  * a clear error before the request reaches the service layer; ShelterService
  * doesn't need to re-validate.
+ *
+ * <p><b>JSON-key casing intentional split (slice 2D warroom M3):</b> the DTO
+ * field name {@code holdDurationMinutes} stays camelCase per Java + REST
+ * convention. At the persistence boundary
+ * ({@link org.fabt.tenant.service.TenantService#setHoldDurationMinutes}) the
+ * value is written under the snake_case key {@code hold_duration_minutes}
+ * inside {@code tenant.config} JSONB to match the convention established by
+ * the seed migrations (V76, V77) and consumed by
+ * {@code ReservationService.getHoldDurationMinutes}. The frontend admin
+ * panel ({@code ReservationSettings.tsx}) also uses snake_case at the JSONB
+ * surface. The split is consistent — caller never sees the snake_case form;
+ * the JSONB-stored config is its own surface with its own conventions.
  */
 public record HoldDurationRequest(
         @NotNull(message = "holdDurationMinutes is required")

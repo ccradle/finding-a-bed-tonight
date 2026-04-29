@@ -425,6 +425,22 @@ public enum AuditEventType {
      */
     TENANT_ARCHIVED,
 
+    /**
+     * Emitted by COC_ADMIN-grade endpoints that mutate {@code tenant.config}
+     * JSONB without changing the tenant lifecycle state. First emitter:
+     * {@code ReservationConfigController.updateHoldDuration} (transitional-
+     * reentry-support task 4.5, slice 2C / 2D warroom B1 fix). Future emitters
+     * for other in-tenant config keys should reuse this type rather than
+     * minting per-key audit types — the {@code config_key} field in the detail
+     * blob discriminates.
+     *
+     * <p>Detail blob: {@code {config_key, old_value, new_value}}. Actor is the
+     * COC_ADMIN user; target_id is the tenant id. Phase G's
+     * {@code JustificationValidationFilter} does NOT apply here (these are
+     * in-tenant operational config writes, not platform-grade actions).
+     */
+    TENANT_CONFIG_UPDATED,
+
     // ─── Phase F — lifecycle attempt rejections (slice F-3.6) ───
     //
     // Emitted when a lifecycle transition is rejected by the §D8 FSM. Persisted

@@ -219,12 +219,28 @@ public class ShelterService {
         shelter.setLatitude(req.latitude());
         shelter.setLongitude(req.longitude());
         shelter.setDvShelter(req.dvShelter());
-        // V91 lockstep: keep shelter_type aligned with dv_shelter at write time so
-        // the DB CHECK (shelter_dv_implies_dv_type) can never reject the INSERT.
-        // Slice 1 of transitional-reentry-support keeps the relationship narrow:
-        // DV → DV, anything else → EMERGENCY default. Slice 2 task 4.3 expands
-        // this to accept an explicit shelter_type from the request DTO.
-        shelter.setShelterType(req.dvShelter() ? ShelterType.DV : ShelterType.EMERGENCY);
+        // V91 lockstep + task 5.4 (slice 2D H2): dvShelter dominates the
+        // shelter_type write so the DB CHECK (shelter_dv_implies_dv_type)
+        // can never reject the INSERT. Three cases:
+        //   - dvShelter=true → force shelter_type=DV (ignore an inconsistent
+        //     explicit shelterType — clearer than 400-on-mismatch and the
+        //     RLS-meaningful value is dvShelter).
+        //   - dvShelter=false + caller supplied shelterType=DV → reject
+        //     explicitly so the operator gets a meaningful 400 instead of
+        //     a confusing CHECK-constraint failure at flush time.
+        //   - dvShelter=false + null shelterType → entity default
+        //     (EMERGENCY).
+        //   - dvShelter=false + non-null non-DV shelterType → use it.
+        if (req.dvShelter()) {
+            shelter.setShelterType(ShelterType.DV);
+        } else if (req.shelterType() == ShelterType.DV) {
+            throw new IllegalArgumentException(
+                "shelterType=DV requires dvShelter=true (V91 lockstep)");
+        } else if (req.shelterType() != null) {
+            shelter.setShelterType(req.shelterType());
+        } else {
+            shelter.setShelterType(ShelterType.EMERGENCY);
+        }
         // transitional-reentry-support task 4.3 (slice 2B): persist county /
         // requiresVerificationCall / eligibilityCriteria from the request DTO.
         if (req.county() != null) {
@@ -326,10 +342,31 @@ public class ShelterService {
         if (req.longitude() != null) shelter.setLongitude(req.longitude());
         if (req.dvShelter() != null) {
             shelter.setDvShelter(req.dvShelter());
-            // V91 lockstep — see create() comment. The flip must happen in the
-            // same transaction as the dv_shelter change, otherwise the CHECK
-            // constraint rejects mid-update.
-            shelter.setShelterType(req.dvShelter() ? ShelterType.DV : ShelterType.EMERGENCY);
+            // V91 lockstep — see create() comment. dvShelter dominates: when
+            // it flips to true, shelter_type goes to DV; when it flips to
+            // false, shelter_type resets to EMERGENCY (or the explicit
+            // shelterType from this same PATCH if non-null and non-DV).
+            // Without the same-transaction flip the CHECK rejects mid-update.
+            if (req.dvShelter()) {
+                shelter.setShelterType(ShelterType.DV);
+            } else if (req.shelterType() == ShelterType.DV) {
+                throw new IllegalArgumentException(
+                    "shelterType=DV requires dvShelter=true (V91 lockstep)");
+            } else if (req.shelterType() != null) {
+                shelter.setShelterType(req.shelterType());
+            } else {
+                shelter.setShelterType(ShelterType.EMERGENCY);
+            }
+        } else if (req.shelterType() != null) {
+            // dvShelter unchanged in this PATCH; honor an explicit shelterType
+            // change subject to the same lockstep guard.
+            if (req.shelterType() == ShelterType.DV && !shelter.isDvShelter()) {
+                throw new IllegalArgumentException(
+                    "shelterType=DV requires dvShelter=true (V91 lockstep)");
+            }
+            if (req.shelterType() != ShelterType.DV || shelter.isDvShelter()) {
+                shelter.setShelterType(req.shelterType());
+            }
         }
         // transitional-reentry-support task 4.3 (slice 2B): PATCH semantics —
         // null req fields leave existing entity values unchanged.

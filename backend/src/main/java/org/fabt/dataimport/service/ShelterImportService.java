@@ -359,7 +359,9 @@ public class ShelterImportService {
                 // the shelter edit form. (eligibilityCriteria nests in
                 // constraints — also null for imports.)
                 null,  // county
-                null   // requiresVerificationCall (defaults to false in entity)
+                null,  // requiresVerificationCall (defaults to false in entity)
+                null   // shelterType — null falls through to ShelterService
+                       // default (DV when dvShelter=true, EMERGENCY otherwise)
         );
     }
 
@@ -381,7 +383,8 @@ public class ShelterImportService {
                 capacities,
                 // transitional-reentry-support — imports don't touch these.
                 null,  // county
-                null   // requiresVerificationCall
+                null,  // requiresVerificationCall
+                null   // shelterType — null = leave existing value (PATCH semantics)
         );
     }
 

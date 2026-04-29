@@ -80,7 +80,8 @@ class ShelterServiceLockstepTest extends BaseIntegrationTest {
             null,   // constraints
             null,   // capacities
             null,   // county
-            null    // requiresVerificationCall
+            null,   // requiresVerificationCall
+            null    // shelterType (slice 2D H2)
         );
     }
 
@@ -143,7 +144,8 @@ class ShelterServiceLockstepTest extends BaseIntegrationTest {
             null, null, null, null, null, null, null, null,
             Boolean.TRUE,  // flip dvShelter to true
             null, null,
-            null, null);  // county / requiresVerificationCall / eligibilityCriteria
+            null, null,    // county / requiresVerificationCall
+            null);          // shelterType (slice 2D H2)
 
         TenantContext.runWithContext(tenantId, true, () ->
             shelterService.update(created.getId(), req));
@@ -174,7 +176,8 @@ class ShelterServiceLockstepTest extends BaseIntegrationTest {
             null, null, null, null, null, null, null, null,
             Boolean.FALSE,  // flip dvShelter to false
             null, null,
-            null, null);
+            null, null,
+            null);
 
         TenantContext.runWithContext(tenantId, true, () ->
             shelterService.update(created.getId(), req));
@@ -206,7 +209,8 @@ class ShelterServiceLockstepTest extends BaseIntegrationTest {
             null, null, null, null, null, null, null,
             null,  // dvShelter omitted
             null, null,
-            null, null);
+            null, null,
+            null);
 
         TenantContext.runWithContext(tenantId, true, () ->
             shelterService.update(created.getId(), req));

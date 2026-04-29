@@ -43,10 +43,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  *       true × 1, false × 1, null (object missing or whole JSON null) × 3</li>
  * </ul>
  *
- * <p>The shelter_type column is set via direct UPDATE because the slice-2
- * write DTO does not yet expose shelterType (task 5.4 deferred to slice
- * 2D §5 work). The value of this test is the filter behavior — the DTO
- * surface is tested separately once §5.4 lands.
+ * <p>shelter_type now flows through the public {@code CreateShelterRequest}
+ * surface (task 5.4 / slice 2D warroom H2 fix) — no more direct-UPDATE
+ * workaround. The full create→DB→search path is exercised end-to-end.
  */
 @DisplayName("BedSearchService — slice 2 filters (shelterTypes / county / acceptsFelonies)")
 class BedSearchFilterIntegrationTest extends BaseIntegrationTest {
@@ -74,34 +73,36 @@ class BedSearchFilterIntegrationTest extends BaseIntegrationTest {
                 "Transit Wake AcceptYes",
                 "Wake",
                 /*requiresVerificationCall*/ false,
-                "{\"criminal_record_policy\": {\"accepts_felonies\": true}}");
-        forceShelterType(shelterTransitWakeAcceptYes, "TRANSITIONAL");
+                "{\"criminal_record_policy\": {\"accepts_felonies\": true}}",
+                "TRANSITIONAL");
 
         shelterReentryDurham = createShelter(
                 "Reentry Durham AcceptNo",
                 "Durham",
                 /*requiresVerificationCall*/ true,  // sentinel TRUE — proves (a) wins over (c)
-                "{\"criminal_record_policy\": {\"accepts_felonies\": false}}");
-        forceShelterType(shelterReentryDurham, "REENTRY_TRANSITIONAL");
+                "{\"criminal_record_policy\": {\"accepts_felonies\": false}}",
+                "REENTRY_TRANSITIONAL");
 
         shelterTransitMecklenburgSentinel = createShelter(
                 "Transit Mecklenburg WithSentinel",
                 "Mecklenburg",
                 /*requiresVerificationCall*/ true,
-                /*eligibilityJson*/ null);          // null JSONB → branch (c)
-        forceShelterType(shelterTransitMecklenburgSentinel, "TRANSITIONAL");
+                /*eligibilityJson*/ null,           // null JSONB → branch (c)
+                "TRANSITIONAL");
 
         shelterEmergencyWakeNoSentinel = createShelter(
                 "Emergency Wake NoSentinel",
                 "Wake",
                 /*requiresVerificationCall*/ false,
-                /*eligibilityJson*/ null);
+                /*eligibilityJson*/ null,
+                "EMERGENCY");
 
         shelterEmergencyWakeJsonNull = createShelter(
                 "Emergency Wake JsonObjectNoPolicy",
                 "Wake",
                 /*requiresVerificationCall*/ false,
-                "{\"intake_hours\": \"9-17\"}");    // policy missing → branch (c) without sentinel
+                "{\"intake_hours\": \"9-17\"}",     // policy missing → branch (c) without sentinel
+                "EMERGENCY");
 
         // Submit availability for every shelter so they pass the "has rows" filter
         // in BedSearchService's groupByShelter step. Without availability, a shelter
@@ -342,7 +343,8 @@ class BedSearchFilterIntegrationTest extends BaseIntegrationTest {
     private UUID createShelter(String name,
                                 String county,
                                 boolean requiresVerificationCall,
-                                String eligibilityJson) {
+                                String eligibilityJson,
+                                String shelterType) {
         // The Map approach so we can stick a JsonString as the eligibility_criteria
         // value without dealing with @JsonValue serialization quirks.
         Map<String, Object> constraints = new java.util.HashMap<>();
@@ -368,6 +370,7 @@ class BedSearchFilterIntegrationTest extends BaseIntegrationTest {
         body.put("capacities", List.of(Map.of("populationType", "SINGLE_ADULT", "bedsTotal", 10)));
         body.put("county", county);
         body.put("requiresVerificationCall", requiresVerificationCall);
+        body.put("shelterType", shelterType);
 
         ResponseEntity<ShelterResponse> response = restTemplate.exchange(
                 "/api/v1/shelters",
@@ -377,21 +380,17 @@ class BedSearchFilterIntegrationTest extends BaseIntegrationTest {
         assertThat(response.getStatusCode())
                 .as("create shelter '%s' must succeed", name)
                 .isEqualTo(HttpStatus.CREATED);
-        return response.getBody().id();
-    }
+        UUID id = response.getBody().id();
 
-    private void forceShelterType(UUID shelterId, String shelterType) {
-        // The slice-2 write DTO does not yet expose shelterType (slice 2D §5.4 work).
-        // For test seeding we set the column directly. The V91
-        // shelter_dv_implies_dv_type CHECK constraint is satisfied because
-        // dvShelter=false here and shelterType ∈ {EMERGENCY, TRANSITIONAL,
-        // REENTRY_TRANSITIONAL, ...} ≠ DV.
-        int updated = jdbcTemplate.update(
-                "UPDATE shelter SET shelter_type = ?::varchar WHERE id = ?",
-                shelterType, shelterId);
-        assertThat(updated)
-                .as("shelter_type direct UPDATE must affect exactly one row")
-                .isEqualTo(1);
+        // Verify the shelter_type written matches what we asked for — guards
+        // against a future regression where the DTO field stops reaching the
+        // service (slice 2D H2 closes the previous workaround).
+        String persistedType = jdbcTemplate.queryForObject(
+                "SELECT shelter_type FROM shelter WHERE id = ?", String.class, id);
+        assertThat(persistedType)
+                .as("shelter_type for '%s' must round-trip from DTO to DB", name)
+                .isEqualTo(shelterType);
+        return id;
     }
 
     private void submitAvailability(UUID shelterId) {

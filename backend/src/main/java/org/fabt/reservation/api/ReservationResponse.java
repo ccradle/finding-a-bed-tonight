@@ -1,6 +1,7 @@
 package org.fabt.reservation.api;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.UUID;
 
 import org.fabt.reservation.domain.Reservation;
@@ -16,6 +17,20 @@ import org.fabt.reservation.domain.Reservation;
  * {@code PATCH /{id}/confirm}, etc.) that don't perform the join — the
  * single-reservation callers can fetch shelter details separately if they
  * need them.</p>
+ *
+ * <p>The {@code heldForClientName}, {@code heldForClientDob}, and
+ * {@code holdNotes} fields are the slice-2C third-party-hold attribution
+ * surface (transitional-reentry-support task 5.5, slice 2D warroom H1
+ * fix). They are returned plaintext after the
+ * {@link org.fabt.reservation.repository.ReservationRepository} row mapper
+ * decrypts the {@code _encrypted} columns. Per design D4 the 24h post-
+ * resolution purge nulls the underlying ciphertext columns; reads of
+ * resolved-and-aged reservations will therefore see these as null.</p>
+ *
+ * <p>DV-shelter holds: the values flow through the same response — DV
+ * gating is on the shelter (RLS), not on whether attribution PII is
+ * shown to the holding user. The user who created the hold is the right
+ * audience for the attribution they themselves entered.</p>
  */
 public record ReservationResponse(
         UUID id,
@@ -29,7 +44,10 @@ public record ReservationResponse(
         Instant createdAt,
         Instant confirmedAt,
         Instant cancelledAt,
-        String notes
+        String notes,
+        String heldForClientName,
+        LocalDate heldForClientDob,
+        String holdNotes
 ) {
     /**
      * Build a response without shelter enrichment. shelterName and
@@ -48,7 +66,8 @@ public record ReservationResponse(
                 r.getId(), r.getShelterId(), shelterName, shelterPhone,
                 r.getPopulationType(), r.getStatus().name(),
                 r.getExpiresAt(), r.remainingSeconds(),
-                r.getCreatedAt(), r.getConfirmedAt(), r.getCancelledAt(), r.getNotes()
+                r.getCreatedAt(), r.getConfirmedAt(), r.getCancelledAt(), r.getNotes(),
+                r.getHeldForClientName(), r.getHeldForClientDob(), r.getHoldNotes()
         );
     }
 }
