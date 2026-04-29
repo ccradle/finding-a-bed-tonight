@@ -32,6 +32,12 @@ export function ShelterEditPage() {
             id: string; name: string; addressStreet: string; addressCity: string;
             addressState: string; addressZip: string; phone: string;
             latitude: number | null; longitude: number | null; dvShelter: boolean;
+            // Slice 4 prereq §5.3 — slice-2 entity additions on the GET
+            // surface so the edit form pre-populates without losing data
+            // on save.
+            shelterType: string | null;
+            county: string | null;
+            requiresVerificationCall: boolean;
           };
           constraints: {
             sobrietyRequired: boolean; idRequired: boolean; referralRequired: boolean;
@@ -52,6 +58,9 @@ export function ShelterEditPage() {
           latitude: detail.shelter.latitude,
           longitude: detail.shelter.longitude,
           dvShelter: detail.shelter.dvShelter,
+          shelterType: detail.shelter.shelterType,
+          county: detail.shelter.county,
+          requiresVerificationCall: detail.shelter.requiresVerificationCall,
           constraints: detail.constraints || undefined,
           capacities: detail.capacities && detail.capacities.length > 0
             ? detail.capacities

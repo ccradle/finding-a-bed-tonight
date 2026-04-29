@@ -726,5 +726,14 @@
   "search.filterByCounty": "Filter by county",
   "search.filterByShelterType": "Filter by shelter type",
   "search.acceptsFelonies": "Accepts felony convictions",
-  "search.advancedFilters": "Advanced filters"
+  "search.advancedFilters": "Advanced filters",
+  "search.advancedFiltersActiveCount": "{count, plural, one {# active filter} other {# active filters}}",
+  "search.acceptsFeloniesEmptyHint": "No matching shelters. The 'accepts felonies' filter excludes shelters with no eligibility data on file. Ask your CoC admin to set 'requires verification call' on shelters whose policy is unknown — those will appear with a 'call to verify' badge.",
+  "search.allShelterTypes": "All shelter types",
+  "search.anyCounty": "Any county",
+  "search.countiesLoading": "Loading counties…",
+  "shelter.detail.shelterType": "Shelter type",
+  "shelter.detail.county": "County",
+  "shelter.form.dvShelterRequiredForDvType": "Set the DV Shelter toggle to enable DV type",
+  "shelter.form.dvShelterForcesDvType": "DV shelters are always type DV"
 }

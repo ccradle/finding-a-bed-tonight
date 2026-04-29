@@ -726,5 +726,14 @@
   "search.filterByCounty": "Filtrar por condado",
   "search.filterByShelterType": "Filtrar por tipo de refugio",
   "search.acceptsFelonies": "Acepta condenas por delitos graves",
-  "search.advancedFilters": "Filtros avanzados"
+  "search.advancedFilters": "Filtros avanzados",
+  "search.advancedFiltersActiveCount": "{count, plural, one {# filtro activo} other {# filtros activos}}",
+  "search.acceptsFeloniesEmptyHint": "No hay refugios coincidentes. El filtro 'acepta condenas por delitos graves' excluye los refugios sin datos de elegibilidad registrados. Pida a su administrador del CoC que active 'requiere llamada de verificación' en los refugios cuya política sea desconocida — aparecerán con una insignia 'llamar para verificar'.",
+  "search.allShelterTypes": "Todos los tipos de refugio",
+  "search.anyCounty": "Cualquier condado",
+  "search.countiesLoading": "Cargando condados…",
+  "shelter.detail.shelterType": "Tipo de refugio",
+  "shelter.detail.county": "Condado",
+  "shelter.form.dvShelterRequiredForDvType": "Active el interruptor de Refugio DV para habilitar el tipo DV",
+  "shelter.form.dvShelterForcesDvType": "Los refugios DV son siempre del tipo DV"
 }

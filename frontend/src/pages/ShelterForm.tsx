@@ -3,10 +3,26 @@ import { useNavigate } from 'react-router-dom';
 import { FormattedMessage, useIntl } from 'react-intl';
 import { api, ApiError } from '../services/api';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
+import { useActiveCounties } from '../hooks/useActiveCounties';
+import { useAuth } from '../auth/useAuth';
 import { enqueueAction } from '../services/offlineQueue';
 import { text, weight } from '../theme/typography';
 import { color } from '../theme/colors';
 import { CoordinatorCombobox, type CoordinatorOption } from '../components/CoordinatorCombobox';
+
+// transitional-reentry-support slice 4 §8.2 — same taxonomy used by
+// OutreachSearch filter chips. Order: high-frequency types first; DV
+// gated on dvShelter via the V91 lockstep at render time.
+const SHELTER_TYPES = [
+  'EMERGENCY',
+  'TRANSITIONAL',
+  'REENTRY_TRANSITIONAL',
+  'PERMANENT_SUPPORTIVE',
+  'RAPID_REHOUSING',
+  'SUBSTANCE_USE_TREATMENT',
+  'MENTAL_HEALTH_TREATMENT',
+  'DV',
+] as const;
 
 const POPULATION_TYPES = [
   'SINGLE_ADULT',
@@ -34,6 +50,12 @@ export interface ShelterInitialData {
   latitude: number | null;
   longitude: number | null;
   dvShelter: boolean;
+  // Slice 4 §8.2 + §9.1 + prereq §5.3 — slice-2 entity additions need to
+  // pre-populate the edit form so a save doesn't silently lose the
+  // user's prior value.
+  shelterType: string | null;
+  county: string | null;
+  requiresVerificationCall: boolean;
   constraints?: {
     sobrietyRequired: boolean;
     idRequired: boolean;
@@ -55,6 +77,8 @@ export function ShelterForm({ initialData, readOnlyFields = [], onSaveComplete }
   const navigate = useNavigate();
   const intl = useIntl();
   const { isOnline } = useOnlineStatus();
+  const { user } = useAuth();
+  const { counties, loading: countiesLoading } = useActiveCounties();
 
   const isEditMode = !!initialData;
 
@@ -67,6 +91,19 @@ export function ShelterForm({ initialData, readOnlyFields = [], onSaveComplete }
   const [latitude, setLatitude] = useState(initialData?.latitude?.toString() || '');
   const [longitude, setLongitude] = useState(initialData?.longitude?.toString() || '');
   const [dvShelter, setDvShelter] = useState(initialData?.dvShelter || false);
+  // Slice 4 §8.2 + §9.1 — pre-populate from initialData (prereq §5.3
+  // exposes these on the GET response). When `dvShelter=true` the V91
+  // lockstep means shelter_type MUST be DV; the dropdown enforces this
+  // bidirectionally at render time (warroom M3).
+  const [shelterType, setShelterType] = useState<string>(
+    initialData?.shelterType || (initialData?.dvShelter ? 'DV' : 'EMERGENCY')
+  );
+  const [county, setCounty] = useState<string>(initialData?.county || '');
+  // requiresVerificationCall has NO write UI yet (§10.6 task — slice 4
+  // eligibility-criteria edit form). For now we read the existing value
+  // and round-trip it on save so an edit doesn't clobber it. State
+  // (instead of inlining initialData) is unnecessary here; we read
+  // directly from initialData in the payload assembly.
 
   const [sobrietyRequired, setSobrietyRequired] = useState(initialData?.constraints?.sobrietyRequired || false);
   const [idRequired, setIdRequired] = useState(initialData?.constraints?.idRequired || false);
@@ -143,10 +180,22 @@ export function ShelterForm({ initialData, readOnlyFields = [], onSaveComplete }
       return;
     }
     setDvShelter(newValue);
+    // Slice 4 §8.2 V91 lockstep (warroom M3) — when toggling DV on, force
+    // shelter_type=DV so the dropdown, the request body, and the V91
+    // CHECK constraint stay in sync. Toggling DV off resets shelter_type
+    // to EMERGENCY (the entity default for non-DV) — same logic as the
+    // backend lockstep in ShelterService.update.
+    if (newValue) {
+      setShelterType('DV');
+    } else {
+      setShelterType('EMERGENCY');
+    }
   };
 
   const confirmDvChange = () => {
     setDvShelter(pendingDvValue);
+    // Mirror the lockstep when the confirmed flip lands.
+    setShelterType(pendingDvValue ? 'DV' : 'EMERGENCY');
     setShowDvConfirm(false);
   };
 
@@ -176,6 +225,17 @@ export function ShelterForm({ initialData, readOnlyFields = [], onSaveComplete }
       phone: phone.trim(),
       latitude: latitude ? parseFloat(latitude) : null,
       longitude: longitude ? parseFloat(longitude) : null,
+      // Slice 4 §8.2 + §9.1 — slice-2 entity additions sent through the
+      // create/update DTOs. `shelterType` rides the V91 lockstep already
+      // enforced by ShelterService (slice 2D H2): dvShelter=true forces
+      // DV; non-DV combinations are accepted; explicit DV with
+      // dvShelter=false is rejected with a 400. county is sent as null
+      // (not empty string) so backend isValidCounty's null-county branch
+      // applies (always valid).
+      shelterType,
+      county: county.trim() || null,
+      // Round-trip without modification — §10.6 will add the write UI.
+      requiresVerificationCall: initialData?.requiresVerificationCall ?? false,
       constraints: {
         sobrietyRequired,
         idRequired,
@@ -480,6 +540,103 @@ export function ShelterForm({ initialData, readOnlyFields = [], onSaveComplete }
             </div>
           </div>
         )}
+
+        {/* Slice 4 §8.2 — shelter type dropdown. Coupled to dvShelter via
+            the V91 lockstep (warroom M3): when dvShelter=true, the
+            dropdown is locked to DV; when dvShelter=false, the DV option
+            is disabled with a tooltip. The DV option is also hidden
+            entirely from non-dvAccess users (matches the OutreachSearch
+            warroom H1 posture — no surface where a non-dvAccess user
+            sees DV at all). */}
+        <div style={{ ...fieldGroup, marginTop: '24px' }}>
+          <label htmlFor="shelter-type" style={labelStyle}>
+            <FormattedMessage id="shelter.detail.shelterType" />
+          </label>
+          <select
+            id="shelter-type"
+            data-testid="shelter-type-dropdown"
+            value={shelterType}
+            onChange={(e) => setShelterType(e.target.value)}
+            disabled={dvShelter || isFieldReadOnly('shelterType')}
+            aria-describedby={dvShelter ? 'shelter-type-locked-hint' : undefined}
+            style={{
+              ...inputStyle,
+              cursor: dvShelter ? 'not-allowed' : 'pointer',
+              opacity: dvShelter ? 0.7 : 1,
+            }}
+          >
+            {SHELTER_TYPES
+              .filter((st) => st !== 'DV' || user?.dvAccess === true)
+              .map((st) => {
+                // Disable DV when dvShelter is false (V91 lockstep) so
+                // the operator can't try to mismatch the two and get a
+                // 400 from the backend. When dvShelter is true the
+                // dropdown is `disabled` entirely (above), so this only
+                // gates the dvShelter=false path.
+                const disabled = st === 'DV' && !dvShelter;
+                return (
+                  <option key={st} value={st} disabled={disabled}>
+                    {intl.formatMessage({ id: `shelter.type.${st}` })}
+                    {disabled ? ' — ' + intl.formatMessage({ id: 'shelter.form.dvShelterRequiredForDvType' }) : ''}
+                  </option>
+                );
+              })}
+          </select>
+          {dvShelter && (
+            <span
+              id="shelter-type-locked-hint"
+              data-testid="shelter-type-locked-hint"
+              style={{ fontSize: text.xs, color: color.textMuted, fontStyle: 'italic', marginTop: 4, display: 'block' }}
+            >
+              <FormattedMessage id="shelter.form.dvShelterForcesDvType" />
+            </span>
+          )}
+        </div>
+
+        {/* Slice 4 §9.1 — county dropdown. Optional. Populates from
+            useActiveCounties (warroom H1 endpoint). When the resolved
+            list is empty (tenant config explicitly active_counties=[]
+            per design D3, i.e. validation disabled), degrade to a
+            free-text input. */}
+        <div style={{ ...fieldGroup }}>
+          <label htmlFor="shelter-county" style={labelStyle}>
+            <FormattedMessage id="shelter.detail.county" />
+          </label>
+          {countiesLoading ? (
+            <input
+              id="shelter-county"
+              data-testid="shelter-county-input"
+              type="text"
+              value=""
+              disabled
+              placeholder={intl.formatMessage({ id: 'search.countiesLoading' })}
+              style={inputStyle}
+            />
+          ) : counties.length === 0 ? (
+            <input
+              id="shelter-county"
+              data-testid="shelter-county-input"
+              type="text"
+              value={county}
+              onChange={(e) => setCounty(e.target.value)}
+              maxLength={100}
+              style={inputStyle}
+            />
+          ) : (
+            <select
+              id="shelter-county"
+              data-testid="shelter-county-dropdown"
+              value={county}
+              onChange={(e) => setCounty(e.target.value)}
+              style={inputStyle}
+            >
+              <option value="">{intl.formatMessage({ id: 'search.anyCounty' })}</option>
+              {counties.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          )}
+        </div>
 
         {/* DV Confirmation Dialog */}
         {showDvConfirm && (
