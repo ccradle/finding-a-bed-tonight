@@ -112,6 +112,47 @@ public class ReservationRepository {
     }
 
     /**
+     * Nulls the V93 hold-attribution PII columns for resolved-and-aged
+     * reservations (transitional-reentry-support task 4.6, slice 2C).
+     * Called by the scheduled purge job; no tenant scoping in the SQL —
+     * cross-tenant DDL run with the same {@code dvAccess=true} TenantContext
+     * binding as the existing DV referral purge.
+     *
+     * <p>Resolution criteria (any of):
+     * <ul>
+     *   <li>{@code status IN ('CANCELLED','CONFIRMED','EXPIRED','CANCELLED_SHELTER_DEACTIVATED')}
+     *       AND updated_at &lt; cutoff</li>
+     *   <li>{@code expires_at &lt; cutoff} (catches HELD rows that expired
+     *       but the reaper hasn't yet stamped status=EXPIRED)</li>
+     * </ul>
+     *
+     * <p>The {@code AND any-encrypted-non-null} guard avoids no-op UPDATEs
+     * on rows whose attribution was already purged or never set.
+     *
+     * @param cutoff resolution / expiry timestamp before which rows are eligible
+     * @return number of rows whose ciphertext was nulled
+     */
+    public int purgeExpiredHoldAttribution(java.time.Instant cutoff) {
+        Timestamp ts = Timestamp.from(cutoff);
+        return jdbcTemplate.update(
+                """
+                UPDATE reservation
+                   SET held_for_client_name_encrypted = NULL,
+                       held_for_client_dob_encrypted = NULL,
+                       hold_notes_encrypted = NULL
+                 WHERE (
+                       (status IN ('CANCELLED', 'CONFIRMED', 'EXPIRED', 'CANCELLED_SHELTER_DEACTIVATED')
+                            AND created_at < ?)
+                       OR (expires_at < ?)
+                 )
+                   AND (held_for_client_name_encrypted IS NOT NULL
+                       OR held_for_client_dob_encrypted IS NOT NULL
+                       OR hold_notes_encrypted IS NOT NULL)
+                """,
+                ts, ts);
+    }
+
+    /**
      * Helper: encrypt with RESERVATION_PII purpose if the plaintext is
      * non-null. Returns null when plaintext is null so the SQL receives an
      * honest NULL parameter (no empty-string sentinel).

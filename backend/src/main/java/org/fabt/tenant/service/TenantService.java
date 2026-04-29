@@ -94,6 +94,49 @@ public class TenantService {
         return tenantRepository.save(tenant);
     }
 
+    /**
+     * Partial config update for {@code tenant.config.holdDurationMinutes}
+     * (transitional-reentry-support task 4.5, slice 2C). Reads the existing
+     * config, sets the one key, writes back — preserves any other keys
+     * (e.g. {@code dv_address_visibility}, {@code features.reentryMode},
+     * {@code active_counties}) without clobbering them.
+     *
+     * <p>Range enforced at the {@link org.fabt.shelter.api.HoldDurationRequest}
+     * DTO layer (30-480 minutes) per design D5. This method does NOT
+     * re-validate — it trusts the caller (controller). Called only from the
+     * COC_ADMIN admin endpoint; not exposed elsewhere.
+     *
+     * @param id tenant id
+     * @param holdDurationMinutes new value (caller pre-validated)
+     * @return updated Tenant
+     */
+    @Transactional
+    public Tenant setHoldDurationMinutes(UUID id, int holdDurationMinutes) {
+        Tenant tenant = tenantRepository.findById(id)
+                .orElseThrow(() -> new NoSuchElementException("Tenant not found: " + id));
+
+        try {
+            // Read existing config as a mutable map; merge the one key.
+            Map<String, Object> config;
+            if (tenant.getConfig() != null && tenant.getConfig().value() != null
+                && !tenant.getConfig().value().isBlank()) {
+                config = new java.util.HashMap<>(
+                    objectMapper.readValue(tenant.getConfig().value(),
+                        new tools.jackson.core.type.TypeReference<Map<String, Object>>() {}));
+            } else {
+                config = new java.util.HashMap<>();
+            }
+            config.put("holdDurationMinutes", holdDurationMinutes);
+
+            String configJson = objectMapper.writeValueAsString(config);
+            tenant.setConfig(JsonString.of(configJson));
+            tenant.setUpdatedAt(Instant.now());
+            return tenantRepository.save(tenant);
+        } catch (JacksonException e) {
+            throw new IllegalStateException("Failed to merge holdDurationMinutes into tenant.config", e);
+        }
+    }
+
     @Transactional
     public Tenant updateConfig(UUID id, Map<String, Object> config) {
         Tenant tenant = tenantRepository.findById(id)

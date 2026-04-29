@@ -4,6 +4,7 @@ import java.time.Duration;
 import java.time.Instant;
 
 import org.fabt.referral.repository.ReferralTokenRepository;
+import org.fabt.reservation.service.ReservationService;
 import org.fabt.shared.web.TenantContext;
 
 import org.slf4j.Logger;
@@ -28,9 +29,12 @@ public class ReferralTokenPurgeService {
     private static final Duration PURGE_AGE = Duration.ofHours(24);
 
     private final ReferralTokenRepository repository;
+    private final ReservationService reservationService;
 
-    public ReferralTokenPurgeService(ReferralTokenRepository repository) {
+    public ReferralTokenPurgeService(ReferralTokenRepository repository,
+                                      ReservationService reservationService) {
         this.repository = repository;
+        this.reservationService = reservationService;
     }
 
     /**
@@ -54,6 +58,42 @@ public class ReferralTokenPurgeService {
                 log.info("purgeTerminalTokens: dvAccess={}, purged={}", TenantContext.getDvAccess(), purged);
             } else {
                 log.debug("purgeTerminalTokens: dvAccess={}, purged=0", TenantContext.getDvAccess());
+            }
+        });
+    }
+
+    /**
+     * Hourly purge of resolved-and-aged hold-attribution PII (transitional-
+     * reentry-support task 4.6, slice 2C). Nulls the V93
+     * {@code held_for_client_*_encrypted} columns 24h after a reservation
+     * resolves (CANCELLED / CONFIRMED / EXPIRED / CANCELLED_SHELTER_DEACTIVATED)
+     * OR 24h past {@code expires_at}. Two-layer PII posture per design D4:
+     * tenant_dek crypto-shred is the at-rest defense; this purge is the
+     * 24h-post-resolution defense.
+     *
+     * <p>Same TenantContext binding pattern as the DV referral purge above
+     * (system context + dvAccess=true) — the reservation table has FORCE
+     * RLS that joins through shelter, so dvAccess is required to cover
+     * both DV and non-DV reservations cross-tenant. The repository's SQL
+     * is no-op on rows whose ciphertext is already null, so re-runs cost
+     * nothing on already-purged rows.
+     *
+     * <p>Null-safe on pre-V93 databases: the SQL references the new
+     * {@code _encrypted} columns by name, so a pre-V93 DB will fail with
+     * a column-not-found error rather than silently no-op. In practice
+     * this is fine — V91-V94 ship together in slice-1 of reentry-spec,
+     * so any prod DB running v0.55+ has the columns.
+     */
+    @TenantUnscoped("hourly retention purge — platform-wide by hold-attribution PII retention design")
+    @Scheduled(fixedRate = 3_600_000)
+    public void purgeExpiredHoldAttribution() {
+        TenantContext.runWithContext(TenantContext.getTenantId(), true, () -> {
+            Instant cutoff = Instant.now().minus(PURGE_AGE);
+            int purged = reservationService.purgeExpiredHoldAttribution(cutoff);
+            if (purged > 0) {
+                log.info("purgeExpiredHoldAttribution: purged={}", purged);
+            } else {
+                log.debug("purgeExpiredHoldAttribution: purged=0");
             }
         });
     }

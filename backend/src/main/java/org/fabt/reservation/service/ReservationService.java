@@ -74,6 +74,60 @@ public class ReservationService implements HeldReservationCleaner {
 
     @Transactional
     public Reservation createReservation(UUID shelterId, String populationType, String notes, UUID userId, String idempotencyKey) {
+        return createReservation(shelterId, populationType, notes, userId, idempotencyKey, null, null, null);
+    }
+
+    /**
+     * Hold-attribution-aware overload (transitional-reentry-support task 4.4,
+     * slice 2C). Adds the third-party navigator hold attribution fields
+     * (heldForClientName, heldForClientDob, holdNotes). All three optional —
+     * null means "not provided" and the resulting Reservation row leaves the
+     * corresponding {@code _encrypted} column NULL.
+     *
+     * <p>Validation runs on PLAINTEXT before encryption (per task 4.4
+     * wording — encrypting an invalid value would just trade a 400 for a
+     * 500 + ciphertext that fails decrypt asymmetrically). Caller is
+     * responsible for surface-level validation (Bean Validation on the
+     * request DTO catches null/blank/length); this method enforces the
+     * business invariants Bean Validation can't:
+     * <ul>
+     *   <li>{@code heldForClientDob > 1900-01-01} — Bean Validation has
+     *       {@code @Past} but no native lower bound; without this guard,
+     *       a navigator typing "1850" would persist (e.g., a typo for
+     *       "1985"). 1900-01-01 is the conservative real-people lower
+     *       bound the spec resolved to.</li>
+     * </ul>
+     */
+    @Transactional
+    public Reservation createReservation(UUID shelterId, String populationType, String notes, UUID userId,
+                                          String idempotencyKey,
+                                          String heldForClientName, java.time.LocalDate heldForClientDob,
+                                          String holdNotes) {
+        // Plaintext validation — runs BEFORE encryption per task 4.4.
+        validateHoldClientDob(heldForClientDob);
+        return doCreateReservation(shelterId, populationType, notes, userId, idempotencyKey,
+            heldForClientName, heldForClientDob, holdNotes);
+    }
+
+    /**
+     * Hold-attribution DOB business invariant: must be after 1900-01-01.
+     * Bean Validation's {@code @Past} on the DTO catches future dates;
+     * this method catches the silently-invalid "1850s" typo case.
+     */
+    static void validateHoldClientDob(java.time.LocalDate dob) {
+        if (dob == null) return;
+        java.time.LocalDate floor = java.time.LocalDate.of(1900, 1, 1);
+        if (dob.isBefore(floor)) {
+            throw new IllegalArgumentException(
+                "heldForClientDob must be after " + floor + "; got " + dob);
+        }
+    }
+
+    @Transactional
+    private Reservation doCreateReservation(UUID shelterId, String populationType, String notes, UUID userId,
+                                             String idempotencyKey,
+                                             String heldForClientName, java.time.LocalDate heldForClientDob,
+                                             String holdNotes) {
         UUID tenantId = TenantContext.getTenantId();
 
         // Idempotency check: if key provided, return existing active hold instead of creating duplicate
@@ -122,6 +176,12 @@ public class ReservationService implements HeldReservationCleaner {
         // Create reservation
         Reservation reservation = new Reservation(shelterId, tenantId, populationType, userId, expiresAt, notes);
         reservation.setIdempotencyKey(idempotencyKey);
+        // transitional-reentry-support task 4.4 (slice 2C): set hold-
+        // attribution plaintext fields. Repository.insert encrypts before
+        // SQL write (slice 2A wiring) — plaintext never touches disk.
+        reservation.setHeldForClientName(heldForClientName);
+        reservation.setHeldForClientDob(heldForClientDob);
+        reservation.setHoldNotes(holdNotes);
         Reservation saved = reservationRepository.insert(reservation);
 
         // Recompute beds_on_hold from the source of truth (the reservation table, which now
@@ -282,6 +342,22 @@ public class ReservationService implements HeldReservationCleaner {
 
         log.info("Reservation {} expired for shelter {} / {}",
                 reservationId, reservation.getShelterId(), reservation.getPopulationType());
+    }
+
+    /**
+     * Service-layer entry point for the hold-attribution PII purge
+     * (transitional-reentry-support task 4.6, slice 2C). Delegates to
+     * {@code ReservationRepository.purgeExpiredHoldAttribution} but lives
+     * on the service to satisfy the modular-monolith boundary
+     * (`feedback_modular_monolith.md`): cross-module callers
+     * (e.g. {@code ReferralTokenPurgeService}) MUST go through service-
+     * layer interfaces, not directly into another module's repository.
+     *
+     * @param cutoff resolution / expiry timestamp before which rows are eligible
+     * @return number of reservation rows whose ciphertext was nulled
+     */
+    public int purgeExpiredHoldAttribution(java.time.Instant cutoff) {
+        return reservationRepository.purgeExpiredHoldAttribution(cutoff);
     }
 
     @Override
