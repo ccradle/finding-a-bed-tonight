@@ -31,6 +31,37 @@ public class Shelter {
      * non-DV shelters per V91's column DEFAULT.
      */
     private ShelterType shelterType = ShelterType.EMERGENCY;
+    /**
+     * Supervision-geography boundary (transitional-reentry-support task 3.2,
+     * V91 column). Free-text VARCHAR(100) at the DB layer; per design D3
+     * (warroom H2 revision 2026-04-28) values are validated app-layer against
+     * {@code tenant.config.active_counties}, NOT a DB-level enum. Default
+     * seed for {@code active_counties} is the NC 100-county list
+     * ({@code NcCountyDefaults}); PLATFORM_OPERATOR can override per tenant.
+     *
+     * <p>Used by the reentry-navigator bed-search filter — supervision is
+     * jurisdictional (county/district authority), not distance-based, so a
+     * shelter 2 mi away in the wrong county is a supervision violation while
+     * 40 mi away in the right county is valid placement.
+     *
+     * <p>Nullable: most existing shelters launch with null; the
+     * {@link #requiresVerificationCall} sentinel covers the gap by surfacing
+     * a "call to verify" badge to navigators rather than silence.
+     */
+    private String county;
+    /**
+     * Sentinel flag (transitional-reentry-support task 3.3, V94 column):
+     * shelter requires a direct call before eligibility can be assumed,
+     * regardless of what {@code eligibility_criteria} says. Two roles:
+     * <ul>
+     *   <li>UI: search results render a "call to verify" badge when true.</li>
+     *   <li>BedSearchService: the H1 three-way {@code acceptsFelonies=true}
+     *       filter logic (design D1 revision) INCLUDES shelters with null
+     *       {@code eligibility_criteria} ONLY when this flag is true.</li>
+     * </ul>
+     * Default false (V94 column default).
+     */
+    private boolean requiresVerificationCall = false;
     /** When false, shelter is hidden from bed search but still loaded for DV referral safety checks. */
     private boolean active = true;
     private Instant deactivatedAt;
@@ -136,6 +167,22 @@ public class Shelter {
 
     public void setShelterType(ShelterType shelterType) {
         this.shelterType = shelterType;
+    }
+
+    public String getCounty() {
+        return county;
+    }
+
+    public void setCounty(String county) {
+        this.county = county;
+    }
+
+    public boolean isRequiresVerificationCall() {
+        return requiresVerificationCall;
+    }
+
+    public void setRequiresVerificationCall(boolean requiresVerificationCall) {
+        this.requiresVerificationCall = requiresVerificationCall;
     }
 
     public boolean isActive() {

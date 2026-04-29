@@ -1,6 +1,7 @@
 package org.fabt.reservation.domain;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.UUID;
 
 public class Reservation {
@@ -17,6 +18,44 @@ public class Reservation {
     private Instant createdAt;
     private String notes;
     private String idempotencyKey;
+
+    /**
+     * Third-party navigator hold attribution (transitional-reentry-support
+     * task 3.5, V93 columns). Plaintext at the entity layer — the
+     * {@link org.fabt.reservation.repository.ReservationRepository} row
+     * mapper decrypts {@code held_for_client_name_encrypted} into this
+     * field on read; the insert path encrypts on write. Plaintext is
+     * never persisted to disk.
+     *
+     * <p>Note: this differs from the {@code app_user.totpSecretEncrypted}
+     * precedent (which holds the encrypted form at the entity layer and
+     * decrypts on use). For hold attribution, every read of the
+     * coordinator dashboard renders this name, so paying the decrypt cost
+     * at the row-mapper layer is operationally cleaner than remembering
+     * to decrypt at every callsite.
+     *
+     * <p>Nullable. May contain names + contact info of supervision officers
+     * per design D4 (warroom Casey input). Spring Batch purges the
+     * underlying ciphertext column 24h after reservation resolution.
+     */
+    private String heldForClientName;
+
+    /**
+     * Date of birth of the third-party client (transitional-reentry-support
+     * task 3.5, V93 column). Plaintext at the entity layer; serialized as
+     * ISO-8601 ({@code LocalDate.toString()}) before encryption to support
+     * clean round-trip. Nullable.
+     */
+    private LocalDate heldForClientDob;
+
+    /**
+     * Free-text coordination notes from navigator to shelter coordinator
+     * (transitional-reentry-support task 3.5, V93 column). Plaintext at the
+     * entity layer; max 500 chars per UI / 1000 chars per server validation
+     * (open question #1 resolution). NOT a permanent record — purged 24h
+     * post-resolution per design D4. Nullable.
+     */
+    private String holdNotes;
 
     /** Transient flag — true when returned from an idempotent key match (not persisted). */
     private transient boolean idempotentMatch;
@@ -83,4 +122,13 @@ public class Reservation {
 
     public boolean isIdempotentMatch() { return idempotentMatch; }
     public void setIdempotentMatch(boolean idempotentMatch) { this.idempotentMatch = idempotentMatch; }
+
+    public String getHeldForClientName() { return heldForClientName; }
+    public void setHeldForClientName(String heldForClientName) { this.heldForClientName = heldForClientName; }
+
+    public LocalDate getHeldForClientDob() { return heldForClientDob; }
+    public void setHeldForClientDob(LocalDate heldForClientDob) { this.heldForClientDob = heldForClientDob; }
+
+    public String getHoldNotes() { return holdNotes; }
+    public void setHoldNotes(String holdNotes) { this.holdNotes = holdNotes; }
 }

@@ -1,12 +1,15 @@
 package org.fabt.reservation.repository;
 
 import java.sql.Timestamp;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import org.fabt.reservation.domain.Reservation;
 import org.fabt.reservation.domain.ReservationStatus;
+import org.fabt.shared.security.KeyPurpose;
+import org.fabt.shared.security.SecretEncryptionService;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -15,56 +18,113 @@ import org.springframework.stereotype.Repository;
 public class ReservationRepository {
 
     private final JdbcTemplate jdbcTemplate;
+    private final SecretEncryptionService encryptionService;
 
-    private static final RowMapper<Reservation> ROW_MAPPER = (rs, rowNum) -> {
-        Reservation r = new Reservation();
-        r.setId(rs.getObject("id", UUID.class));
-        r.setShelterId(rs.getObject("shelter_id", UUID.class));
-        r.setTenantId(rs.getObject("tenant_id", UUID.class));
-        r.setPopulationType(rs.getString("population_type"));
-        r.setUserId(rs.getObject("user_id", UUID.class));
-        r.setStatus(ReservationStatus.valueOf(rs.getString("status")));
-        Timestamp expiresAt = rs.getTimestamp("expires_at");
-        r.setExpiresAt(expiresAt != null ? expiresAt.toInstant() : null);
-        Timestamp confirmedAt = rs.getTimestamp("confirmed_at");
-        r.setConfirmedAt(confirmedAt != null ? confirmedAt.toInstant() : null);
-        Timestamp cancelledAt = rs.getTimestamp("cancelled_at");
-        r.setCancelledAt(cancelledAt != null ? cancelledAt.toInstant() : null);
-        Timestamp createdAt = rs.getTimestamp("created_at");
-        r.setCreatedAt(createdAt != null ? createdAt.toInstant() : null);
-        r.setNotes(rs.getString("notes"));
-        r.setIdempotencyKey(rs.getString("idempotency_key"));
-        return r;
-    };
+    /**
+     * Row mapper instance — was {@code static final} before transitional-
+     * reentry-support task 3.5. Now an instance field because the V93
+     * {@code held_for_client_*_encrypted} columns require a Spring-managed
+     * {@link SecretEncryptionService} for decryption. Closes over the
+     * injected service. Null-safe for all encrypted columns: a null DB
+     * value maps to a null entity field with no decrypt attempt.
+     */
+    private final RowMapper<Reservation> rowMapper;
 
-    public ReservationRepository(JdbcTemplate jdbcTemplate) {
+    public ReservationRepository(JdbcTemplate jdbcTemplate, SecretEncryptionService encryptionService) {
         this.jdbcTemplate = jdbcTemplate;
+        this.encryptionService = encryptionService;
+        this.rowMapper = (rs, rowNum) -> {
+            Reservation r = new Reservation();
+            r.setId(rs.getObject("id", UUID.class));
+            r.setShelterId(rs.getObject("shelter_id", UUID.class));
+            UUID tenantId = rs.getObject("tenant_id", UUID.class);
+            r.setTenantId(tenantId);
+            r.setPopulationType(rs.getString("population_type"));
+            r.setUserId(rs.getObject("user_id", UUID.class));
+            r.setStatus(ReservationStatus.valueOf(rs.getString("status")));
+            Timestamp expiresAt = rs.getTimestamp("expires_at");
+            r.setExpiresAt(expiresAt != null ? expiresAt.toInstant() : null);
+            Timestamp confirmedAt = rs.getTimestamp("confirmed_at");
+            r.setConfirmedAt(confirmedAt != null ? confirmedAt.toInstant() : null);
+            Timestamp cancelledAt = rs.getTimestamp("cancelled_at");
+            r.setCancelledAt(cancelledAt != null ? cancelledAt.toInstant() : null);
+            Timestamp createdAt = rs.getTimestamp("created_at");
+            r.setCreatedAt(createdAt != null ? createdAt.toInstant() : null);
+            r.setNotes(rs.getString("notes"));
+            r.setIdempotencyKey(rs.getString("idempotency_key"));
+
+            // V93 PII fields — decrypt only if both column and tenant_id present.
+            // tenant_id should always be non-null per the table NOT NULL constraint
+            // but the defensive check costs nothing and prevents a confusing NPE
+            // if a future migration relaxes the NOT NULL.
+            String nameEnc = rs.getString("held_for_client_name_encrypted");
+            if (nameEnc != null && tenantId != null) {
+                r.setHeldForClientName(
+                    encryptionService.decryptForTenant(tenantId, KeyPurpose.RESERVATION_PII, nameEnc));
+            }
+            String dobEnc = rs.getString("held_for_client_dob_encrypted");
+            if (dobEnc != null && tenantId != null) {
+                String dobIso = encryptionService.decryptForTenant(tenantId, KeyPurpose.RESERVATION_PII, dobEnc);
+                r.setHeldForClientDob(LocalDate.parse(dobIso));
+            }
+            String notesEnc = rs.getString("hold_notes_encrypted");
+            if (notesEnc != null && tenantId != null) {
+                r.setHoldNotes(
+                    encryptionService.decryptForTenant(tenantId, KeyPurpose.RESERVATION_PII, notesEnc));
+            }
+            return r;
+        };
     }
 
     public Reservation insert(Reservation reservation) {
+        // V93 hold-attribution PII: encrypt before INSERT so plaintext never
+        // touches disk (design D4 two-layer posture). Null inputs stay null —
+        // no encrypt attempt. tenant_id MUST be set on the entity before insert
+        // (existing precondition; the encrypt path additionally relies on it).
+        UUID tenantId = reservation.getTenantId();
+        String nameEnc = encryptIfPresent(tenantId, reservation.getHeldForClientName());
+        String dobEnc = encryptIfPresent(tenantId,
+            reservation.getHeldForClientDob() != null ? reservation.getHeldForClientDob().toString() : null);
+        String notesEnc = encryptIfPresent(tenantId, reservation.getHoldNotes());
+
         List<Reservation> results = jdbcTemplate.query(
                 """
-                INSERT INTO reservation (shelter_id, tenant_id, population_type, user_id, status, expires_at, notes, idempotency_key)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO reservation (
+                    shelter_id, tenant_id, population_type, user_id, status, expires_at,
+                    notes, idempotency_key,
+                    held_for_client_name_encrypted, held_for_client_dob_encrypted, hold_notes_encrypted
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 RETURNING *
                 """,
-                ROW_MAPPER,
+                rowMapper,
                 reservation.getShelterId(),
-                reservation.getTenantId(),
+                tenantId,
                 reservation.getPopulationType(),
                 reservation.getUserId(),
                 reservation.getStatus().name(),
                 Timestamp.from(reservation.getExpiresAt()),
                 reservation.getNotes(),
-                reservation.getIdempotencyKey()
+                reservation.getIdempotencyKey(),
+                nameEnc, dobEnc, notesEnc
         );
         return results.isEmpty() ? reservation : results.get(0);
+    }
+
+    /**
+     * Helper: encrypt with RESERVATION_PII purpose if the plaintext is
+     * non-null and the tenant id is non-null. Returns null otherwise so
+     * the SQL receives an honest NULL parameter (no empty-string sentinel).
+     */
+    private String encryptIfPresent(UUID tenantId, String plaintext) {
+        if (plaintext == null || tenantId == null) return null;
+        return encryptionService.encryptForTenant(tenantId, KeyPurpose.RESERVATION_PII, plaintext);
     }
 
     public Optional<Reservation> findActiveByUserIdAndIdempotencyKey(UUID userId, String idempotencyKey) {
         List<Reservation> results = jdbcTemplate.query(
                 "SELECT * FROM reservation WHERE user_id = ? AND idempotency_key = ? AND status = 'HELD'",
-                ROW_MAPPER,
+                rowMapper,
                 userId, idempotencyKey
         );
         return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
@@ -73,7 +133,7 @@ public class ReservationRepository {
     public Optional<Reservation> findByIdAndTenantId(UUID id, UUID tenantId) {
         List<Reservation> results = jdbcTemplate.query(
                 "SELECT * FROM reservation WHERE id = ? AND tenant_id = ?",
-                ROW_MAPPER,
+                rowMapper,
                 id, tenantId
         );
         return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
@@ -90,7 +150,7 @@ public class ReservationRepository {
                 "SELECT r.* FROM reservation r "
                 + "INNER JOIN tenant t ON t.id = r.tenant_id "
                 + "WHERE r.id = ? AND r.tenant_id = ? AND t.state = 'ACTIVE'",
-                ROW_MAPPER,
+                rowMapper,
                 id, tenantId
         );
         return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
@@ -99,7 +159,7 @@ public class ReservationRepository {
     public Optional<Reservation> findById(UUID id) {
         List<Reservation> results = jdbcTemplate.query(
                 "SELECT * FROM reservation WHERE id = ?",
-                ROW_MAPPER,
+                rowMapper,
                 id
         );
         return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
@@ -108,7 +168,7 @@ public class ReservationRepository {
     public List<Reservation> findActiveByUserId(UUID tenantId, UUID userId) {
         return jdbcTemplate.query(
                 "SELECT * FROM reservation WHERE tenant_id = ? AND user_id = ? AND status = 'HELD' ORDER BY created_at DESC",
-                ROW_MAPPER,
+                rowMapper,
                 tenantId, userId
         );
     }
@@ -152,13 +212,13 @@ public class ReservationRepository {
             args.add(sinceDays);
         }
         sql.append(" ORDER BY created_at DESC");
-        return jdbcTemplate.query(sql.toString(), ROW_MAPPER, args.toArray());
+        return jdbcTemplate.query(sql.toString(), rowMapper, args.toArray());
     }
 
     public List<Reservation> findActiveByShelterId(UUID shelterId, String populationType) {
         return jdbcTemplate.query(
                 "SELECT * FROM reservation WHERE shelter_id = ? AND population_type = ? AND status = 'HELD'",
-                ROW_MAPPER,
+                rowMapper,
                 shelterId, populationType
         );
     }
@@ -166,14 +226,14 @@ public class ReservationRepository {
     public List<Reservation> findAllHeld() {
         return jdbcTemplate.query(
                 "SELECT * FROM reservation WHERE status = 'HELD'",
-                ROW_MAPPER
+                rowMapper
         );
     }
 
     public List<Reservation> findHeldByShelterId(UUID shelterId) {
         return jdbcTemplate.query(
                 "SELECT * FROM reservation WHERE shelter_id = ? AND status = 'HELD'",
-                ROW_MAPPER,
+                rowMapper,
                 shelterId
         );
     }
@@ -181,7 +241,7 @@ public class ReservationRepository {
     public List<Reservation> findExpired() {
         return jdbcTemplate.query(
                 "SELECT * FROM reservation WHERE status = 'HELD' AND expires_at < NOW()",
-                ROW_MAPPER
+                rowMapper
         );
     }
 
