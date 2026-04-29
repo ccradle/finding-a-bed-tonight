@@ -467,6 +467,8 @@
   "admin.holdDuration.unit": "minutos",
   "admin.holdDuration.description": "Tiempo que un trabajador social puede reservar una cama antes de la expiración automática. Los hospitales pueden configurar 120-180 minutos para procesos de alta.",
   "admin.holdDuration.saved": "Duración de reserva guardada",
+  "admin.holdDuration.savedWithValue": "Duración de reserva guardada: {minutes} minutos",
+  "admin.holdDuration.rangeError": "La duración de reserva debe estar entre 30 y 480 minutos",
   "admin.holdDuration.saveError": "Error al guardar la duración de reserva",
   "password.change.button": "Contraseña",
   "password.change.title": "Cambiar contraseña",
