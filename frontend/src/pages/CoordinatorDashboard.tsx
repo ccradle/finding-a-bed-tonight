@@ -208,6 +208,25 @@ export function CoordinatorDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingReferrals.length]);
 
+  // Slice 4 §11.5 warroom H2 — countdown timer for active holds. Mirrors
+  // the pendingReferrals pattern so the per-hold "Xm remaining" stays
+  // current while the dashboard is open. Without this, the value would
+  // freeze at the fetch-time snapshot and a coordinator could read
+  // "85m remaining" on a hold that has already expired.
+  const holdsCountdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => {
+    if (activeHolds.some(h => h.remainingSeconds > 0)) {
+      holdsCountdownRef.current = setInterval(() => {
+        setActiveHolds(prev => prev.map(h => ({
+          ...h,
+          remainingSeconds: Math.max(0, h.remainingSeconds - 1),
+        })));
+      }, 1000);
+    }
+    return () => { if (holdsCountdownRef.current) clearInterval(holdsCountdownRef.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeHolds.length]);
+
   // SSE listener for dv-referral.expired events (Design D6)
   useEffect(() => {
     const handler = (e: Event) => {
@@ -1234,13 +1253,21 @@ export function CoordinatorDashboard() {
                                 </div>
                               )}
                             </div>
-                            <div style={{ fontSize: text['2xs'], color: color.textTertiary, whiteSpace: 'nowrap' }}>
-                              {hold.remainingSeconds > 0
-                                ? intl.formatMessage(
-                                    { id: 'referral.remainingMinutes' },
-                                    { minutes: Math.max(1, Math.floor(hold.remainingSeconds / 60)) },
-                                  )
-                                : <FormattedMessage id="referral.expired" />}
+                            <div
+                              data-testid={`coordinator-hold-remaining-${hold.id}`}
+                              style={{ fontSize: text['2xs'], color: color.textTertiary, whiteSpace: 'nowrap' }}
+                            >
+                              {hold.remainingSeconds <= 0
+                                ? <FormattedMessage id="referral.expired" />
+                                : hold.remainingSeconds < 300
+                                  ? intl.formatMessage(
+                                      { id: 'referral.remainingMinutesSeconds' },
+                                      { minutes: Math.floor(hold.remainingSeconds / 60), seconds: hold.remainingSeconds % 60 },
+                                    )
+                                  : intl.formatMessage(
+                                      { id: 'referral.remainingMinutes' },
+                                      { minutes: Math.floor(hold.remainingSeconds / 60) },
+                                    )}
                             </div>
                           </div>
                         ))}

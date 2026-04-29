@@ -31,12 +31,19 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p>Two-layer authorization mirrors {@link ManualHoldController}:
  * <ol>
- *   <li>Filter-chain coarse pass admits roles
- *       {COORDINATOR, COC_ADMIN, PLATFORM_ADMIN}.</li>
- *   <li>Controller fine pass: admins bypass the assignment check;
- *       coordinators must be assigned to the target shelter via
- *       {@code coordinator_assignment}. Mismatched coordinators get
- *       {@link AccessDeniedException} → 403 via GlobalExceptionHandler.</li>
+ *   <li>Method-level {@code @PreAuthorize} coarse pass admits
+ *       {@code COORDINATOR} and {@code COC_ADMIN}. Per the post-G-4.4
+ *       role taxonomy in {@link org.fabt.auth.domain.Role}, the
+ *       deprecated {@code PLATFORM_ADMIN} role is intentionally excluded
+ *       — the {@code NoPlatformAdminPreauthorizeTest} ArchUnit guard
+ *       prohibits new {@code @PreAuthorize} references to it. Genuine
+ *       platform-spanning operations live on platform endpoints under
+ *       {@code @PlatformAdminOnly}, not here.</li>
+ *   <li>Controller fine pass: {@code COC_ADMIN} bypasses the assignment
+ *       check; {@code COORDINATOR}-only callers must be assigned to the
+ *       target shelter via {@code coordinator_assignment}. Mismatched
+ *       coordinators get {@link AccessDeniedException} → 403 via
+ *       {@code GlobalExceptionHandler}.</li>
  * </ol>
  *
  * <p>PII surfacing: the response carries {@code heldForClientName /
@@ -80,11 +87,11 @@ public class ShelterReservationsController {
             @Parameter(description = "UUID of the shelter to read holds for")
             @PathVariable UUID shelterId,
             Authentication authentication) {
-        // Fine-pass: coordinators must be assigned to the shelter.
-        // Admins (COC_ADMIN, PLATFORM_ADMIN) bypass.
+        // Fine-pass: COORDINATOR-only callers must be assigned to the
+        // shelter; COC_ADMIN bypasses the assignment check. PLATFORM_ADMIN
+        // is deliberately not handled here — see class-level Javadoc.
         boolean isCoordinatorOnly = hasRole(authentication, "ROLE_COORDINATOR")
-                && !hasRole(authentication, "ROLE_COC_ADMIN")
-                && !hasRole(authentication, "ROLE_PLATFORM_ADMIN");
+                && !hasRole(authentication, "ROLE_COC_ADMIN");
         if (isCoordinatorOnly) {
             UUID userId = UUID.fromString(authentication.getName());
             if (!coordinatorAssignmentRepository.isAssigned(userId, shelterId)) {

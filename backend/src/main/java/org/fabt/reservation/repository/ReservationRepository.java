@@ -284,9 +284,18 @@ public class ReservationRepository {
         );
     }
 
+    /**
+     * Returns HELD reservations for a shelter, ordered soonest-to-expire first
+     * (slice 4 §11 warroom M4). Order matters for the coordinator hold-list view
+     * surfaced by {@code GET /api/v1/shelters/{id}/reservations}: soonest-to-
+     * expire at top lets coordinators triage the most time-sensitive holds
+     * without scrolling. The deactivation-cascade caller does not depend on
+     * order, so the ORDER BY is a no-op for that path.
+     */
     public List<Reservation> findHeldByShelterId(UUID shelterId) {
         return jdbcTemplate.query(
-                "SELECT * FROM reservation WHERE shelter_id = ? AND status = 'HELD'",
+                "SELECT * FROM reservation WHERE shelter_id = ? AND status = 'HELD' "
+                        + "ORDER BY expires_at ASC",
                 rowMapper,
                 shelterId
         );

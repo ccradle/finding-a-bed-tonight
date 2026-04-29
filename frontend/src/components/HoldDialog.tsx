@@ -58,10 +58,17 @@ export function HoldDialog({
   const [error, setError] = useState<string | null>(null);
 
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
+  // Slice 4 §11 warroom M1 — capture the element that had focus when
+  // the dialog opened so we can return focus there on close (WCAG 2.4.3
+  // + APG dialog pattern). Without this, Cancel/Confirm/Esc lands focus
+  // on `<body>` and a keyboard user has to tab back through the page.
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
 
   // Reset state on open transition + auto-focus Confirm.
   useEffect(() => {
     if (isOpen) {
+      previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
       setName('');
       setDob('');
       setNotes('');
@@ -71,6 +78,8 @@ export function HoldDialog({
       const t = setTimeout(() => confirmButtonRef.current?.focus(), 0);
       return () => clearTimeout(t);
     }
+    // On close transition, return focus to whatever opened the dialog.
+    previouslyFocusedRef.current?.focus?.();
     return undefined;
   }, [isOpen]);
 
@@ -112,8 +121,38 @@ export function HoldDialog({
     }
   };
 
-  const handleEscape = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') onCancel();
+  // Slice 4 §11 warroom M1 + M2 — modal keyboard handler:
+  //  - Esc closes (existing behavior).
+  //  - Tab/Shift+Tab traps focus within the dialog form. Without the trap,
+  //    `aria-modal="true"` is a lie: keyboard users tabbing past the last
+  //    control land on page elements behind the dialog (WCAG 2.4.3 / APG
+  //    dialog pattern). Implementation: query the form for tabbable
+  //    elements at keypress time so dynamically-mounted fields (e.g.,
+  //    when the user opens the `<details>` attribution section) are
+  //    included automatically.
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      onCancel();
+      return;
+    }
+    if (e.key !== 'Tab') return;
+    const form = formRef.current;
+    if (!form) return;
+    const tabbables = form.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), '
+        + 'select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])',
+    );
+    if (tabbables.length === 0) return;
+    const first = tabbables[0];
+    const last = tabbables[tabbables.length - 1];
+    const active = document.activeElement as HTMLElement | null;
+    if (e.shiftKey && active === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && active === last) {
+      e.preventDefault();
+      first.focus();
+    }
   };
 
   const fieldStyle: React.CSSProperties = { marginBottom: 12 };
@@ -137,7 +176,7 @@ export function HoldDialog({
       aria-modal="true"
       aria-labelledby="hold-dialog-title"
       data-testid="hold-dialog"
-      onKeyDown={handleEscape}
+      onKeyDown={handleKeyDown}
       style={{
         position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -145,6 +184,7 @@ export function HoldDialog({
       }}
     >
       <form
+        ref={formRef}
         onSubmit={handleSubmit}
         style={{
           backgroundColor: color.bg, borderRadius: 12, padding: 24,
