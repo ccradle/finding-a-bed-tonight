@@ -593,7 +593,12 @@ VALUES (
     'a0000000-0000-0000-0000-000000000002',
     'Blue Ridge CoC (demo)',
     'dev-coc-west',
-    '{"api_key_auth_enabled": true, "default_locale": "en", "hold_duration_minutes": 90, "dv_referral_expiry_minutes": 240, "dv_address_visibility": "ADMIN_AND_ASSIGNED", "hmis_vendors": [], "observability": {"prometheus_enabled": true, "tracing_enabled": false, "tracing_endpoint": "http://localhost:4318/v1/traces", "monitor_stale_interval_minutes": 5, "monitor_dv_canary_interval_minutes": 15, "monitor_temperature_interval_minutes": 60, "temperature_threshold_f": 32, "noaa_station_id": "KAVL"}}',
+    -- Round 5 §16.E.1 — Blue Ridge demo tenant has features.reentryMode=true so the
+    -- post-§16 UI gates (advanced filters, eligibility section, hold-attribution
+    -- PII) and the §16.B API serialization gate both surface reentry data for
+    -- this tenant. Other dev tenants (dev-coc) stay unset, demonstrating the
+    -- ungated shape side-by-side.
+    '{"api_key_auth_enabled": true, "default_locale": "en", "hold_duration_minutes": 90, "dv_referral_expiry_minutes": 240, "dv_address_visibility": "ADMIN_AND_ASSIGNED", "hmis_vendors": [], "features": {"reentryMode": true}, "observability": {"prometheus_enabled": true, "tracing_enabled": false, "tracing_endpoint": "http://localhost:4318/v1/traces", "monitor_stale_interval_minutes": 5, "monitor_dv_canary_interval_minutes": 15, "monitor_temperature_interval_minutes": 60, "temperature_threshold_f": 32, "noaa_station_id": "KAVL"}}',
     NOW(), NOW()
 ) ON CONFLICT (slug) DO UPDATE SET
     name = EXCLUDED.name,
@@ -674,7 +679,12 @@ VALUES (
     'a0000000-0000-0000-0000-000000000003',
     'Pamlico Sound CoC (demo)',
     'dev-coc-east',
-    '{"api_key_auth_enabled": true, "default_locale": "en", "hold_duration_minutes": 90, "dv_referral_expiry_minutes": 240, "dv_address_visibility": "ADMIN_AND_ASSIGNED", "hmis_vendors": [], "observability": {"prometheus_enabled": true, "tracing_enabled": false, "tracing_endpoint": "http://localhost:4318/v1/traces", "monitor_stale_interval_minutes": 5, "monitor_dv_canary_interval_minutes": 15, "monitor_temperature_interval_minutes": 60, "temperature_threshold_f": 32, "noaa_station_id": "KEWN"}}',
+    -- Round 5 §16.E.1 — Pamlico Sound demo tenant has features.reentryMode=true.
+    -- hold_duration_minutes is bumped to 180 (vs. the platform default 90) so
+    -- screenshot shot-05 of the demo capture spec exercises the customised-
+    -- duration surface; the longer window also lets a coordinator hold a bed
+    -- across a typical reentry intake-handoff cycle.
+    '{"api_key_auth_enabled": true, "default_locale": "en", "hold_duration_minutes": 180, "dv_referral_expiry_minutes": 240, "dv_address_visibility": "ADMIN_AND_ASSIGNED", "hmis_vendors": [], "features": {"reentryMode": true}, "observability": {"prometheus_enabled": true, "tracing_enabled": false, "tracing_endpoint": "http://localhost:4318/v1/traces", "monitor_stale_interval_minutes": 5, "monitor_dv_canary_interval_minutes": 15, "monitor_temperature_interval_minutes": 60, "temperature_threshold_f": 32, "noaa_station_id": "KEWN"}}',
     NOW(), NOW()
 ) ON CONFLICT (slug) DO UPDATE SET
     name = EXCLUDED.name,

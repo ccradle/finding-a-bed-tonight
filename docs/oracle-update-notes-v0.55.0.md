@@ -450,6 +450,59 @@ docker exec finding-a-bed-tonight-postgres-1 psql -U fabt -d fabt -tAc \
 # Expected: both rows show 'true' (V95 seeds the flag on east+west).
 ```
 
+#### Prod demo tenants — flip features.reentryMode (BLOCKER B3)
+
+V0.55 introduces an API serialization gate (§16.B) and four frontend gates
+(§16.C) that hide reentry-specific UI surfaces (advanced filters,
+eligibility section, hold-attribution PII fields, coordinator dashboard
+PII display) for any tenant whose `config.features.reentryMode` is unset
+or false. Without this post-deploy step, the prod demo tenants (`blueridge`
+and `mountain` per `project_live_demo_seed_inventory`) will look broken
+to a visitor — the new reentry capabilities will not surface for any
+non-DV outreach worker login.
+
+Default-off is the production-correct posture for any tenant that has
+not affirmatively opted into reentry; this step is the affirmative opt-in
+for the demo-tier tenants the public site exercises.
+
+```bash
+# Pre-flip verification — confirm which tenants currently have the flag set:
+docker exec finding-a-bed-tonight-postgres-1 psql -U fabt -d fabt -tAc \
+    "SELECT slug, config #>> '{features,reentryMode}' AS reentry_mode
+       FROM tenant
+       ORDER BY slug;"
+# Expected pre-flip: dev-coc-east + dev-coc-west show 'true' (V95 seed);
+# dev-coc + blueridge + mountain (and any other prod tenants) show NULL
+# or 'false'.
+
+# Flip prod demo tenants. Use the JSONB concat pattern (NOT jsonb_set with
+# a nested path on a missing parent — that returns the input unchanged
+# when 'features' does not yet exist; the concat pattern creates the key
+# correctly whether or not 'features' is already present).
+docker exec finding-a-bed-tonight-postgres-1 psql -U fabt -d fabt -c "
+UPDATE tenant
+   SET config = config
+       || jsonb_build_object(
+              'features',
+              coalesce(config -> 'features', '{}'::jsonb)
+                || jsonb_build_object('reentryMode', true))
+ WHERE slug IN ('blueridge','mountain')
+RETURNING slug, config -> 'features' AS features;"
+# Expected: 2 rows returned, each with features = {"reentryMode": true}.
+# If 0 rows, the slugs differ from this list — query the live tenant
+# table (`SELECT slug FROM tenant WHERE slug NOT LIKE 'dev-%';`) and
+# update the WHERE clause.
+```
+
+Token-TTL caveat: the JWT `reentryMode` claim is captured at token-issue
+time. Operators currently logged in will not see the new surface until
+their access token refreshes (15-minute TTL bound) or they log out + back
+in. Expect a soft window between the SQL flip and visible UI change.
+
+DEK note: this flag flip touches `tenant.config` only. It does NOT
+require the `RESERVATION_PII` DEK to be rotated, and it has no effect
+on data-at-rest. It is a UI/API serialization toggle exclusively.
+
 ### §6.5 PII purge verification
 
 The hold-attribution PII columns added in V93 (`held_for_client_name_encrypted`, `held_for_client_dob_encrypted`, `hold_notes_encrypted` on `reservation`) are erased no later than 25 hours after a reservation reaches a terminal status. Implementation: `ReservationService.purgeExpiredHoldAttribution(Instant)` invoked by `ReferralTokenPurgeService.purgeExpiredHoldAttribution()` on a `@Scheduled(fixedDelay=900_000)` (15 minutes — worst-case PII lifetime is 24h+15m). Verify post-deploy:
