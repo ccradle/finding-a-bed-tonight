@@ -80,12 +80,11 @@ test.describe('§16.D — features.reentryMode UI gate (positive matrix)', () =>
   });
 
   test('reentry-flagged tenant: shelter form exposes eligibility section to admin', async ({ adminPage }) => {
-    // Navigate to a shelter edit page. The seed has multiple dev shelters;
-    // any non-DV shelter on the dev tenant works.
-    await adminPage.goto('/admin');
-    await adminPage.locator('[data-testid="admin-shelters-tab"]')
-      .waitFor({ state: 'visible', timeout: 15000 });
-    await adminPage.locator('[data-testid="admin-shelters-tab"]').click();
+    // AdminPanel tab navigation is hash-driven (`#shelters` per AdminPanel.tsx
+    // line 65 `tabKeyFromHash`), not a click on a data-testid'd tab button.
+    // Direct-navigate to the shelters tab so the spec doesn't depend on
+    // top-bar UI that isn't testid-instrumented.
+    await adminPage.goto('/admin#shelters');
 
     // Edit the first shelter row.
     const editLink = adminPage.locator('[data-testid^="edit-shelter-"]').first();
