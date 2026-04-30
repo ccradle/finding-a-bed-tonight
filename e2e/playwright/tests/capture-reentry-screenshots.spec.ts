@@ -87,7 +87,7 @@ async function loginAndInject(
 
 test.describe('Reentry screenshot capture', () => {
 
-  test('reentry-01 — advanced search filters with REENTRY_TRANSITIONAL active', async ({ page }) => {
+  test('reentry-01 — advanced search filters with TRANSITIONAL + REENTRY_TRANSITIONAL active', async ({ page }) => {
     await loginAndInject(page, NAVIGATOR_USER);
     await page.goto('/outreach');
     // Wait for outreach to hydrate and the population-type filter to render
@@ -99,25 +99,26 @@ test.describe('Reentry screenshot capture', () => {
     const advancedFilters = page.locator('[data-testid="reentry-advanced-filters"]');
     await advancedFilters.waitFor({ state: 'visible', timeout: 15000 });
 
-    // Activate the REENTRY_TRANSITIONAL chip so the screenshot shows a real filter
-    // selection, not the empty unfiltered state.
+    // Activate BOTH transitional chips so the navigator's filter set
+    // returns three results across three counties (Greenville/Pitt
+    // TRANSITIONAL + Onslow/Onslow REENTRY_TRANSITIONAL + V96-seeded
+    // Beaufort/Beaufort REENTRY_TRANSITIONAL). The page narrative
+    // describes the filter as "transitional or reentry-transitional
+    // designation" — both chips active is the literal screenshot.
+    const transitionalChip = page.locator('[data-testid="shelter-type-filter-TRANSITIONAL"]');
+    if (await transitionalChip.count() > 0) {
+      await transitionalChip.click();
+      await page.waitForTimeout(200);
+    }
     const reentryChip = page.locator('[data-testid="shelter-type-filter-REENTRY_TRANSITIONAL"]');
     if (await reentryChip.count() > 0) {
       await reentryChip.click();
       await page.waitForTimeout(300);
     }
 
-    // Set the county filter to Onslow so the screenshot's filter state aligns
-    // with the page's reentry-01 alt text and the V95 seed's Onslow Womens
-    // Reentry shelter.
-    const countySelect = page.locator('[data-testid="county-filter"]');
-    if (await countySelect.count() > 0) {
-      await countySelect.selectOption({ label: 'Onslow' }).catch(async () => {
-        // Fall back to any non-empty option if the seed county labels differ.
-        await countySelect.selectOption({ index: 1 });
-      });
-      await page.waitForTimeout(300);
-    }
+    // No county filter — the three results span Pitt + Onslow + Beaufort,
+    // and the page narrative describes the navigator searching across
+    // the CoC's coverage area, not narrowed to a single county.
 
     await page.waitForTimeout(800);
     await page.screenshot({
@@ -126,21 +127,29 @@ test.describe('Reentry screenshot capture', () => {
     });
   });
 
-  test('reentry-02 — filtered results list', async ({ page }) => {
+  test('reentry-02 — filtered results list (3 shelters)', async ({ page }) => {
     await loginAndInject(page, NAVIGATOR_USER);
     await page.goto('/outreach');
     await page.locator('[data-testid="population-type-filter"]').waitFor({ state: 'visible', timeout: 15000 });
 
-    // Filter to REENTRY_TRANSITIONAL so the results list is the navigator's
-    // narrowed view (not the unfiltered 25-shelter dump).
+    // Activate BOTH transitional chips — V95 + V96 seed yields three
+    // matches: Greenville Family Transitional + Onslow Womens Reentry +
+    // Beaufort Reentry Annex. Two have beds available without verification
+    // (Greenville + Beaufort); the third (Onslow) has the
+    // requires_verification_call=true flag.
+    const transitionalChip = page.locator('[data-testid="shelter-type-filter-TRANSITIONAL"]');
+    if (await transitionalChip.count() > 0) {
+      await transitionalChip.click();
+      await page.waitForTimeout(200);
+    }
     const reentryChip = page.locator('[data-testid="shelter-type-filter-REENTRY_TRANSITIONAL"]');
     if (await reentryChip.count() > 0) {
       await reentryChip.click();
       await page.waitForTimeout(500);
     }
 
-    // Scroll the first reentry shelter into view so the screenshot is centered
-    // on the relevant inventory rather than empty filter state.
+    // Scroll the first result into view so the screenshot is centered on
+    // the result list, not empty filter state above.
     const firstResult = page.locator('[data-testid^="shelter-card-"]').first();
     if (await firstResult.count() > 0) {
       await firstResult.scrollIntoViewIfNeeded();
