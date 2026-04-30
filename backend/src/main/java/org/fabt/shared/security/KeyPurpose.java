@@ -23,7 +23,18 @@ public enum KeyPurpose {
     TOTP(KeyDerivationService::deriveTotpKey),
     WEBHOOK_SECRET(KeyDerivationService::deriveWebhookSecretKey),
     OAUTH2_CLIENT_SECRET(KeyDerivationService::deriveOauth2ClientSecretKey),
-    HMIS_API_KEY(KeyDerivationService::deriveHmisApiKey);
+    HMIS_API_KEY(KeyDerivationService::deriveHmisApiKey),
+    // RESERVATION_PII (transitional-reentry-support task 2.3a, V93):
+    // random-DEK only — encrypted via SecretEncryptionService.encryptForTenant
+    // which routes through TenantDekService.getOrCreateActiveDek, NOT through
+    // the deprecated HKDF-derive path. Resolver throws because deriveKey() on
+    // this constant is a "should never reach here" code path; if it fires,
+    // a v0.42-deprecated callsite is still using the legacy backward-compat
+    // shim with a purpose that was never registered for HKDF.
+    RESERVATION_PII((service, tenantId) -> {
+        throw new UnsupportedOperationException(
+            "RESERVATION_PII uses random-DEK via TenantDekService; HKDF derive path is not supported");
+    });
 
     private final java.util.function.BiFunction<KeyDerivationService, UUID, SecretKey> resolver;
 

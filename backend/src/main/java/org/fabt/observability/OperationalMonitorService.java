@@ -119,7 +119,7 @@ public class OperationalMonitorService {
     public void checkDvCanary() {
         List<UUID> tenantIds = tenantIds();
         BoundedFanOut.forEachTenant(tenantIds, false, MAX_CONCURRENT_TENANT_CHECKS, tenantId -> {
-            BedSearchRequest request = new BedSearchRequest(null, null, null, 100);
+            BedSearchRequest request = new BedSearchRequest(null, null, null, 100, null, null, null);
             BedSearchResponse response = bedSearchService.search(request);
 
             // Check if any DV shelters leaked into results

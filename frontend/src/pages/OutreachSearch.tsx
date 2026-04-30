@@ -10,6 +10,10 @@ import { getPopulationTypeLabel } from '../utils/populationTypeLabels';
 import { SSE_REFERRAL_UPDATE, SSE_AVAILABILITY_UPDATE } from '../hooks/useNotifications';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { useAuth } from '../auth/useAuth';
+import { useActiveCounties } from '../hooks/useActiveCounties';
+import { EligibilityCriteriaDisplay } from '../components/EligibilityCriteriaDisplay';
+import { parseEligibilityCriteria } from '../types/eligibilityCriteria';
+import { HoldDialog, type HoldAttribution } from '../components/HoldDialog';
 
 const POPULATION_TYPES = [
   { value: '', labelId: 'search.allTypes' },
@@ -21,6 +25,21 @@ const POPULATION_TYPES = [
   { value: 'YOUTH_UNDER_18', labelId: 'search.youthUnder18' },
   { value: 'DV_SURVIVOR', labelId: 'search.dvSurvivor' },
 ];
+
+// transitional-reentry-support slice 4 §8 — shelter taxonomy values.
+// Order intentional: high-frequency types first (EMERGENCY, TRANSITIONAL),
+// reentry-specific later, DV last (gated on dvAccess at render time
+// per warroom H1 — non-dvAccess users never see the DV chip).
+const SHELTER_TYPES = [
+  'EMERGENCY',
+  'TRANSITIONAL',
+  'REENTRY_TRANSITIONAL',
+  'PERMANENT_SUPPORTIVE',
+  'RAPID_REHOUSING',
+  'SUBSTANCE_USE_TREATMENT',
+  'MENTAL_HEALTH_TREATMENT',
+  'DV',
+] as const;
 
 interface PopulationAvailability {
   populationType: string;
@@ -54,6 +73,11 @@ interface BedSearchResult {
   constraints: ConstraintsSummary;
   surgeActive: boolean;
   dvShelter: boolean;
+  // transitional-reentry-support slice 4 §8.1, §9.2 (prereq §5.2 backend).
+  // Nullable on the wire — not every shelter has these set yet.
+  shelterType: string | null;
+  county: string | null;
+  requiresVerificationCall: boolean;
 }
 
 interface ReferralToken {
@@ -109,6 +133,10 @@ interface ShelterConstraints {
   curfewTime: string | null;
   maxStayDays: number | null;
   populationTypesServed: string[];
+  // Slice 4 §10.7 — eligibility_criteria as raw JSON string from
+  // ShelterConstraintsDto. Parsed via parseEligibilityCriteria into
+  // structured form when rendered by EligibilityCriteriaDisplay.
+  eligibilityCriteria?: string | null;
 }
 
 interface ShelterCapacity {
@@ -170,13 +198,20 @@ interface ReservationResponse {
 export function OutreachSearch() {
   const intl = useIntl();
   const { isOnline } = useOnlineStatus();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
+  const { counties, loading: countiesLoading } = useActiveCounties();
   const [results, setResults] = useState<BedSearchResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [populationType, setPopulationType] = useState('');
   const [petsAllowed, setPetsAllowed] = useState(false);
   const [wheelchairAccessible, setWheelchairAccessible] = useState(false);
+  // Slice 4 §8.3 + §9.3 + §17.M1 — advanced filters (collapsed in
+  // <details> per warroom M1; chip group for shelter types per H2;
+  // DV chip gated on dvAccess at render time per H1).
+  const [shelterTypes, setShelterTypes] = useState<string[]>([]);
+  const [county, setCounty] = useState('');
+  const [acceptsFelonies, setAcceptsFelonies] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [selectedShelter, setSelectedShelter] = useState<ShelterDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -185,6 +220,14 @@ export function OutreachSearch() {
   const [holdingShelterId, setHoldingShelterId] = useState<string | null>(null);
   const [holdPopType, setHoldPopType] = useState<string | null>(null);
   const [showReservations, setShowReservations] = useState(false);
+  // Slice 4 §11 — hold-creation dialog state. Replaces the prior
+  // instant-POST flow on chip-button click. Click → open dialog →
+  // Confirm submits with optional attribution. Operators placing
+  // routine no-attribution holds can hit Enter to confirm
+  // immediately (warroom H2 — Confirm is auto-focused).
+  const [holdDialog, setHoldDialog] = useState<{
+    shelterId: string; shelterName: string; populationType: string;
+  } | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const detailModalRef = useRef<HTMLDivElement>(null);
   const referralModalRef = useRef<HTMLDivElement>(null);
@@ -219,6 +262,12 @@ export function OutreachSearch() {
       if (petsAllowed) constraints.petsAllowed = true;
       if (wheelchairAccessible) constraints.wheelchairAccessible = true;
       if (Object.keys(constraints).length > 0) body.constraints = constraints;
+      // Slice 4 §8.3 + §9.3 + §17.M1 — only send advanced filter fields
+      // when the operator has opted in. The backend accepts null/missing
+      // identically; sending nothing keeps tcpdump-clean traffic.
+      if (shelterTypes.length > 0) body.shelterTypes = shelterTypes;
+      if (county) body.county = county;
+      if (acceptsFelonies) body.acceptsFelonies = true;
 
       const data = await api.post<BedSearchResponse>('/api/v1/queries/beds', body);
       setResults(data?.results || []);
@@ -227,7 +276,7 @@ export function OutreachSearch() {
     } finally {
       setLoading(false);
     }
-  }, [populationType, petsAllowed, wheelchairAccessible, intl]);
+  }, [populationType, petsAllowed, wheelchairAccessible, shelterTypes, county, acceptsFelonies, intl]);
 
   useEffect(() => { fetchBeds(); }, [fetchBeds]);
 
@@ -410,15 +459,30 @@ export function OutreachSearch() {
     if (referralModal) referralModalRef.current?.focus();
   }, [referralModal]);
 
-  const holdBed = async (shelterId: string, popType: string) => {
+  // Slice 4 §11 refactor — was: instant POST on chip-button click.
+  // Now: chip-button opens HoldDialog; Confirm calls submitHold with
+  // the optional attribution. The offline path replays the same body
+  // shape verbatim (warroom M1) — adding the optional fields is
+  // transparent to enqueueAction.
+  const openHoldDialog = (shelterId: string, popType: string, shelterName: string) => {
+    setHoldDialog({ shelterId, shelterName, populationType: popType });
+  };
+
+  const submitHold = async (attribution: HoldAttribution): Promise<void> => {
+    if (!holdDialog) return;
+    const { shelterId, populationType: popType } = holdDialog;
     setHoldingShelterId(shelterId);
     setHoldPopType(popType);
+    // Body assembled with attribution mixed in — null/undefined fields
+    // elided so the wire shape stays identical to pre-§11 calls when
+    // no attribution is entered.
+    const body: Record<string, unknown> = { shelterId, populationType: popType };
+    if (attribution.heldForClientName) body.heldForClientName = attribution.heldForClientName;
+    if (attribution.heldForClientDob) body.heldForClientDob = attribution.heldForClientDob;
+    if (attribution.holdNotes) body.holdNotes = attribution.holdNotes;
     try {
       if (!navigator.onLine) {
-        const key = await enqueueAction('HOLD_BED', '/api/v1/reservations', 'POST', {
-          shelterId,
-          populationType: popType,
-        });
+        const key = await enqueueAction('HOLD_BED', '/api/v1/reservations', 'POST', body);
         setQueuedHolds(prev => [...prev, {
           shelterId,
           populationType: popType,
@@ -427,23 +491,28 @@ export function OutreachSearch() {
           status: 'QUEUED',
         }]);
         setShowReservations(true);
+        setHoldDialog(null);
         return;
       }
-      await api.post('/api/v1/reservations', {
-        shelterId,
-        populationType: popType,
-      });
+      await api.post('/api/v1/reservations', body);
       await fetchReservations();
       await fetchBeds();
       setShowReservations(true);
-    } catch {
-      // Online but request failed (navigator.onLine lied, or network is flaky).
-      // Enqueue as fallback rather than showing error — replay will handle it.
+      setHoldDialog(null);
+    } catch (err) {
+      // Online but request failed. If it's a 4xx (validation) re-throw
+      // so the dialog can surface the server detail (warroom H3 —
+      // server-side 1900 floor lands here). For network-flaky 5xx /
+      // ApiError without status, fall back to offline-queue replay.
+      const apiErr = err as { status?: number; context?: { detail?: string }; message?: string };
+      if (apiErr.status && apiErr.status >= 400 && apiErr.status < 500) {
+        // Bean Validation / service-layer rejection — let the dialog
+        // render the detail. Don't enqueue a request that will fail
+        // identically on replay.
+        throw err;
+      }
       try {
-        const key = await enqueueAction('HOLD_BED', '/api/v1/reservations', 'POST', {
-          shelterId,
-          populationType: popType,
-        });
+        const key = await enqueueAction('HOLD_BED', '/api/v1/reservations', 'POST', body);
         setQueuedHolds(prev => [...prev, {
           shelterId,
           populationType: popType,
@@ -452,9 +521,11 @@ export function OutreachSearch() {
           status: 'QUEUED',
         }]);
         setShowReservations(true);
+        setHoldDialog(null);
       } catch {
         // IndexedDB also failed — show error as last resort
         setError(intl.formatMessage({ id: 'search.holdFailed' }));
+        setHoldDialog(null);
       }
     } finally {
       setHoldingShelterId(null);
@@ -604,12 +675,166 @@ export function OutreachSearch() {
         <ToggleChip active={wheelchairAccessible} onClick={() => setWheelchairAccessible(!wheelchairAccessible)} label={`♿ ${intl.formatMessage({ id: 'search.wheelchair' })}`} />
       </div>
 
+      {/* Advanced filters — slice 4 §8.3 + §9.3 + §17.M1 + warroom H1/H2/H3/H4.
+          <details> per warroom M1 (keyboard + screen-reader native).
+          Open by default per warroom M4 — desktop sees filters; mobile users
+          can collapse with one tap.
+          DV chip in shelterType is gated on user.dvAccess per warroom H1 — a
+          non-dvAccess user filtering by DV would get an empty result via RLS,
+          which is confusing UX. Hide the option entirely.
+          acceptsFelonies + empty-state banner per warroom H3+H4 fold the
+          spec-gap filter and §17.M1 carryover into one commit. */}
+      <details
+        data-testid="advanced-filters"
+        open
+        style={{ marginBottom: 16, border: `1px solid ${color.border}`, borderRadius: 10 }}
+      >
+        <summary
+          data-testid="advanced-filters-toggle"
+          style={{
+            padding: '10px 14px', cursor: 'pointer', fontSize: text.base,
+            fontWeight: weight.semibold, color: color.text,
+            // Native triangle marker is replaced by a visible caret below
+            // — no marker styling needed; <details> handles open/closed
+            // arrow on most browsers.
+          }}
+        >
+          <FormattedMessage id="search.advancedFilters" />
+          {(() => {
+            const activeCount =
+              (shelterTypes.length > 0 ? 1 : 0) +
+              (county ? 1 : 0) +
+              (acceptsFelonies ? 1 : 0);
+            return activeCount > 0 ? (
+              <span
+                data-testid="advanced-filters-active-count"
+                style={{
+                  marginLeft: 8, padding: '2px 8px', borderRadius: 6,
+                  backgroundColor: color.primaryLight, color: color.primaryText,
+                  fontSize: text.xs, fontWeight: weight.bold,
+                }}
+              >
+                <FormattedMessage
+                  id="search.advancedFiltersActiveCount"
+                  values={{ count: activeCount }}
+                />
+              </span>
+            ) : null;
+          })()}
+        </summary>
+        <div data-testid="advanced-filters-content" style={{ padding: '8px 14px 14px' }}>
+          {/* Shelter-type chip group — §8.3 + warroom H2 (chip group not native multi-select). */}
+          <div
+            data-testid="shelter-type-filter"
+            role="group"
+            aria-label={intl.formatMessage({ id: 'search.filterByShelterType' })}
+            style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}
+          >
+            {SHELTER_TYPES
+              .filter((st) => st !== 'DV' || user?.dvAccess === true)
+              .map((st) => {
+                const active = shelterTypes.includes(st);
+                return (
+                  <button
+                    key={st}
+                    type="button"
+                    data-testid={`shelter-type-filter-${st}`}
+                    aria-pressed={active}
+                    onClick={() => {
+                      setShelterTypes((prev) =>
+                        prev.includes(st)
+                          ? prev.filter((x) => x !== st)
+                          : [...prev, st]);
+                    }}
+                    style={{
+                      padding: '6px 12px', borderRadius: 16,
+                      border: `1.5px solid ${active ? color.primary : color.border}`,
+                      backgroundColor: active ? color.primary : color.bg,
+                      color: active ? color.textInverse : color.text,
+                      fontSize: text.sm, fontWeight: weight.medium, cursor: 'pointer',
+                      minHeight: 32,
+                    }}
+                  >
+                    {intl.formatMessage({ id: `shelter.type.${st}` })}
+                  </button>
+                );
+              })}
+          </div>
+
+          {/* County dropdown — §9.3 + warroom S2 (loading state). */}
+          <div style={{ marginBottom: 12 }}>
+            <label
+              htmlFor="county-filter"
+              style={{
+                display: 'block', fontSize: text.sm, fontWeight: weight.semibold,
+                color: color.textTertiary, marginBottom: 4,
+              }}
+            >
+              <FormattedMessage id="search.filterByCounty" />
+            </label>
+            <select
+              id="county-filter"
+              data-testid="county-filter"
+              value={county}
+              onChange={(e) => setCounty(e.target.value)}
+              disabled={countiesLoading || counties.length === 0}
+              style={{
+                padding: '8px 12px', borderRadius: 8, border: `1.5px solid ${color.border}`,
+                fontSize: text.base, minHeight: 40, minWidth: 200,
+                backgroundColor: county ? color.bgHighlight : color.bg,
+                color: county ? color.primary : color.text,
+              }}
+            >
+              <option value="">
+                {countiesLoading
+                  ? intl.formatMessage({ id: 'search.countiesLoading' })
+                  : intl.formatMessage({ id: 'search.anyCounty' })}
+              </option>
+              {counties.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Accepts-felonies toggle — slice 4 spec-gap close per warroom H3. */}
+          <div>
+            <ToggleChip
+              data-testid="accepts-felonies-filter"
+              active={acceptsFelonies}
+              onClick={() => setAcceptsFelonies(!acceptsFelonies)}
+              label={intl.formatMessage({ id: 'search.acceptsFelonies' })}
+            />
+          </div>
+        </div>
+      </details>
+
       {/* Count */}
       <div style={{ fontSize: text.sm, color: color.textTertiary, marginBottom: 10, fontWeight: weight.semibold, letterSpacing: '0.02em' }}>
         {loading
           ? <FormattedMessage id="search.loading" />
           : <FormattedMessage id="search.resultCount" values={{ count: filtered.length }} />}
       </div>
+
+      {/* Empty-state hint when acceptsFelonies filter yields zero — slice
+          2 warroom §17.M1 + slice 4 §8/§9 warroom H4. The filter excludes
+          shelters with null eligibility data unless they have the
+          requires_verification_call sentinel set; without this banner an
+          operator misreads "no shelters accept" instead of "we have no
+          data on most shelters." Casey re-review pending on the string
+          (i18n-legal-review-strings.md). */}
+      {!loading && acceptsFelonies && filtered.length === 0 && (
+        <div
+          data-testid="accepts-felonies-empty-banner"
+          role="note"
+          style={{
+            backgroundColor: color.warningBg, color: color.warning,
+            border: `1px solid ${color.warning}`, borderRadius: 6,
+            padding: '12px 16px', fontSize: text.sm, marginBottom: 12,
+          }}
+        >
+          <FormattedMessage id="search.acceptsFeloniesEmptyHint" />
+        </div>
+      )}
 
       {error && (
         <div style={{
@@ -798,6 +1023,61 @@ export function OutreachSearch() {
             <div style={{ fontSize: text.base, color: r.dvShelter ? color.dvText : color.textTertiary, fontStyle: r.dvShelter ? 'italic' : 'normal', marginBottom: 6 }}>
               {r.dvShelter ? intl.formatMessage({ id: 'search.dvAddressHidden' }) : r.address}
             </div>
+            {/* Slice 4 §8.1 + §9.2 — shelter-type badge + county on the
+                summary card. shelterType is always rendered when present
+                (taxonomy classification, no DV-leak risk). county is
+                shown alongside the type. */}
+            {(r.shelterType || r.county) && (
+              <div
+                style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 6 }}
+              >
+                {r.shelterType ? (
+                  <span
+                    data-testid={`shelter-type-display-${r.shelterId}`}
+                    style={{
+                      padding: '2px 8px', borderRadius: 6,
+                      backgroundColor: color.bgSecondary, color: color.text,
+                      fontSize: text.xs, fontWeight: weight.semibold,
+                      border: `1px solid ${color.border}`,
+                    }}
+                  >
+                    {intl.formatMessage({ id: `shelter.type.${r.shelterType}` })}
+                  </span>
+                ) : null}
+                {r.county ? (
+                  <span
+                    data-testid={`county-display-${r.shelterId}`}
+                    style={{
+                      padding: '2px 8px', borderRadius: 6,
+                      backgroundColor: color.bgSecondary, color: color.textTertiary,
+                      fontSize: text.xs, fontWeight: weight.medium,
+                    }}
+                  >
+                    📍 {r.county}
+                  </span>
+                ) : null}
+                {/* Slice 4 §10.6 — "Requires verification call" badge.
+                    Renders only when sentinel is true. The H1 three-way
+                    evaluator branch (c) uses this same flag to decide
+                    whether a null-eligibility shelter shows up under an
+                    acceptsFelonies=true filter; the badge on the card
+                    tells the navigator "this is an unknown-policy
+                    shelter — call before referring." */}
+                {r.requiresVerificationCall ? (
+                  <span
+                    data-testid={`requires-verification-call-badge-${r.shelterId}`}
+                    style={{
+                      padding: '2px 8px', borderRadius: 6,
+                      backgroundColor: color.warningBg, color: color.warning,
+                      fontSize: text.xs, fontWeight: weight.semibold,
+                      border: `1px solid ${color.warning}`,
+                    }}
+                  >
+                    📞 {intl.formatMessage({ id: 'shelter.requiresVerificationCall' })}
+                  </span>
+                ) : null}
+              </div>
+            )}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 {r.phone && <span style={{ fontSize: text.base, color: color.primaryText, fontWeight: weight.semibold }}>📞 {r.phone}</span>}
@@ -830,7 +1110,7 @@ export function OutreachSearch() {
                     {effectiveAvail > 0 && !r.dvShelter && (
                       <button
                         data-testid={`hold-bed-${r.shelterId}-${a.populationType}`}
-                        onClick={(e) => { e.stopPropagation(); holdBed(r.shelterId, a.populationType); }}
+                        onClick={(e) => { e.stopPropagation(); openHoldDialog(r.shelterId, a.populationType, r.shelterName); }}
                         disabled={holdingShelterId === r.shelterId && holdPopType === a.populationType}
                         style={{
                           padding: '6px 12px', borderRadius: 6, border: 'none',
@@ -960,6 +1240,11 @@ export function OutreachSearch() {
                   constraints: { petsAllowed: false, wheelchairAccessible: false, sobrietyRequired: false, idRequired: false, referralRequired: false },
                   surgeActive: false,
                   dvShelter: false,
+                  // Slice 4 §8/§9 prereq additions — mapsUrl ignores
+                  // these but the BedSearchResult shape requires them.
+                  shelterType: null,
+                  county: null,
+                  requiresVerificationCall: false,
                 })} target="_blank" rel="noopener noreferrer" style={{
                   flex: 1, padding: 14, backgroundColor: color.primary, color: color.textInverse, borderRadius: 12,
                   textAlign: 'center', textDecoration: 'none', fontSize: text.md, fontWeight: weight.bold, minHeight: 50,
@@ -1055,12 +1340,43 @@ export function OutreachSearch() {
               </Section>
             )}
 
+            {/* Slice 4 §10.7 — eligibility criteria display in expanded
+                shelter modal. The component renders <CriminalRecordPolicyDisclaimer>
+                first per the §7 CI guard's co-rendering rule
+                (criminal_record_policy is referenced inside the
+                EligibilityCriteriaDisplay component, which renders the
+                disclaimer in its own DOM — guard sees the disclaimer
+                inside this file because the JSX <EligibilityCriteriaDisplay
+                /> is here. See §10.5 + the CI fixture analysis. */}
+            {selectedShelter.constraints && (
+              <Section title={intl.formatMessage({ id: 'shelter.eligibility.section' })}>
+                <EligibilityCriteriaDisplay
+                  value={parseEligibilityCriteria(selectedShelter.constraints.eligibilityCriteria)}
+                />
+              </Section>
+            )}
+
             <button onClick={() => setSelectedShelter(null)} style={{
               width: '100%', padding: 16, backgroundColor: color.borderLight, color: color.textTertiary,
               border: 'none', borderRadius: 12, fontSize: text.base, fontWeight: weight.semibold, cursor: 'pointer', minHeight: 50,
             }}><FormattedMessage id="search.close" /></button>
           </div>
         </div>
+      )}
+
+      {/* Slice 4 §11 — Hold creation dialog. Opened via openHoldDialog;
+          submitHold runs on Confirm. The dialog itself handles its
+          own validation; submitHold throws on backend 400 so the
+          dialog can render server-side detail (warroom H3). */}
+      {holdDialog && (
+        <HoldDialog
+          isOpen
+          shelterName={holdDialog.shelterName}
+          populationType={holdDialog.populationType}
+          populationTypeLabel={getPopulationTypeLabel(holdDialog.populationType, intl)}
+          onSubmit={submitHold}
+          onCancel={() => setHoldDialog(null)}
+        />
       )}
 
       {/* DV Referral Request Modal */}
@@ -1308,14 +1624,26 @@ export function OutreachSearch() {
   );
 }
 
-function ToggleChip({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
+function ToggleChip({
+  active, onClick, label, 'data-testid': dataTestid,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  'data-testid'?: string;
+}) {
   return (
-    <button onClick={onClick} style={{
-      padding: '10px 14px', borderRadius: 10, border: `2px solid ${active ? color.primary : color.border}`,
-      backgroundColor: active ? color.bgHighlight : color.bg, color: active ? color.primary : color.textTertiary,
-      cursor: 'pointer', fontSize: text.base, fontWeight: active ? weight.semibold : weight.medium, minHeight: 44,
-      display: 'flex', alignItems: 'center', gap: 4, transition: 'all 0.12s',
-    }}>{label}</button>
+    <button
+      onClick={onClick}
+      data-testid={dataTestid}
+      aria-pressed={active}
+      style={{
+        padding: '10px 14px', borderRadius: 10, border: `2px solid ${active ? color.primary : color.border}`,
+        backgroundColor: active ? color.bgHighlight : color.bg, color: active ? color.primary : color.textTertiary,
+        cursor: 'pointer', fontSize: text.base, fontWeight: active ? weight.semibold : weight.medium, minHeight: 44,
+        display: 'flex', alignItems: 'center', gap: 4, transition: 'all 0.12s',
+      }}
+    >{label}</button>
   );
 }
 

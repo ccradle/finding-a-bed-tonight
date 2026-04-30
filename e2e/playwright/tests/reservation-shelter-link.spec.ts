@@ -20,13 +20,20 @@ test.describe('Reservation Shelter Link (#64)', () => {
     await outreachPage.goto('/');
     await outreachPage.waitForTimeout(3000);
 
-    // Hold a bed
+    // Hold a bed — slice-4 §11 added a confirmation dialog between the
+    // chip click and the POST. Click the chip to open the dialog, then
+    // click Confirm (no attribution) to submit.
     const holdButton = outreachPage.locator('[data-testid^="hold-bed-"]').first();
     if (await holdButton.count() === 0 || !(await holdButton.isVisible())) {
       return null;
     }
     await holdButton.click();
-    await outreachPage.waitForTimeout(2000);
+
+    const dialog = outreachPage.locator('[data-testid="hold-dialog"]');
+    await expect(dialog).toBeVisible({ timeout: 5000 });
+    await outreachPage.locator('[data-testid="hold-dialog-confirm-button"]').click();
+    await expect(dialog).not.toBeVisible({ timeout: 10000 });
+    await outreachPage.waitForTimeout(1000);
 
     // Ensure reservations panel is expanded.
     // The hold handler sets showReservations=true, so the panel may already be open.
@@ -57,8 +64,13 @@ test.describe('Reservation Shelter Link (#64)', () => {
       return;
     }
 
+    // Slice-4 §11 — chip click opens HoldDialog; Confirm submits the POST.
     await holdButton.click();
-    await outreachPage.waitForTimeout(2000);
+    const dialog = outreachPage.locator('[data-testid="hold-dialog"]');
+    await expect(dialog).toBeVisible({ timeout: 5000 });
+    await outreachPage.locator('[data-testid="hold-dialog-confirm-button"]').click();
+    await expect(dialog).not.toBeVisible({ timeout: 10000 });
+    await outreachPage.waitForTimeout(1000);
 
     // Ensure reservations panel is expanded.
     // The hold handler sets showReservations=true, so the panel may already be open.
@@ -149,10 +161,22 @@ test.describe('Reservation Shelter Link (#64)', () => {
       return;
     }
 
+    // Slice-4 §11 — each chip click opens the HoldDialog; Confirm submits.
+    // Walk the dialog once per hold so both POSTs fire.
+    const dialog = outreachPage.locator('[data-testid="hold-dialog"]');
+    const confirmButton = outreachPage.locator('[data-testid="hold-dialog-confirm-button"]');
+
     await holdButtons.nth(0).click();
-    await outreachPage.waitForTimeout(2000);
+    await expect(dialog).toBeVisible({ timeout: 5000 });
+    await confirmButton.click();
+    await expect(dialog).not.toBeVisible({ timeout: 10000 });
+    await outreachPage.waitForTimeout(1000);
+
     await holdButtons.nth(1).click();
-    await outreachPage.waitForTimeout(2000);
+    await expect(dialog).toBeVisible({ timeout: 5000 });
+    await confirmButton.click();
+    await expect(dialog).not.toBeVisible({ timeout: 10000 });
+    await outreachPage.waitForTimeout(1000);
 
     // Ensure reservations panel is expanded (hold handler may have already opened it)
     const panelToggle = outreachPage.locator('button', { hasText: /My Reservations/i });

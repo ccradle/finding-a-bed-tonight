@@ -3,6 +3,7 @@ package org.fabt.shelter.domain;
 import java.time.LocalTime;
 import java.util.UUID;
 
+import org.fabt.shared.config.JsonString;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.annotation.Transient;
 import org.springframework.data.domain.Persistable;
@@ -30,6 +31,19 @@ public class ShelterConstraints implements Persistable<UUID> {
     private LocalTime curfewTime;
     private Integer maxStayDays;
     private String[] populationTypesServed;
+    /**
+     * Structured eligibility criteria JSONB (transitional-reentry-support task 3.4,
+     * V92 column). Wrapped as {@link JsonString} per the codebase JSONB
+     * convention (see {@code JdbcConfig} converters); service layer
+     * deserializes to {@link EligibilityCriteria} via {@code ObjectMapper}
+     * when typed access is needed.
+     *
+     * <p>Nullable. Most rows launch with null. The
+     * {@link Shelter#requiresVerificationCall} sentinel covers the gap by
+     * surfacing a "call to verify" badge in search results when null
+     * eligibility means "we don't have the data."
+     */
+    private JsonString eligibilityCriteria;
 
     public ShelterConstraints() {
     }
@@ -104,6 +118,14 @@ public class ShelterConstraints implements Persistable<UUID> {
 
     public void setPopulationTypesServed(String[] populationTypesServed) {
         this.populationTypesServed = populationTypesServed;
+    }
+
+    public JsonString getEligibilityCriteria() {
+        return eligibilityCriteria;
+    }
+
+    public void setEligibilityCriteria(JsonString eligibilityCriteria) {
+        this.eligibilityCriteria = eligibilityCriteria;
     }
 
     @Override

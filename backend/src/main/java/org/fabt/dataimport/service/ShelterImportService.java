@@ -353,7 +353,15 @@ public class ShelterImportService {
                 row.longitude(),
                 row.dvShelter() != null && row.dvShelter(),
                 constraints,
-                capacities
+                capacities,
+                // transitional-reentry-support: 211 imports don't carry these
+                // top-level fields. COC_ADMIN populates them post-import via
+                // the shelter edit form. (eligibilityCriteria nests in
+                // constraints — also null for imports.)
+                null,  // county
+                null,  // requiresVerificationCall (defaults to false in entity)
+                null   // shelterType — null falls through to ShelterService
+                       // default (DV when dvShelter=true, EMERGENCY otherwise)
         );
     }
 
@@ -372,7 +380,11 @@ public class ShelterImportService {
                 row.longitude(),
                 null, // dvShelter — imports don't set DV flag
                 constraints,
-                capacities
+                capacities,
+                // transitional-reentry-support — imports don't touch these.
+                null,  // county
+                null,  // requiresVerificationCall
+                null   // shelterType — null = leave existing value (PATCH semantics)
         );
     }
 
@@ -400,7 +412,8 @@ public class ShelterImportService {
                 row.wheelchairAccessible() != null && row.wheelchairAccessible(),
                 row.curfewTime(),
                 row.maxStayDays(),
-                row.populationTypesServed()
+                row.populationTypesServed(),
+                null  // eligibilityCriteria — 211 imports don't carry this field
         );
     }
 

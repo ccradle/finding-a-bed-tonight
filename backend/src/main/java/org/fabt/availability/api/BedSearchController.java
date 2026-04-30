@@ -1,9 +1,13 @@
 package org.fabt.availability.api;
 
+import java.util.Arrays;
+import java.util.stream.Collectors;
+
 import io.swagger.v3.oas.annotations.Operation;
 import org.fabt.availability.domain.BedSearchRequest;
 import org.fabt.availability.service.BedSearchService;
 import org.fabt.availability.service.BedSearchService.BedSearchResponse;
+import org.fabt.shelter.domain.ShelterType;
 import org.fabt.surge.service.SurgeEventService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -46,10 +50,34 @@ public class BedSearchController {
     @PostMapping("/beds")
     public ResponseEntity<BedSearchResponse> searchBeds(@RequestBody(required = false) BedSearchRequest request) {
         if (request == null) {
-            request = new BedSearchRequest(null, null, null, null);
+            request = new BedSearchRequest(null, null, null, null, null, null, null);
         }
+        // Validate shelterTypes against the ShelterType enum at the controller
+        // boundary (slice 2D verify W2). Unknown values previously matched
+        // nothing and silently returned an empty result — confusing UX. The
+        // shelter-type-taxonomy "Invalid shelter type value returns 400"
+        // spec scenario expects a 400 with a list of valid values; we surface
+        // it as IllegalArgumentException → GlobalExceptionHandler 400.
+        validateShelterTypes(request.shelterTypes());
+
         boolean surgeActive = surgeEventService.getActive().isPresent();
         BedSearchResponse response = bedSearchService.search(request, surgeActive);
         return ResponseEntity.ok(response);
+    }
+
+    private static void validateShelterTypes(java.util.List<String> shelterTypes) {
+        if (shelterTypes == null || shelterTypes.isEmpty()) return;
+        for (String s : shelterTypes) {
+            if (s == null || s.isBlank()) continue;
+            try {
+                ShelterType.valueOf(s);
+            } catch (IllegalArgumentException e) {
+                String valid = Arrays.stream(ShelterType.values())
+                        .map(Enum::name)
+                        .collect(Collectors.joining(", "));
+                throw new IllegalArgumentException(
+                        "Invalid shelterType '" + s + "'; valid values: " + valid);
+            }
+        }
     }
 }

@@ -652,11 +652,11 @@ class AnalyticsIntegrationTest extends BaseIntegrationTest {
     // --- Helper ---
 
     private void createTestShelter(String name, boolean dvShelter) {
-        UUID shelterId = UUID.randomUUID();
-        jdbcTemplate.update(
-                "INSERT INTO shelter (id, tenant_id, name, address_street, address_city, address_state, address_zip, dv_shelter, latitude, longitude) "
-                        + "VALUES (?, ?, ?, '100 Main St', 'Raleigh', 'NC', '27601', ?, 35.78, -78.64)",
-                shelterId, tenantId, name, dvShelter);
+        // Use shared fixture so V91 dv_shelter ↔ shelter_type lockstep is enforced centrally.
+        UUID shelterId = org.fabt.shelter.fixtures.TestShelterFixture.insertShelterWithAddress(
+            jdbcTemplate, tenantId, name, dvShelter,
+            "100 Main St", "Raleigh", "NC", "27601",
+            35.78, -78.64);
         jdbcTemplate.update(
                 "INSERT INTO shelter_constraints (shelter_id, population_types_served) VALUES (?, ARRAY['SINGLE_ADULT']::text[])",
                 shelterId);

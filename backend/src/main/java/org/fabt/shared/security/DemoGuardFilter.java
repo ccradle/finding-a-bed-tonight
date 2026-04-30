@@ -214,6 +214,17 @@ public class DemoGuardFilter extends OncePerRequestFilter {
         if (path.startsWith("/api/v1/shelters")) return "Shelter modification is disabled in the demo environment.";
         if (path.startsWith("/api/v1/auth/password")) return "Password changes are disabled in the demo environment.";
         if (path.startsWith("/api/v1/surge")) return "Surge management is disabled in the demo environment.";
+        // transitional-reentry-support task 4.5a (slice 2C): hold-duration
+        // endpoint sits under /api/v1/admin/tenants/*/hold-duration. NOT
+        // added to ALLOWED_MUTATIONS by design (changing reservation flow
+        // config affects every visitor's UX). Friendly per-path message
+        // distinguishes this from tenant-management blocks (the next
+        // generic /api/v1/tenants branch); without this dedicated branch
+        // the operator hits a misleading "Tenant management is disabled"
+        // message even though this is reservation config, not lifecycle.
+        if (path.matches("/api/v1/admin/tenants/[^/]+/hold-duration")) {
+            return "Hold duration changes are disabled in the demo environment — would affect other visitors' reservation flow.";
+        }
         if (path.startsWith("/api/v1/tenants")) return "Tenant management is disabled in the demo environment.";
         if (path.startsWith("/api/v1/import")) return "Data import is disabled in the demo environment.";
         if (path.startsWith("/api/v1/batch")) return "Batch job management is disabled in the demo environment.";

@@ -171,13 +171,25 @@ Table shelter {
   deactivated_at  timestamptz [note: 'V53 — timestamp of deactivation. NULL when active. Cleared on reactivation.']
   deactivated_by  uuid        [ref: > app_user.id, note: 'V53 — admin who deactivated. NULL when active.']
   deactivation_reason varchar(50) [note: 'V53 — TEMPORARY_CLOSURE, SEASONAL_END, PERMANENT_CLOSURE, CODE_VIOLATION, FUNDING_LOSS, OTHER. NULL when active.']
+  shelter_type    varchar(50) [not null, default: 'EMERGENCY', note: 'V91 (transitional-reentry-support D2) — controlled vocabulary classification. Values: EMERGENCY, DV, TRANSITIONAL, SUBSTANCE_USE_TREATMENT, MENTAL_HEALTH_TREATMENT, REENTRY_TRANSITIONAL, PERMANENT_SUPPORTIVE, RAPID_REHOUSING. Coupled to dv_shelter via the shelter_dv_implies_dv_type CHECK constraint: dv_shelter=true requires shelter_type=DV. ShelterService keeps the two fields in lockstep.']
+  county          varchar(100) [note: 'V91 (transitional-reentry-support D3) — supervision-geography boundary for reentry-navigator filter. Validated app-layer against tenant.config.active_counties (default NC 100-county list). NOT a DB-level enum (deployments outside NC override at tenant config). Nullable; sentinel field requires_verification_call covers the gap.']
+  requires_verification_call boolean [not null, default: false, note: 'V94 (transitional-reentry-support D1 H1) — sentinel flag: shelter requires direct call before eligibility can be assumed. Drives the search-results "call to verify" badge AND BedSearchService H1 three-way acceptsFelonies filter — branch (c) INCLUDES shelters with null eligibility_criteria ONLY when this flag is true.']
   created_at      timestamptz [not null, default: `now()`]
   updated_at      timestamptz [not null, default: `now()`]
 
   indexes {
     (tenant_id, dv_shelter) [name: 'idx_shelter_tenant_dv']
     (tenant_id, name) [name: 'idx_shelter_tenant_name']
+    (tenant_id, county) [name: 'idx_shelter_tenant_county', note: 'V91 partial index — reentry-navigator county filter']
   }
+
+  Note: '''
+    V91 CHECK constraint shelter_dv_implies_dv_type: enforces
+    dv_shelter=false OR shelter_type=DV. Without this, the dv_shelter
+    boolean (load-bearing for RLS via V68) and the shelter_type taxonomy
+    could drift. ShelterService (slice 2D H2) flips both atomically on
+    every write so the constraint is never tripped through service paths.
+  '''
 }
 
 // ---------------------------------------------------------------------------
@@ -194,6 +206,7 @@ Table shelter_constraints {
   curfew_time             time        [note: 'Nullable — no curfew if null']
   max_stay_days           integer     [note: 'Nullable — no limit if null']
   population_types_served "text[]"    [note: 'Array of PopulationType enum values']
+  eligibility_criteria    jsonb       [note: 'V92 (transitional-reentry-support D1) — extended eligibility schema. Sub-objects: criminal_record_policy {accepts_felonies, excluded_offense_types[], individualized_assessment, vawa_protections_apply, notes}, program_requirements[], documentation_required[], intake_hours, custom_tags[]. All keys nullable. Most shelters launch with NULL; requires_verification_call sentinel covers the gap. GIN index idx_shelter_constraints_eligibility (V92, partial WHERE NOT NULL) for containment queries — note: jsonb_ops only speeds @>/?/?|/?& operators, NOT -> or ->> extraction.']
 }
 
 // ---------------------------------------------------------------------------
@@ -381,6 +394,9 @@ Table reservation {
   created_at      timestamptz [not null, default: `now()`]
   notes           varchar(500) [note: 'Free-text note from outreach worker']
   idempotency_key varchar(36)  [note: 'UUID for offline queue replay dedup — nullable, requests without key behave as before (V30)']
+  held_for_client_name_encrypted text [note: 'V93 (transitional-reentry-support D4) — third-party hold attribution: ciphertext (v1 envelope, base64) of the client name the navigator entered for shelter check-in coordination. Encrypted via SecretEncryptionService.encryptForTenant(KeyPurpose.RESERVATION_PII). Two-layer PII posture: (a) at-rest via tenant_dek crypto-shred, (b) Spring Batch nulls this column 24h after resolution. Nullable.']
+  held_for_client_dob_encrypted  text [note: 'V93 — ISO-8601 DOB ciphertext (same encryption posture as held_for_client_name_encrypted). Service-layer validates DOB > 1900-01-01 BEFORE encryption (plaintext-layer concern). Nullable.']
+  hold_notes_encrypted           text [note: 'V93 — operator-supplied hold notes ciphertext. Server max 1000 chars / UI max 500 chars (asymmetric per design D4 + open question #1 resolution). Nullable.']
 
   indexes {
     (tenant_id, user_id, status) [name: 'idx_reservation_user_status']

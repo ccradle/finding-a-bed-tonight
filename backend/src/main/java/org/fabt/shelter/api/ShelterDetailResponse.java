@@ -39,7 +39,8 @@ public record ShelterDetailResponse(
                     c.isWheelchairAccessible(),
                     c.getCurfewTime() != null ? c.getCurfewTime().toString() : null,
                     c.getMaxStayDays(),
-                    c.getPopulationTypesServed()
+                    c.getPopulationTypesServed(),
+                    c.getEligibilityCriteria()
             );
         }
 

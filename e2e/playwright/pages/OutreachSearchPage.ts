@@ -13,7 +13,11 @@ export class OutreachSearchPage {
     this.page = page;
     this.heading = page.locator('main h1');
     this.searchInput = page.locator('main input[type="search"]');
-    this.populationTypeSelect = page.locator('main select');
+    // Slice 4 §9 added a sibling <select id="county-filter"> in advanced
+    // filters; `main select` now matches 2 elements (strict-mode violation).
+    // Scope to the testid so adding more <select>s in future refactors
+    // doesn't break this locator again.
+    this.populationTypeSelect = page.getByTestId('population-type-filter');
     this.shelterCards = page.locator('div[style*="border"][style*="borderRadius"]').filter({ hasText: /.+/ });
     this.detailModal = page.locator('div[style*="position: fixed"]');
     this.closeModalButton = page.locator('button', { hasText: /close|cerrar/i });

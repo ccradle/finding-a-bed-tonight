@@ -29,11 +29,15 @@ import org.fabt.shelter.repository.ShelterConstraintsRepository;
 import org.fabt.shelter.service.ShelterService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Service
 public class BedSearchService {
 
     public record BedSearchResponse(List<BedSearchResult> results, int totalCount) {}
+
+    private static final Logger log = LoggerFactory.getLogger(BedSearchService.class);
 
     private final BedAvailabilityRepository availabilityRepository;
     private final ShelterService shelterService;
@@ -41,19 +45,22 @@ public class BedSearchService {
     private final TenantScopedCacheService cacheService;
     private final ObservabilityMetrics metrics;
     private final BedSearchLogger bedSearchLogger;
+    private final AcceptsFeloniesEvaluator acceptsFeloniesEvaluator;
 
     public BedSearchService(BedAvailabilityRepository availabilityRepository,
                             ShelterService shelterService,
                             ShelterConstraintsRepository constraintsRepository,
                             TenantScopedCacheService cacheService,
                             ObservabilityMetrics metrics,
-                            BedSearchLogger bedSearchLogger) {
+                            BedSearchLogger bedSearchLogger,
+                            AcceptsFeloniesEvaluator acceptsFeloniesEvaluator) {
         this.availabilityRepository = availabilityRepository;
         this.shelterService = shelterService;
         this.constraintsRepository = constraintsRepository;
         this.cacheService = cacheService;
         this.metrics = metrics;
         this.bedSearchLogger = bedSearchLogger;
+        this.acceptsFeloniesEvaluator = acceptsFeloniesEvaluator;
     }
 
     @Transactional(readOnly = true)
@@ -115,6 +122,34 @@ public class BedSearchService {
             }
             // Get constraints
             ShelterConstraints constraints = constraintsRepository.findById(shelter.getId()).orElse(null);
+
+            // transitional-reentry-support task 4.1 (slice 2B):
+            // shelterTypes filter (multi-value, exact enum-name match).
+            // Null/empty = no filter; otherwise shelter must match one entry.
+            if (request.shelterTypes() != null && !request.shelterTypes().isEmpty()) {
+                String typeName = shelter.getShelterType() != null
+                    ? shelter.getShelterType().name() : null;
+                if (typeName == null || !request.shelterTypes().contains(typeName)) continue;
+            }
+
+            // transitional-reentry-support task 4.1 (slice 2B):
+            // county filter (case-insensitive exact match). Null = no filter;
+            // otherwise shelter must match (null county is excluded — caller
+            // asked for a specific county and the shelter doesn't have one).
+            if (request.county() != null) {
+                if (shelter.getCounty() == null
+                    || !shelter.getCounty().equalsIgnoreCase(request.county())) continue;
+            }
+
+            // transitional-reentry-support task 4.2 (slice 2B / 2D refactor):
+            // three-way `acceptsFelonies` filter (design D1 H1 revision).
+            // Decision logic lives in AcceptsFeloniesEvaluator — see slice-2
+            // warroom 17.H2.
+            if (Boolean.TRUE.equals(request.acceptsFelonies())
+                    && acceptsFeloniesEvaluator.evaluate(constraints, shelter)
+                            == AcceptsFeloniesEvaluator.Decision.EXCLUDE) {
+                continue;
+            }
 
             // Apply constraint filters — match the caller's needs against shelter constraints.
             //
@@ -221,7 +256,10 @@ public class BedSearchService {
                     null, // distanceMiles — placeholder until geo-search change
                     constraintsSummary,
                     surgeActive,
-                    shelter.isDvShelter()
+                    shelter.isDvShelter(),
+                    shelter.getShelterType() != null ? shelter.getShelterType().name() : null,
+                    shelter.getCounty(),
+                    shelter.isRequiresVerificationCall()
             ));
         }
 

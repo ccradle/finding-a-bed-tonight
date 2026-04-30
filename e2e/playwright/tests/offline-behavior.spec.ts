@@ -156,8 +156,14 @@ test.describe('Offline Behavior', () => {
 
     await goOffline(outreachPage);
 
+    // Slice-4 §11 — chip click opens HoldDialog (same flow online/offline);
+    // Confirm enqueues via enqueueAction in OutreachSearch.tsx:484-495.
     const holdBtn = outreachPage.locator('[data-testid^="hold-bed-"]').first();
     await holdBtn.click();
+    const dialog = outreachPage.locator('[data-testid="hold-dialog"]');
+    await expect(dialog).toBeVisible({ timeout: 5000 });
+    await outreachPage.locator('[data-testid="hold-dialog-confirm-button"]').click();
+    await expect(dialog).not.toBeVisible({ timeout: 10000 });
     await outreachPage.waitForTimeout(1000);
 
     const queuedText = outreachPage.locator('text=/Hold queued/i');
@@ -259,8 +265,13 @@ test.describe('Offline Behavior', () => {
 
     await goOffline(outreachPage);
 
+    // Slice-4 §11 — chip click opens HoldDialog; Confirm enqueues the hold.
     const holdBtn = outreachPage.locator('[data-testid^="hold-bed-"]').first();
     await holdBtn.click();
+    const dialog = outreachPage.locator('[data-testid="hold-dialog"]');
+    await expect(dialog).toBeVisible({ timeout: 5000 });
+    await outreachPage.locator('[data-testid="hold-dialog-confirm-button"]').click();
+    await expect(dialog).not.toBeVisible({ timeout: 10000 });
     await outreachPage.waitForTimeout(2500);
 
     await expect(badge).toBeVisible({ timeout: 5000 });
@@ -330,9 +341,15 @@ test.describe('Offline Behavior', () => {
       }
     });
 
-    // Click hold while nominally online — should trigger try/catch fallback
+    // Click hold while nominally online — should trigger try/catch fallback.
+    // Slice-4 §11 — chip click opens HoldDialog; Confirm runs submitHold,
+    // which on aborted POST falls through to enqueueAction.
     const holdBtn = outreachPage.locator('[data-testid^="hold-bed-"]').first();
     await holdBtn.click();
+    const dialog = outreachPage.locator('[data-testid="hold-dialog"]');
+    await expect(dialog).toBeVisible({ timeout: 5000 });
+    await outreachPage.locator('[data-testid="hold-dialog-confirm-button"]').click();
+    await expect(dialog).not.toBeVisible({ timeout: 10000 });
     await outreachPage.waitForTimeout(2000);
 
     // Verify action was enqueued (fallback worked), not an error displayed

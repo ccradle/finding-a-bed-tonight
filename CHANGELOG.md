@@ -5,6 +5,102 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.55.0] — UNRELEASED — transitional-reentry-support (slice 4)
+
+Backend JAR `0.54.0 -> 0.55.0`. Flyway HWM advances `V90 -> V95`
+(five migrations: V91 shelter_type + county + requires_verification_call
++ CHECK constraint, V92 GIN index on `shelter_constraints.eligibility_criteria`,
+V93 reservation _encrypted columns + `tenant_dek.purpose` extension for
+`RESERVATION_PII`, V94 `features.reentryMode` config flag, V95 demo
+shelter seed expansion for dev-coc-east + dev-coc-west tenants — adds
+TRANSITIONAL/REENTRY_TRANSITIONAL/OVERFLOW shelters with realistic
+eligibility_criteria, county backfill on existing rows, active_counties
+in tenant config, and coordinator_assignment rows). No breaking API
+changes.
+
+### Added
+
+- **Shelter type taxonomy.** New `shelter_type` column on `shelter`
+  with values EMERGENCY (default), TRANSITIONAL, REENTRY_TRANSITIONAL,
+  DV, OVERFLOW. V91 backfills `shelter_type='DV'` for every existing
+  `dv_shelter=true` row and adds a `shelter_dv_implies_dv_type` CHECK
+  constraint so the two flags can never diverge.
+- **County metadata + tenant active_counties.** `shelter.county`
+  nullable column (no DB enum per design D3); `tenant.config.active_counties`
+  drives the COC_ADMIN-curated dropdown via the new
+  `GET /api/v1/active-counties` endpoint.
+- **Eligibility criteria.** `shelter_constraints.eligibility_criteria`
+  JSONB carries `criminal_record_policy` (with `accepts_felonies`
+  tri-state + `offense_types` blocklist), `vawa_protections_apply`
+  flag, `program_requirements` tag list, and `intake_hours`. New
+  `<EligibilityCriteriaSection>` (admin write) and
+  `<EligibilityCriteriaDisplay>` (outreach read) surface these fields
+  with empty-state placeholders. The `<CriminalRecordPolicyDisclaimer>`
+  must co-render alongside any criminal_record fields — enforced by a
+  CI guard at `scripts/ci/check-criminal-record-disclaimer-co-rendering.sh`.
+- **Search filters.** Outreach search advanced-filters `<details>`
+  exposes shelter-type chips, a county dropdown, and a tri-state
+  accepts-felonies toggle. Empty-state banner when filters return no
+  matches.
+- **Navigator hold dialog.** New modal at hold-creation time accepts
+  optional client attribution (name + DOB + notes) inside a collapsed
+  `<details>` section. Confirm auto-focused so a routine
+  no-attribution hold remains a single-keystroke flow. Privacy note
+  renders inside the open details (operator sees the privacy posture
+  at the moment they decide whether to enter PII). DOB validation:
+  HTML5 min/max + JS guard (1900-01-01 floor, future blocked) + 400
+  surface from the backend service-layer floor.
+- **Coordinator hold-list.** Per-hold rows on the coordinator dashboard
+  surface populationType + remaining-time countdown + the optional
+  `heldForClientName` (label + value rendered ONLY when name is present;
+  omitted entirely when null — never "N/A" or empty).
+- **Hold attribution PII purge.** Spring Batch job nulls the
+  `held_for_client_name`, `held_for_client_dob`, `hold_notes`
+  ciphertext columns 24h after a reservation expires, preserving the
+  rest of the row for analytics. Crypto-shred via the existing
+  `tenant_dek` family with the new `RESERVATION_PII` `KeyPurpose`.
+- **Bed Hold Duration admin panel** (always-visible at top of Admin
+  page, above the tab bar). Range 30-480 minutes; toast confirms
+  with the saved value; load-failed banner disables Save when the
+  GET fails so a default-value cannot overwrite the server value.
+  Wired to the dedicated `PATCH /api/v1/admin/tenants/{id}/hold-duration`
+  endpoint that emits a `TENANT_CONFIG_UPDATED` audit row and enforces
+  tenant-scoping (a COC_ADMIN of tenant A cannot modify tenant B's
+  config even with B's UUID).
+- **Read-side DTOs.** `ShelterResponse`, `BedSearchResult` carry
+  `shelterType`, `county`, `requiresVerificationCall`. Search-result
+  cards display these.
+
+### Fixed
+
+- **Latent G-4.4 SecurityConfig gap (TenantConfigController).**
+  Catch-all URL rule `/api/v1/tenants/**` short-circuited the
+  controller's `@PreAuthorize("hasRole('COC_ADMIN')")`; COC_ADMIN
+  reading their own tenant's config got 403. Added a more-specific
+  rule `/api/v1/tenants/*/config` -> COC_ADMIN before the catch-all.
+  Regression test in `TenantConfigEndpointTest` (5 cases) prevents
+  silent re-drift. Symptom was masked on prod by `DemoGuardFilter`
+  blocking hold-duration save anyway, so no separate hotfix.
+- **JsonString wire format on shelter create.** Backend
+  `ShelterConstraintsDto.eligibilityCriteria` is a `JsonString`
+  wrapper that Jackson can serialize via `@JsonValue` but cannot
+  deserialize from an object literal. Frontend now JSON.stringify's
+  on write to mirror the read-side wire format. Caught by §14
+  E2E setup which had to stringify in its API helper.
+
+### Tests
+
+- Backend: 1399/1399 GREEN (1394 baseline + 5 new
+  `TenantConfigEndpointTest`).
+- Playwright E2E: 11/11 GREEN against `BASE_URL=http://localhost:8081`
+  (`reentry-search-filters.spec.ts`, `reentry-eligibility-display.spec.ts`,
+  `reentry-hold-dialog.spec.ts`, `reentry-integrated-navigator.spec.ts`).
+  All tests create their own data via API per `feedback_isolated_test_data.md`.
+- CI guard: 71/71 file co-rendering check (criminal record disclaimer).
+- Frontend: `npm run build` clean.
+
+---
+
 ## [v0.54.0] — 2026-04-28 — Phase F F-11: platform-operator UI
 
 Backend JAR `0.53.0 → 0.54.0`. Flyway HWM advances `V89 → V90`.

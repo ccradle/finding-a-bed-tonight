@@ -22,6 +22,8 @@ Equivalent to TotpTestHelper
 the database guarantees it
 Frozen-at-creation guarantees
 contract guarantees Marcus Webb
+List.of() guarantees immutability
+constraint guarantees this
 
 # Changelog — describes user role, not platform certification
 DV-certified field workers

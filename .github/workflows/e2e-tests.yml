@@ -219,6 +219,17 @@ jobs:
 
       - name: Start frontend
         working-directory: frontend
+        # VITE_PLATFORM_UI_ENABLED gate: lazy imports in src/App.tsx:30-48
+        # resolve to null when this env var is unset, which causes
+        # /platform/* routes to fall through to NotFound. Without this
+        # flag the entire platform-* test family (~39 tests) fails on a
+        # missing `[data-testid="platform-login-submit"]` selector. This
+        # was discovered during slice 4 §14 CI triage as a v0.54.0-era
+        # CI infra bug — main has been silently failing the same tests
+        # since v0.54 because the workflow has continue-on-error set on
+        # the Playwright step (line 257).
+        env:
+          VITE_PLATFORM_UI_ENABLED: 'true'
         run: npm run dev > ../logs/frontend.log 2>&1 &
 
       - name: Wait for frontend readiness

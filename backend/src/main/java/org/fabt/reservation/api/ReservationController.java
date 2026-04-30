@@ -60,7 +60,8 @@ public class ReservationController {
             Authentication authentication) {
         UUID userId = UUID.fromString(authentication.getName());
         Reservation reservation = reservationService.createReservation(
-                request.shelterId(), request.populationType(), request.notes(), userId, idempotencyKey);
+                request.shelterId(), request.populationType(), request.notes(), userId, idempotencyKey,
+                request.heldForClientName(), request.heldForClientDob(), request.holdNotes());
         HttpStatus status = reservation.isIdempotentMatch() ? HttpStatus.OK : HttpStatus.CREATED;
         return ResponseEntity.status(status).body(ReservationResponse.from(reservation));
     }

@@ -21,7 +21,16 @@ public record ShelterResponse(
         UUID deactivatedBy,
         String deactivationReason,
         Instant createdAt,
-        Instant updatedAt
+        Instant updatedAt,
+        // transitional-reentry-support task 5.3 (slice 4 prereq, warroom C1
+        // promotion). The slice-2 entity additions need to round-trip through
+        // the GET surface so the admin edit form can pre-populate existing
+        // values. Without these fields a save would silently lose the
+        // shelterType/county/requiresVerificationCall the user previously
+        // entered.
+        String shelterType,
+        String county,
+        boolean requiresVerificationCall
 ) {
     public static ShelterResponse from(Shelter shelter) {
         return new ShelterResponse(
@@ -40,7 +49,10 @@ public record ShelterResponse(
                 shelter.getDeactivatedBy(),
                 shelter.getDeactivationReason(),
                 shelter.getCreatedAt(),
-                shelter.getUpdatedAt()
+                shelter.getUpdatedAt(),
+                shelter.getShelterType() != null ? shelter.getShelterType().name() : null,
+                shelter.getCounty(),
+                shelter.isRequiresVerificationCall()
         );
     }
 }

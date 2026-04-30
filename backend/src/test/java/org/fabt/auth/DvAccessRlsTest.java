@@ -7,6 +7,7 @@ import java.util.UUID;
 import org.fabt.BaseIntegrationTest;
 import org.fabt.TestAuthHelper;
 import org.fabt.shared.web.TenantContext;
+import org.fabt.shelter.fixtures.TestShelterFixture;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -44,17 +45,9 @@ class DvAccessRlsTest extends BaseIntegrationTest {
                     tenantId
             );
 
-            // Insert test shelters
-            jdbcTemplate.update(
-                    "INSERT INTO shelter (id, tenant_id, name, dv_shelter, created_at, updated_at) " +
-                            "VALUES (?, ?, 'Regular Shelter RLS', false, NOW(), NOW())",
-                    UUID.randomUUID(), tenantId
-            );
-            jdbcTemplate.update(
-                    "INSERT INTO shelter (id, tenant_id, name, dv_shelter, created_at, updated_at) " +
-                            "VALUES (?, ?, 'DV Shelter RLS', true, NOW(), NOW())",
-                    UUID.randomUUID(), tenantId
-            );
+            // Insert test shelters via shared fixture (handles V91 dv_shelter ↔ shelter_type lockstep).
+            TestShelterFixture.insertShelter(jdbcTemplate, tenantId, "Regular Shelter RLS", false);
+            TestShelterFixture.insertShelter(jdbcTemplate, tenantId, "DV Shelter RLS", true);
         });
 
         // fabt_app role (created in V16) is NOSUPERUSER — RLS enforces.
