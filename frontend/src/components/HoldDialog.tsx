@@ -171,6 +171,13 @@ export function HoldDialog({
     border: `1.5px solid ${color.border}`, fontSize: text.base, minHeight: 38,
     boxSizing: 'border-box', fontFamily: 'inherit',
   };
+  // v0.55 §11.3 — always-visible help text under each PII input.
+  // Screen readers announce on focus via aria-describedby on the input.
+  // Non-hover; renders unconditionally inside the (open-by-default) attribution details.
+  const helpTextStyle: React.CSSProperties = {
+    fontSize: text.xs, color: color.textTertiary,
+    margin: '4px 0 0', lineHeight: 1.45,
+  };
 
   return (
     <div
@@ -213,8 +220,15 @@ export function HoldDialog({
             tenant can't even compose PII to send. */}
         {user?.reentryMode && (
         <section data-testid="reentry-pii-fields">
+        {/* v0.55 §11 — open by default. Help text under each PII input
+            must render visible without requiring a disclosure click
+            (Round 4 DK-RR-4 — help text MUST NOT be hidden behind
+            disclosure). Operators can still collapse with one click for
+            no-attribution holds; Confirm is auto-focused so the easy
+            path is unchanged. */}
         <details
           data-testid="hold-attribution-toggle"
+          open
           style={{ marginBottom: 16, border: `1px solid ${color.border}`, borderRadius: 6 }}
         >
           <summary
@@ -256,7 +270,15 @@ export function HoldDialog({
                 onChange={(e) => setName(e.target.value)}
                 maxLength={100}
                 style={inputStyle}
+                aria-describedby="hold-client-name-help"
               />
+              <p
+                id="hold-client-name-help"
+                data-testid="hold-help-client-name"
+                style={helpTextStyle}
+              >
+                <FormattedMessage id="hold.help.clientName" />
+              </p>
             </div>
 
             <div style={fieldStyle}>
@@ -275,7 +297,15 @@ export function HoldDialog({
                 min={dobFloor}
                 max={today}
                 style={inputStyle}
+                aria-describedby="hold-client-dob-help"
               />
+              <p
+                id="hold-client-dob-help"
+                data-testid="hold-help-client-dob"
+                style={helpTextStyle}
+              >
+                <FormattedMessage id="hold.help.clientDob" />
+              </p>
             </div>
 
             <div style={fieldStyle}>
@@ -290,7 +320,15 @@ export function HoldDialog({
                 maxLength={500}
                 rows={3}
                 style={{ ...inputStyle, resize: 'vertical' }}
+                aria-describedby="hold-notes-help"
               />
+              <p
+                id="hold-notes-help"
+                data-testid="hold-help-notes"
+                style={helpTextStyle}
+              >
+                <FormattedMessage id="hold.help.notes" />
+              </p>
             </div>
           </div>
         </details>

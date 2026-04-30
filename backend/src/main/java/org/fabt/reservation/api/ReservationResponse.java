@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.UUID;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import org.fabt.reservation.domain.Reservation;
 import org.fabt.shared.web.TenantContext;
 
@@ -56,8 +57,11 @@ public record ReservationResponse(
         Instant confirmedAt,
         Instant cancelledAt,
         String notes,
+        @Schema(description = "Optional PII; encrypted at rest with per-tenant DEK (purpose RESERVATION_PII); purged no later than 25h after terminal status. Returned only when tenant.config.features.reentryMode=true (v0.55 §16.B serialization gate); null otherwise.")
         String heldForClientName,
+        @Schema(description = "Optional PII; encrypted at rest with per-tenant DEK (purpose RESERVATION_PII); purged no later than 25h after terminal status. Returned only when tenant.config.features.reentryMode=true (v0.55 §16.B serialization gate); null otherwise.")
         LocalDate heldForClientDob,
+        @Schema(description = "Optional PII; encrypted at rest with per-tenant DEK (purpose RESERVATION_PII); purged no later than 25h after terminal status. Returned only when tenant.config.features.reentryMode=true (v0.55 §16.B serialization gate); null otherwise.")
         String holdNotes
 ) {
     /**

@@ -720,7 +720,11 @@
   "hold.heldForClientDob": "Date of birth (for shelter to confirm arrival)",
   "hold.heldForClientDobSublabel": "Optional",
   "hold.notes": "Note for shelter coordinator",
-  "hold.clientAttributionPrivacyNote": "Client name, date of birth, and notes are stored encrypted. They are erased within 24 hours after this hold expires, is confirmed, or is cancelled. Use these fields only for shelter check-in coordination.",
+  "hold.clientAttributionPrivacyNote": "Client name, date of birth, and notes are stored encrypted. They are erased no later than 25 hours after this hold expires, is confirmed, or is cancelled. Use these fields only for shelter check-in coordination.",
+  "hold.help.clientName": "Optional. The shelter coordinator will see this so they know who to expect at intake. Erased automatically no later than 25 hours after the hold ends.",
+  "hold.help.clientDob": "Optional. Used only by the shelter to confirm the right person at check-in. Erased automatically no later than 25 hours after the hold ends.",
+  "hold.help.notes": "Optional. Free-text coordination note for the shelter — for example, a navigator phone number or arrival-window detail. Erased automatically no later than 25 hours after the hold ends. Avoid sensitive identifiers you wouldn't want surfaced to the coordinator.",
+  "shelter.eligibility.notes.help": "Free-text shown to outreach workers placing holds. Don't paste client-specific information here — this field describes the shelter's intake policy, not any individual.",
 
   "admin.holdDurationMinutes": "Hold duration (minutes)",
   "admin.eligibilityCriteria": "Eligibility criteria",
