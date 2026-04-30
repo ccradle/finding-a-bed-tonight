@@ -102,12 +102,7 @@ investigator MUST cross-reference:
   reaches `SYSTEM_TENANT_ID` fallback (D55). Rate-limited by
   `DuplicateMessageFilter`.
 
-**For right-to-be-forgotten (VAWA-FVPSA).** Under crypto-shred
-(Phase F hard-delete), a tenant's `tenant_key_material` is deleted;
-the tenant's existing audit rows remain but their encrypted-JSONB
-details fields become undecryptable, effectively redacted. The row
-itself is preserved for aggregate-query purposes (e.g., platform-wide
-deletion rate). This is documented in design `docs/legal/right-to-be-forgotten.md`.
+**For right-to-be-forgotten (VAWA-FVPSA, GDPR Art. 17, CCPA §1798.105, etc.).** Under crypto-shred (Phase F hard-delete), a tenant's `tenant_key_material` is deleted; the tenant's existing audit rows remain but their encrypted-JSONB details fields become undecryptable, effectively redacted. The row itself is preserved for aggregate-query purposes (e.g., platform-wide deletion rate). The full deployment-owner posture — automated retention vs ad-hoc deletion distinction, jurisdictional-scope deferrals, and a step-by-step deletion-request runbook with the SQL queries that enumerate a subject's data — is documented at `docs/legal/right-to-be-forgotten.md` (authored 2026-04-30 as part of `reentry-release-readiness`).
 
 ## `fabt.rls.tenant_context.empty.count` — noise-floor characterization
 
