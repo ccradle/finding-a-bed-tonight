@@ -12,6 +12,7 @@ import java.util.UUID;
 
 import org.fabt.BaseIntegrationTest;
 import org.fabt.TestAuthHelper;
+import org.fabt.referral.service.ReferralTokenPurgeService;
 import org.fabt.reservation.repository.ReservationRepository;
 import org.fabt.reservation.service.ReservationService;
 import org.fabt.shared.security.CrossTenantCiphertextException;
@@ -68,6 +69,7 @@ class HoldAttributionIntegrationTest extends BaseIntegrationTest {
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private ReservationRepository reservationRepository;
     @Autowired private ReservationService reservationService;
+    @Autowired private ReferralTokenPurgeService referralTokenPurgeService;
     @Autowired private SecretEncryptionService encryptionService;
 
     private UUID tenantId;
@@ -730,6 +732,58 @@ class HoldAttributionIntegrationTest extends BaseIntegrationTest {
                 .contains("batches")
                 .contains("cutoff")
                 .containsPattern("\"purgedCount\"\\s*:\\s*0");
+    }
+
+    @Test
+    @DisplayName("§12.5.5 @Scheduled purgeExpiredHoldAttribution() entry point nulls aged ciphertext (Riley R-RR-1)")
+    void scheduledEntryPoint_purgesAgedRow_endToEnd() {
+        // Riley's concern: the existing purge tests call
+        // reservationService.purgeExpiredHoldAttribution(cutoff) directly
+        // under WithTenantContext.readAs(...). The @Scheduled bean entry
+        // (no-arg) wraps that call in its OWN TenantContext.runWithContext
+        // — if that wrapper is broken (missing dvAccess, wrong tenantId
+        // binding, swallowed exception), the direct-call tests would still
+        // pass while the production scheduler quietly does nothing.
+        //
+        // This test exercises the FULL @Scheduled wrapper path: bind a
+        // tenant via WithTenantContext to seed data, then call the
+        // ReferralTokenPurgeService.purgeExpiredHoldAttribution() entry
+        // point with NO args from outside any test-supplied context. The
+        // wrapper must (a) compute its own cutoff (PURGE_AGE = 24h) and
+        // (b) bind its own TenantContext correctly so RLS lets the UPDATE
+        // see the row.
+        UUID reservationId = postHold("Scheduled Probe", "1990-01-01", "scheduled-bean-test");
+
+        // Age the row past the 24h floor so the wrapper's internal cutoff
+        // (Instant.now() - 24h) catches it.
+        Instant aged = Instant.now().minus(Duration.ofHours(25));
+        jdbcTemplate.update(
+                "UPDATE reservation SET expires_at = ?, status = 'EXPIRED' WHERE id = ?",
+                Timestamp.from(aged), reservationId);
+
+        // Sanity-check ciphertext is present before the scheduled entry runs.
+        Map<String, String> before = pickEncryptedColumns(reservationId);
+        assertThat(before.get("name_enc"))
+                .as("precondition — name ciphertext must exist before the scheduler runs")
+                .isNotNull();
+
+        // Call the @Scheduled entry point directly with NO args. This is
+        // what Spring's TaskScheduler invokes in production. NO outer
+        // WithTenantContext — the wrapper must do its own context binding.
+        referralTokenPurgeService.purgeExpiredHoldAttribution();
+
+        // Ciphertext columns are now NULL — the scheduled wrapper bound
+        // TenantContext correctly and the inner service ran the UPDATE.
+        Map<String, String> after = pickEncryptedColumns(reservationId);
+        assertThat(after.get("name_enc"))
+                .as("@Scheduled entry must null name ciphertext for an aged row")
+                .isNull();
+        assertThat(after.get("dob_enc"))
+                .as("@Scheduled entry must null DOB ciphertext for an aged row")
+                .isNull();
+        assertThat(after.get("notes_enc"))
+                .as("@Scheduled entry must null notes ciphertext for an aged row")
+                .isNull();
     }
 
     @Test

@@ -25,9 +25,10 @@ import org.fabt.shared.web.TenantContext;
  * surface (transitional-reentry-support task 5.5, slice 2D warroom H1
  * fix). They are returned plaintext after the
  * {@link org.fabt.reservation.repository.ReservationRepository} row mapper
- * decrypts the {@code _encrypted} columns. Per design D4 the 24h post-
- * resolution purge nulls the underlying ciphertext columns; reads of
- * resolved-and-aged reservations will therefore see these as null.</p>
+ * decrypts the {@code _encrypted} columns. Per design D10 the post-
+ * resolution purge nulls the underlying ciphertext columns no later than
+ * 25 hours after resolution; reads of resolved-and-aged reservations will
+ * therefore see these as null.</p>
  *
  * <p>DV-shelter holds: the values flow through the same response — DV
  * gating is on the shelter (RLS), not on whether attribution PII is
