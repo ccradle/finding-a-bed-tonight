@@ -566,8 +566,15 @@ public class ReservationService implements HeldReservationCleaner {
      *
      * <p>Idempotent: callers may invoke this with an empty list or a list
      * that contains no PII-bearing rows; the method returns silently in
-     * both cases. Designed to be called once per coordinator-facing read
-     * endpoint.
+     * both cases.
+     *
+     * <p><b>Caller contract:</b> this method is the sanctioned entry point
+     * for emitting {@code RESERVATION_PII_DECRYPTED_ON_READ}. Only
+     * controller-layer call sites that have just performed a tenant-scoped
+     * read of {@link Reservation} rows on behalf of an authenticated user
+     * SHOULD invoke it. Calls with fabricated rows would generate
+     * misleading audit entries; tests that need a synthetic emit SHOULD
+     * use {@link AuditEventType#TEST_PROBE} instead.
      */
     public void recordPiiReadIfPresent(UUID userId, UUID shelterId, List<Reservation> rows) {
         if (userId == null || shelterId == null || rows == null || rows.isEmpty()) {
@@ -588,10 +595,19 @@ public class ReservationService implements HeldReservationCleaner {
         Boolean existing = piiReadAuditThrottle.asMap().putIfAbsent(throttleKey, Boolean.TRUE);
         if (existing != null) return;
 
+        // v0.55 §13.A.3 (warroom Round 2 MEDIUM-A1): timestamp is the
+        // START of the throttle hour, not the moment of cache-miss. A
+        // read at 14:59:30 sets first_seen_at to 14:00:00 (the window
+        // it represents), not 14:59:30. Operators reading the audit
+        // trail know "this user touched this shelter's PII at some
+        // point in the 14:00 hour"; the exact moment is in the row's
+        // own timestamp column.
+        Instant windowStart = Instant.ofEpochSecond(epochHour * 3600L);
+
         Map<String, Object> details = new HashMap<>();
         details.put("shelter_id", shelterId.toString());
         details.put("throttle_key", throttleKey);
-        details.put("first_seen_at", Instant.now().toString());
+        details.put("first_seen_at", windowStart.toString());
         auditEventPublisher.publishEvent(new AuditEventRecord(
                 userId, null,
                 AuditEventType.RESERVATION_PII_DECRYPTED_ON_READ,

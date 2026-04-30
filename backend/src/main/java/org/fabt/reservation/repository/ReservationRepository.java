@@ -149,8 +149,19 @@ public class ReservationRepository {
      * tens of seconds; concurrent insert paths would queue. The bound
      * trades batch latency for tail-latency cap.
      *
+     * <p><b>Caller contract (warroom Round 2 MEDIUM-A2):</b> external
+     * callers MUST use the no-arg overload, which routes through {@link
+     * org.fabt.reservation.service.ReservationService#purgeExpiredHoldAttribution(java.time.Instant)}'s
+     * bounded loop + audit emission. This (cutoff, limit) overload is
+     * the per-batch primitive and ASSUMES {@code limit ≤ DEFAULT_PURGE_BATCH_LIMIT}.
+     * Calling with {@code limit=Integer.MAX_VALUE} would defeat §13.C.2's
+     * lock-hold bound. Visibility stays {@code public} because the service
+     * lives in a sibling package, but the contract is documented here:
+     * "use the no-arg overload from outside this class."
+     *
      * @param cutoff resolution / expiry timestamp before which rows are eligible
-     * @param limit  maximum row count this single statement will modify
+     * @param limit  maximum row count this single statement will modify;
+     *               SHOULD NOT exceed {@link #DEFAULT_PURGE_BATCH_LIMIT}
      * @return number of rows whose ciphertext was nulled in this batch
      */
     public int purgeExpiredHoldAttribution(java.time.Instant cutoff, int limit) {

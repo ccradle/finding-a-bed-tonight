@@ -211,24 +211,35 @@ export function HoldDialog({
           {shelterName} — {populationTypeLabel}
         </p>
 
-        {/* Optional attribution — collapsed by default per §11.3. The
-            <details> element is keyboard + screen-reader accessible
-            without custom code.
-            Round 5 §16.C.4 — entire attribution block is gated on
+        {/* Round 5 §16.C.4 — entire attribution block is gated on
             features.reentryMode. The §16.B API serialization gate is
             the primary control; this hides the input UI so a non-reentry
             tenant can't even compose PII to send. */}
         {user?.reentryMode && (
         <section data-testid="reentry-pii-fields">
-        {/* v0.55 §11 — open by default. Help text under each PII input
-            must render visible without requiring a disclosure click
-            (Round 4 DK-RR-4 — help text MUST NOT be hidden behind
-            disclosure). Operators can still collapse with one click for
-            no-attribution holds; Confirm is auto-focused so the easy
-            path is unchanged. */}
+          {/* v0.55 §11 Round-2 (Devon DK-RR-A12 + Tomás DK-RR-4): privacy
+              note renders OUTSIDE the disclosure — always visible above
+              the (collapsed-by-default) attribution toggle. Operators
+              encounter the privacy posture at the moment they decide
+              whether to expand. The per-input help text below each PII
+              input lives INSIDE the disclosure (it is contextually tied
+              to the input it describes, and aria-describedby announces
+              it to screen-readers when focus enters the input — focus
+              cannot enter while the disclosure is collapsed, so the
+              help text being inside the disclosure is correct). */}
+          <p
+            data-testid="hold-attribution-privacy-note"
+            style={{
+              margin: '0 0 12px', padding: '10px 12px', borderRadius: 6,
+              backgroundColor: color.warningBg, color: color.warning,
+              fontSize: text.xs, lineHeight: 1.5,
+              border: `1px solid ${color.warning}`,
+            }}
+          >
+            <FormattedMessage id="hold.clientAttributionPrivacyNote" />
+          </p>
         <details
           data-testid="hold-attribution-toggle"
-          open
           style={{ marginBottom: 16, border: `1px solid ${color.border}`, borderRadius: 6 }}
         >
           <summary
@@ -240,20 +251,6 @@ export function HoldDialog({
             <FormattedMessage id="hold.dialog.addClientDetails" />
           </summary>
           <div style={{ padding: '4px 14px 14px' }}>
-            {/* Casey-reviewed privacy note — INSIDE the open <details>
-                per warroom M5. Operators see the privacy posture at
-                the moment they decide whether to enter PII. */}
-            <p
-              data-testid="hold-attribution-privacy-note"
-              style={{
-                margin: '0 0 12px', padding: '10px 12px', borderRadius: 6,
-                backgroundColor: color.warningBg, color: color.warning,
-                fontSize: text.xs, lineHeight: 1.5,
-                border: `1px solid ${color.warning}`,
-              }}
-            >
-              <FormattedMessage id="hold.clientAttributionPrivacyNote" />
-            </p>
 
             <div style={fieldStyle}>
               <label htmlFor="hold-client-name-input" style={labelStyle}>
