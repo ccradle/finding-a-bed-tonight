@@ -450,6 +450,78 @@ docker exec finding-a-bed-tonight-postgres-1 psql -U fabt -d fabt -tAc \
 # Expected: both rows show 'true' (V95 seeds the flag on east+west).
 ```
 
+### §6.5 PII purge verification
+
+The hold-attribution PII columns added in V93 (`held_for_client_name_encrypted`, `held_for_client_dob_encrypted`, `hold_notes_encrypted` on `reservation`) are erased no later than 25 hours after a reservation reaches a terminal status. Implementation: `ReservationService.purgeExpiredHoldAttribution(Instant)` invoked by `ReferralTokenPurgeService.purgeExpiredHoldAttribution()` on a `@Scheduled(fixedDelay=900_000)` (15 minutes — worst-case PII lifetime is 24h+15m). Verify post-deploy:
+
+**1) Confirm the `@Scheduled` purge bean is registered in the running backend.** If actuator scheduledtasks endpoint is exposed:
+
+```bash
+curl -fsS http://localhost:9091/actuator/scheduledtasks 2>&1 \
+  | python3 -m json.tool \
+  | grep -A2 -E "purgeExpiredHoldAttribution|purgeTerminalTokens"
+# Expected: two scheduled tasks visible — purgeTerminalTokens (DV referral
+# tokens, 1h fixedRate) and purgeExpiredHoldAttribution (hold-attribution
+# PII, 15m fixedDelay). If missing, the @Scheduled bean did not register —
+# stop and investigate before tagging.
+```
+
+If actuator scheduledtasks is not exposed, log-parse fallback (preferred for v0.55):
+
+```bash
+docker logs fabt-backend --since 30m 2>&1 | grep "purgeExpiredHoldAttribution"
+# Expected: at least one log line within the last 30 minutes
+# (15m schedule + ~15m grace). Format:
+#   purgeExpiredHoldAttribution: purged=N
+# where N is the count of rows whose ciphertext columns were nulled this run.
+# A line every ~15 minutes confirms the schedule fires.
+```
+
+**2) Confirm a sample row honored the 25-hour SLA.** Pick a reservation that resolved >25 hours ago and verify its ciphertext columns are NULL:
+
+```bash
+docker exec finding-a-bed-tonight-postgres-1 psql -U fabt -d fabt -c "
+SELECT id, status,
+       held_for_client_name_encrypted IS NULL AS name_purged,
+       held_for_client_dob_encrypted IS NULL AS dob_purged,
+       hold_notes_encrypted IS NULL AS notes_purged,
+       updated_at
+FROM reservation
+WHERE status IN ('CANCELLED','CONFIRMED','EXPIRED','CANCELLED_SHELTER_DEACTIVATED')
+  AND updated_at < NOW() - INTERVAL '25 hours'
+  AND (held_for_client_name_encrypted IS NOT NULL
+       OR held_for_client_dob_encrypted IS NOT NULL
+       OR hold_notes_encrypted IS NOT NULL)
+LIMIT 5;"
+# Expected: ZERO rows (i.e. NO terminal-status reservations older than 25h
+# with un-nulled ciphertext). Any row returned is a 25h SLA violation —
+# stop the deploy, capture the row IDs, surface in chat.
+```
+
+**3) Confirm the purge audit-event lifecycle.** v0.55 emits audit events for hold-attribution PII writes, decrypt-on-read (throttled), and purges:
+
+```bash
+docker exec finding-a-bed-tonight-postgres-1 psql -U fabt -d fabt -tAc "
+SELECT event_type, count(*)
+FROM audit_events
+WHERE event_type IN (
+    'RESERVATION_HELD_FOR_CLIENT_RECORDED',
+    'RESERVATION_PII_DECRYPTED_ON_READ',
+    'RESERVATION_PII_PURGED'
+)
+  AND timestamp > NOW() - INTERVAL '24 hours'
+GROUP BY event_type;"
+# Expected: at least one RESERVATION_PII_PURGED row (the scheduled job has
+# emitted at least one event in the last 24 hours, even if its purgedCount
+# was 0). If demo activity has used the navigator hold dialog, also expect
+# RESERVATION_HELD_FOR_CLIENT_RECORDED rows. Throttle on the read-side
+# emitter is one row per (coordinator, shelter, hour) tuple.
+```
+
+**Honest disclosure (v0.55):** The Prometheus metric proving the purge SLA at scale (`fabt.reservation.pii_purge.success.count` + `fabt.reservation.pii_purge.lag_seconds` histogram + failure alert) is **NOT YET WIRED** in v0.55. Tracked for v0.56, target Q2-2026. Until then, rely on the log-parse fallback (step 1) and the audit-event count (step 3) as the operator-side signal. See `docs/security/compliance-posture-matrix.md` "Hold-attribution PII (v0.55+)" section for the full disclosure.
+
+**Stale ciphertext after DEK rotation:** if a tenant's `tenant_dek` row for the `RESERVATION_PII` purpose is rotated or hard-deleted, prior ciphertext becomes unrecoverable (this IS the at-rest crypto-shred posture by design). The purge job continues to function — it nulls the columns regardless of decryptability. There is no operator action required for crypto-shredded ciphertext beyond confirming the row was purged on its normal SLA.
+
 ### Prometheus rules unchanged but loaded
 
 ```bash
