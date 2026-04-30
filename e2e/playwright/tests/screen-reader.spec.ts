@@ -72,8 +72,15 @@ test.describe('Virtual Screen Reader Tests', () => {
     await virtual.start({ container: main as unknown as HTMLElement });
 
     // Navigate through all elements
+    // Slice 4 §8/§9 added shelter-type chips + county dropdown +
+    // accepts-felonies toggle to the advanced-filters section, which
+    // pushes the freshness badges past index 50 in the tab order.
+    // Bumped to 100 to keep the test forward-compatible if more filters
+    // land. If this still fails, scope `getPageDOM` to the results
+    // region (the badges live on the shelter cards, not in the filter
+    // bar).
     const phrases: string[] = [];
-    for (let i = 0; i < 50; i++) {
+    for (let i = 0; i < 100; i++) {
       await virtual.next();
       const log = await virtual.lastSpokenPhrase();
       if (log) phrases.push(log);
