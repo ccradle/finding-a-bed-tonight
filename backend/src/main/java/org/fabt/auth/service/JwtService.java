@@ -537,6 +537,10 @@ public class JwtService {
 
         boolean dvAccess = payload.containsKey("dvAccess")
                 && Boolean.TRUE.equals(payload.get("dvAccess"));
+        // Round 5 §16.B — features.reentryMode JWT claim. Same fail-safe-default
+        // semantics as dvAccess: missing key, null, non-boolean → false.
+        boolean reentryMode = payload.containsKey("reentryMode")
+                && Boolean.TRUE.equals(payload.get("reentryMode"));
 
         Instant issuedAt = payload.containsKey("iat")
                 ? Instant.ofEpochSecond(((Number) payload.get("iat")).longValue())
@@ -553,7 +557,7 @@ public class JwtService {
         boolean mustChangePassword = payload.containsKey("mustChangePassword")
                 && Boolean.TRUE.equals(payload.get("mustChangePassword"));
         JwtClaims claims = new JwtClaims(userId, tenantId, roles, dvAccess, type,
-                issuedAt, tokenVersion, remainingNanos, jti, mustChangePassword);
+                issuedAt, tokenVersion, remainingNanos, jti, mustChangePassword, reentryMode);
 
         if (ttlSeconds > 0) {
             claimsCache.put(cacheKey, claims);
@@ -673,6 +677,6 @@ public class JwtService {
 
     public record JwtClaims(UUID userId, UUID tenantId, String[] roles, boolean dvAccess, String type,
                             Instant issuedAt, int tokenVersion, long remainingNanos, String jti,
-                            boolean mustChangePassword) {
+                            boolean mustChangePassword, boolean reentryMode) {
     }
 }

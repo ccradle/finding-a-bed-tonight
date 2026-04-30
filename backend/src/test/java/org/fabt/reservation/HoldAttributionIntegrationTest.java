@@ -77,6 +77,12 @@ class HoldAttributionIntegrationTest extends BaseIntegrationTest {
     void setUp() {
         String slug = "hold-attr-" + UUID.randomUUID().toString().substring(0, 8);
         tenantId = authHelper.setupTestTenant(slug).getId();
+        // Round 5 §16.B: opt this tenant into reentryMode BEFORE minting any
+        // JWTs so the issued claim emits true and the API serialization gate
+        // surfaces hold-attribution PII fields. The default-off gate is the
+        // production-correct behavior; this test exists to verify the PII
+        // round-trip invariant when reentry is enabled.
+        authHelper.enableReentryMode(tenantId);
         authHelper.setupCocAdminUser();
         authHelper.setupCoordinatorUser();
         authHelper.setupOutreachWorkerUser();

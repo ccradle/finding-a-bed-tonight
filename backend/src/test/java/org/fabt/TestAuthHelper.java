@@ -1,6 +1,7 @@
 package org.fabt;
 
 import java.time.Instant;
+import java.util.Map;
 import java.util.UUID;
 
 import org.fabt.auth.domain.User;
@@ -176,6 +177,31 @@ public class TestAuthHelper {
         Tenant tenant = setupSecondaryTenant(slug);
         kidRegistryService.findOrCreateActiveKid(tenant.getId());
         return tenant;
+    }
+
+    /**
+     * Round 5 §16.B test-support: enable {@code features.reentryMode} on the
+     * given tenant. Tests that assert the API surfaces hold-attribution PII
+     * fields ({@code heldForClientName}, {@code heldForClientDob},
+     * {@code holdNotes}) MUST call this before minting JWTs — the v0.55
+     * serialization gate strips those fields when the JWT claim is false,
+     * which is the safe default for tenants without an explicit opt-in.
+     *
+     * <p>Call order matters: the flag is read at JWT-issuance time, so this
+     * must run before {@code cocAdminAuthHeaders()} / similar token-mint
+     * helpers. The 60s {@code JwtService.reentryModeCache} also keys on
+     * tenantId, so each {@code setupTestTenant} (random slug per test) is
+     * isolated from cross-test stale-cache pollution.
+     */
+    @SuppressWarnings("unchecked")
+    public Tenant enableReentryMode(UUID tenantId) {
+        Map<String, Object> config = new java.util.HashMap<>(tenantService.getConfig(tenantId));
+        Map<String, Object> features = config.get("features") instanceof Map<?, ?> existing
+                ? new java.util.HashMap<>((Map<String, Object>) existing)
+                : new java.util.HashMap<>();
+        features.put("reentryMode", true);
+        config.put("features", features);
+        return tenantService.updateConfig(tenantId, config);
     }
 
     /**
