@@ -252,6 +252,10 @@ Hold-attribution ciphertext SHALL be erased **no later than 25 hours** after a r
 
 Hold-attribution PII is **NEVER** published to HMIS, AsyncAPI, OAuth2 webhooks, or any external system by design. The only consumer is the authenticated REST detail-view endpoint (`GET /api/v1/reservations/{id}/detail`, per design D12) which decrypts under audit. List-view endpoints return PII fields as `null` regardless of underlying ciphertext.
 
+### Tenant opt-in gate (v0.55 §16.B)
+
+The three hold-attribution PII fields (`heldForClientName`, `heldForClientDob`, `holdNotes`) are only surfaced via the API for tenants that have **affirmatively opted in** by setting `tenant.config.features.reentryMode = true`. Default tenant configuration does NOT surface these fields. The gate is a serialization-time control in `ReservationResponse.from()`: it nulls the three fields in every response unless the request scope's `TenantContext.getReentryMode()` (sourced from the JWT `reentryMode` claim) is `true`. Even if a frontend regression rendered the fields, the API would not return their values. Combined with the four §16.C frontend conditional renders, this is defense-in-depth for tenant data segmentation: a CoC that has not opted in to reentry will neither display nor receive these PII fields, regardless of whether their tenant has any reservations carrying ciphertext.
+
 ### Purge SLA — operational signal (v0.55 honest gap)
 
 The 25-hour purge claim is the contract. The operational signal that proves the claim is **not yet wired in v0.55**:

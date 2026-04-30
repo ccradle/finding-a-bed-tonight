@@ -39,11 +39,40 @@ The flag is a boolean stored at JSONB path
 `tenant.config.features.reentryMode`. It defaults to `false` for
 every tenant existing at the v0.55 deploy (V91 seed); new tenants
 created after v0.55 inherit the same default unless the create call
-overrides. The flag gates **frontend visibility** of the reentry
-surface — backend search and hold endpoints behave identically
-regardless of the flag value (design D13). That asymmetry is
-deliberate: it lets a CoC pilot the surface in a staging tenant
-without forking backend behavior.
+overrides.
+
+**What flipping the flag does (post-§16 implementation, supersedes
+the original D13 description):**
+
+- Surfaces the outreach search advanced filters (county dropdown,
+  shelter-type chips, accepts-felonies toggle).
+- Surfaces the admin shelter-edit eligibility-criteria editor and
+  the `requires_verification_call` toggle.
+- Surfaces the optional client-attribution section in the hold
+  creation dialog (the three PII fields:
+  `heldForClientName`, `heldForClientDob`, `holdNotes`).
+- Surfaces the per-hold client-name display on the coordinator
+  dashboard.
+- Causes the API (`ReservationResponse`) to return the three
+  hold-attribution PII fields populated with plaintext values for
+  this tenant's reservations. When the flag is false, those fields
+  serialize as `null` regardless of underlying ciphertext — the
+  v0.55 API serialization gate (`reentry-release-readiness` §16.B)
+  is the primary control; the frontend gates above are
+  defense-in-depth UX polish.
+
+**Token-TTL caveat:** the flag is read at JWT-issuance time and
+emitted as a `reentryMode` claim. Operators currently logged in
+will not see the change until their access token refreshes (15-min
+TTL bound) or they log out + back in. Plan rollout windows
+accordingly.
+
+**Default-off is the production-correct posture for any tenant
+that has not affirmatively opted in.** Backend stores hold-
+attribution PII when offered (the write path does not gate); the
+gate is purely on serialization read-back and UI render. A future
+flag-off-after-flag-on tenant retains its persisted ciphertext
+until the regular 25h post-resolution purge.
 
 **Who can flip it:** the CoC admin for the target tenant via
 `PUT /api/v1/tenants/{tenantId}/config`. The endpoint is gated by
