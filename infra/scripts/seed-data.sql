@@ -55,7 +55,13 @@ VALUES (
     'a0000000-0000-0000-0000-000000000001',
     'Development CoC',
     'dev-coc',
-    '{"api_key_auth_enabled": true, "default_locale": "en", "hold_duration_minutes": 90, "dv_referral_expiry_minutes": 240, "dv_address_visibility": "ADMIN_AND_ASSIGNED", "hmis_vendors": [], "observability": {"prometheus_enabled": true, "tracing_enabled": false, "tracing_endpoint": "http://localhost:4318/v1/traces", "monitor_stale_interval_minutes": 5, "monitor_dv_canary_interval_minutes": 15, "monitor_temperature_interval_minutes": 60, "temperature_threshold_f": 32}}',
+    -- Round 5 §16.E (revised): dev-coc has features.reentryMode=true so the
+    -- existing reentry-* Playwright specs (which auth via @dev.fabt.org users)
+    -- continue to surface reentry filters/dialog/eligibility. The "gate works"
+    -- side-by-side demonstration is done by §16.D's reentry-mode-gate spec
+    -- which creates an ephemeral non-reentry tenant on-the-fly per
+    -- feedback_isolated_test_data.
+    '{"api_key_auth_enabled": true, "default_locale": "en", "hold_duration_minutes": 90, "dv_referral_expiry_minutes": 240, "dv_address_visibility": "ADMIN_AND_ASSIGNED", "hmis_vendors": [], "features": {"reentryMode": true}, "observability": {"prometheus_enabled": true, "tracing_enabled": false, "tracing_endpoint": "http://localhost:4318/v1/traces", "monitor_stale_interval_minutes": 5, "monitor_dv_canary_interval_minutes": 15, "monitor_temperature_interval_minutes": 60, "temperature_threshold_f": 32}}',
     NOW(), NOW()
 ) ON CONFLICT (slug) DO NOTHING;
 
