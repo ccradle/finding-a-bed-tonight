@@ -633,6 +633,15 @@ components:
     ReservationEventMessage:
       name: ReservationEventMessage
       title: Reservation State Change
+      summary: |
+        Reservation lifecycle event. v0.55 introduced optional hold-attribution
+        PII (held_for_client_name, held_for_client_dob, hold_notes) on the
+        reservation row, encrypted at rest with a per-tenant DEK. By design,
+        these PII fields are NEVER published over AsyncAPI — the payload
+        contains only operational identifiers (reservation_id, shelter_id,
+        tenant_id, population_type, user_id, status, expires_at). Consumers
+        of reservation events MUST NOT expect to receive client identifiers
+        from this channel.
       contentType: application/json
       payload:
         $ref: '#/components/schemas/ReservationEvent'
@@ -1024,6 +1033,15 @@ components:
         Payload for all reservation lifecycle events. The `type` field on the
         envelope distinguishes created/confirmed/cancelled/expired. Published
         by ReservationService on every state transition.
+
+        **PII boundary (v0.55+):** The reservation row may carry encrypted
+        hold-attribution PII (held_for_client_name_encrypted,
+        held_for_client_dob_encrypted, hold_notes_encrypted) — these fields
+        are server-side only and are NEVER published over AsyncAPI by design.
+        The payload below carries operational identifiers only. Consumers
+        requiring the optional client-attribution fields must read them
+        through the authenticated REST detail-view endpoint, not this event
+        stream.
       required:
         - reservation_id
         - shelter_id

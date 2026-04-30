@@ -81,6 +81,10 @@ If a cross-tenant leak is discovered in the pooled tier:
 - **Remediation:** crypto-shred compromised-tenant DEKs (F6); rotate master KEK if scope warrants; pen-test re-engagement.
 - **External attack pathway:** not in scope of this blast-radius statement — standard OWASP Top-10 surface covered separately.
 
+## v0.55 — Per-tenant `RESERVATION_PII` DEK
+
+`tenant_dek.purpose` was extended in V93 (transitional-reentry-support slice 1) with a new value `RESERVATION_PII` alongside the pre-existing `TENANT_DATA` purpose. Each tenant therefore now carries one DEK per purpose (a tenant may hold up to N rows in `tenant_dek` keyed by `(tenant_id, purpose)`). The `RESERVATION_PII` DEK encrypts the optional hold-attribution columns introduced on `reservation` (`held_for_client_name_encrypted`, `held_for_client_dob_encrypted`, `hold_notes_encrypted`) — used only by non-DV navigator-hold workflows. The DV referral path is structurally segregated (V91 `shelter_dv_implies_dv_type` CHECK constraint) and continues to use the opaque-token model with no DEK-encrypted client fields. Crypto-shred semantics extend cleanly: hard-deleting a tenant via F6 removes both DEKs, rendering all encrypted PII unrecoverable.
+
 ## Stakeholder sign-offs
 
 The pool-by-default + silo-on-trigger model has been reviewed and approved by:
