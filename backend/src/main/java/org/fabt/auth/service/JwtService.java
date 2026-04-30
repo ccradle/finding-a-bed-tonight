@@ -104,6 +104,8 @@ public class JwtService {
     // cache TTL << JWT TTL so flag-flip latency is dominated by token-refresh
     // window (15 min) not the cache.
     private final TenantService tenantService;
+    @org.fabt.shared.security.TenantScopedByConstruction(
+        "Cache<UUID, Boolean> keyed on tenantId; loadReentryMode(tenantId) reads tenant.config.features.reentryMode for THE tenant whose JWT is being issued. Tenant-scoped by construction — value is per-tenant, never cross-tenant queried; cache hit returns the value for the same tenantId the caller passed. 60s TTL bounds flag-flip latency. Round 5 §16.A.")
     private final Cache<UUID, Boolean> reentryModeCache;
 
     public JwtService(
