@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, type FormEvent } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
+import { useAuth } from '../auth/useAuth';
 import { color } from '../theme/colors';
 import { text, weight } from '../theme/typography';
 
@@ -50,6 +51,7 @@ export function HoldDialog({
   onCancel,
 }: HoldDialogProps) {
   const intl = useIntl();
+  const { user } = useAuth();
 
   const [name, setName] = useState('');
   const [dob, setDob] = useState('');
@@ -204,7 +206,13 @@ export function HoldDialog({
 
         {/* Optional attribution — collapsed by default per §11.3. The
             <details> element is keyboard + screen-reader accessible
-            without custom code. */}
+            without custom code.
+            Round 5 §16.C.4 — entire attribution block is gated on
+            features.reentryMode. The §16.B API serialization gate is
+            the primary control; this hides the input UI so a non-reentry
+            tenant can't even compose PII to send. */}
+        {user?.reentryMode && (
+        <section data-testid="reentry-pii-fields">
         <details
           data-testid="hold-attribution-toggle"
           style={{ marginBottom: 16, border: `1px solid ${color.border}`, borderRadius: 6 }}
@@ -286,6 +294,8 @@ export function HoldDialog({
             </div>
           </div>
         </details>
+        </section>
+        )}
 
         {error && (
           <div

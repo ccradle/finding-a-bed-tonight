@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../services/api';
+import { useAuth } from '../auth/useAuth';
 import { enqueueAction } from '../services/offlineQueue';
 import { CoordinatorReferralBanner } from '../components/CoordinatorReferralBanner';
 import { DataAge } from '../components/DataAge';
@@ -128,6 +129,7 @@ interface ReferralDetailResponse {
 
 export function CoordinatorDashboard() {
   const intl = useIntl();
+  const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [shelters, setShelters] = useState<ShelterListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1244,7 +1246,15 @@ export function CoordinatorDashboard() {
                               <div style={{ fontSize: text.xs, fontWeight: weight.semibold, color: color.text }}>
                                 {getPopulationTypeLabel(hold.populationType, intl)}
                               </div>
-                              {hold.heldForClientName && (
+                              {/* Round 5 §16.C.5 — gate the heldForClientName render on
+                                  features.reentryMode. The §16.B API gate already strips
+                                  the field for non-reentry tenants (so the falsy check
+                                  below would also hide it), but explicit conditional
+                                  render keeps the parallel-render-path concern honest:
+                                  if a future caching layer or HMR quirk surfaced stale
+                                  PII from a prior tenant context, the flag check stops
+                                  it. */}
+                              {user?.reentryMode && hold.heldForClientName && (
                                 <div
                                   data-testid={`coordinator-hold-client-${hold.id}`}
                                   style={{ fontSize: text['2xs'], color: color.textTertiary, marginTop: 2 }}

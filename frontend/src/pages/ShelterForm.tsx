@@ -687,6 +687,13 @@ export function ShelterForm({ initialData, readOnlyFields = [], onSaveComplete }
           )}
         </div>
 
+        {/* Round 5 §16.C.3 — both the requires_verification_call toggle
+            AND the eligibility criteria section are reentry-specific
+            affordances. Gate the entire pair on features.reentryMode so
+            tenants without reentry see neither, mirroring the API
+            serialization gate at §16.B (defense-in-depth). */}
+        {user?.reentryMode && (
+        <section data-testid="reentry-eligibility-section">
         {/* Slice 4 §10.6 — requires_verification_call toggle. Operationally
             paired with the eligibility criteria below: the H1 three-way
             evaluator branch (c) only includes a null-eligibility shelter
@@ -721,6 +728,8 @@ export function ShelterForm({ initialData, readOnlyFields = [], onSaveComplete }
           onChange={setEligibilityCriteria}
           visible={canEditEligibility}
         />
+        </section>
+        )}
 
         {/* DV Confirmation Dialog */}
         {showDvConfirm && (

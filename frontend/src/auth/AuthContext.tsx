@@ -7,6 +7,14 @@ export interface DecodedUser {
   displayName: string;
   roles: string[];
   dvAccess: boolean;
+  /**
+   * Round 5 §16.C — features.reentryMode flag from JWT claim. When true,
+   * reentry-specific UI surfaces (advanced filters, eligibility section,
+   * hold-attribution PII fields, coordinator dashboard PII) are visible.
+   * Default false. Backend serialization gate (§16.B) is the primary
+   * control; this flag drives UX-polish conditional renders.
+   */
+  reentryMode: boolean;
   exp: number;
 }
 
@@ -29,7 +37,8 @@ export const AuthContext = createContext<AuthContextType>({
   logout: () => {},
 });
 
-function decodeJwtPayload(token: string): DecodedUser | null {
+// eslint-disable-next-line react-refresh/only-export-components -- exported for vitest unit tests; used internally by AuthProvider
+export function decodeJwtPayload(token: string): DecodedUser | null {
   try {
     const base64Url = token.split('.')[1];
     if (!base64Url) return null;
@@ -48,6 +57,7 @@ function decodeJwtPayload(token: string): DecodedUser | null {
       displayName: payload.displayName || '',
       roles: payload.roles || [],
       dvAccess: payload.dvAccess === true,
+      reentryMode: payload.reentryMode === true,
       exp: payload.exp || 0,
     };
   } catch {
