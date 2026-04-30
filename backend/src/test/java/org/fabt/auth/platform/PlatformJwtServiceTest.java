@@ -277,6 +277,51 @@ class PlatformJwtServiceTest {
                 .hasMessageContaining("Invalid platform JWT format");
     }
 
+    // ------------------------------------------------------------------
+    // Round 5 §16.A.4 — platform tokens MUST NOT carry reentryMode
+    // ------------------------------------------------------------------
+
+    /**
+     * Round 5 §16.A.4 — Pinning test: the reentryMode JWT claim is a
+     * tenant-scoped feature flag. PlatformJwtService issues iss=fabt-platform
+     * tokens that are intentionally NOT tenant-scoped (Decision 3) and have
+     * no business carrying tenant feature flags. If this test ever fails,
+     * a future change has accidentally bridged the platform token path to
+     * the tenant claim path — re-audit before relaxing.
+     */
+    @Test
+    @DisplayName("§16.A.4 — platform access token payload has no reentryMode claim")
+    void platformAccessToken_omitsReentryModeClaim() throws Exception {
+        String token = jwtService.generateAccessToken(stubUser());
+        Map<String, Object> payload = decodePlatformPayload(token);
+        assertThat(payload)
+                .as("platform tokens must not carry tenant-scoped reentryMode claim")
+                .doesNotContainKey("reentryMode");
+    }
+
+    @Test
+    @DisplayName("§16.A.4 — mfa-setup token payload has no reentryMode claim")
+    void platformMfaSetupToken_omitsReentryModeClaim() throws Exception {
+        String token = jwtService.generateMfaSetupToken(stubUser());
+        Map<String, Object> payload = decodePlatformPayload(token);
+        assertThat(payload).doesNotContainKey("reentryMode");
+    }
+
+    @Test
+    @DisplayName("§16.A.4 — mfa-verify token payload has no reentryMode claim")
+    void platformMfaVerifyToken_omitsReentryModeClaim() throws Exception {
+        String token = jwtService.generateMfaVerifyToken(stubUser());
+        Map<String, Object> payload = decodePlatformPayload(token);
+        assertThat(payload).doesNotContainKey("reentryMode");
+    }
+
+    private Map<String, Object> decodePlatformPayload(String token) throws Exception {
+        String[] parts = token.split("\\.");
+        byte[] payloadBytes = Base64.getUrlDecoder().decode(parts[1]);
+        return objectMapper.readValue(payloadBytes,
+                new tools.jackson.core.type.TypeReference<>() {});
+    }
+
     private static String b64Url(byte[] data) {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(data);
     }

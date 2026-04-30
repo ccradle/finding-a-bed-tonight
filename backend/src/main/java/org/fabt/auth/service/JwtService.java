@@ -23,6 +23,8 @@ import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.fabt.auth.domain.User;
 import org.fabt.shared.security.CrossTenantJwtException;
+// Round 5 §16.A — TenantService injection for features.reentryMode JWT claim
+import org.fabt.tenant.service.TenantService;
 import org.fabt.shared.security.KeyDerivationService;
 import org.fabt.shared.security.KidRegistryService;
 import org.fabt.shared.security.RevokedJwtException;
@@ -95,6 +97,15 @@ public class JwtService {
     private final RevokedKidCache revokedKidCache;
     private final MeterRegistry meterRegistry;
 
+    // Round 5 §16.A — features.reentryMode flag emitted as JWT claim alongside
+    // dvAccess. Optional dep (null in legacy unit tests) — null tenantService
+    // means the helper returns false (safe default; reentry surface hidden).
+    // Cache is per-tenant boolean with 60s TTL to avoid per-token DB lookup;
+    // cache TTL << JWT TTL so flag-flip latency is dominated by token-refresh
+    // window (15 min) not the cache.
+    private final TenantService tenantService;
+    private final Cache<UUID, Boolean> reentryModeCache;
+
     public JwtService(
             @Value("${fabt.jwt.secret:default-dev-secret-change-in-production}") String secret,
             @Value("${fabt.jwt.access-token-expiry-minutes:15}") long accessTokenExpiryMinutes,
@@ -104,7 +115,8 @@ public class JwtService {
             KeyDerivationService keyDerivationService,
             KidRegistryService kidRegistryService,
             RevokedKidCache revokedKidCache,
-            MeterRegistry meterRegistry) {
+            MeterRegistry meterRegistry,
+            TenantService tenantService) {
         this.secret = secret;
         this.secretKey = secret.getBytes(StandardCharsets.UTF_8);
         this.accessTokenExpiryMinutes = accessTokenExpiryMinutes;
@@ -129,6 +141,12 @@ public class JwtService {
                         + "would silently downgrade JWT signing to legacy FABT_JWT_SECRET path.");
             }
         }
+        this.tenantService = tenantService;
+        this.reentryModeCache = Caffeine.newBuilder()
+                .maximumSize(10_000)
+                .expireAfterWrite(Duration.ofSeconds(60))
+                .build();
+
         this.claimsCache = Caffeine.newBuilder()
                 .maximumSize(10_000)
                 .expireAfter(new Expiry<String, JwtClaims>() {
@@ -173,6 +191,52 @@ public class JwtService {
         return accessTokenExpiryMinutes * 60;
     }
 
+    /**
+     * Round 5 §16.A — read tenant.config.features.reentryMode for a tenant.
+     *
+     * <p>Centralised flag-load so every JWT-issuance path (login, refresh,
+     * password-change, OAuth2-link) emits the claim consistently. Per the
+     * Round 5 B1 finding: putting this only in the two-arg generateAccessToken
+     * would silently strip the claim on refresh-issued tokens because the
+     * single-arg overload delegates here, but other paths (e.g.,
+     * generateAccessTokenWithPasswordChange) construct their own payload
+     * — so that path must call this helper too.
+     *
+     * <p><b>Fail-safe default false:</b> if tenantService is null (legacy
+     * unit-test wiring), tenantId is null, the config read throws, the
+     * features key is missing/null/non-Map, the reentryMode key is
+     * missing/non-boolean, or any unexpected exception fires — the helper
+     * returns false. The default protects tenants not ready to handle PII
+     * (per warroom Round 5 + user explicit reasoning).
+     *
+     * <p><b>Cache:</b> 60-second TTL, max 10K tenants. Far shorter than the
+     * 15-min token TTL, so flag-flip latency is dominated by token-refresh,
+     * not by the cache.
+     */
+    private boolean loadReentryMode(UUID tenantId) {
+        if (tenantService == null || tenantId == null) {
+            return false;
+        }
+        Boolean cached = reentryModeCache.getIfPresent(tenantId);
+        if (cached != null) {
+            return cached;
+        }
+        boolean value = false;
+        try {
+            Map<String, Object> config = tenantService.getConfig(tenantId);
+            Object features = config.get("features");
+            if (features instanceof Map<?, ?> featuresMap) {
+                Object reentry = featuresMap.get("reentryMode");
+                value = Boolean.TRUE.equals(reentry);
+            }
+        } catch (Exception e) {
+            // Fail-safe: if config read fails, treat as flag=false (don't surface PII).
+            value = false;
+        }
+        reentryModeCache.put(tenantId, value);
+        return value;
+    }
+
     public String generateAccessToken(User user) {
         return generateAccessToken(user, null);
     }
@@ -188,6 +252,7 @@ public class JwtService {
         payload.put("displayName", user.getDisplayName());
         payload.put("roles", user.getRoles());
         payload.put("dvAccess", user.isDvAccess());
+        payload.put("reentryMode", loadReentryMode(user.getTenantId()));
         payload.put("ver", user.getTokenVersion());
         payload.put("type", "access");
         payload.put("iat", now.getEpochSecond());
@@ -210,6 +275,7 @@ public class JwtService {
         payload.put("displayName", user.getDisplayName());
         payload.put("roles", user.getRoles());
         payload.put("dvAccess", user.isDvAccess());
+        payload.put("reentryMode", loadReentryMode(user.getTenantId()));  // §16.A — same gate as regular access tokens
         payload.put("ver", user.getTokenVersion());
         payload.put("type", "access");
         payload.put("mustChangePassword", true);
