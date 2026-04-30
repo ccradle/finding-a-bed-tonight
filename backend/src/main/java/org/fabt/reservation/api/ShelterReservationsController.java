@@ -101,6 +101,16 @@ public class ShelterReservationsController {
         }
 
         List<Reservation> rows = reservationService.findHeldByShelterId(shelterId);
+        // v0.55 §13.A.3 — record one throttled audit event per coordinator
+        // × shelter × hour when the read actually decrypted PII. Idempotent
+        // for empty/no-PII reads. The §16.B serialization gate at
+        // ReservationResponse.from will null the PII fields downstream when
+        // tenant.config.features.reentryMode is false, but the read itself
+        // (i.e. the row mapper's decrypt call) already happened — we audit
+        // at the read boundary, not at the serialization boundary.
+        UUID userId = UUID.fromString(authentication.getName());
+        reservationService.recordPiiReadIfPresent(userId, shelterId, rows);
+
         List<ReservationResponse> body = rows.stream()
                 .map(ReservationResponse::from)
                 .toList();

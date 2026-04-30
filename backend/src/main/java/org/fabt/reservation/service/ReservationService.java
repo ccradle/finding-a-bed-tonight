@@ -23,6 +23,8 @@ import org.fabt.reservation.domain.Reservation;
 import org.fabt.reservation.domain.ReservationStatus;
 import org.fabt.reservation.repository.ReservationRepository;
 import org.fabt.shared.api.HeldReservationCleaner;
+import org.fabt.shared.audit.AuditEventRecord;
+import org.fabt.shared.audit.AuditEventType;
 import org.fabt.shared.event.DomainEvent;
 import org.fabt.shared.event.EventBus;
 import org.fabt.shared.web.TenantContext;
@@ -30,7 +32,11 @@ import org.fabt.shelter.service.ShelterService;
 import org.fabt.tenant.service.TenantService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
+import org.fabt.shared.security.TenantScopedByConstruction;
 import org.fabt.shared.security.TenantUnscoped;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -48,6 +54,40 @@ public class ReservationService implements HeldReservationCleaner {
     private final EventBus eventBus;
     private final ObjectMapper objectMapper;
     private final ObservabilityMetrics metrics;
+    /**
+     * v0.55 §13.A — used to emit the three new RESERVATION_PII_* audit
+     * events (write-side at hold creation, throttled read-side at
+     * decryption, purge-side at scheduled erasure). Spring's standard
+     * publisher is the same path TENANT_CONFIG_UPDATED already uses
+     * (ReservationConfigController); audit listeners pick the record up
+     * via @EventListener(AuditEventRecord.class) → AuditEventService.
+     */
+    private final ApplicationEventPublisher auditEventPublisher;
+
+    /**
+     * v0.55 §13.A.3 — read-side audit throttle. Key format
+     * "userId:shelterId:epochHour" — at most one
+     * {@code RESERVATION_PII_DECRYPTED_ON_READ} audit row per coordinator
+     * × shelter × hour, regardless of how many reservations were read in
+     * that hour. Without this throttle, a coordinator polling their
+     * dashboard would generate one audit row per visible hold per
+     * refresh — the meaningful read-activity signal is "first visit per
+     * hour", not per-row volume.
+     *
+     * <p>Tenant-scoped by construction: the key includes the user's
+     * userId (tied to a single tenant via app_user.tenant_id) and a
+     * shelterId resolved through tenant-scoped JOINs. RLS prevents a
+     * cross-tenant key collision (a userId from tenant A cannot read a
+     * shelterId from tenant B), so the cache cannot leak across tenants.
+     * 90-minute TTL bounds memory while comfortably outliving the 60-min
+     * throttle window.
+     */
+    @TenantScopedByConstruction(
+        "Cache<String, Boolean> keyed on \"userId:shelterId:epochHour\". userId resolves to a single tenant via app_user.tenant_id; shelterId is read under tenant-scoped JOINs so cross-tenant keys cannot occur. v0.55 §13.A.3 audit-throttle.")
+    private final Cache<String, Boolean> piiReadAuditThrottle = Caffeine.newBuilder()
+            .maximumSize(50_000)
+            .expireAfterWrite(java.time.Duration.ofMinutes(90))
+            .build();
 
     public ReservationService(ReservationRepository reservationRepository,
                               BedAvailabilityRepository availabilityRepository,
@@ -56,7 +96,8 @@ public class ReservationService implements HeldReservationCleaner {
                               TenantService tenantService,
                               EventBus eventBus,
                               ObjectMapper objectMapper,
-                              ObservabilityMetrics metrics) {
+                              ObservabilityMetrics metrics,
+                              ApplicationEventPublisher auditEventPublisher) {
         this.reservationRepository = reservationRepository;
         this.availabilityRepository = availabilityRepository;
         this.availabilityService = availabilityService;
@@ -65,6 +106,7 @@ public class ReservationService implements HeldReservationCleaner {
         this.eventBus = eventBus;
         this.objectMapper = objectMapper;
         this.metrics = metrics;
+        this.auditEventPublisher = auditEventPublisher;
     }
 
     @Transactional
@@ -110,16 +152,24 @@ public class ReservationService implements HeldReservationCleaner {
     }
 
     /**
-     * Hold-attribution DOB business invariant: must be after 1900-01-01.
+     * Hold-attribution DOB business invariant: must be on or after 1900-01-01.
      * Bean Validation's {@code @Past} on the DTO catches future dates;
      * this method catches the silently-invalid "1850s" typo case.
+     *
+     * <p>v0.55 §13.B (BLOCKER I-2): the exception message intentionally
+     * does NOT include the user-supplied {@code dob} value. Including it
+     * was a v0.54 PII-leak risk — the supplied DOB flows into the 400
+     * response body, JSON access logs (Logback {@code %msg}), and any
+     * exception forwarder. A typo of a real DOB is still a real DOB. The
+     * error message names the constraint, not the violator; callers can
+     * surface their own user-friendly retry copy in the UI.
      */
     static void validateHoldClientDob(java.time.LocalDate dob) {
         if (dob == null) return;
         java.time.LocalDate floor = java.time.LocalDate.of(1900, 1, 1);
         if (dob.isBefore(floor)) {
             throw new IllegalArgumentException(
-                "heldForClientDob must be after " + floor + "; got " + dob);
+                "heldForClientDob must be on or after 1900-01-01");
         }
     }
 
@@ -202,6 +252,29 @@ public class ReservationService implements HeldReservationCleaner {
         // Publish event
         publishEvent("reservation.created", tenantId, saved);
         metrics.reservationCounter("CREATED").increment();
+
+        // v0.55 §13.A.2 — emit RESERVATION_HELD_FOR_CLIENT_RECORDED if any
+        // hold-attribution PII field was populated. Fires AFTER the row
+        // commits, INSIDE the @Transactional context per existing audit
+        // pattern (TENANT_CONFIG_UPDATED, the rest of the suite).
+        // Detail blob: reservation_id + which fields were populated. NO
+        // plaintext, NO ciphertext — counts of populated fields are the
+        // operational signal "did the navigator enter PII on this hold?",
+        // sufficient to answer the chain-of-custody question without
+        // re-creating the PII in the audit trail.
+        if (heldForClientName != null || heldForClientDob != null || holdNotes != null) {
+            List<String> fieldsRecorded = new ArrayList<>();
+            if (heldForClientName != null) fieldsRecorded.add("clientName");
+            if (heldForClientDob != null) fieldsRecorded.add("clientDob");
+            if (holdNotes != null) fieldsRecorded.add("holdNotes");
+            Map<String, Object> auditDetails = new HashMap<>();
+            auditDetails.put("reservation_id", saved.getId().toString());
+            auditDetails.put("fields_recorded", fieldsRecorded);
+            auditEventPublisher.publishEvent(new AuditEventRecord(
+                    userId, null,
+                    AuditEventType.RESERVATION_HELD_FOR_CLIENT_RECORDED,
+                    auditDetails, null));
+        }
 
         return saved;
     }
@@ -346,18 +419,74 @@ public class ReservationService implements HeldReservationCleaner {
 
     /**
      * Service-layer entry point for the hold-attribution PII purge
-     * (transitional-reentry-support task 4.6, slice 2C). Delegates to
-     * {@code ReservationRepository.purgeExpiredHoldAttribution} but lives
-     * on the service to satisfy the modular-monolith boundary
+     * (transitional-reentry-support task 4.6, slice 2C; v0.55 §13.A.4 +
+     * §13.C.2 hardening). Delegates to
+     * {@code ReservationRepository.purgeExpiredHoldAttribution(cutoff, limit)}
+     * but lives on the service to satisfy the modular-monolith boundary
      * (`feedback_modular_monolith.md`): cross-module callers
      * (e.g. {@code ReferralTokenPurgeService}) MUST go through service-
      * layer interfaces, not directly into another module's repository.
      *
+     * <p>v0.55 §13.C.2 — drives the LIMIT-bounded UPDATE in a loop until
+     * the batch returns 0 rows for the current cutoff. Each loop iteration
+     * is a separate transaction (via the underlying {@code JdbcTemplate}
+     * call), so a backlog larger than a single batch produces multiple
+     * short-lived locks rather than one long-held row-lock blanket.
+     * Worst-case lock-hold time is bounded by the time to update
+     * {@code DEFAULT_PURGE_BATCH_LIMIT} rows.
+     *
+     * <p>v0.55 §13.A.4 — emits exactly one
+     * {@code RESERVATION_PII_PURGED} audit event per scheduled invocation,
+     * regardless of {@code purgedCount} (including 0). The detail blob
+     * carries {@code purgedCount} (sum across all batches) and
+     * {@code batches} (loop iteration count). Auditing on every invocation
+     * means an absent audit row signals job failure — exactly the forensic
+     * property required for the "no later than 25 hours" claim to be
+     * verifiable.
+     *
      * @param cutoff resolution / expiry timestamp before which rows are eligible
-     * @return number of reservation rows whose ciphertext was nulled
+     * @return total number of reservation rows whose ciphertext was nulled
+     *         across all batches
      */
     public int purgeExpiredHoldAttribution(java.time.Instant cutoff) {
-        return reservationRepository.purgeExpiredHoldAttribution(cutoff);
+        // v0.55 §13.C.2 — bounded loop. The repository method runs one
+        // LIMIT-bounded UPDATE per call; we loop until it returns 0,
+        // accumulating purgedCount and counting batches for the audit row.
+        int totalPurged = 0;
+        int batches = 0;
+        int batch;
+        do {
+            batch = reservationRepository.purgeExpiredHoldAttribution(
+                    cutoff, ReservationRepository.DEFAULT_PURGE_BATCH_LIMIT);
+            totalPurged += batch;
+            batches++;
+            // Cap defensively at 100 iterations so a misconfigured cutoff
+            // (e.g. far future) cannot spin forever. 100 × 10K = 1M rows
+            // is well above any realistic backlog and gives operators a
+            // clear signal to investigate via the audit row's batches=100.
+            if (batches >= 100) {
+                log.warn("purgeExpiredHoldAttribution: hit safety cap of 100 batches "
+                        + "with totalPurged={}; investigate cutoff or backlog size.",
+                        totalPurged);
+                break;
+            }
+        } while (batch > 0);
+
+        // v0.55 §13.A.4 — single audit row per scheduled invocation. Emit
+        // EVEN when totalPurged=0 so the absence of activity is auditable —
+        // a scheduled job that silently stops emitting rows is the failure
+        // mode the audit trail must catch.
+        Map<String, Object> details = new HashMap<>();
+        details.put("purgedCount", totalPurged);
+        details.put("batches", batches);
+        details.put("cutoff", cutoff.toString());
+        auditEventPublisher.publishEvent(new AuditEventRecord(
+                null,  // actor: system-driven (scheduled job)
+                null,  // target: platform-scope, not a single user/entity
+                AuditEventType.RESERVATION_PII_PURGED,
+                details, null));
+
+        return totalPurged;
     }
 
     @Override
@@ -419,6 +548,54 @@ public class ReservationService implements HeldReservationCleaner {
     @Transactional(readOnly = true)
     public List<Reservation> findHeldByShelterId(UUID shelterId) {
         return reservationRepository.findHeldByShelterId(shelterId);
+    }
+
+    /**
+     * v0.55 §13.A.3 — emit a throttled {@code RESERVATION_PII_DECRYPTED_ON_READ}
+     * audit event when a coordinator-facing read surfaced at least one
+     * reservation row whose decrypted PII fields are non-null. The throttle
+     * key is {@code userId:shelterId:epochHour}; duplicate reads inside the
+     * same hour produce no additional audit rows.
+     *
+     * <p>NO {@code reservation_id} appears in the audit detail payload,
+     * even though the read is per-reservation — adding {@code reservation_id}
+     * would break the throttle. The forensic question this row answers is
+     * "did this user view this shelter's hold-attribution PII in this hour?";
+     * exact-reservation forensics are answered by HTTP access logs at the
+     * reverse proxy.
+     *
+     * <p>Idempotent: callers may invoke this with an empty list or a list
+     * that contains no PII-bearing rows; the method returns silently in
+     * both cases. Designed to be called once per coordinator-facing read
+     * endpoint.
+     */
+    public void recordPiiReadIfPresent(UUID userId, UUID shelterId, List<Reservation> rows) {
+        if (userId == null || shelterId == null || rows == null || rows.isEmpty()) {
+            return;
+        }
+        boolean anyPii = rows.stream().anyMatch(r ->
+                r.getHeldForClientName() != null
+                        || r.getHeldForClientDob() != null
+                        || r.getHoldNotes() != null);
+        if (!anyPii) return;
+
+        long epochHour = Instant.now().getEpochSecond() / 3600L;
+        String throttleKey = userId + ":" + shelterId + ":" + epochHour;
+        // Caffeine ConcurrentMap-style atomic put-if-absent: returns the
+        // existing value (true) if the key was already present; otherwise
+        // installs ours and returns null. Only emit when null — a duplicate
+        // call inside the throttle window short-circuits.
+        Boolean existing = piiReadAuditThrottle.asMap().putIfAbsent(throttleKey, Boolean.TRUE);
+        if (existing != null) return;
+
+        Map<String, Object> details = new HashMap<>();
+        details.put("shelter_id", shelterId.toString());
+        details.put("throttle_key", throttleKey);
+        details.put("first_seen_at", Instant.now().toString());
+        auditEventPublisher.publishEvent(new AuditEventRecord(
+                userId, null,
+                AuditEventType.RESERVATION_PII_DECRYPTED_ON_READ,
+                details, null));
     }
 
     /**
