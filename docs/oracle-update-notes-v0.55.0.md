@@ -226,6 +226,100 @@ curl -s https://findabed.org/api/v1/version
 > # Use as `docker compose "${COMPOSE_CHAIN[@]}" ...`
 > ```
 
+### 5.0. Static content (docs site) — ship the v0.55 demo + audit fixes FIRST
+
+Static content is served from `/var/www/findabed-docs/` on the Oracle VM
+(verified during v0.53 deploy). Nginx serves these via `try_files` — no
+restart needed after copying. Static deploys safely before the backend
+swap because the new HTML/PNG is content-only (no API contract change);
+the v0.54 backend serves it just fine until §5.6 swaps the image.
+
+v0.55 ships **30 stale-or-new files** (12 HTML + 18 PNG): the §6 demo
+audit fixes (2 BLOCKERs + 4 HIGHs + 7 MEDIUMs across 10 demo HTML files
++ root index.html), the new `demo/reentry-story.html` capability deep-
+dive, and 18 screenshots (12 re-captured to align with §10/§11/§16
+surfaces + 6 NEW reentry walkthrough captures).
+
+```bash
+# From your local Windows / Git Bash machine. FABT_VM_IP is set
+# out-of-band per feedback_no_ip_in_repo (it lives in memory + the
+# operator's local env, never in git).
+cd /c/Development/findABed
+
+# 1. Root index.html (1 file) — §2.1 "ever" claim DV-scoped
+scp -i ~/.ssh/fabt-oracle index.html \
+  ubuntu@${FABT_VM_IP}:/var/www/findabed-docs/
+
+# 2. 11 demo HTML files (10 modified + 1 NEW reentry-story.html)
+scp -i ~/.ssh/fabt-oracle \
+  demo/dvindex.html \
+  demo/for-cities.html \
+  demo/for-coc-admins.html \
+  demo/for-coordinators.html \
+  demo/for-funders.html \
+  demo/hmisindex.html \
+  demo/index.html \
+  demo/outreach-one-pager.html \
+  demo/pitch-briefs.html \
+  demo/reentry-story.html \
+  demo/shelter-onboarding.html \
+  ubuntu@${FABT_VM_IP}:/var/www/findabed-docs/demo/
+
+# 3. 12 modified screenshots (post-§10/§11/§16 captures + 20-25 import flow)
+scp -i ~/.ssh/fabt-oracle \
+  demo/screenshots/02-bed-search.png \
+  demo/screenshots/03-search-results.png \
+  demo/screenshots/04-shelter-detail-search.png \
+  demo/screenshots/05-reservation-hold.png \
+  demo/screenshots/11-admin-shelters.png \
+  demo/screenshots/13-admin-shelter-detail.png \
+  demo/screenshots/20-import-211-preview.png \
+  demo/screenshots/21-import-211-success.png \
+  demo/screenshots/22-admin-shelters-edit.png \
+  demo/screenshots/23-shelter-edit-phone.png \
+  demo/screenshots/24-shelter-edit-dv-toggle.png \
+  demo/screenshots/25-dv-confirm-dialog.png \
+  ubuntu@${FABT_VM_IP}:/var/www/findabed-docs/demo/screenshots/
+
+# 4. 6 NEW reentry screenshots (capture-reentry-screenshots.spec.ts output)
+scp -i ~/.ssh/fabt-oracle \
+  demo/screenshots/reentry-01-advanced-search-filters.png \
+  demo/screenshots/reentry-02-search-results-filtered.png \
+  demo/screenshots/reentry-03-shelter-detail-eligibility.png \
+  demo/screenshots/reentry-04-hold-dialog-attribution.png \
+  demo/screenshots/reentry-05-admin-reservation-settings.png \
+  demo/screenshots/reentry-06-no-match-failure-path.png \
+  ubuntu@${FABT_VM_IP}:/var/www/findabed-docs/demo/screenshots/
+
+# Verify on VM:
+ssh -i ~/.ssh/fabt-oracle ubuntu@${FABT_VM_IP} "
+  echo '=== root index ==='
+  ls -la /var/www/findabed-docs/index.html
+  echo '=== 11 demo HTML ==='
+  ls -la /var/www/findabed-docs/demo/{dvindex,for-cities,for-coc-admins,for-coordinators,for-funders,hmisindex,index,outreach-one-pager,pitch-briefs,reentry-story,shelter-onboarding}.html
+  echo '=== 18 screenshots ==='
+  ls -la /var/www/findabed-docs/demo/screenshots/{02,03,04,05,11,13,20,21,22,23,24,25}-*.png /var/www/findabed-docs/demo/screenshots/reentry-{01,02,03,04,05,06}-*.png
+"
+# Expected:
+#   reentry-story.html ~18376 bytes (NEW; previously 404 → SPA fallback)
+#   reentry-*.png 6 files present (NEW)
+#   for-funders.html size up vs v0.53 (BLOCKER-FND-1 fix added text)
+#   for-coc-admins.html size up vs v0.53 (BLOCKER-COC-1 + HIGH-COC-2 added ~250 words)
+```
+
+**No nginx reload required** — static content read per-request. Cloudflare
+caches HTML + PNG aggressively, so a CDN purge is required after scp:
+- Cloudflare → findabed.org → Caching → Configuration → Purge Cached Content
+- Choose **Purge Everything** (1-2 min refill from origin; broader hammer
+  but simpler than enumerating 12 URLs)
+- Verify: `curl -sf -w "%{size_download}\n" -o /dev/null https://findabed.org/demo/reentry-story.html`
+  should return ~18376 bytes (NOT 592 — that's the SPA fallback shell)
+
+Per `feedback_stale_sw_on_deploy.md`: SPA SW caches `/login` and `/outreach`
+React routes but NOT `/demo/*.html` (nginx serves those as real files
+ahead of the SPA fallback chain). Demo pages refresh on next request
+post-Cloudflare-purge; SPA users may still need hard-reload after §5.5.
+
 ### 1. Preserve last-good image tags
 
 ```bash
@@ -598,6 +692,45 @@ docker exec fabt-backend sh -c \
 ### Stale-SW reminder
 
 If anyone tests the new UI from a browser that was logged in pre-deploy, **use incognito or clear site data**. Old service worker will serve cached JS (per `feedback_stale_sw_on_deploy.md`).
+
+### Static-content (docs site) verification
+
+After §5.0 scp + Cloudflare "Purge Everything":
+
+```bash
+# 1. reentry-story.html now serves real content (NOT 592-byte SPA fallback)
+curl -sf -w "Bytes: %{size_download}\n" -o /dev/null https://findabed.org/demo/reentry-story.html
+# Expected: ~18376 bytes. 592 bytes means the file isn't on the VM (or the
+# scp landed in the wrong dir) and nginx is falling through to the SPA.
+
+# 2. All 6 NEW reentry screenshots reachable
+for s in 01-advanced-search-filters 02-search-results-filtered 03-shelter-detail-eligibility 04-hold-dialog-attribution 05-admin-reservation-settings 06-no-match-failure-path; do
+  curl -sf -o /dev/null -w "reentry-${s}.png: %{http_code}\n" https://findabed.org/demo/screenshots/reentry-${s}.png
+done
+# Expected: all 200.
+
+# 3. BLOCKER-FND-1 fix landed (no platform-wide PII overclaim)
+curl -sf https://findabed.org/demo/for-funders.html | grep -cE "opt-in privacy posture|Zero client PII on the DV referral path"
+# Expected: 2+ matches (line 10 og:description + line 285 Defense bullet).
+curl -sf https://findabed.org/demo/for-funders.html | grep -cE 'Open-source, zero-PII"|<strong>Zero client PII\.</strong>'
+# Expected: 0 — the unscoped tagline + bare bullet are gone.
+
+# 4. BLOCKER-COC-1 reentry-mode section landed
+curl -sf https://findabed.org/demo/for-coc-admins.html | grep -c "Reentry-Mode Tenant Flag"
+# Expected: 1+ — the new ~250-word section.
+
+# 5. HIGH-IDX-1 5th tile in More Walkthroughs grid
+curl -sf https://findabed.org/demo/index.html | grep -c "Reentry Walkthrough"
+# Expected: 1.
+
+# 6. §2.1 root index.html "ever" claim DV-scoped
+curl -sf https://findabed.org/index.html | grep -c "DV referrals carry no client name and no address, ever"
+# Expected: 1 — the ever-scope replaced the platform-wide "no client name ever" claim.
+```
+
+If any of these return unexpected values, the static deploy didn't land
+cleanly — re-check §5.0 scp logs and Cloudflare purge confirmation
+before proceeding to §15 demo flow walkthroughs.
 
 ---
 
