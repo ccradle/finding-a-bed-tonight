@@ -184,30 +184,29 @@ test.describe('WCAG 1.4.1 Use of Color', () => {
 
 test.describe('WCAG 1.4.3 Contrast (Light + Dark)', () => {
 
-  test('light mode: zero contrast violations across all pages', async ({ outreachPage, adminPage, coordinatorPage }) => {
-    // Search page
-    await outreachPage.goto('/outreach');
-    await outreachPage.waitForTimeout(2000);
-    const searchResults = await new AxeBuilder({ page: outreachPage })
+  // v0.55.1-T2: split into per-page tests (was a single 3-page test that
+  // timed out post-§10 outreach expansion). Each test gets its own 30s
+  // budget; failure attribution names the offending page directly.
+  // Dark-mode test below stays as a single test (only covers outreach).
+  async function assertColorContrastForPage(page: any, pagePath: string) {
+    await page.goto(pagePath);
+    await page.waitForTimeout(2000);
+    const results = await new AxeBuilder({ page })
       .withRules(['color-contrast'])
       .analyze();
-    expect(searchResults.violations, formatViolations(searchResults.violations)).toEqual([]);
+    expect(results.violations, formatViolations(results.violations)).toEqual([]);
+  }
 
-    // Admin page
-    await adminPage.goto('/admin');
-    await adminPage.waitForTimeout(2000);
-    const adminResults = await new AxeBuilder({ page: adminPage })
-      .withRules(['color-contrast'])
-      .analyze();
-    expect(adminResults.violations, formatViolations(adminResults.violations)).toEqual([]);
+  test('light mode: outreach page has zero contrast violations', async ({ outreachPage }) => {
+    await assertColorContrastForPage(outreachPage, '/outreach');
+  });
 
-    // Coordinator page
-    await coordinatorPage.goto('/coordinator');
-    await coordinatorPage.waitForTimeout(2000);
-    const coordResults = await new AxeBuilder({ page: coordinatorPage })
-      .withRules(['color-contrast'])
-      .analyze();
-    expect(coordResults.violations, formatViolations(coordResults.violations)).toEqual([]);
+  test('light mode: admin page has zero contrast violations', async ({ adminPage }) => {
+    await assertColorContrastForPage(adminPage, '/admin');
+  });
+
+  test('light mode: coordinator page has zero contrast violations', async ({ coordinatorPage }) => {
+    await assertColorContrastForPage(coordinatorPage, '/coordinator');
   });
 
   test('dark mode: zero contrast violations on key pages', async ({ browser }) => {
