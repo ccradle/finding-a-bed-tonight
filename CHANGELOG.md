@@ -5,18 +5,41 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [v0.55.0] — UNRELEASED — transitional-reentry-support (slice 4)
+## [v0.55.0] — 2026-05-01 — transitional-reentry-support (slice 4) + reentry-release-readiness
 
-Backend JAR `0.54.0 -> 0.55.0`. Flyway HWM advances `V90 -> V95`
-(five migrations: V91 shelter_type + county + requires_verification_call
-+ CHECK constraint, V92 GIN index on `shelter_constraints.eligibility_criteria`,
-V93 reservation _encrypted columns + `tenant_dek.purpose` extension for
-`RESERVATION_PII`, V94 `features.reentryMode` config flag, V95 demo
-shelter seed expansion for dev-coc-east + dev-coc-west tenants — adds
-TRANSITIONAL/REENTRY_TRANSITIONAL/OVERFLOW shelters with realistic
-eligibility_criteria, county backfill on existing rows, active_counties
-in tenant config, and coordinator_assignment rows). No breaking API
-changes.
+Backend JAR `0.54.0 -> 0.55.0`. Flyway HWM advances `V90 -> V96`
+(six migrations, ground-truthed against `flyway_schema_history`):
+
+- **V91** `shelter_type_county_and_reentry_flag` — adds `shelter_type`
+  VARCHAR (default `EMERGENCY`) + indexed `county` VARCHAR to `shelter`,
+  backfills `shelter_type='DV'` for `dvShelter=true` rows, adds
+  `shelter_dv_implies_dv_type` CHECK constraint, and seeds the
+  `features.reentryMode` key (default `false`) into existing
+  `tenant.config` rows.
+- **V92** `eligibility_criteria_jsonb` — adds `eligibility_criteria`
+  JSONB column to `shelter_constraints` plus a GIN index for the
+  search-time evaluator path.
+- **V93** `reservation_pii_encrypted` — adds the three
+  `held_for_client_*_encrypted` columns to `reservation` and extends
+  `tenant_dek.purpose` to include `RESERVATION_PII` (purpose-keyed
+  per-tenant DEK family).
+- **V94** `shelter_requires_verification_call` — adds the
+  `requires_verification_call` BOOLEAN column to `shelter` (default
+  `false`); used by `AcceptsFeloniesEvaluator` branch (c) for the
+  any-null inclusion decision.
+- **V95** `seed_reentry_demo_shelters_east_west` — inserts demo
+  reentry shelters into `dev-coc-east` (Onslow Womens Reentry,
+  Beaufort Reentry Annex) and `dev-coc-west` (Henderson Reentry House)
+  with realistic `eligibility_criteria`, county values, and
+  coordinator_assignment rows.
+- **V96** `seed_third_reentry_shelter_east` — adds a third reentry
+  shelter to `dev-coc-east` to support the §7.1 reentry-06
+  empty-state capture path (TRANSITIONAL + Buncombe + accepts-felonies
+  → 0 results because Mountain View Transitional has no eligibility
+  data, triggering the §8/§9 H4 empty-state banner).
+
+No breaking API changes. All migrations are additive and forward-
+compatible with v0.54 backend code.
 
 ### Privacy / Security
 
