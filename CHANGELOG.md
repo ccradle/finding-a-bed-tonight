@@ -5,6 +5,144 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.55.1] — 2026-05-01 — v0.55.0 follow-up (ops-only release)
+
+**Release class: ops-only.** No DB migration. No backend image rebuild.
+Frontend bundle + static-content + test-suite + documentation only.
+Backend `0.55.0` JAR continues to run unchanged in production. Flyway
+HWM remains at `V96` (no new migrations).
+
+This release ships the v0.55.1 carryover items the
+`reentry-release-readiness` warroom (Round 5 consensus 2026-04-30)
+elected to defer out of v0.55.0.
+
+### Tests
+
+- **HMIS contract test (O1).** New `HmisPushContractTest.java` asserts
+  hold-attribution PII columns (`held_for_client_name_encrypted`,
+  `held_for_client_dob_encrypted`, `hold_notes_encrypted`) and PII field
+  names (`heldForClient*`, `clientName`, `clientDob`, `holdNotes`)
+  are absent from HMIS push payloads regardless of the tenant
+  `features.reentryMode` flag state. Closes the warroom-flagged gap that
+  doc claims (`hmisindex.html`, AsyncAPI scope sentence) had no
+  automated assertion behind them.
+- **Screen-reader probe scope-fix (T1).** `screen-reader.spec.ts:65`
+  ("freshness badges announce status text") now scopes the virtual
+  screen-reader probe to the search-results region landmark via a
+  tiered selector (`[data-testid="search-results-region"]` →
+  `[role="region"][aria-label]` → `<main>` → body) and asserts ≥3
+  distinct freshness-badge announcements (was ≥1). The §10 page
+  expansion (shelter-type chips + county dropdown + advanced-filters +
+  accepts-felonies toggle) had pushed the badges past the prior
+  100-step probe window. Scoping to the results region also better
+  reflects how AT users navigate — by landmark, not sequentially
+  through filters.
+- **WCAG VPAT verification split (T2).** `wcag-vpat-verification.spec.ts`
+  single 3-page color-contrast test split into 3 per-page tests
+  (outreach + admin + coordinator) via the extracted
+  `assertColorContrastForPage(page, pagePath)` helper. Each test fits
+  the 30s budget and produces cleaner per-page failure attribution.
+
+### Frontend
+
+- **Search-results landmark (B1).** `OutreachSearch.tsx` results map is
+  now wrapped in `<div role="region" aria-label={search.resultsRegion}
+  data-testid="search-results-region">`. Adds a navigable landmark for
+  screen-reader users (aligns with WAI-ARIA APG region pattern) and
+  provides the stable `data-testid` for the T1 probe scoping. New i18n
+  key `search.resultsRegion` ("Search results" / "Resultados de
+  búsqueda").
+
+### Localization
+
+- **Spanish review revisions (D2 — partial).** Three reentry keys
+  revised based on AI-synthetic linguistic review with web-citation
+  grounding:
+  - `hold.help.clientDob`: `solo` → `únicamente` (formal register more
+    appropriate for a privacy/legal disclosure).
+  - `hold.help.notes`: `del navegador` → `del navegador de servicios`
+    (clarifies role; bare `navegador` more naturally reads as a web
+    browser in service-delivery contexts).
+  - `shelter.eligibility.notes.help`: `extensión` → `alcance comunitario`
+    (closer to the `community outreach` source meaning; `extensión`
+    is more typical of agricultural-extension contexts).
+- One key (`hold.help.clientName`'s `navegador de servicios`)
+  flagged borderline for future native-speaker review (see Truthfulness
+  disclosure below). Web search surfaced `navegador de pacientes`,
+  `enlace comunitario`, and `asesor` as stronger pan-Latin alternatives.
+  Re-revising on uncertain ground compounds error, so the flag rolls
+  forward to v0.55.2+ as an option (not a gate).
+
+### Documentation / Demo polish
+
+- **Demo capture script (D3).** `demo/capture.sh` now enumerates all
+  10 capture specs explicitly in a canonical array, accepts a
+  positional filter argument (run only matching specs), defaults
+  `BASE_URL=http://localhost:8081` (nginx), and adds `--nginx` health
+  check guidance.
+- **Dark-mode screenshots (S1).** Re-captured `dark-search.png`,
+  `dark-admin.png`, and `dark-coordinator.png` against the post-§11
+  hold-dialog reshape and §16.C frontend reentry-mode gates.
+
+### Accessibility
+
+- **Walkthrough semantic markup (S2).** `demo/dvindex.html` 7
+  `<div class="card">` walkthrough steps promoted to `<li class="card">`
+  wrapped in 3 `<ol class="walkthrough-steps" role="list" start="N">`
+  blocks (W3C HTML spec + MDN: numbered procedural steps are an
+  ordered list, not `<article>` content). Adds list-style CSS reset
+  to keep the existing card visual treatment.
+
+### Truthfulness disclosure
+
+This release contains a Spanish localization review pass that was
+performed by an AI assistant (Claude playing the synthetic "Maria"
+linguistic-review persona, with web-search-grounded research and
+per-key citations to RAE / Linguee / formal-register guidance), **NOT
+by a native Spanish speaker**. The review applied an 8-dimension
+analytical framework (formal register fit, role-noun precision,
+preposition naturalness, dialectal neutrality, technical-vs-everyday
+register, ambiguity, idiomatic strength, source-meaning fidelity) to
+each of the 5 reentry keys, revised 3 keys, and flagged 1 key as
+borderline pending future native-speaker review. The audit document
+(`openspec/changes/archive/2026-05-01-v0-55-1-followup/audit/synthetic-maria-pass.md`)
+contains per-key reasoning and citations. AI-synthetic linguistic
+review is functionally useful for catching obvious word-choice issues
+but is NOT equivalent to real-native review for nuance, regional
+register, or community-specific terminology. The remaining 5 reentry
+keys plus the revised 3 should receive a real-native-speaker review
+pass when one becomes available. Tracked in
+`project_v055_1_backlog.md` D2 as an option (not a gate) for v0.55.2+.
+
+### Deploy notes
+
+- Single-service force-recreate: only `fabt-frontend` was rebuilt and
+  recreated on the VM (Created 2026-05-01 ~20:49 UTC). Backend,
+  postgres, and observability stack untouched.
+- Static-content scp: 1 HTML (`demo/dvindex.html` for S2) + 3 PNG
+  (`dark-*.png` for S1) to `/var/www/findabed-docs/`.
+- Cloudflare Purge Everything executed by operator post-deploy
+  (1-2 min refill).
+- Smoke gate: 14/15 pass + 1 retry-success on test 14 (Pamlico Sound
+  admin tenant-scoped login — known prod rate-limit flake; not a
+  v0.55.1 regression).
+
+### Known carryover (v0.55.2+)
+
+- Real-native-speaker Spanish review pass on the 5 reentry keys
+  (option, not gate)
+- §13.D detail-endpoint refinement (defer until opt-in tenant
+  accumulates read-traffic patterns warranting it)
+- §11.5a mobile + a11y multi-viewport Playwright (significant separate
+  scope)
+- §13.C.3 >10K-row purge load-style test (Testcontainers volume cost)
+- §13.A.4 audit-attribution refinement (optional; design-correct as-is)
+- 7-test pre-existing flake long-tail triage
+- `<div class="section-divider">` → `<h2>` on `demo/index.html`
+  (lower-priority semantic-markup cleanup)
+
+---
+
 ## [v0.55.0] — 2026-05-01 — transitional-reentry-support (slice 4) + reentry-release-readiness
 
 Backend JAR `0.54.0 -> 0.55.0`. Flyway HWM advances `V90 -> V96`
