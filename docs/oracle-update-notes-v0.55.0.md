@@ -110,7 +110,7 @@ consulted:
 
 ## 2. Scope & Non-Scope
 
-**Deploying:** v0.55.0 — transitional-reentry-support slice 4 (search filters, eligibility display + edit, coordinator hold dialog with PII purge, admin reservation settings panel, V91-V95 schema work + V95 demo seed expansion).
+**Deploying:** v0.55.0 — transitional-reentry-support slice 4 (search filters, eligibility display + edit, coordinator hold dialog with PII purge, admin reservation settings panel, V91-V96 schema work + V95 demo seed expansion).
 
 **From:** `v0.54.0` live at `findabed.org`. Confirm current via:
 
@@ -165,7 +165,7 @@ curl -s https://findabed.org/api/v1/version
 
 | Service (prod container_name) | What triggers recreate | Changed? | Recreate required? |
 |---|---|---|---|
-| `fabt-backend` | New JAR (0.55.0) + new V91-V95 migrations + new endpoints | Yes | Yes |
+| `fabt-backend` | New JAR (0.55.0) + new V91-V96 migrations + new endpoints | Yes | Yes |
 | `fabt-frontend` | New bundle (reentry components + JsonString wire-format fix) | Yes | Yes |
 | `finding-a-bed-tonight-postgres-1` | `fabt-pgaudit:v0.45.0` image unchanged; pgaudit.conf unchanged | No | No |
 | `finding-a-bed-tonight-prometheus-1` | No new rules file in `deploy/prometheus/`; no compose-file edit; no inode change | No | No |
@@ -234,11 +234,15 @@ restart needed after copying. Static deploys safely before the backend
 swap because the new HTML/PNG is content-only (no API contract change);
 the v0.54 backend serves it just fine until §5.6 swaps the image.
 
-v0.55 ships **30 stale-or-new files** (12 HTML + 18 PNG): the §6 demo
+v0.55 ships **58 stale-or-new files** (12 HTML + 46 PNG): the §6 demo
 audit fixes (2 BLOCKERs + 4 HIGHs + 7 MEDIUMs across 10 demo HTML files
 + root index.html), the new `demo/reentry-story.html` capability deep-
-dive, and 18 screenshots (12 re-captured to align with §10/§11/§16
-surfaces + 6 NEW reentry walkthrough captures).
+dive, and 46 screenshots — **40 broader v0.55 refresh** (re-captured
+against v0.55 surfaces per the 2026-05-01 screenshot deploy warroom)
+**+ 6 NEW reentry walkthrough captures**. The 9 originally-blocked PNGs
+(13/22/dv-04/05/07/dark-quartet/09) were re-captured against a clean DB
+on 2026-05-01 with patched capture-spec navigation logic and visually
+verified pre-commit; see `docs/audits/2026-05-01-screenshot-deploy-warroom/warroom.md`.
 
 ```bash
 # From your local Windows / Git Bash machine. FABT_VM_IP is set
@@ -335,23 +339,34 @@ ssh -i ~/.ssh/fabt-oracle ubuntu@${FABT_VM_IP} "
   ls -la /var/www/findabed-docs/index.html
   echo '=== 11 demo HTML ==='
   ls -la /var/www/findabed-docs/demo/{dvindex,for-cities,for-coc-admins,for-coordinators,for-funders,hmisindex,index,outreach-one-pager,pitch-briefs,reentry-story,shelter-onboarding}.html
-  echo '=== 18 screenshots ==='
-  ls -la /var/www/findabed-docs/demo/screenshots/{02,03,04,05,11,13,20,21,22,23,24,25}-*.png /var/www/findabed-docs/demo/screenshots/reentry-{01,02,03,04,05,06}-*.png
+  echo '=== screenshot count (expect 62 PNGs total = 56 pre-deploy + 6 NEW reentry) ==='
+  find /var/www/findabed-docs/demo/screenshots/ -maxdepth 1 -type f -name '*.png' | wc -l
+  echo '=== broader v0.55 refresh + 6 NEW reentry-* ==='
+  ls -la /var/www/findabed-docs/demo/screenshots/{01,02,03,04,05,06,07,08,09,10,11,12,13,14,15,16,19,20,21,22,23,24,25,26}-*.png \\
+        /var/www/findabed-docs/demo/screenshots/analytics-{01,02,03,04,05}-*.png \\
+        /var/www/findabed-docs/demo/screenshots/dark-{admin,coordinator,login,search}.png \\
+        /var/www/findabed-docs/demo/screenshots/dv-{01,02,03,04,05,06,07}-*.png \\
+        /var/www/findabed-docs/demo/screenshots/hmis-{01,02,03}-*.png \\
+        /var/www/findabed-docs/demo/screenshots/notif-{01,02,03}-*.png \\
+        /var/www/findabed-docs/demo/screenshots/reentry-{01,02,03,04,05,06}-*.png \\
+        2>&1 | wc -l
 "
 # Expected:
-#   reentry-story.html ~18376 bytes (NEW; previously 404 → SPA fallback)
+#   reentry-story.html exactly 18376 bytes (NEW; previously 404 → SPA fallback)
 #   reentry-*.png 6 files present (NEW)
-#   for-funders.html size up vs v0.53 (BLOCKER-FND-1 fix added text)
-#   for-coc-admins.html size up vs v0.53 (BLOCKER-COC-1 + HIGH-COC-2 added ~250 words)
+#   for-funders.html ~16190 bytes (BLOCKER-FND-1 + HIGH-FND-2/3 added text)
+#   for-coc-admins.html ~18772 bytes (BLOCKER-COC-1 + HIGH-COC-2 + truthfulness rewrites)
+#   screenshot count = 62 (56 pre-existing + 6 NEW reentry)
+#   ls listing wc = 46 (40 modified-and-redeployed + 6 NEW reentry)
 ```
 
 **No nginx reload required** — static content read per-request. Cloudflare
 caches HTML + PNG aggressively, so a CDN purge is required after scp:
 - Cloudflare → findabed.org → Caching → Configuration → Purge Cached Content
 - Choose **Purge Everything** (1-2 min refill from origin; broader hammer
-  but simpler than enumerating 12 URLs)
+  but simpler than enumerating 40+ URLs)
 - Verify: `curl -sf -w "%{size_download}\n" -o /dev/null https://findabed.org/demo/reentry-story.html`
-  should return ~18376 bytes (NOT 592 — that's the SPA fallback shell)
+  should return exactly 18376 bytes (NOT 592 — that's the SPA fallback shell)
 
 Per `feedback_stale_sw_on_deploy.md`: SPA SW caches `/login` and `/outreach`
 React routes but NOT `/demo/*.html` (nginx serves those as real files
@@ -386,12 +401,13 @@ git log --oneline -1
 ls -1 infra/docker/Dockerfile.backend infra/docker/Dockerfile.frontend
 # Expected: both present.
 
-ls -1 backend/src/main/resources/db/migration/V9{1,2,3,4,5}__*.sql
+ls -1 backend/src/main/resources/db/migration/V9{1,2,3,4,5,6}__*.sql
 # Expected: V91 shelter_type_county_and_reentry_flag,
 #           V92 eligibility_criteria_jsonb,
 #           V93 reservation_pii_encrypted,
 #           V94 shelter_requires_verification_call,
-#           V95 seed_reentry_demo_shelters_east_west.
+#           V95 seed_reentry_demo_shelters_east_west,
+#           V96 seed_third_reentry_shelter_east.
 ```
 
 ### 4. Backend rebuild (clean + no-cache)
@@ -451,8 +467,9 @@ done
 # docker logs fabt-backend --tail 200
 
 docker exec finding-a-bed-tonight-postgres-1 psql -U fabt -d fabt -tAc \
-    "SELECT version, description, success FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 6;"
-# Expected top 5 rows in descending order:
+    "SELECT version, description, success FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 7;"
+# Expected top 6 rows in descending order:
+#   V96 | seed third reentry shelter east                 | t
 #   V95 | seed reentry demo shelters east west            | t
 #   V94 | shelter requires verification call              | t
 #   V93 | reservation pii encrypted                       | t
@@ -780,15 +797,15 @@ before proceeding to §15 demo flow walkthroughs.
 | Symptom | Action | Time to recover |
 |---|---|---|
 | Backend won't start (Flyway validate error) | Never modify applied migrations. Read `docker logs fabt-backend --tail 200` for Flyway specifics first. If a migration broke partway, full DB rollback is the safe path: `docker exec -i finding-a-bed-tonight-postgres-1 pg_restore -U fabt -d fabt --clean --if-exists < ~/fabt-backups/fabt-pre-v0.55.0-<TIMESTAMP>.dump`, then `docker tag fabt-backend:v0.54.0-lastgood fabt-backend:latest && docker compose "${COMPOSE_CHAIN[@]}" up -d --force-recreate backend`. | ~15 min |
-| Backend JAR fails for non-Flyway reasons (NPE on boot, bean wiring) | Image-only rollback. V91-V95 stay applied — they are forward-compatible (additive columns + JSONB index + nullable `_encrypted` columns + tenant-config JSON keys are all ignored by v0.54 code). `docker tag fabt-backend:v0.54.0-lastgood fabt-backend:latest && docker compose "${COMPOSE_CHAIN[@]}" up -d --force-recreate backend`. | ~5 min |
+| Backend JAR fails for non-Flyway reasons (NPE on boot, bean wiring) | Image-only rollback. V91-V96 stay applied — they are forward-compatible (additive columns + JSONB index + nullable `_encrypted` columns + tenant-config JSON keys are all ignored by v0.54 code). `docker tag fabt-backend:v0.54.0-lastgood fabt-backend:latest && docker compose "${COMPOSE_CHAIN[@]}" up -d --force-recreate backend`. | ~5 min |
 | New endpoints return 5xx in steady state | Image-only rollback per row above. The new endpoints disappear; existing tenant flow is unaffected. | ~5 min |
 | Frontend reentry surface broken or visually wrong | Frontend image-only rollback: `docker tag fabt-frontend:v0.54.0-lastgood fabt-frontend:latest && docker compose "${COMPOSE_CHAIN[@]}" up -d --force-recreate frontend`. The backend keeps running with the new JAR; reentry-mode UI surfaces are inaccessible until you rebuild the v0.55 frontend. | ~3 min |
 | Host nginx 502 after backend recreate | Frontend docker-network is stale — recreate frontend too. (Standard remediation per template.) | ~3 min |
 | Frontend serving stale JS post-deploy | Old service worker cached the bundle. Use incognito or clear site data. (`feedback_stale_sw_on_deploy.md`.) | <1 min |
-| Full rollback to v0.54 | `docker tag fabt-backend:v0.54.0-lastgood fabt-backend:latest && docker tag fabt-frontend:v0.54.0-lastgood fabt-frontend:latest && docker compose "${COMPOSE_CHAIN[@]}" up -d --force-recreate backend frontend`. **V91-V95 are NOT rolled back** — they are additive and forward-compatible with v0.54 backend. | ~6 min |
+| Full rollback to v0.54 | `docker tag fabt-backend:v0.54.0-lastgood fabt-backend:latest && docker tag fabt-frontend:v0.54.0-lastgood fabt-frontend:latest && docker compose "${COMPOSE_CHAIN[@]}" up -d --force-recreate backend frontend`. **V91-V96 are NOT rolled back** — they are additive and forward-compatible with v0.54 backend. | ~6 min |
 | V93 `_encrypted` column writes failed (DEK key missing) | Read `docker logs fabt-backend --tail 200` for `RESERVATION_PII` key-purpose errors. The new purpose extends `tenant_dek.purpose`. If DEK provisioning failed, image rollback (above) is fastest. The `_encrypted` columns are nullable, so v0.54 reads of v0.55-written rows ignore them. | ~5 min |
 
-> **V91-V95 are one-way migrations.** They are additive (columns,
+> **V91-V96 are one-way migrations.** They are additive (columns,
 > indexes, CHECK, JSON keys, seed rows) and coexist safely with v0.54
 > code which never reads or writes them. Rolling back the JAR rolls
 > back the calls, not the schema. Full DB rollback via `pg_restore`
