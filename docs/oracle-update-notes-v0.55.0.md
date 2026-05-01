@@ -601,19 +601,20 @@ on data-at-rest. It is a UI/API serialization toggle exclusively.
 
 The hold-attribution PII columns added in V93 (`held_for_client_name_encrypted`, `held_for_client_dob_encrypted`, `hold_notes_encrypted` on `reservation`) are erased no later than 25 hours after a reservation reaches a terminal status. Implementation: `ReservationService.purgeExpiredHoldAttribution(Instant)` invoked by `ReferralTokenPurgeService.purgeExpiredHoldAttribution()` on a `@Scheduled(fixedDelay=900_000)` (15 minutes — worst-case PII lifetime is 24h+15m). Verify post-deploy:
 
-**1) Confirm the `@Scheduled` purge bean is registered in the running backend.** If actuator scheduledtasks endpoint is exposed:
+**1) Confirm the `@Scheduled` purge bean is registered in the running backend.** First check whether `actuator/scheduledtasks` is exposed in this deploy — `management.endpoints.web.exposure.include` does not include `scheduledtasks` in the default v0.55 management config, so a 404 here is **expected, not a failure**. If 404, skip to the log-parse fallback immediately below. If the endpoint is exposed:
 
 ```bash
 curl -fsS http://localhost:9091/actuator/scheduledtasks 2>&1 \
   | python3 -m json.tool \
   | grep -A2 -E "purgeExpiredHoldAttribution|purgeTerminalTokens"
-# Expected: two scheduled tasks visible — purgeTerminalTokens (DV referral
-# tokens, 1h fixedRate) and purgeExpiredHoldAttribution (hold-attribution
-# PII, 15m fixedDelay). If missing, the @Scheduled bean did not register —
-# stop and investigate before tagging.
+# Expected (when exposed): two scheduled tasks visible —
+# purgeTerminalTokens (DV referral tokens, 1h fixedRate) and
+# purgeExpiredHoldAttribution (hold-attribution PII, 15m fixedDelay).
+# Expected (when NOT exposed): HTTP 404 — fall through to log-parse below.
+# Only treat as failure if exposed AND a task is missing from the JSON.
 ```
 
-If actuator scheduledtasks is not exposed, log-parse fallback (preferred for v0.55):
+Log-parse fallback (preferred for v0.55, and required when actuator/scheduledtasks is not exposed):
 
 ```bash
 docker logs fabt-backend --since 30m 2>&1 | grep "purgeExpiredHoldAttribution"
@@ -644,6 +645,8 @@ LIMIT 5;"
 # with un-nulled ciphertext). Any row returned is a 25h SLA violation —
 # stop the deploy, capture the row IDs, surface in chat.
 ```
+
+**First-run waiver:** on a fresh v0.55 deploy, the candidate set this query measures (terminal-status reservations whose hold ended >25h ago AND still have un-nulled ciphertext) is naturally empty — there has not been time for any v0.55 hold-attribution row to age past the 25h SLA. **0 rows in this case confirms the invariant, not the purge execution path.** The first real exercise of the purge fires ~25h after the first navigator records optional hold attribution post-deploy. Schedule a re-run of this probe ~26-30h after the first reentry-mode hold lands, and capture the result in the deploy log; until then, rely on step 1's log-parse output (a `purged=N` line every ~15 min) as the running confirmation that the bean is firing.
 
 **3) Confirm the purge audit-event lifecycle.** v0.55 emits audit events for hold-attribution PII writes, decrypt-on-read (throttled), and purges:
 

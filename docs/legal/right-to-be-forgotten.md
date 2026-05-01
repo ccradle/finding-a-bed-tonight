@@ -28,7 +28,7 @@ The FABT project does NOT take a position on GDPR (EU/EEA), CCPA/CPRA (Californi
 - The deployment owner's role (covered entity, business associate, data controller, processor)
 - The intended use case (DV referral, reentry navigation, hospital discharge, etc.)
 
-The platform is *designed to support* a deployment owner who needs to respond to such requests; it does not represent itself as compliant with any specific framework absent independent certification.
+The platform is *designed to support* a deployment owner who needs to respond to such requests; it does not represent itself as conforming to any specific framework absent independent certification.
 
 ## 4. Deployment-owner runbook — handling a deletion request
 
