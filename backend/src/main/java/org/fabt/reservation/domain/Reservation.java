@@ -24,8 +24,9 @@ public class Reservation {
      * task 3.5, V93 columns). Plaintext at the entity layer — the
      * {@link org.fabt.reservation.repository.ReservationRepository} row
      * mapper decrypts {@code held_for_client_name_encrypted} into this
-     * field on read; the insert path encrypts on write. Plaintext is
-     * never persisted to disk.
+     * field on read; the insert path encrypts on write. The persisted
+     * column holds ciphertext; plaintext is held in this in-memory field
+     * only for the duration of the request that read or wrote it.
      *
      * <p>Note: this differs from the {@code app_user.totpSecretEncrypted}
      * precedent (which holds the encrypted form at the entity layer and
@@ -36,7 +37,8 @@ public class Reservation {
      *
      * <p>Nullable. May contain names + contact info of supervision officers
      * per design D4 (warroom Casey input). Spring Batch purges the
-     * underlying ciphertext column 24h after reservation resolution.
+     * underlying ciphertext column no later than 25 hours after
+     * reservation resolution (per design D10).
      */
     private String heldForClientName;
 
@@ -52,8 +54,8 @@ public class Reservation {
      * Free-text coordination notes from navigator to shelter coordinator
      * (transitional-reentry-support task 3.5, V93 column). Plaintext at the
      * entity layer; max 500 chars per UI / 1000 chars per server validation
-     * (open question #1 resolution). NOT a permanent record — purged 24h
-     * post-resolution per design D4. Nullable.
+     * (open question #1 resolution). NOT a permanent record — purged no
+     * later than 25 hours post-resolution per design D10. Nullable.
      */
     private String holdNotes;
 

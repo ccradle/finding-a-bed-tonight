@@ -683,7 +683,15 @@ export function OutreachSearch() {
           non-dvAccess user filtering by DV would get an empty result via RLS,
           which is confusing UX. Hide the option entirely.
           acceptsFelonies + empty-state banner per warroom H3+H4 fold the
-          spec-gap filter and §17.M1 carryover into one commit. */}
+          spec-gap filter and §17.M1 carryover into one commit.
+          Round 5 §16.C.2 — entire advanced-filters surface is gated on
+          features.reentryMode. The county / shelterType / accepts-felonies
+          filters are reentry-specific affordances; tenants without the
+          flag see the legacy population-type / pets-allowed / wheelchair
+          filters above this block, but not these.
+       */}
+      {user?.reentryMode && (
+      <section data-testid="reentry-advanced-filters">
       <details
         data-testid="advanced-filters"
         open
@@ -807,6 +815,8 @@ export function OutreachSearch() {
           </div>
         </div>
       </details>
+      </section>
+      )}
 
       {/* Count */}
       <div style={{ fontSize: text.sm, color: color.textTertiary, marginBottom: 10, fontWeight: weight.semibold, letterSpacing: '0.02em' }}>
@@ -822,7 +832,7 @@ export function OutreachSearch() {
           operator misreads "no shelters accept" instead of "we have no
           data on most shelters." Casey re-review pending on the string
           (i18n-legal-review-strings.md). */}
-      {!loading && acceptsFelonies && filtered.length === 0 && (
+      {!loading && user?.reentryMode && acceptsFelonies && filtered.length === 0 && (
         <div
           data-testid="accepts-felonies-empty-banner"
           role="note"

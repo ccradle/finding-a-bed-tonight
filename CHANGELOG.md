@@ -18,6 +18,12 @@ eligibility_criteria, county backfill on existing rows, active_counties
 in tenant config, and coordinator_assignment rows). No breaking API
 changes.
 
+### Privacy / Security
+
+v0.55 introduces an **opt-in** PII collection capability on non-DV navigator holds. When a navigator places a third-party hold, they may optionally enter a client name, date of birth, and free-text notes — used by the shelter coordinator to identify the client at intake. These three fields are encrypted at rest with a per-tenant data-encryption key (`tenant_dek.purpose='RESERVATION_PII'`, V93) and erased automatically **no later than 25 hours** after the hold reaches a terminal status (CANCELLED / CONFIRMED / EXPIRED). The DV referral path is unchanged and continues to use the opaque-token zero-PII model — the V91 `shelter_dv_implies_dv_type` CHECK constraint enforces structural separation. Operators evaluating v0.55 should review the updated `docs/government-adoption-guide.md` and `docs/hospital-privacy-summary.md` (two-column data-path table) before exposing the new capability to navigators. The Prometheus metric proving the 25-hour purge SLA at scale is **not yet wired** in v0.55 (tracked for v0.56, target Q2-2026); operator log-parse + audit-event-count fallback is documented in `docs/security/compliance-posture-matrix.md` "Hold-attribution PII (v0.55+)" section and `docs/oracle-update-notes-v0.55.0.md` §6.5.
+
+Reentry-specific UI (advanced filters, eligibility section, hold-attribution PII fields, coordinator dashboard PII display) is now gated behind the `features.reentryMode` tenant configuration flag; default off. Tenants must affirmatively opt in by setting `tenant.config.features.reentryMode = true`. The gate has two layers: (a) the API serialization layer strips the three PII fields from `ReservationResponse` for tenants without the flag (defense-in-depth — even a frontend regression cannot leak PII over the API), and (b) four frontend conditional renders hide the reentry surfaces (UX polish). Token-TTL caveat: flag changes propagate at the next access-token refresh (15-min bound), not instantly. See `docs/operations/reentry-mode-user-guide.md` §1 for operator guidance and `openspec/changes/reentry-release-readiness/design.md` D14 for the design rationale.
+
 ### Added
 
 - **Shelter type taxonomy.** New `shelter_type` column on `shelter`

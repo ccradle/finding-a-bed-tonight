@@ -92,6 +92,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         UUID userId = null;
         UUID tenantId = null;
         boolean dvAccess = false;
+        boolean reentryMode = false;
 
         try {
             JwtService.JwtClaims claims = jwtService.validateToken(token);
@@ -150,6 +151,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             userId = claims.userId();
             tenantId = claims.tenantId();
             dvAccess = claims.dvAccess();
+            reentryMode = claims.reentryMode();
 
         } catch (Exception e) {
             log.debug("JWT authentication failed: {}", e.getMessage());
@@ -158,7 +160,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         if (tenantId != null) {
             try {
-                TenantContext.callWithContext(tenantId, userId, dvAccess, () -> {
+                TenantContext.callWithContext(tenantId, userId, dvAccess, reentryMode, () -> {
                     filterChain.doFilter(request, response);
                     return null;
                 });

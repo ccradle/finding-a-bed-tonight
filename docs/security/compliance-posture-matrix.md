@@ -102,12 +102,7 @@ investigator MUST cross-reference:
   reaches `SYSTEM_TENANT_ID` fallback (D55). Rate-limited by
   `DuplicateMessageFilter`.
 
-**For right-to-be-forgotten (VAWA-FVPSA).** Under crypto-shred
-(Phase F hard-delete), a tenant's `tenant_key_material` is deleted;
-the tenant's existing audit rows remain but their encrypted-JSONB
-details fields become undecryptable, effectively redacted. The row
-itself is preserved for aggregate-query purposes (e.g., platform-wide
-deletion rate). This is documented in design `docs/legal/right-to-be-forgotten.md`.
+**For right-to-be-forgotten (VAWA-FVPSA, GDPR Art. 17, CCPA §1798.105, etc.).** Under crypto-shred (Phase F hard-delete), a tenant's `tenant_key_material` is deleted; the tenant's existing audit rows remain but their encrypted-JSONB details fields become undecryptable, effectively redacted. The row itself is preserved for aggregate-query purposes (e.g., platform-wide deletion rate). The full deployment-owner posture — automated retention vs ad-hoc deletion distinction, jurisdictional-scope deferrals, and a step-by-step deletion-request runbook with the SQL queries that enumerate a subject's data — is documented at `docs/legal/right-to-be-forgotten.md` (authored 2026-04-30 as part of `reentry-release-readiness`).
 
 ## `fabt.rls.tenant_context.empty.count` — noise-floor characterization
 
@@ -227,6 +222,75 @@ Tracked for Phase F in `openspec/changes/multi-tenant-production-readiness/tasks
    perms; `feedback_no_ip_in_repo.md` discipline keeps no secrets
    in git.
 
+## Hold-attribution PII (v0.55+, transitional-reentry-support)
+
+### What the columns are
+
+v0.55 adds three nullable encrypted columns to `reservation` (V93):
+
+- `held_for_client_name_encrypted` — base64 v1 envelope of the client name a navigator entered for shelter check-in coordination
+- `held_for_client_dob_encrypted` — base64 v1 envelope of the client DOB (ISO-8601)
+- `hold_notes_encrypted` — base64 v1 envelope of operator-supplied free-text notes (server max 1000 chars; UI cap 500)
+
+Encryption uses `SecretEncryptionService.encryptForTenant(KeyPurpose.RESERVATION_PII)` — a per-tenant DEK separate from the existing per-purpose DEKs (JWT_SIGN, TOTP, WEBHOOK_SECRET, OAUTH2_CLIENT_SECRET, HMIS_API_KEY). V93 extends `tenant_dek.purpose` with the new value.
+
+### Path scoping (structural separation from DV)
+
+The optional hold-attribution fields are available only on the **non-DV navigator-hold path**. The V91 CHECK constraint `shelter_dv_implies_dv_type` (`dv_shelter = false OR shelter_type = 'DV'`) ensures DV-flagged inventory cannot be reached via the navigator-hold flow. The DV referral path continues to use the opaque-token zero-PII model unchanged.
+
+### Purge contract
+
+Hold-attribution ciphertext SHALL be erased **no later than 25 hours** after a reservation reaches a terminal status (CANCELLED / CONFIRMED / EXPIRED / CANCELLED_SHELTER_DEACTIVATED) or 25 hours past `expires_at`. Implementation: `ReservationService.purgeExpiredHoldAttribution(Instant)` invoked by `ReferralTokenPurgeService.purgeExpiredHoldAttribution()` on a `@Scheduled(fixedDelay=900_000)` (15 minutes) — worst-case PII lifetime is 24h+15m. Two-layer crypto-shred posture: (a) at-rest defense via `tenant_dek` rotation/hard-delete, (b) row-level null on the bounded UPDATE.
+
+### What survives the purge
+
+- The reservation row itself (sans ciphertext) — operational and analytical metadata is preserved
+- Audit trail: the row's creation, status transitions, and decryption-on-read events live in `audit_events` with the reservation_id as a join key (no plaintext in audit payloads — see `RESERVATION_HELD_FOR_CLIENT_RECORDED` / `RESERVATION_PII_DECRYPTED_ON_READ` / `RESERVATION_PII_PURGED` audit event types under "audit_events" above)
+- `tenant_dek` row for the `RESERVATION_PII` purpose remains until the tenant is hard-deleted (Phase F-6)
+
+### What does NOT leave the server
+
+Hold-attribution PII is **NEVER** published to HMIS, AsyncAPI, OAuth2 webhooks, or any external system by design. The only consumer is the authenticated REST detail-view endpoint (`GET /api/v1/reservations/{id}/detail`, per design D12) which decrypts under audit. List-view endpoints return PII fields as `null` regardless of underlying ciphertext.
+
+### Tenant opt-in gate (v0.55 §16.B)
+
+The three hold-attribution PII fields (`heldForClientName`, `heldForClientDob`, `holdNotes`) are only surfaced via the API for tenants that have **affirmatively opted in** by setting `tenant.config.features.reentryMode = true`. Default tenant configuration does NOT surface these fields. The gate is a serialization-time control in `ReservationResponse.from()`: it nulls the three fields in every response unless the request scope's `TenantContext.getReentryMode()` (sourced from the JWT `reentryMode` claim) is `true`. Even if a frontend regression rendered the fields, the API would not return their values. Combined with the four §16.C frontend conditional renders, this is defense-in-depth for tenant data segmentation: a CoC that has not opted in to reentry will neither display nor receive these PII fields, regardless of whether their tenant has any reservations carrying ciphertext.
+
+### Purge SLA — operational signal (v0.55 honest gap)
+
+The 25-hour purge claim is the contract. The operational signal that proves the claim is **not yet wired in v0.55**:
+
+| Signal | Status (v0.55) | Tracked for |
+|---|---|---|
+| `fabt.reservation.pii_purge.success.count` (Prometheus counter) | NOT WIRED | v0.56, target Q2-2026 |
+| `fabt.reservation.pii_purge.lag_seconds` (Prometheus histogram) | NOT WIRED | v0.56, target Q2-2026 |
+| `fabt.reservation.pii_purge.failure.count > 0 for 5m` (Alertmanager rule) | NOT WIRED | v0.56, target Q2-2026 |
+
+This is a known `feedback_truthfulness_above_all` disclosure: the public 25h claim is contractually stronger than the production observability evidence. v0.55 closes the gap structurally (the purge job runs, emits an `INFO` log line on success, and writes a `RESERVATION_PII_PURGED` audit row per scheduled invocation) but does NOT yet emit the metric. Operators can verify the claim manually via `audit_events` queries and the operator runbook §6.5 (`docs/oracle-update-notes-v0.55.0.md`).
+
+**Operator log-parse fallback (v0.55):** the purge service writes one `INFO` log line per scheduled invocation with `purgedCount={n}` (`ReferralTokenPurgeService.purgeExpiredHoldAttribution`). On the live VM:
+
+```bash
+docker logs fabt-backend --since 26h 2>&1 | grep "purgeExpiredHoldAttribution: purged="
+```
+
+A line every ~15 minutes confirms the schedule fired. A 25h+ gap with no line is the exception condition the future alert will catch.
+
+When the alert wires up, it MUST include a traffic-floor guard per `feedback_demotier_alert_traffic_floor.md` to avoid false positives on demo-tier sparse-traffic windows.
+
+### Companion docs deferred to v0.56
+
+Three additional docs the public PII posture would normally reference are also deferred:
+
+| Doc | Status | Tracked for |
+|---|---|---|
+| `docs/security/dek-rotation-policy.md` | NOT AUTHORED | v0.56, target Q2-2026 |
+| `docs/security/threat-model.md` (STRIDE-lite, ~1500 words) | NOT AUTHORED | v0.56, target Q2-2026 |
+| `docs/security/zap-v0.55-baseline.md` | NOT RUN | v0.56, target Q2-2026 (depends on dev-stack uptime) |
+| `docs/security/audit-event-catalog.md` (full enum enumeration) | NOT AUTHORED | v0.56, target Q3-2026 |
+
+This matrix is the canonical landing zone for a city-attorney pre-procurement review; honest disclosure of these gaps is the v0.55 posture. None of the gaps falsify the 25h purge claim — they document the surrounding evidence framework that's still being built.
+
 ## Change log
 
 | Date       | Change                                                                  | Driver                                       |
@@ -235,3 +299,4 @@ Tracked for Phase F in `openspec/changes/multi-tenant-production-readiness/tasks
 | 2026-04-17 | BED_HOLDS_RECONCILED audit attribution — per-tenant, not platform-wide. | Phase B warroom W-B-FIXB-1.                  |
 | 2026-04-18 | `tenant_context.empty` noise-floor characterized; alert threshold flap risk documented; Phase C task filed. | v0.43.1 live rehearsal warroom (Riley + Marcus + Casey). |
 | 2026-04-21 | Alerting-tier posture section added (demo-tier vs regulated-tier upgrade path). Retires the prior "Phase C MUST complete Alertmanager routing" future-work flag — v0.49 ships Alertmanager wiring. | v0.49 release-prep audit (Jordan + Marcus + Casey). |
+| 2026-04-30 | Hold-attribution PII (v0.55) section added: V93 `_encrypted` columns, RESERVATION_PII per-tenant DEK, 25-hour purge contract, structural DV separation via V91 CHECK, audit-event types, purge-SLA operational-signal honest-gap disclosure (metric not yet wired — tracked v0.56 Q2-2026), companion docs deferral table (dek-rotation, threat-model, ZAP, audit-event-catalog). | reentry-release-readiness §4.1+§4.2 (Round 3 PII warroom + Round 4 hardening). |

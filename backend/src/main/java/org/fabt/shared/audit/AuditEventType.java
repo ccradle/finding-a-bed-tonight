@@ -617,6 +617,84 @@ public enum AuditEventType {
      */
     PLATFORM_USER_RESET_TO_BOOTSTRAP,
 
+    // ─── transitional-reentry-support (v0.55.0) — hold-attribution PII chain of custody ───
+    //
+    // The three cases below close the chain of custody for the optional
+    // hold-attribution PII fields (heldForClientName, heldForClientDob, holdNotes)
+    // shipped in V93. Per reentry-release-readiness §13.A (warroom Round 4
+    // BLOCKER I-1): every write of these fields produces a recorded audit row,
+    // every decryption-on-read produces a (throttled) audit row, and every
+    // scheduled purge invocation produces an audit row regardless of purgedCount.
+    // Together these answer "who entered PII, who read PII, when was it erased"
+    // without including ANY plaintext or ciphertext in the audit_events.details
+    // JSON — only the reservation_id + tenant_id + actor_user_id, plus the
+    // operational metadata each row needs (purgedCount, throttle key, etc.).
+
+    /**
+     * Emitted by {@code ReservationService.doCreateReservation} when a hold
+     * is created with at least one of {@code heldForClientName},
+     * {@code heldForClientDob}, or {@code holdNotes} non-null. Fires AFTER the
+     * reservation row commit so an audit row never claims PII was recorded
+     * when the underlying write rolled back.
+     *
+     * <p>Detail blob: {@code {reservation_id, fields_recorded: ["clientName"|"clientDob"|"holdNotes", ...]}}.
+     * The {@code fields_recorded} array names which PII fields were populated;
+     * NO plaintext, NO ciphertext. Actor: the OUTREACH_WORKER / COORDINATOR
+     * who placed the hold. Target: the reservation_id (also in the detail
+     * blob for query convenience). Tenant: the calling tenant from
+     * {@code TenantContext}.
+     *
+     * <p>Why this row is per-reservation (not per-field): an attacker
+     * counting fields is no more useful than knowing the count of populated
+     * holds for a tenant in an hour, and a per-field row would 3x the audit
+     * volume for the common all-three-fields case.
+     */
+    RESERVATION_HELD_FOR_CLIENT_RECORDED,
+
+    /**
+     * Emitted at the decryption boundary when a reservation row's
+     * {@code _encrypted} columns are decrypted on read for a coordinator-
+     * facing surface (the per-shelter reservation list, the §13.D.1 detail
+     * endpoint). <b>Throttled</b>: at most one row per
+     * {@code (actor_user_id, shelter_id, hour)} tuple, gated by a Caffeine
+     * cache. Without throttling a coordinator polling their dashboard would
+     * generate one audit row per reservation per refresh — meaningful read-
+     * activity is captured by the first decryption in each hour.
+     *
+     * <p>Detail blob: {@code {shelter_id, throttle_key: "<userId>:<shelterId>:<hour>", first_seen_at}}.
+     * Actor: the coordinator (or COC_ADMIN) viewing the data. Target:
+     * shelter_id. Tenant: from {@code TenantContext}.
+     *
+     * <p>NO {@code reservation_id} in the detail blob, even though the read
+     * is per-reservation — adding reservation_id would defeat the throttle
+     * (every distinct reservation would emit a fresh row). The read-side
+     * forensic question is "did this user view this shelter's hold-
+     * attribution PII in this hour?", not "which exact reservations did
+     * they view?". The latter is answered by HTTP access logs at the
+     * reverse proxy, which already retain the request URI.
+     */
+    RESERVATION_PII_DECRYPTED_ON_READ,
+
+    /**
+     * Emitted by {@code ReservationService.purgeExpiredHoldAttribution(Instant)}
+     * AFTER the bounded-loop UPDATE completes for the current cutoff. <b>One
+     * audit row per scheduled invocation</b> regardless of {@code purgedCount}
+     * (including {@code purgedCount=0}) so the absence of activity is auditable —
+     * a scheduled job that silently stops emitting rows is the failure mode
+     * the audit trail must catch.
+     *
+     * <p>Detail blob: {@code {purgedCount, cutoff: "ISO-8601", batches}}.
+     * {@code purgedCount} is the total across all sub-loops of the
+     * LIMIT-bounded UPDATE; {@code batches} is how many sub-loops were
+     * needed (1 for normal volume, &gt;1 only when a backlog is being drained).
+     * Actor: {@code null} (system-driven). Target: {@code null} (the
+     * operation scope is platform-wide; per-tenant accounting comes from
+     * the audit row's chained tenant — emit one row per tenant the purge
+     * touched, with that tenant's id, so each tenant's chain captures its
+     * own purge-of-their-data history).
+     */
+    RESERVATION_PII_PURGED,
+
     // ─── Test-infrastructure sentinel (do not use in production code) ───
 
     /**

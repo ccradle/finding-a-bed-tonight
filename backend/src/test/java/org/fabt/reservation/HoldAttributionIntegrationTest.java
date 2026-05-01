@@ -12,6 +12,7 @@ import java.util.UUID;
 
 import org.fabt.BaseIntegrationTest;
 import org.fabt.TestAuthHelper;
+import org.fabt.referral.service.ReferralTokenPurgeService;
 import org.fabt.reservation.repository.ReservationRepository;
 import org.fabt.reservation.service.ReservationService;
 import org.fabt.shared.security.CrossTenantCiphertextException;
@@ -68,6 +69,7 @@ class HoldAttributionIntegrationTest extends BaseIntegrationTest {
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private ReservationRepository reservationRepository;
     @Autowired private ReservationService reservationService;
+    @Autowired private ReferralTokenPurgeService referralTokenPurgeService;
     @Autowired private SecretEncryptionService encryptionService;
 
     private UUID tenantId;
@@ -77,6 +79,12 @@ class HoldAttributionIntegrationTest extends BaseIntegrationTest {
     void setUp() {
         String slug = "hold-attr-" + UUID.randomUUID().toString().substring(0, 8);
         tenantId = authHelper.setupTestTenant(slug).getId();
+        // Round 5 §16.B: opt this tenant into reentryMode BEFORE minting any
+        // JWTs so the issued claim emits true and the API serialization gate
+        // surfaces hold-attribution PII fields. The default-off gate is the
+        // production-correct behavior; this test exists to verify the PII
+        // round-trip invariant when reentry is enabled.
+        authHelper.enableReentryMode(tenantId);
         authHelper.setupCocAdminUser();
         authHelper.setupCoordinatorUser();
         authHelper.setupOutreachWorkerUser();
@@ -621,6 +629,190 @@ class HoldAttributionIntegrationTest extends BaseIntegrationTest {
                 .as("cross-tenant decrypt must throw CrossTenantCiphertextException, "
                         + "not silently return wrong plaintext")
                 .isInstanceOf(CrossTenantCiphertextException.class);
+    }
+
+    // ---------------------------------------------------------------------
+    // v0.55 §13.A — chain-of-custody audit emitters for hold-attribution PII
+    // ---------------------------------------------------------------------
+
+    @Test
+    @DisplayName("§13.A.2 hold-create with PII emits RESERVATION_HELD_FOR_CLIENT_RECORDED with no plaintext")
+    void holdCreate_withPii_emitsRecordedAuditRow() {
+        int auditBefore = WithTenantContext.readAs(tenantId, () -> jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM audit_events WHERE action = 'RESERVATION_HELD_FOR_CLIENT_RECORDED'",
+                Integer.class));
+
+        String name = "Audit-Probe-" + UUID.randomUUID();
+        String holdNotes = "Audit probe " + UUID.randomUUID();
+        UUID reservationId = postHold(name, "1985-06-15", holdNotes);
+
+        int auditAfter = WithTenantContext.readAs(tenantId, () -> jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM audit_events WHERE action = 'RESERVATION_HELD_FOR_CLIENT_RECORDED'",
+                Integer.class));
+        assertThat(auditAfter - auditBefore)
+                .as("hold-create with PII must emit exactly one audit row")
+                .isEqualTo(1);
+
+        String details = WithTenantContext.readAs(tenantId, () -> jdbcTemplate.queryForObject(
+                "SELECT details::text FROM audit_events "
+                + "WHERE action = 'RESERVATION_HELD_FOR_CLIENT_RECORDED' "
+                + "ORDER BY timestamp DESC LIMIT 1",
+                String.class));
+        assertThat(details)
+                .as("audit details must capture reservation_id + fields_recorded")
+                .contains(reservationId.toString())
+                .contains("clientName")
+                .contains("clientDob")
+                .contains("holdNotes");
+        assertThat(details)
+                .as("audit details MUST NOT contain plaintext PII (this is the whole point of the audit-payload contract)")
+                .doesNotContain(name)
+                .doesNotContain(holdNotes)
+                .doesNotContain("1985-06-15");
+    }
+
+    @Test
+    @DisplayName("§13.A.2 hold-create with NO PII does not emit RESERVATION_HELD_FOR_CLIENT_RECORDED")
+    void holdCreate_withoutPii_doesNotEmit() {
+        int auditBefore = WithTenantContext.readAs(tenantId, () -> jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM audit_events WHERE action = 'RESERVATION_HELD_FOR_CLIENT_RECORDED'",
+                Integer.class));
+
+        // Hit the no-PII overload by sending a body without the three optional fields.
+        String body = """
+                {
+                    "shelterId": "%s",
+                    "populationType": "SINGLE_ADULT",
+                    "notes": "no-pii probe"
+                }
+                """.formatted(shelterId);
+        ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                "/api/v1/reservations", HttpMethod.POST,
+                new HttpEntity<>(body, headers("application/json", authHelper.outreachWorkerHeaders())),
+                new ParameterizedTypeReference<>() {});
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+
+        int auditAfter = WithTenantContext.readAs(tenantId, () -> jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM audit_events WHERE action = 'RESERVATION_HELD_FOR_CLIENT_RECORDED'",
+                Integer.class));
+        assertThat(auditAfter)
+                .as("no-PII hold must not emit a hold-attribution audit row")
+                .isEqualTo(auditBefore);
+    }
+
+    @Test
+    @DisplayName("§13.A.4 purgeExpiredHoldAttribution emits RESERVATION_PII_PURGED even with purgedCount=0")
+    void purge_emitsAuditRowEvenOnZeroCount() {
+        int auditBefore = WithTenantContext.readAs(tenantId, () -> jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM audit_events WHERE action = 'RESERVATION_PII_PURGED'",
+                Integer.class));
+
+        // Run the purge service-method directly with a far-past cutoff so
+        // there is nothing eligible. Per §13.A.4 the audit row MUST emit
+        // even with purgedCount=0 — that's the absence-of-activity invariant.
+        int purged = WithTenantContext.readAs(tenantId, () ->
+                reservationService.purgeExpiredHoldAttribution(
+                        Instant.parse("1990-01-01T00:00:00Z")));
+        assertThat(purged).as("far-past cutoff has no eligible rows").isEqualTo(0);
+
+        int auditAfter = WithTenantContext.readAs(tenantId, () -> jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM audit_events WHERE action = 'RESERVATION_PII_PURGED'",
+                Integer.class));
+        assertThat(auditAfter - auditBefore)
+                .as("purge invocation MUST emit exactly one audit row regardless of purgedCount")
+                .isEqualTo(1);
+
+        String details = WithTenantContext.readAs(tenantId, () -> jdbcTemplate.queryForObject(
+                "SELECT details::text FROM audit_events WHERE action = 'RESERVATION_PII_PURGED' "
+                + "ORDER BY timestamp DESC LIMIT 1",
+                String.class));
+        assertThat(details)
+                .as("audit details must record purgedCount + batches + cutoff (postgres JSONB serializes with a space after the colon)")
+                .contains("purgedCount")
+                .contains("batches")
+                .contains("cutoff")
+                .containsPattern("\"purgedCount\"\\s*:\\s*0");
+    }
+
+    @Test
+    @DisplayName("§12.5.5 @Scheduled purgeExpiredHoldAttribution() entry point nulls aged ciphertext (Riley R-RR-1)")
+    void scheduledEntryPoint_purgesAgedRow_endToEnd() {
+        // Riley's concern: the existing purge tests call
+        // reservationService.purgeExpiredHoldAttribution(cutoff) directly
+        // under WithTenantContext.readAs(...). The @Scheduled bean entry
+        // (no-arg) wraps that call in its OWN TenantContext.runWithContext
+        // — if that wrapper is broken (missing dvAccess, wrong tenantId
+        // binding, swallowed exception), the direct-call tests would still
+        // pass while the production scheduler quietly does nothing.
+        //
+        // This test exercises the FULL @Scheduled wrapper path: bind a
+        // tenant via WithTenantContext to seed data, then call the
+        // ReferralTokenPurgeService.purgeExpiredHoldAttribution() entry
+        // point with NO args from outside any test-supplied context. The
+        // wrapper must (a) compute its own cutoff (PURGE_AGE = 24h) and
+        // (b) bind its own TenantContext correctly so RLS lets the UPDATE
+        // see the row.
+        UUID reservationId = postHold("Scheduled Probe", "1990-01-01", "scheduled-bean-test");
+
+        // Age the row past the 24h floor so the wrapper's internal cutoff
+        // (Instant.now() - 24h) catches it.
+        Instant aged = Instant.now().minus(Duration.ofHours(25));
+        jdbcTemplate.update(
+                "UPDATE reservation SET expires_at = ?, status = 'EXPIRED' WHERE id = ?",
+                Timestamp.from(aged), reservationId);
+
+        // Sanity-check ciphertext is present before the scheduled entry runs.
+        Map<String, String> before = pickEncryptedColumns(reservationId);
+        assertThat(before.get("name_enc"))
+                .as("precondition — name ciphertext must exist before the scheduler runs")
+                .isNotNull();
+
+        // Call the @Scheduled entry point directly with NO args. This is
+        // what Spring's TaskScheduler invokes in production. NO outer
+        // WithTenantContext — the wrapper must do its own context binding.
+        referralTokenPurgeService.purgeExpiredHoldAttribution();
+
+        // Ciphertext columns are now NULL — the scheduled wrapper bound
+        // TenantContext correctly and the inner service ran the UPDATE.
+        Map<String, String> after = pickEncryptedColumns(reservationId);
+        assertThat(after.get("name_enc"))
+                .as("@Scheduled entry must null name ciphertext for an aged row")
+                .isNull();
+        assertThat(after.get("dob_enc"))
+                .as("@Scheduled entry must null DOB ciphertext for an aged row")
+                .isNull();
+        assertThat(after.get("notes_enc"))
+                .as("@Scheduled entry must null notes ciphertext for an aged row")
+                .isNull();
+    }
+
+    @Test
+    @DisplayName("§13.B DOB-validation exception strips user-supplied DOB from message (no PII leak)")
+    void invalidDob_exceptionMessageStripsUserInput() {
+        // 1850 is the canonical "operator typo for 1985" case the floor catches.
+        String body = """
+                {
+                    "shelterId": "%s",
+                    "populationType": "SINGLE_ADULT",
+                    "heldForClientName": "Probe Person",
+                    "heldForClientDob": "1850-01-01"
+                }
+                """.formatted(shelterId);
+
+        ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                "/api/v1/reservations", HttpMethod.POST,
+                new HttpEntity<>(body, headers("application/json", authHelper.outreachWorkerHeaders())),
+                new ParameterizedTypeReference<>() {});
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        String responseBody = response.getBody() == null ? "" : response.getBody().toString();
+        assertThat(responseBody)
+                .as("error response must NOT contain the user-supplied DOB (v0.55 §13.B)")
+                .doesNotContain("1850-01-01")
+                .doesNotContain("1850");
+        assertThat(responseBody)
+                .as("error message should still be informative — names the constraint, not the violator")
+                .containsAnyOf("1900-01-01", "on or after");
     }
 
     // ---------------------------------------------------------------------

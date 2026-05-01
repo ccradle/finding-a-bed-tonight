@@ -846,7 +846,7 @@ See **[docs/WCAG-ACR.md](WCAG-ACR.md)** for the full conformance report, remedia
 
 FABT implements a **privacy-preserving referral system** for domestic violence shelters, designed to support VAWA (34 U.S.C. 12291(b)(2)), FVPSA, and HUD HMIS requirements. Key design principles:
 
-- **Zero client PII** in the database — referral tokens contain only household size, population type, urgency, and the worker's callback number
+- **Zero client PII** for DV referrals — DV referral tokens contain only household size, population type, urgency, and the worker's callback number. *(The v0.55+ non-DV navigator-hold path on `reservation` may optionally carry encrypted `held_for_client_name_encrypted` / `held_for_client_dob_encrypted` / `hold_notes_encrypted` columns; these are unrelated to the DV referral path, are erased no later than 25 hours after the hold reaches a terminal status, and the V91 `shelter_dv_implies_dv_type` CHECK constraint enforces the structural separation between DV inventory and the navigator-hold flow.)*
 - **Shelter address never displayed** — shared verbally during warm handoff phone call only
 - **Human-in-the-loop** — DV shelter staff screen every referral for safety before accepting
 - **Hard-delete purge** — all referral tokens are permanently deleted within 24 hours of completion

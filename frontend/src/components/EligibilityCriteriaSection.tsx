@@ -239,7 +239,23 @@ export function EligibilityCriteriaSection({
             border: `1.5px solid ${color.border}`, fontSize: text.base,
             fontFamily: 'inherit', boxSizing: 'border-box', resize: 'vertical',
           }}
+          aria-describedby="criminal-record-notes-help"
         />
+        {/* v0.55 §11.4 — always-visible advisory: this notes field is a
+            shelter-policy descriptor, not a per-client coordination field
+            (that's the hold dialog). Without the advisory, an admin
+            tempted to paste case notes here would silently route them
+            into a non-PII-purged store. */}
+        <p
+          id="criminal-record-notes-help"
+          data-testid="shelter-eligibility-notes-help"
+          style={{
+            fontSize: text.xs, color: color.textTertiary,
+            margin: '4px 0 0', lineHeight: 1.45,
+          }}
+        >
+          <FormattedMessage id="shelter.eligibility.notes.help" />
+        </p>
       </div>
 
       {/* Operational fields */}

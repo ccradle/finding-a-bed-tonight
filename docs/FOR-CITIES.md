@@ -105,7 +105,7 @@ See [Support Model](support-model.md) for a detailed description of support tier
 | **Data ownership** | You own it, on your infrastructure | Vendor-hosted, vendor-controlled |
 | **Vendor lock-in** | None. Apache 2.0, standard formats. | Proprietary formats, contract terms |
 | **Customization** | Full source code access | Feature requests to vendor |
-| **DV privacy** | Zero-PII, zero-address, 24-hour hard delete | Varies by vendor |
+| **DV privacy** | DV referral path: zero-PII, zero-address, 24-hour hard delete. Non-DV navigator-hold path (v0.55+): optional client identifiers, encrypted at rest, erased ≤25 hours after hold ends. | Varies by vendor |
 | **Transparency** | Open source, auditable | Closed source |
 | **Support** | Community + self-hosted | Vendor support (included in license fee) |
 

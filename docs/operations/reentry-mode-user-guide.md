@@ -17,7 +17,7 @@ turning the feature on for a tenant for the first time:
 3. Populating shelter `eligibility_criteria` via the guided form.
 4. The outreach worker advanced-filters surface and the
    hold-with-attribution flow.
-5. The 24-hour PII purge behavior for hold-attribution columns.
+5. The "no later than 25 hours" PII purge behavior for hold-attribution columns + the v0.55 audit-event types.
 6. `requires_verification_call=true` semantics for navigators.
 
 The guide assumes the v0.55.0 backend + frontend are deployed (see
@@ -39,11 +39,40 @@ The flag is a boolean stored at JSONB path
 `tenant.config.features.reentryMode`. It defaults to `false` for
 every tenant existing at the v0.55 deploy (V91 seed); new tenants
 created after v0.55 inherit the same default unless the create call
-overrides. The flag gates **frontend visibility** of the reentry
-surface — backend search and hold endpoints behave identically
-regardless of the flag value (design D13). That asymmetry is
-deliberate: it lets a CoC pilot the surface in a staging tenant
-without forking backend behavior.
+overrides.
+
+**What flipping the flag does (post-§16 implementation, supersedes
+the original D13 description):**
+
+- Surfaces the outreach search advanced filters (county dropdown,
+  shelter-type chips, accepts-felonies toggle).
+- Surfaces the admin shelter-edit eligibility-criteria editor and
+  the `requires_verification_call` toggle.
+- Surfaces the optional client-attribution section in the hold
+  creation dialog (the three PII fields:
+  `heldForClientName`, `heldForClientDob`, `holdNotes`).
+- Surfaces the per-hold client-name display on the coordinator
+  dashboard.
+- Causes the API (`ReservationResponse`) to return the three
+  hold-attribution PII fields populated with plaintext values for
+  this tenant's reservations. When the flag is false, those fields
+  serialize as `null` regardless of underlying ciphertext — the
+  v0.55 API serialization gate (`reentry-release-readiness` §16.B)
+  is the primary control; the frontend gates above are
+  defense-in-depth UX polish.
+
+**Token-TTL caveat:** the flag is read at JWT-issuance time and
+emitted as a `reentryMode` claim. Operators currently logged in
+will not see the change until their access token refreshes (15-min
+TTL bound) or they log out + back in. Plan rollout windows
+accordingly.
+
+**Default-off is the production-correct posture for any tenant
+that has not affirmatively opted in.** Backend stores hold-
+attribution PII when offered (the write path does not gate); the
+gate is purely on serialization read-back and UI render. A future
+flag-off-after-flag-on tenant retains its persisted ciphertext
+until the regular 25h post-resolution purge.
 
 **Who can flip it:** the CoC admin for the target tenant via
 `PUT /api/v1/tenants/{tenantId}/config`. The endpoint is gated by
@@ -379,14 +408,9 @@ is intentionally terse to limit incidental PII exposure.
 
 ---
 
-## 5. The 24-hour PII purge behavior
+## 5. PII purge behavior — no later than 25 hours
 
-The hold-attribution PII columns are nulled 24 hours after a
-reservation reaches a resolved state. This is the
-24-hour-post-resolution defense; the at-rest defense is
-crypto-shred via `tenant_dek` + the `RESERVATION_PII` purpose-key
-family. The two layers are independent — one fires on tenant
-hard-delete, the other on per-reservation resolution age.
+The hold-attribution PII columns are erased **no later than 25 hours** after a reservation reaches a resolved state. This is the post-resolution defense; the at-rest defense is crypto-shred via `tenant_dek` + the `RESERVATION_PII` purpose-key family. The two layers are independent — one fires on tenant hard-delete, the other on per-reservation resolution age.
 
 **What gets nulled:**
 
@@ -394,48 +418,66 @@ hard-delete, the other on per-reservation resolution age.
 - `reservation.held_for_client_dob_encrypted`
 - `reservation.hold_notes_encrypted`
 
-**What is preserved:** every other column on the row — the
-reservation id, shelter id, population type, status timestamps,
-user id, idempotency key, and the resolution outcome itself.
-Analytics queries and audit trails continue to work.
+**What is preserved:** every other column on the row — the reservation id, shelter id, population type, status timestamps, user id, idempotency key, and the resolution outcome itself. Analytics queries and audit trails continue to work.
 
-**When it fires:** an hourly Spring `@Scheduled` job
-(`ReferralTokenPurgeService.purgeExpiredHoldAttribution`, see
-[the service](../../backend/src/main/java/org/fabt/referral/service/ReferralTokenPurgeService.java)
-lines 87-99) calls
-`ReservationService.purgeExpiredHoldAttribution(cutoff)` with
-`cutoff = now - 24h`. The repository SQL nulls rows matching
-either:
+**When it fires:** a 15-minute Spring `@Scheduled` job (`ReferralTokenPurgeService.purgeExpiredHoldAttribution`, `@Scheduled(fixedDelay=900_000)`) calls `ReservationService.purgeExpiredHoldAttribution(cutoff)` with `cutoff = now - 24h`. Worst-case PII lifetime is 24h+15m, comfortably under the public 25h claim. The repository SQL nulls rows matching either:
 
-- `status IN (CANCELLED, CONFIRMED, EXPIRED, CANCELLED_SHELTER_DEACTIVATED)`
-  AND `created_at < cutoff`; OR
-- `expires_at < cutoff` (catches HELD rows whose expiry passed but
-  the reaper has not yet stamped status=EXPIRED).
+- `status IN (CANCELLED, CONFIRMED, EXPIRED, CANCELLED_SHELTER_DEACTIVATED)` AND `created_at < cutoff`; OR
+- `expires_at < cutoff` (catches HELD rows whose expiry passed but the reaper has not yet stamped status=EXPIRED).
 
-The SQL is no-op on rows whose ciphertext is already null, so
-re-runs cost nothing.
+The SQL is no-op on rows whose ciphertext is already null, so re-runs cost nothing. `fixedDelay` (not `fixedRate`) prevents overlapping invocations on slow VMs — the next run starts only after the prior run completes.
 
-**Verification:** the purge job logs at INFO when it nulls rows
-(`purgeExpiredHoldAttribution: purged=N`) and DEBUG when it nulls
-none (`purged=0`). Operators should see one log line per hour per
-backend instance.
+### Audit events (v0.55+)
 
-The current implementation does NOT emit a per-purge audit row —
-the `audit_events` chain is not the verification surface for this
-job. If a per-row audit trail becomes necessary (compliance review,
-incident forensics), that is a follow-up rather than a current
-behavior. Operators verifying the purge today should rely on the
-log line plus a direct DB read of `reservation` rows where
-`status IN (...)` AND `created_at < now() - interval '24 hours'`
-AND any `*_encrypted` column is non-null — that count should be
-zero on a healthy system.
+The purge job, the write of hold-attribution PII, and the decrypt-on-read of hold-attribution PII each emit a structured row in the `audit_events` table. Audit payloads carry **only operational identifiers** (reservation_id, tenant_id, actor user_id) — never plaintext or ciphertext from the encrypted columns.
 
-**Why crypto-shred AND row-level null:** the row-level null defends
-against operational read paths (a developer running an ad-hoc
-query, an admin dump, a backup restore) that bypass the DEK
-unwrap. The crypto-shred defends against on-disk forensics and
-backup-tape recovery on a tenant that no longer exists. Either
-alone leaves a gap; both together close it.
+| Event type | When emitted | Payload contract |
+|---|---|---|
+| `RESERVATION_HELD_FOR_CLIENT_RECORDED` | Hold creation with non-null PII fields | reservation_id, tenant_id, actor user_id (or `system` sentinel for system-context writes) |
+| `RESERVATION_PII_DECRYPTED_ON_READ` | Coordinator detail-view endpoint reads decrypted PII | reservation_id, actor user_id; throttled to one row per (coordinator, shelter, hour) tuple via Caffeine cache (`expireAfterWrite=2h`, `maximumSize=100_000`; eviction favors over-emit) |
+| `RESERVATION_PII_PURGED` | Per scheduled purge invocation | `purgedCount`, `cutoff` (no row IDs, no plaintext) |
+
+**Forensic queries.** Operators investigating a purge incident or running compliance reviews can grep `audit_events`:
+
+```sql
+-- Recent purge runs (one row per scheduled invocation)
+SELECT timestamp, details->>'purgedCount' AS purged, details->>'cutoff' AS cutoff
+FROM audit_events
+WHERE event_type = 'RESERVATION_PII_PURGED'
+  AND timestamp > NOW() - INTERVAL '24 hours'
+ORDER BY timestamp DESC;
+
+-- Recent decrypt-on-read events (throttled — one per coordinator/shelter/hour)
+SELECT timestamp, actor_user_id, details->>'reservation_id'
+FROM audit_events
+WHERE event_type = 'RESERVATION_PII_DECRYPTED_ON_READ'
+  AND timestamp > NOW() - INTERVAL '24 hours'
+ORDER BY timestamp DESC;
+
+-- Holds that recorded PII attribution (write-side)
+SELECT timestamp, actor_user_id, details->>'reservation_id'
+FROM audit_events
+WHERE event_type = 'RESERVATION_HELD_FOR_CLIENT_RECORDED'
+  AND timestamp > NOW() - INTERVAL '24 hours'
+ORDER BY timestamp DESC;
+```
+
+**Verification (no-metric era):** the purge job also logs at INFO when it nulls rows (`purgeExpiredHoldAttribution: purged=N`) and DEBUG when it nulls none (`purged=0`). Operators should see one log line per ~15 minutes per backend instance. Direct-DB belt-and-suspenders check — any non-null ciphertext on a >25h-resolved row is an SLA violation:
+
+```sql
+SELECT count(*) AS sla_violations
+FROM reservation
+WHERE status IN ('CANCELLED','CONFIRMED','EXPIRED','CANCELLED_SHELTER_DEACTIVATED')
+  AND updated_at < NOW() - INTERVAL '25 hours'
+  AND (held_for_client_name_encrypted IS NOT NULL
+       OR held_for_client_dob_encrypted IS NOT NULL
+       OR hold_notes_encrypted IS NOT NULL);
+-- Expected: 0 on a healthy system. Non-zero = stop and investigate.
+```
+
+The Prometheus metric proving the SLA at scale (`fabt.reservation.pii_purge.success.count` + `lag_seconds` histogram + failure alert) is **not yet wired** in v0.55 — tracked for v0.56, target Q2-2026. See `docs/security/compliance-posture-matrix.md` "Hold-attribution PII (v0.55+)" for the full operational signal table.
+
+**Why crypto-shred AND row-level null:** the row-level null defends against operational read paths (a developer running an ad-hoc query, an admin dump, a backup restore) that bypass the DEK unwrap. The crypto-shred defends against on-disk forensics and backup-tape recovery on a tenant that no longer exists. Either alone leaves a gap; both together close it.
 
 ---
 

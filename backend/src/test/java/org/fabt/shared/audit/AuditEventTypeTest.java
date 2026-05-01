@@ -60,17 +60,18 @@ class AuditEventTypeTest {
 
     /**
      * The enum must have at least the 44 cases known at G-0 landing time
-     * (43 business cases + 1 {@link AuditEventType#TEST_PROBE} sentinel).
+     * (43 business cases + 1 {@link AuditEventType#TEST_PROBE} sentinel),
+     * plus the 3 hold-attribution PII cases added in v0.55.0 §13.A.
      * New cases are welcome (this is a floor, not a ceiling). A drop in
      * count — someone deleting a case — fails the test and forces a data-
      * migration conversation.
      */
     @Test
-    @DisplayName("at least 44 cases — floor check against accidental deletion")
+    @DisplayName("at least 47 cases — floor check against accidental deletion")
     void enumCountFloor() {
         assertThat(AuditEventType.values().length)
                 .as("AuditEventType count. Removing a case requires a data migration for historical rows.")
-                .isGreaterThanOrEqualTo(44);
+                .isGreaterThanOrEqualTo(47);
     }
 
     // ─── Individual wire-name pins by phase / feature family ───
@@ -177,6 +178,17 @@ class AuditEventTypeTest {
         assertThat(AuditEventType.TENANT_OFFBOARD_REJECTED.name()).isEqualTo("TENANT_OFFBOARD_REJECTED");
         assertThat(AuditEventType.TENANT_ARCHIVE_REJECTED.name()).isEqualTo("TENANT_ARCHIVE_REJECTED");
         assertThat(AuditEventType.TENANT_HARD_DELETE_REJECTED.name()).isEqualTo("TENANT_HARD_DELETE_REJECTED");
+    }
+
+    @Test
+    @DisplayName("v0.55 §13.A — hold-attribution PII chain-of-custody wire names")
+    void reentryPiiAuditFamily() {
+        assertThat(AuditEventType.RESERVATION_HELD_FOR_CLIENT_RECORDED.name())
+                .isEqualTo("RESERVATION_HELD_FOR_CLIENT_RECORDED");
+        assertThat(AuditEventType.RESERVATION_PII_DECRYPTED_ON_READ.name())
+                .isEqualTo("RESERVATION_PII_DECRYPTED_ON_READ");
+        assertThat(AuditEventType.RESERVATION_PII_PURGED.name())
+                .isEqualTo("RESERVATION_PII_PURGED");
     }
 
     @Test

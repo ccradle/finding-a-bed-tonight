@@ -26,7 +26,7 @@ class SecurityStartupTest {
         org.fabt.shared.security.RevokedKidCache revokedCache = isProdProfile
                 ? mock(org.fabt.shared.security.RevokedKidCache.class) : null;
         return new JwtService(secret, 15, 7, objectMapper, env,
-                keyDerivation, kidRegistry, revokedCache, null);
+                keyDerivation, kidRegistry, revokedCache, null, null);
     }
 
     @Test
@@ -93,7 +93,7 @@ class SecurityStartupTest {
                 null,  // missing KeyDerivationService
                 mock(org.fabt.shared.security.KidRegistryService.class),
                 mock(org.fabt.shared.security.RevokedKidCache.class),
-                null))
+                null, null))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("Phase A4 dependencies");
     }
@@ -109,7 +109,7 @@ class SecurityStartupTest {
                 mock(org.fabt.shared.security.KeyDerivationService.class),
                 null,  // missing KidRegistryService
                 mock(org.fabt.shared.security.RevokedKidCache.class),
-                null))
+                null, null))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("Phase A4 dependencies");
     }
@@ -125,7 +125,7 @@ class SecurityStartupTest {
                 mock(org.fabt.shared.security.KeyDerivationService.class),
                 mock(org.fabt.shared.security.KidRegistryService.class),
                 null,  // missing RevokedKidCache
-                null))
+                null, null))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("Phase A4 dependencies");
     }
@@ -139,7 +139,7 @@ class SecurityStartupTest {
                 "a-valid-secret-that-is-definitely-long-enough-for-hs256-signing",
                 15, 7, objectMapper,
                 envWithProfiles("lite", "test"),
-                null, null, null, null));
+                null, null, null, null, null));
     }
 
     private Environment envWithProfiles(String... profiles) {

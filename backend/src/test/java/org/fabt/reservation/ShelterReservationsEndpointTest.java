@@ -46,7 +46,14 @@ class ShelterReservationsEndpointTest extends BaseIntegrationTest {
     @BeforeEach
     void setUp() {
         String slug = "shelter-reservations-" + UUID.randomUUID().toString().substring(0, 8);
-        authHelper.setupTestTenant(slug);
+        UUID tenantId = authHelper.setupTestTenant(slug).getId();
+        // Round 5 §16.B: opt this tenant into reentryMode so the issued JWTs
+        // carry reentryMode=true and the API serialization gate surfaces
+        // hold-attribution PII fields. The §11.5 endpoint contract under test
+        // explicitly REQUIRES the PII to flow back; this test asserts that
+        // contract holds when the gate is open (default-off remains the
+        // production-correct behavior for tenants that haven't opted in).
+        authHelper.enableReentryMode(tenantId);
         authHelper.setupCocAdminUser();
         authHelper.setupCoordinatorUser();
         authHelper.setupOutreachWorkerUser();

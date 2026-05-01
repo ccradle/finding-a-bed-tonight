@@ -69,7 +69,8 @@ class JwtServiceSecurityAttackTest {
         // exercises the LEGACY validate path (no kid header). The legacy path
         // does not touch keyDerivation/kidRegistry/revokedKidCache. Profile
         // is non-prod (lite/test) so W-A4-3 prod-fail-fast doesn't fire.
-        return new JwtService(SECRET, 15, 7, mapper, env, null, null, null, null);
+        // Round 5 §16.A — TenantService is the 10th param (nullable; null → reentryMode helper returns false)
+        return new JwtService(SECRET, 15, 7, mapper, env, null, null, null, null, null);
     }
 
     /** Issue a real, well-formed token via the service so tampering tests have a baseline. */
@@ -293,7 +294,7 @@ class JwtServiceSecurityAttackTest {
         Environment env = mock(Environment.class);
         when(env.getActiveProfiles()).thenReturn(new String[]{"lite", "test"});
         JwtService svc = new JwtService(SECRET, 15, 7, mapper, env,
-                null, null, null, meters);
+                null, null, null, meters, null);
 
         // Issue a legacy token (no kid header — null deps fall back to legacy build)
         org.fabt.auth.domain.User user = new org.fabt.auth.domain.User();

@@ -1,7 +1,9 @@
 // ============================================================================
 // Finding A Bed Tonight (FABT) — Database Schema
-// Source: Flyway migrations V1–V54
-// Last synced: 2026-04-13
+// Source: live PostgreSQL @ Flyway HWM V95 (transitional-reentry-support
+//         + reentry-release-readiness)
+// Last synced: 2026-04-30 (regenerated via pg_dump + sql2dbml + curated
+//         enum/Project preservation per `feedback_update_docs_with_code`)
 // ============================================================================
 
 Project fabt {
@@ -11,11 +13,25 @@ Project fabt {
     platform. Schema uses tenant_id for row-level isolation, PostgreSQL RLS
     for DV-shelter data protection, and composite keys where domain semantics
     require it. All UUID primary keys are generated server-side (gen_random_uuid).
+
+    v0.55 introduces an opt-in PII collection capability on the `reservation`
+    table — three nullable `_encrypted` columns (held_for_client_name,
+    held_for_client_dob, hold_notes) encrypted at rest with a per-tenant DEK
+    (`tenant_dek.purpose='RESERVATION_PII'`, V93). Two-layer crypto-shred
+    posture: (a) at-rest via tenant_dek rotation/hard-delete, (b) Spring
+    Batch nulls the columns no later than 25 hours after a reservation
+    reaches a terminal status (per `reentry-release-readiness` D10 + D11).
+    These PII fields are server-side only and are NEVER published over
+    AsyncAPI. The DV referral path is structurally segregated: V91's
+    `shelter_dv_implies_dv_type` CHECK constraint enforces that any shelter
+    with `dv_shelter=true` must carry `shelter_type='DV'`, routing DV
+    inventory exclusively through the opaque-token DV referral path.
   '''
 }
 
 // ---------------------------------------------------------------------------
-// Enums
+// Enums (curated from Java domain — sql2dbml does not generate enums from
+// VARCHAR-with-CHECK columns)
 // ---------------------------------------------------------------------------
 
 Enum PopulationType {
@@ -29,10 +45,11 @@ Enum PopulationType {
 }
 
 Enum Role {
-  PLATFORM_ADMIN
   COC_ADMIN
   COORDINATOR
   OUTREACH_WORKER
+  PLATFORM_OPERATOR  // G-4.4 — replaced PLATFORM_ADMIN for platform-scoped operations
+  PLATFORM_ADMIN     // Deprecated post-G-4.4; retained for migration compatibility
 }
 
 Enum SubscriptionStatus {
@@ -43,728 +60,813 @@ Enum SubscriptionStatus {
   EXPIRED
 }
 
-// ---------------------------------------------------------------------------
-// V1 — Tenant
-// ---------------------------------------------------------------------------
+Enum ShelterType {
+  EMERGENCY
+  DV
+  TRANSITIONAL
+  SUBSTANCE_USE_TREATMENT
+  MENTAL_HEALTH_TREATMENT
+  REENTRY_TRANSITIONAL  // V91 — transitional-reentry-support
+  PERMANENT_SUPPORTIVE
+}
 
-Table tenant {
-  id          uuid        [pk, note: 'gen_random_uuid()']
-  name        varchar     [not null]
-  slug        varchar     [unique, not null, note: 'URL-safe identifier for the CoC/tenant']
-  config      jsonb       [note: '''Tenant-specific configuration. JSONB schema:
-    hold_duration_minutes: int (default 90)
-    api_key_auth_enabled: bool (default true)
-    default_locale: string (default "en")
-    observability.prometheus_enabled: bool (default true)
-    observability.tracing_enabled: bool (default false)
-    observability.tracing_endpoint: string (default "http://localhost:4318/v1/traces")
-    observability.monitor_stale_interval_minutes: int (default 5)
-    observability.monitor_dv_canary_interval_minutes: int (default 15)
-    observability.monitor_temperature_interval_minutes: int (default 60)
-    observability.temperature_threshold_f: double (default 32.0)
-  ''']
-  created_at  timestamptz [not null, default: `now()`]
-  updated_at  timestamptz [not null, default: `now()`]
+Enum KeyPurpose {
+  JWT_SIGN
+  TOTP
+  WEBHOOK_SECRET
+  OAUTH2_CLIENT_SECRET
+  HMIS_API_KEY
+  RESERVATION_PII  // V93 — per-tenant DEK for held_for_client_* + hold_notes encryption
 }
 
 // ---------------------------------------------------------------------------
-// V2 — App User
+// Tables (regenerated 2026-04-30 from live schema via sql2dbml)
+// 40 tables, 54 foreign-key refs at bottom. Column-level `note:` annotations
+// reflect PostgreSQL `COMMENT ON COLUMN` statements where present in the
+// migration files.
 // ---------------------------------------------------------------------------
 
-Table app_user {
-  id            uuid        [pk, note: 'gen_random_uuid()']
-  tenant_id     uuid        [not null, ref: > tenant.id]
-  email         varchar     [not null]
-  password_hash varchar     [not null]
-  display_name  varchar     [not null]
-  roles         "text[]"    [not null, note: 'Array of Role enum values']
-  dv_access     boolean     [not null, default: false, note: 'Allowed to see DV-shelter data']
-  status        varchar(20) [not null, default: 'ACTIVE', note: 'ACTIVE or DEACTIVATED']
-  token_version integer     [not null, default: 0, note: 'Incremented on role/dvAccess/status change to invalidate JWTs']
-  password_changed_at timestamptz [note: 'V27 — set on password change, JWTs issued before this are rejected']
-  totp_secret_encrypted varchar(255) [note: 'V31 — AES-256-GCM encrypted TOTP base32 secret. Never stored plaintext.']
-  totp_enabled  boolean     [not null, default: false, note: 'V31 — whether 2FA is active for this user']
-  recovery_codes text       [note: 'V31 — JSON array of bcrypt-hashed single-use backup codes']
-  created_at    timestamptz [not null, default: `now()`]
-  updated_at    timestamptz [not null, default: `now()`]
+Table "api_key" {
+  "id" uuid [pk, not null, default: `gen_random_uuid()`]
+  "tenant_id" uuid [not null]
+  "shelter_id" uuid
+  "key_hash" "character varying(255)" [not null]
+  "key_suffix" character(4) [not null]
+  "label" "character varying(255)"
+  "role" "character varying(50)" [not null]
+  "active" boolean [not null, default: true]
+  "created_at" timestamp [not null, default: `now()`]
+  "last_used_at" timestamp
+  "old_key_hash" "character varying(255)"
+  "old_key_expires_at" timestamp
 
-  indexes {
-    (tenant_id, email) [unique, name: 'uq_app_user_tenant_email']
+  Indexes {
+    key_hash [type: btree, name: "idx_api_key_hash"]
+    old_key_hash [type: btree, name: "idx_api_key_old_hash"]
+    tenant_id [type: btree, name: "idx_api_key_tenant_id"]
   }
 }
 
-// One-time access codes for password recovery (V32)
-// Admin-generated, 15-min expiry, single-use. Primary recovery path for field workers.
-Table one_time_access_code {
-  id          uuid        [pk, note: 'gen_random_uuid()']
-  user_id     uuid        [not null, ref: > app_user.id, note: 'ON DELETE CASCADE']
-  tenant_id   uuid        [not null, ref: > tenant.id]
-  code_hash   varchar(255) [not null, note: 'BCrypt-hashed access code']
-  expires_at  timestamptz [not null, note: '15-minute expiry from creation']
-  used        boolean     [not null, default: false, note: 'Single-use — marked true after successful login']
-  created_at  timestamptz [not null, default: `now()`]
-  created_by  uuid        [not null, ref: > app_user.id, note: 'Admin who generated the code']
+Table "app_user" {
+  "id" uuid [pk, not null, default: `gen_random_uuid()`]
+  "tenant_id" uuid [not null]
+  "email" "character varying(255)" [not null]
+  "password_hash" "character varying(255)"
+  "display_name" "character varying(255)" [not null]
+  "roles" "text[]" [not null, default: `'{}'::text[]`]
+  "dv_access" boolean [not null, default: false]
+  "created_at" timestamp [not null, default: `now()`]
+  "updated_at" timestamp [not null, default: `now()`]
+  "password_changed_at" timestamp
+  "status" "character varying(20)" [not null, default: `'ACTIVE'::charactervarying`]
+  "token_version" integer [not null, default: 0]
+  "totp_secret_encrypted" "character varying(255)"
+  "totp_enabled" boolean [not null, default: false]
+  "recovery_codes" text
 
-  indexes {
-    (user_id) [name: 'idx_ott_user_id']
-    (expires_at) [name: 'idx_ott_expires']
+  Indexes {
+    (tenant_id, email) [unique, name: "app_user_tenant_id_email_key"]
+    tenant_id [type: btree, name: "idx_app_user_tenant_id"]
   }
 }
 
-// ---------------------------------------------------------------------------
-// V29 — Audit Events
-// ---------------------------------------------------------------------------
+Table "audit_events" {
+  "id" uuid [pk, not null, default: `gen_random_uuid()`]
+  "timestamp" timestamp [not null, default: `clock_timestamp()`]
+  "actor_user_id" uuid
+  "target_user_id" uuid
+  "action" "character varying(50)" [not null]
+  "details" jsonb
+  "ip_address" "character varying(45)"
+  "tenant_id" uuid [note: 'Tenant isolation (cross-tenant-isolation-audit Phase 2.12). Set by AuditEventService.onAuditEvent from TenantContext on INSERT. Queries filter on tenant_id via AuditEventRepository.findByTargetUserIdAndTenantId.']
+  "prev_hash" bytea [note: '''Phase G-1 hash chain: 32-byte SHA-256 of the immediately-preceding row in this tenant\'s chain (pulled from tenant_audit_chain_head.last_hash at INSERT time). First row in a tenant\'s chain picks up the 32-byte zero sentinel. NULL for pre-V85 historical rows and for orphan audits under SYSTEM_TENANT_ID.''']
+  "row_hash" bytea [note: 'Phase G-1 hash chain: 32-byte SHA-256(prev_hash || canonical_json(row)) stored on the row itself. Verifier (G-2) re-computes on read and alerts on drift. NULL for pre-V85 historical rows and for orphan audits under SYSTEM_TENANT_ID.']
 
-Table audit_events {
-  id              uuid        [pk, note: 'gen_random_uuid()']
-  timestamp       timestamptz [not null, default: `clock_timestamp()`]
-  actor_user_id   uuid        [note: 'NULL for system-actor events (V44, bed-hold-integrity)']
-  target_user_id  uuid
-  action          varchar(50) [not null, note: 'ROLE_CHANGED, USER_DEACTIVATED, USER_REACTIVATED, DV_ACCESS_CHANGED, PASSWORD_RESET, BED_HOLDS_RECONCILED, DV_REFERRAL_CLAIMED, DV_REFERRAL_RELEASED, DV_REFERRAL_REASSIGNED, DV_REFERRAL_ADMIN_ACCEPTED, DV_REFERRAL_ADMIN_REJECTED, ESCALATION_POLICY_UPDATED, SHELTER_DEACTIVATED, SHELTER_REACTIVATED']
-  details         jsonb       [note: 'Old/new values, context']
-  ip_address      varchar(45) [note: 'IPv4 or IPv6']
 
-  indexes {
-    timestamp [type: brin, name: 'idx_audit_events_timestamp']
-    target_user_id [name: 'idx_audit_events_target_user']
-  }
-
-  note: 'Append-only audit trail. Retained indefinitely.'
-}
-
-// ---------------------------------------------------------------------------
-// V3 — API Key
-// ---------------------------------------------------------------------------
-
-Table api_key {
-  id               uuid        [pk, note: 'gen_random_uuid()']
-  tenant_id        uuid        [not null, ref: > tenant.id]
-  shelter_id       uuid        [ref: > shelter.id, note: 'Nullable — scoped to a single shelter when present']
-  key_hash         varchar     [not null, note: 'SHA-256 hex of the full API key']
-  key_suffix       "char(4)"   [not null, note: 'Last 4 chars for identification in UI']
-  label            varchar     [not null, note: 'Human-readable label for the key']
-  role             varchar     [not null, note: 'Role enum value governing permissions']
-  active           boolean     [not null, default: true]
-  created_at       timestamptz [not null, default: `now()`]
-  last_used_at     timestamptz [note: 'Nullable — set on first use']
-  old_key_hash     varchar     [note: 'V33 — SHA-256 of previous key during rotation grace period']
-  old_key_expires_at timestamptz [note: 'V33 — grace period expiry (default +24h from rotation)']
-}
-
-// ---------------------------------------------------------------------------
-// V4 — Shelter
-// ---------------------------------------------------------------------------
-
-Table shelter {
-  id              uuid        [pk, note: 'gen_random_uuid()']
-  tenant_id       uuid        [not null, ref: > tenant.id]
-  name            varchar     [not null]
-  address_street  varchar     [not null]
-  address_city    varchar     [not null]
-  address_state   varchar     [not null]
-  address_zip     varchar     [not null]
-  phone           varchar
-  latitude        "double precision" [note: 'WGS 84 latitude']
-  longitude       "double precision" [note: 'WGS 84 longitude']
-  dv_shelter      boolean     [not null, default: false, note: 'Protected by PostgreSQL RLS']
-  active          boolean     [not null, default: true, note: 'V52 — inactive shelters excluded from bed search. Safety check flags referrals for inactive shelters as SHELTER_CLOSED']
-  deactivated_at  timestamptz [note: 'V53 — timestamp of deactivation. NULL when active. Cleared on reactivation.']
-  deactivated_by  uuid        [ref: > app_user.id, note: 'V53 — admin who deactivated. NULL when active.']
-  deactivation_reason varchar(50) [note: 'V53 — TEMPORARY_CLOSURE, SEASONAL_END, PERMANENT_CLOSURE, CODE_VIOLATION, FUNDING_LOSS, OTHER. NULL when active.']
-  shelter_type    varchar(50) [not null, default: 'EMERGENCY', note: 'V91 (transitional-reentry-support D2) — controlled vocabulary classification. Values: EMERGENCY, DV, TRANSITIONAL, SUBSTANCE_USE_TREATMENT, MENTAL_HEALTH_TREATMENT, REENTRY_TRANSITIONAL, PERMANENT_SUPPORTIVE, RAPID_REHOUSING. Coupled to dv_shelter via the shelter_dv_implies_dv_type CHECK constraint: dv_shelter=true requires shelter_type=DV. ShelterService keeps the two fields in lockstep.']
-  county          varchar(100) [note: 'V91 (transitional-reentry-support D3) — supervision-geography boundary for reentry-navigator filter. Validated app-layer against tenant.config.active_counties (default NC 100-county list). NOT a DB-level enum (deployments outside NC override at tenant config). Nullable; sentinel field requires_verification_call covers the gap.']
-  requires_verification_call boolean [not null, default: false, note: 'V94 (transitional-reentry-support D1 H1) — sentinel flag: shelter requires direct call before eligibility can be assumed. Drives the search-results "call to verify" badge AND BedSearchService H1 three-way acceptsFelonies filter — branch (c) INCLUDES shelters with null eligibility_criteria ONLY when this flag is true.']
-  created_at      timestamptz [not null, default: `now()`]
-  updated_at      timestamptz [not null, default: `now()`]
-
-  indexes {
-    (tenant_id, dv_shelter) [name: 'idx_shelter_tenant_dv']
-    (tenant_id, name) [name: 'idx_shelter_tenant_name']
-    (tenant_id, county) [name: 'idx_shelter_tenant_county', note: 'V91 partial index — reentry-navigator county filter']
-  }
-
-  Note: '''
-    V91 CHECK constraint shelter_dv_implies_dv_type: enforces
-    dv_shelter=false OR shelter_type=DV. Without this, the dv_shelter
-    boolean (load-bearing for RLS via V68) and the shelter_type taxonomy
-    could drift. ShelterService (slice 2D H2) flips both atomically on
-    every write so the constraint is never tripped through service paths.
-  '''
-}
-
-// ---------------------------------------------------------------------------
-// V5 — Shelter Constraints
-// ---------------------------------------------------------------------------
-
-Table shelter_constraints {
-  shelter_id              uuid        [pk, ref: - shelter.id, note: 'ON DELETE CASCADE — 1:1 with shelter']
-  sobriety_required       boolean     [not null, default: false]
-  id_required             boolean     [not null, default: false]
-  referral_required       boolean     [not null, default: false]
-  pets_allowed            boolean     [not null, default: false]
-  wheelchair_accessible   boolean     [not null, default: false]
-  curfew_time             time        [note: 'Nullable — no curfew if null']
-  max_stay_days           integer     [note: 'Nullable — no limit if null']
-  population_types_served "text[]"    [note: 'Array of PopulationType enum values']
-  eligibility_criteria    jsonb       [note: 'V92 (transitional-reentry-support D1) — extended eligibility schema. Sub-objects: criminal_record_policy {accepts_felonies, excluded_offense_types[], individualized_assessment, vawa_protections_apply, notes}, program_requirements[], documentation_required[], intake_hours, custom_tags[]. All keys nullable. Most shelters launch with NULL; requires_verification_call sentinel covers the gap. GIN index idx_shelter_constraints_eligibility (V92, partial WHERE NOT NULL) for containment queries — note: jsonb_ops only speeds @>/?/?|/?& operators, NOT -> or ->> extraction.']
-}
-
-// ---------------------------------------------------------------------------
-// V6/V20 — Shelter Capacity (DROPPED in V20)
-// ---------------------------------------------------------------------------
-// shelter_capacity table was dropped in V20. beds_total is now single-sourced
-// from bed_availability snapshots. See bed_availability table below.
-
-// ---------------------------------------------------------------------------
-// V7 — Coordinator Assignment
-// ---------------------------------------------------------------------------
-
-Table coordinator_assignment {
-  user_id    uuid [ref: > app_user.id, note: 'ON DELETE CASCADE']
-  shelter_id uuid [ref: > shelter.id, note: 'ON DELETE CASCADE']
-
-  indexes {
-    (user_id, shelter_id) [pk, name: 'pk_coordinator_assignment']
+  Indexes {
+    target_user_id [type: btree, name: "idx_audit_events_target_user"]
+    (tenant_id, target_user_id, timestamp) [type: btree, name: "idx_audit_events_tenant_target"]
+    timestamp [type: brin, name: "idx_audit_events_timestamp"]
   }
 }
 
-// ---------------------------------------------------------------------------
-// V8.1 — (Reservation-related migration placeholder — no new table)
-// ---------------------------------------------------------------------------
-// V8.1 applies reservation soft-hold adjustments handled within existing
-// domain logic. No additional DDL tables introduced.
-
-// ---------------------------------------------------------------------------
-// V9 — Import Log
-// ---------------------------------------------------------------------------
-
-Table import_log {
-  id            uuid        [pk, note: 'gen_random_uuid()']
-  tenant_id     uuid        [not null, ref: > tenant.id]
-  import_type   varchar     [not null, note: 'e.g. HSDS, CSV, 211']
-  filename      varchar     [not null]
-  created_count integer     [not null, default: 0]
-  updated_count integer     [not null, default: 0]
-  skipped_count integer     [not null, default: 0]
-  error_count   integer     [not null, default: 0]
-  errors        jsonb       [note: 'Structured error details — row-level failures']
-  created_at    timestamptz [not null, default: `now()`]
+Table "batch_job_execution" {
+  "job_execution_id" bigint [pk, not null]
+  "version" bigint
+  "job_instance_id" bigint [not null]
+  "create_time" timestamp [not null]
+  "start_time" timestamp
+  "end_time" timestamp
+  "status" "character varying(10)"
+  "exit_code" "character varying(2500)"
+  "exit_message" "character varying(2500)"
+  "last_updated" timestamp
 }
 
-// ---------------------------------------------------------------------------
-// V10 — Tenant OAuth2 Provider
-// ---------------------------------------------------------------------------
+Table "batch_job_execution_context" {
+  "job_execution_id" bigint [pk, not null]
+  "short_context" "character varying(2500)" [not null]
+  "serialized_context" text
+}
 
-Table tenant_oauth2_provider {
-  id                      uuid        [pk, note: 'gen_random_uuid()']
-  tenant_id               uuid        [not null, ref: > tenant.id]
-  provider_name           varchar     [not null, note: 'e.g. google, okta, azure-ad']
-  client_id               varchar     [not null]
-  client_secret_encrypted varchar     [not null, note: 'AES-256-GCM encrypted at rest']
-  issuer_uri              varchar     [not null]
-  enabled                 boolean     [not null, default: true]
-  created_at              timestamptz [not null, default: `now()`]
+Table "batch_job_execution_params" {
+  "job_execution_id" bigint [not null]
+  "parameter_name" "character varying(100)" [not null]
+  "parameter_type" "character varying(100)" [not null]
+  "parameter_value" "character varying(2500)"
+  "identifying" character(1) [not null]
+}
 
-  indexes {
-    (tenant_id, provider_name) [unique, name: 'uq_tenant_oauth2_provider']
+Table "batch_job_instance" {
+  "job_instance_id" bigint [pk, not null]
+  "version" bigint
+  "job_name" "character varying(100)" [not null]
+  "job_key" "character varying(32)" [not null]
+
+  Indexes {
+    (job_name, job_key) [unique, name: "job_inst_un"]
   }
 }
 
-// ---------------------------------------------------------------------------
-// V10 — User OAuth2 Link
-// ---------------------------------------------------------------------------
+Table "batch_step_execution" {
+  "step_execution_id" bigint [pk, not null]
+  "version" bigint [not null]
+  "step_name" "character varying(100)" [not null]
+  "job_execution_id" bigint [not null]
+  "create_time" timestamp [not null]
+  "start_time" timestamp
+  "end_time" timestamp
+  "status" "character varying(10)"
+  "commit_count" bigint
+  "read_count" bigint
+  "filter_count" bigint
+  "write_count" bigint
+  "read_skip_count" bigint
+  "write_skip_count" bigint
+  "process_skip_count" bigint
+  "rollback_count" bigint
+  "exit_code" "character varying(2500)"
+  "exit_message" "character varying(2500)"
+  "last_updated" timestamp
+}
 
-Table user_oauth2_link {
-  id                  uuid        [pk, note: 'gen_random_uuid()']
-  user_id             uuid        [not null, ref: > app_user.id, note: 'ON DELETE CASCADE']
-  provider_name       varchar     [not null]
-  external_subject_id varchar     [not null, note: 'The sub claim from the IdP']
-  linked_at           timestamptz [not null, default: `now()`]
+Table "batch_step_execution_context" {
+  "step_execution_id" bigint [pk, not null]
+  "short_context" "character varying(2500)" [not null]
+  "serialized_context" text
+}
 
-  indexes {
-    (provider_name, external_subject_id) [unique, name: 'uq_user_oauth2_link_provider_subject']
+Table "bed_availability" {
+  "id" uuid [pk, not null, default: `gen_random_uuid()`]
+  "shelter_id" uuid [not null]
+  "tenant_id" uuid [not null]
+  "population_type" "character varying(50)" [not null]
+  "beds_total" integer [not null]
+  "beds_occupied" integer [not null, default: 0]
+  "beds_on_hold" integer [not null, default: 0]
+  "accepting_new_guests" boolean [not null, default: true]
+  "snapshot_ts" timestamp [not null, default: `now()`]
+  "updated_by" "character varying(255)"
+  "notes" "character varying(500)"
+  "overflow_beds" integer [default: 0]
+
+
+  Indexes {
+    (shelter_id, population_type, snapshot_ts) [unique, name: "uq_bed_avail_shelter_pop_ts"]
+    (shelter_id, population_type, snapshot_ts) [type: btree, name: "idx_bed_avail_latest"]
+    snapshot_ts [type: brin, name: "idx_bed_avail_snapshot_brin"]
+    (tenant_id, snapshot_ts) [type: btree, name: "idx_bed_avail_tenant"]
+    (tenant_id, shelter_id, population_type, snapshot_ts) [type: btree, name: "idx_bed_avail_tenant_latest"]
   }
 }
 
-// ---------------------------------------------------------------------------
-// V11 — Subscription (Webhook)
-// ---------------------------------------------------------------------------
+Table "bed_search_log" {
+  "id" uuid [pk, not null, default: `gen_random_uuid()`]
+  "tenant_id" uuid [not null]
+  "population_type" "character varying(50)"
+  "results_count" integer [not null]
+  "search_ts" timestamp [not null, default: `now()`]
 
-Table subscription {
-  id                   uuid              [pk, note: 'gen_random_uuid()']
-  tenant_id            uuid              [not null, ref: > tenant.id]
-  event_type           varchar           [not null, note: 'e.g. availability.updated, surge.activated']
-  filter               jsonb             [note: 'Optional filter criteria — shelter_id, population_type, etc.']
-  callback_url         varchar           [not null, note: 'HTTPS endpoint receiving webhook POSTs']
-  callback_secret_hash varchar           [not null, note: 'AES-256-GCM encrypted secret for HMAC-SHA256 payload signing']
-  status               varchar           [not null, default: 'ACTIVE', note: 'ACTIVE|PAUSED|FAILING|DEACTIVATED|CANCELLED']
-  consecutive_failures integer           [not null, default: 0, note: 'V34 — auto-disable at 5; reset on success or re-enable']
-  expires_at           timestamptz       [note: 'Nullable — no expiry if null']
-  last_error           text              [note: 'Most recent delivery error message']
-  created_at           timestamptz       [not null, default: `now()`]
-}
-
-// ---------------------------------------------------------------------------
-// V34 — Webhook Delivery Log
-// ---------------------------------------------------------------------------
-
-Table webhook_delivery_log {
-  id              uuid        [pk, note: 'gen_random_uuid()']
-  subscription_id uuid        [not null, ref: > subscription.id, note: 'ON DELETE CASCADE']
-  event_type      varchar     [not null]
-  status_code     integer     [note: 'HTTP response status code (null if connection failed)']
-  response_time_ms integer    [note: 'Round-trip time in milliseconds']
-  attempted_at    timestamptz [not null, default: `now()`]
-  attempt_number  integer     [not null, default: 1]
-  response_body   text        [note: 'Truncated to 1KB, secrets redacted by WebhookResponseRedactor']
-}
-
-// ---------------------------------------------------------------------------
-// V12 — Bed Availability (append-only snapshots)
-// ---------------------------------------------------------------------------
-
-// Single source of truth for beds_total (D10 — shelter_capacity dropped in V20).
-// beds_total in this table is THE capacity. All capacity reads/writes go through here.
-Table bed_availability {
-  id                   uuid        [pk, note: 'gen_random_uuid()']
-  shelter_id           uuid        [not null, ref: > shelter.id, note: 'ON DELETE CASCADE']
-  tenant_id            uuid        [not null, ref: > tenant.id]
-  population_type      varchar(50) [not null, note: 'PopulationType enum value']
-  beds_total           integer     [not null, note: 'CHECK >= 0']
-  beds_occupied        integer     [not null, default: 0, note: 'CHECK >= 0']
-  beds_on_hold         integer     [not null, default: 0, note: 'CHECK >= 0']
-  overflow_beds        integer     [not null, default: 0, note: 'V18 — surge overflow capacity beyond beds_total']
-  accepting_new_guests boolean     [not null, default: true]
-  snapshot_ts          timestamptz [not null, default: `now()`, note: 'When coordinator confirmed this data']
-  updated_by           varchar(255) [note: 'User ID or identity of the updater']
-  notes                varchar(500) [note: 'Free-text note from coordinator']
-
-  indexes {
-    (shelter_id, population_type, snapshot_ts) [unique, name: 'uq_bed_avail_shelter_pop_ts', note: 'ON CONFLICT DO NOTHING for concurrent inserts']
-    (shelter_id, population_type, snapshot_ts) [name: 'idx_bed_avail_latest', note: 'DESC on snapshot_ts — supports DISTINCT ON latest-snapshot queries']
-    (tenant_id, snapshot_ts) [name: 'idx_bed_avail_tenant', note: 'DESC on snapshot_ts']
-    (tenant_id, shelter_id, population_type, snapshot_ts) [name: 'idx_bed_avail_tenant_latest', note: 'V25 — composite index for tenant-scoped latest-snapshot queries']
-  }
-
-  Note: '''
-    Append-only table — rows are never UPDATEd or DELETEd by the application.
-    Each row is a point-in-time snapshot of bed occupancy for one shelter +
-    population type. beds_available is derived at query time:
-    beds_total - beds_occupied - beds_on_hold (never stored).
-
-    Concurrent insert safety: the UNIQUE constraint on (shelter_id,
-    population_type, snapshot_ts) combined with ON CONFLICT DO NOTHING
-    silently drops duplicate inserts when two coordinators submit at the
-    exact same millisecond for the same shelter/population type.
-
-    Protected by PostgreSQL RLS (V13): inherits DV-shelter visibility
-    through a join to the shelter table's RLS policy.
-  '''
-}
-
-// ---------------------------------------------------------------------------
-// V13 — RLS for bed_availability
-// ---------------------------------------------------------------------------
-// RLS FORCE enabled on bed_availability. Policy dv_bed_availability_access
-// uses EXISTS subquery through shelter table, inheriting the DV-shelter
-// access control from V8/V8.1.
-
-// ---------------------------------------------------------------------------
-// V14 — Reservation (soft-hold bed placement)
-// ---------------------------------------------------------------------------
-
-Enum ReservationStatus {
-  HELD
-  CONFIRMED
-  CANCELLED
-  EXPIRED
-  CANCELLED_SHELTER_DEACTIVATED [note: 'V54 — hold cascade when shelter deactivated (Issue #108)']
-}
-
-Table reservation {
-  id              uuid        [pk, note: 'gen_random_uuid()']
-  shelter_id      uuid        [not null, ref: > shelter.id, note: 'ON DELETE CASCADE']
-  tenant_id       uuid        [not null, ref: > tenant.id]
-  population_type varchar(50) [not null, note: 'PopulationType enum value']
-  user_id         uuid        [not null, ref: > app_user.id]
-  status          varchar(50) [not null, default: 'HELD', note: 'V54 — widened from VARCHAR(20). ReservationStatus enum: HELD, CONFIRMED, CANCELLED, EXPIRED, CANCELLED_SHELTER_DEACTIVATED. CHECK constraint enforced.']
-  expires_at      timestamptz [not null, note: 'Auto-expiry time (created_at + tenant hold_duration_minutes)']
-  confirmed_at    timestamptz [note: 'Set when status transitions to CONFIRMED']
-  cancelled_at    timestamptz [note: 'Set when status transitions to CANCELLED or EXPIRED']
-  created_at      timestamptz [not null, default: `now()`]
-  notes           varchar(500) [note: 'Free-text note from outreach worker']
-  idempotency_key varchar(36)  [note: 'UUID for offline queue replay dedup — nullable, requests without key behave as before (V30)']
-  held_for_client_name_encrypted text [note: 'V93 (transitional-reentry-support D4) — third-party hold attribution: ciphertext (v1 envelope, base64) of the client name the navigator entered for shelter check-in coordination. Encrypted via SecretEncryptionService.encryptForTenant(KeyPurpose.RESERVATION_PII). Two-layer PII posture: (a) at-rest via tenant_dek crypto-shred, (b) Spring Batch nulls this column 24h after resolution. Nullable.']
-  held_for_client_dob_encrypted  text [note: 'V93 — ISO-8601 DOB ciphertext (same encryption posture as held_for_client_name_encrypted). Service-layer validates DOB > 1900-01-01 BEFORE encryption (plaintext-layer concern). Nullable.']
-  hold_notes_encrypted           text [note: 'V93 — operator-supplied hold notes ciphertext. Server max 1000 chars / UI max 500 chars (asymmetric per design D4 + open question #1 resolution). Nullable.']
-
-  indexes {
-    (tenant_id, user_id, status) [name: 'idx_reservation_user_status']
-    (shelter_id, population_type, status) [name: 'idx_reservation_shelter_status']
-    (status, expires_at) [name: 'idx_reservation_expiry', note: 'Partial index WHERE status = HELD — expiry polling']
-  }
-
-  Note: '''
-    Soft-hold bed reservation. Lifecycle: HELD → CONFIRMED | CANCELLED | EXPIRED | CANCELLED_SHELTER_DEACTIVATED.
-    Terminal states are immutable. Creating a hold increments beds_on_hold via a
-    new availability snapshot. Confirming converts to beds_occupied. Cancelling,
-    expiring, or shelter-deactivation-cascade decrements beds_on_hold. Hold duration is configurable per tenant
-    (default 90 minutes) via tenant.config JSONB field hold_duration_minutes.
-
-    Auto-expiry: Lite tier uses @Scheduled polling (30s interval). Standard/Full
-    tiers use Redis TTL with keyspace notification for near-instant expiry.
-
-    Protected by PostgreSQL RLS (V15): inherits DV-shelter visibility through
-    a join to the shelter table's RLS policy.
-  '''
-}
-
-// ---------------------------------------------------------------------------
-// V15 — RLS for reservation
-// ---------------------------------------------------------------------------
-// RLS FORCE enabled on reservation. Policy dv_reservation_access uses EXISTS
-// subquery through shelter table, inheriting DV-shelter access control.
-
-// ---------------------------------------------------------------------------
-// V16 — Restricted application role (fabt_app)
-// ---------------------------------------------------------------------------
-// Creates fabt_app role with NOSUPERUSER, DML-only permissions.
-// Application connects as fabt_app for RLS enforcement.
-// Flyway DDL runs as fabt (owner).
-
-// ---------------------------------------------------------------------------
-// V17 — Surge Event (White Flag / emergency activation)
-// ---------------------------------------------------------------------------
-
-Enum SurgeEventStatus {
-  ACTIVE
-  DEACTIVATED
-  EXPIRED
-}
-
-Table surge_event {
-  id              uuid        [pk, note: 'gen_random_uuid()']
-  tenant_id       uuid        [not null, ref: > tenant.id]
-  status          varchar(20) [not null, default: 'ACTIVE', note: 'SurgeEventStatus enum']
-  reason          varchar(500) [not null, note: 'Human-readable reason (e.g., White Flag)']
-  bounding_box    jsonb       [note: 'Optional geographic scope — null = entire CoC']
-  activated_by    uuid        [not null, ref: > app_user.id]
-  activated_at    timestamptz [not null, default: `now()`]
-  deactivated_at  timestamptz
-  deactivated_by  uuid        [ref: > app_user.id]
-  scheduled_end   timestamptz [note: 'Optional auto-expiry time']
-  created_at      timestamptz [not null, default: `now()`]
-
-  indexes {
-    (tenant_id, status) [name: 'idx_surge_event_tenant_status']
-  }
-
-  Note: '''
-    First-class domain entity for emergency surge events (White Flag nights,
-    disaster response, seasonal overflow). Lifecycle: ACTIVE → DEACTIVATED
-    (manual) or EXPIRED (scheduled_end passed). One active surge per tenant.
-    surge.activated and surge.deactivated events published to EventBus.
-  '''
-}
-
-// ---------------------------------------------------------------------------
-// V18 — Overflow beds on bed_availability
-// ---------------------------------------------------------------------------
-// ALTER TABLE bed_availability ADD COLUMN overflow_beds INTEGER DEFAULT 0
-// Temporary capacity (cots, mats) reported by coordinators during active surges.
-
-// ---------------------------------------------------------------------------
-// V19 — RLS for surge_event
-// ---------------------------------------------------------------------------
-// RLS FORCE enabled on surge_event with tenant-scoped access policy.
-
-// ---------------------------------------------------------------------------
-// V20 — Drop shelter_capacity (see bed_availability note above)
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// V21 — DV Opaque Referral Token
-// ---------------------------------------------------------------------------
-// Privacy-preserving referral for DV shelters. Zero client PII.
-// Terminal tokens hard-deleted within 24 hours by ReferralTokenPurgeService.
-
-// ---------------------------------------------------------------------------
-// V46 — Escalation Policy (coc-admin-escalation, v0.35.0)
-// ---------------------------------------------------------------------------
-// Per-tenant append-only policy. Each PATCH inserts a new version row.
-// Frozen-at-creation: referral_token.escalation_policy_id FKs to a specific
-// version — mid-day policy edits do not affect existing referrals.
-
-Table escalation_policy {
-  id           uuid        [pk, note: 'gen_random_uuid()']
-  tenant_id    uuid        [ref: > tenant.id, note: 'NULL = platform default. ON DELETE RESTRICT']
-  event_type   varchar(64) [not null, note: 'dv-referral (extensible)']
-  version      integer     [not null]
-  thresholds   jsonb       [not null, note: '[{id, at, severity, recipients}]']
-  created_at   timestamptz [not null, default: `NOW()`]
-  created_by   uuid        [ref: > app_user.id, note: 'ON DELETE SET NULL']
-
-  indexes {
-    (tenant_id, event_type, version) [unique, note: 'NULLS NOT DISTINCT']
-    (tenant_id, event_type) [name: 'idx_escalation_policy_current', note: 'partial: ORDER BY version DESC']
-  }
-
-  note: '''
-  Append-only per-tenant escalation policy. Never updated or deleted.
-  Chain-of-custody: auditors trace "what rules governed this referral?"
-  via referral_token.escalation_policy_id → this table.
-  '''
-}
-
-Table referral_token {
-  id                  uuid        [pk, note: 'gen_random_uuid()']
-  shelter_id          uuid        [not null, ref: > shelter.id, note: 'ON DELETE CASCADE']
-  tenant_id           uuid        [not null, ref: > tenant.id]
-  referring_user_id   uuid        [not null, ref: > app_user.id]
-  household_size      integer     [not null, default: 1, note: 'CHECK BETWEEN 1 AND 20']
-  population_type     varchar     [not null, note: 'PopulationType enum']
-  urgency             varchar     [not null, note: 'STANDARD, URGENT, EMERGENCY']
-  special_needs       varchar     [note: 'Free text — no client PII']
-  callback_number     varchar     [not null, note: 'Referring worker phone, NOT client phone']
-  status              varchar     [not null, note: 'PENDING, ACCEPTED, REJECTED, EXPIRED']
-  created_at          timestamptz [not null]
-  responded_at        timestamptz
-  responded_by        uuid        [ref: > app_user.id]
-  expires_at          timestamptz [not null]
-  rejection_reason    varchar     [note: 'No client PII advisory']
-  shelter_name         varchar(255) [note: 'V51 — snapshotted at creation for offline/list visibility. NULL on pre-V51 rows (backfilled by V51 migration)']
-  escalation_policy_id uuid      [ref: > escalation_policy.id, note: 'V47 — frozen-at-creation policy FK. NULL on pre-V47 rows (falls back to platform default)']
-  claimed_by_admin_id  uuid      [ref: > app_user.id, note: 'V47 — CoC admin soft-lock claim. NULL when unclaimed']
-  claim_expires_at     timestamptz [note: 'V47 — auto-release after this time (default 10 min)']
-  escalation_chain_broken boolean [not null, default: false, note: 'V49 — TRUE when admin reassigns to SPECIFIC_USER']
-
-  indexes {
-    (shelter_id, status) [name: 'idx_referral_token_shelter_status']
-    (referring_user_id, status) [name: 'idx_referral_token_user']
-    claim_expires_at [name: 'idx_referral_token_active_claim', note: 'partial: WHERE claimed_by_admin_id IS NOT NULL']
-    (referring_user_id, shelter_id) [unique, name: 'uq_referral_token_pending', note: 'partial: WHERE status = PENDING']
-    (status, expires_at) [name: 'idx_referral_token_expired', note: 'V21 — partial: WHERE status = EXPIRED. Supports expiry purge scan.']
-    (status, expires_at) [name: 'idx_referral_token_pending_expires', note: 'V37 — partial: WHERE status = PENDING. Supports expire-pending scheduled task scan.']
-    (status, responded_at) [name: 'idx_referral_token_purge', note: "V21 — partial: WHERE status IN ('ACCEPTED','REJECTED'). Supports 24h terminal-row purge scan."]
-    (tenant_id, expires_at) [name: 'idx_referral_token_pending_by_expiry', note: 'V47 — partial: WHERE status = PENDING. Escalated-queue + admin dashboard scans.']
-    created_at [name: 'idx_referral_token_pending_created_at', note: "V55 — partial: WHERE status = 'PENDING'. Powers findOldestPendingByShelterIds (notification-deep-linking Section 16 / D-BP). 14× speedup at NYC pilot scale; ordered Index Scan eliminates Sort step for ORDER BY created_at LIMIT 1. See docs/performance/probe-ab-test.sql for the A/B measurement."]
-  }
-
-  note: '''
-  Opaque referral designed to support VAWA requirements. Contains zero client PII.
-  Hard-deleted within 24 hours of terminal status.
-  RLS inherits DV shelter access via shelter FK (dv_shelter_access policy).
-  RLS does NOT enforce tenant isolation — that is enforced in the repository
-  layer via findByIdAndTenantId (tasks 8.5/8.6, commit 366765c).
-  '''
-}
-
-// ---------------------------------------------------------------------------
-// V22 — HMIS Bridge (outbox + audit)
-// ---------------------------------------------------------------------------
-// Async push of bed inventory to HMIS vendors. No client PII.
-// Outbox pattern: PENDING → SENT/FAILED → DEAD_LETTER after 3 retries.
-
-Table hmis_outbox {
-  id              uuid        [pk, note: 'gen_random_uuid()']
-  tenant_id       uuid        [not null, ref: > tenant.id]
-  shelter_id      uuid        [ref: > shelter.id, note: 'ON DELETE SET NULL']
-  vendor_type     varchar     [not null, note: 'CLARITY, WELLSKY, CLIENTTRACK']
-  status          varchar     [not null, note: 'PENDING, SENT, FAILED, DEAD_LETTER']
-  payload         text        [not null, note: 'JSON or CSV payload']
-  created_at      timestamptz [not null]
-  sent_at         timestamptz
-  error_message   varchar
-  retry_count     integer     [not null, default: 0]
-
-  indexes {
-    (status, created_at) [name: 'idx_hmis_outbox_status']
-    (tenant_id, status) [name: 'idx_hmis_outbox_tenant']
+  Indexes {
+    (tenant_id, search_ts) [type: btree, name: "idx_bed_search_log_tenant_ts"]
   }
 }
 
-Table hmis_audit_log {
-  id              uuid        [pk, note: 'gen_random_uuid()']
-  tenant_id       uuid        [not null, ref: > tenant.id]
-  vendor_type     varchar     [not null]
-  push_timestamp  timestamptz [not null]
-  record_count    integer     [not null]
-  status          varchar     [not null, note: 'SUCCESS, FAILED']
-  error_message   varchar
-  payload_hash    varchar     [note: 'SHA-256 of payload']
+Table "coordinator_assignment" {
+  "user_id" uuid [not null]
+  "shelter_id" uuid [not null]
 
-  indexes {
-    (tenant_id, push_timestamp) [name: 'idx_hmis_audit_tenant_ts']
-  }
-
-  note: '''
-  Append-only audit log of HMIS data transmissions.
-  Required by HMIS security standards.
-  '''
-}
-
-// ---------------------------------------------------------------------------
-// V23 — CoC Analytics (bed search log + daily utilization summary + BRIN)
-// ---------------------------------------------------------------------------
-// Bed search demand logging captures every search including zero-result searches
-// — the strongest unmet demand signal. Pre-aggregated daily summary avoids
-// querying raw snapshots (1,460+ rows/shelter/year → 365 rows/shelter/year).
-// BRIN index on bed_availability.snapshot_ts for efficient analytics range queries.
-
-Table bed_search_log {
-  id              uuid        [pk, note: 'gen_random_uuid()']
-  tenant_id       uuid        [not null, ref: > tenant.id]
-  population_type varchar     [note: 'PopulationType enum, nullable (unfiltered search)']
-  results_count   integer     [not null]
-  search_ts       timestamptz [not null, default: `now()`]
-
-  indexes {
-    (tenant_id, search_ts) [name: 'idx_bed_search_log_tenant_ts']
-  }
-
-  note: '''
-  Every bed search is logged here — especially zero-result searches.
-  Zero-result search count is the strongest unmet demand signal:
-  "47 searches for SINGLE_ADULT beds with zero results last Tuesday night."
-  Used for HUD grant applications and operational planning.
-  '''
-}
-
-Table daily_utilization_summary {
-  id               uuid             [pk, note: 'gen_random_uuid()']
-  tenant_id        uuid             [not null, ref: > tenant.id]
-  shelter_id       uuid             [not null, ref: > shelter.id, note: 'ON DELETE CASCADE']
-  population_type  varchar          [not null, note: 'PopulationType enum']
-  summary_date     date             [not null]
-  avg_utilization  "double precision" [not null]
-  max_occupied     integer          [not null]
-  min_available    integer          [not null]
-  snapshot_count   integer          [not null]
-
-  indexes {
-    (tenant_id, shelter_id, population_type, summary_date) [unique, name: 'uq_daily_util_tenant_shelter_pop_date']
-  }
-
-  note: '''
-  Pre-aggregated utilization summary populated by Spring Batch daily
-  aggregation job (3 AM). Analytics dashboard queries hit this table
-  instead of raw bed_availability snapshots.
-  One row per (tenant, shelter, population_type, date).
-  '''
-}
-
-// ---------------------------------------------------------------------------
-// V23 — BRIN index on bed_availability.snapshot_ts
-// ---------------------------------------------------------------------------
-// idx_bed_avail_snapshot_brin: BRIN index on bed_availability(snapshot_ts)
-// with pages_per_range=128. Ideal for append-only table where physical row
-// order correlates with timestamp. ~0.1% the size of a B-tree, near-zero
-// insert cost. Existing B-tree indexes remain for OLTP.
-
-// ---------------------------------------------------------------------------
-// V24 — Spring Batch schema
-// ---------------------------------------------------------------------------
-// Spring Batch 5.1.x execution metadata tables. Managed by Flyway
-// (spring.batch.jdbc.initialize-schema=never). Stores job/step execution
-// history for: daily aggregation, HMIS push, HIC/PIT export.
-
-Table batch_job_instance {
-  job_instance_id bigint      [pk]
-  version         bigint
-  job_name        varchar(100) [not null]
-  job_key         varchar(32) [not null]
-
-  indexes {
-    (job_name, job_key) [unique, name: 'JOB_INST_UN']
+  Indexes {
+    (user_id, shelter_id) [pk, name: "coordinator_assignment_pkey"]
   }
 }
 
-Table batch_job_execution {
-  job_execution_id bigint      [pk]
-  version          bigint
-  job_instance_id  bigint      [not null, ref: > batch_job_instance.job_instance_id]
-  create_time      timestamp   [not null]
-  start_time       timestamp
-  end_time         timestamp
-  status           varchar(10)
-  exit_code        varchar(2500)
-  exit_message     varchar(2500)
-  last_updated     timestamp
-}
+Table "daily_utilization_summary" {
+  "id" uuid [pk, not null, default: `gen_random_uuid()`]
+  "tenant_id" uuid [not null]
+  "shelter_id" uuid [not null]
+  "population_type" "character varying(50)" [not null]
+  "summary_date" date [not null]
+  "avg_utilization" doubleprecision [not null]
+  "max_occupied" integer [not null]
+  "min_available" integer [not null]
+  "snapshot_count" integer [not null]
 
-Table batch_job_execution_params {
-  job_execution_id bigint      [not null, ref: > batch_job_execution.job_execution_id]
-  parameter_name   varchar(100) [not null]
-  parameter_type   varchar(100) [not null]
-  parameter_value  varchar(2500)
-  identifying      "char(1)"   [not null]
-}
-
-Table batch_step_execution {
-  step_execution_id  bigint      [pk]
-  version            bigint      [not null]
-  step_name          varchar(100) [not null]
-  job_execution_id   bigint      [not null, ref: > batch_job_execution.job_execution_id]
-  create_time        timestamp   [not null]
-  start_time         timestamp
-  end_time           timestamp
-  status             varchar(10)
-  commit_count       bigint
-  read_count         bigint
-  filter_count       bigint
-  write_count        bigint
-  read_skip_count    bigint
-  write_skip_count   bigint
-  process_skip_count bigint
-  rollback_count     bigint
-  exit_code          varchar(2500)
-  exit_message       varchar(2500)
-  last_updated       timestamp
-}
-
-Table batch_step_execution_context {
-  step_execution_id  bigint      [pk, ref: - batch_step_execution.step_execution_id]
-  short_context      varchar(2500) [not null]
-  serialized_context text
-}
-
-Table batch_job_execution_context {
-  job_execution_id   bigint      [pk, ref: - batch_job_execution.job_execution_id]
-  short_context      varchar(2500) [not null]
-  serialized_context text
-}
-
-// ---------------------------------------------------------------------------
-// V35/V36 — Notification (persistent, DB-backed)
-// ---------------------------------------------------------------------------
-// RLS ENABLED on notification (V38: simplified from per-user to unrestricted).
-// All 4 policies USING (true) — service layer enforces per-user filtering.
-// Per-user isolation via WHERE recipient_id = ? in all repository queries.
-// Reason: per-user RLS caused 3 production bugs (INSERT RETURNING, cleanup,
-// escalation dedup). See V38 migration for details.
-
-Table notification {
-  id            uuid        [pk, note: 'gen_random_uuid()']
-  tenant_id     uuid        [not null, ref: > tenant.id]
-  recipient_id  uuid        [not null, ref: > app_user.id, note: 'ON DELETE CASCADE']
-  type          varchar(50) [not null, note: 'e.g. referral.requested, surge.activated, escalation.1h']
-  severity      varchar(20) [not null, default: 'INFO', note: 'INFO (auto-dismissed), ACTION_REQUIRED (persist until read), CRITICAL (persist until acted)']
-  payload       jsonb       [not null, default: '{}', note: 'Operational identifiers only — zero client PII. e.g. referralId, shelterId, threshold']
-  read_at       timestamptz [note: 'Set when recipient marks notification as read']
-  acted_at      timestamptz [note: 'Set when recipient takes action on the notification']
-  created_at    timestamptz [not null, default: `now()`]
-  expires_at    timestamptz [note: 'Nullable — no expiry if null']
-
-  indexes {
-    (recipient_id, created_at) [name: 'idx_notification_unread', note: 'DESC on created_at, partial WHERE read_at IS NULL — unread inbox query']
-    (tenant_id, created_at) [name: 'idx_notification_tenant', note: 'DESC on created_at']
-    (payload) [name: 'idx_notification_payload_referral_id', note: 'V36 — expression index on (payload ->> referralId)']
+  Indexes {
+    (tenant_id, shelter_id, population_type, summary_date) [unique, name: "uq_daily_util_tenant_shelter_pop_date"]
   }
-
-  note: '''
-  Persistent notification for in-app bell/inbox. Created by
-  NotificationPersistenceService.send() on domain events (e.g. DV referral
-  lifecycle). RLS enabled but unrestricted (V38) — service layer enforces
-  per-user access via WHERE recipient_id = ? in all queries.
-  '''
 }
+
+Table "escalation_policy" {
+  "id" uuid [pk, not null, default: `gen_random_uuid()`]
+  "tenant_id" uuid
+  "event_type" "character varying(64)" [not null]
+  "version" integer [not null]
+  "thresholds" jsonb [not null]
+  "created_at" timestamp [not null, default: `now()`]
+  "created_by" uuid
+
+  Indexes {
+    (tenant_id, event_type, version) [unique, name: "escalation_policy_tenant_id_event_type_version_key"]
+    (tenant_id, event_type, version) [type: btree, name: "idx_escalation_policy_current"]
+  }
+}
+
+Table "flyway_schema_history" {
+  "installed_rank" integer [pk, not null]
+  "version" "character varying(50)"
+  "description" "character varying(200)" [not null]
+  "type" "character varying(20)" [not null]
+  "script" "character varying(1000)" [not null]
+  "checksum" integer
+  "installed_by" "character varying(100)" [not null]
+  "installed_on" timestamp [not null, default: `now()`]
+  "execution_time" integer [not null]
+  "success" boolean [not null]
+
+  Indexes {
+    success [type: btree, name: "flyway_schema_history_s_idx"]
+  }
+}
+
+Table "hmis_audit_log" {
+  "id" uuid [pk, not null, default: `gen_random_uuid()`]
+  "tenant_id" uuid [not null]
+  "vendor_type" "character varying(50)" [not null]
+  "push_timestamp" timestamp [not null, default: `now()`]
+  "record_count" integer [not null]
+  "status" "character varying(20)" [not null]
+  "error_message" "character varying(1000)"
+  "payload_hash" "character varying(64)"
+
+
+  Indexes {
+    (tenant_id, push_timestamp) [type: btree, name: "idx_hmis_audit_tenant_ts"]
+    (tenant_id, vendor_type, push_timestamp) [type: btree, name: "idx_hmis_audit_vendor"]
+  }
+}
+
+Table "hmis_outbox" {
+  "id" uuid [pk, not null, default: `gen_random_uuid()`]
+  "tenant_id" uuid [not null]
+  "shelter_id" uuid
+  "vendor_type" "character varying(50)" [not null]
+  "status" "character varying(20)" [not null, default: `'PENDING'::charactervarying`]
+  "payload" text [not null]
+  "created_at" timestamp [not null, default: `now()`]
+  "sent_at" timestamp
+  "error_message" "character varying(1000)"
+  "retry_count" integer [not null, default: 0]
+
+
+  Indexes {
+    (status, created_at) [type: btree, name: "idx_hmis_outbox_status"]
+    (tenant_id, status) [type: btree, name: "idx_hmis_outbox_tenant"]
+  }
+}
+
+Table "import_log" {
+  "id" uuid [pk, not null, default: `gen_random_uuid()`]
+  "tenant_id" uuid [not null]
+  "import_type" "character varying(50)" [not null]
+  "filename" "character varying(500)"
+  "created_count" integer [not null, default: 0]
+  "updated_count" integer [not null, default: 0]
+  "skipped_count" integer [not null, default: 0]
+  "error_count" integer [not null, default: 0]
+  "errors" jsonb
+  "created_at" timestamp [not null, default: `now()`]
+
+  Indexes {
+    (tenant_id, created_at) [type: btree, name: "idx_import_log_tenant_created"]
+  }
+}
+
+Table "jwt_revocations" {
+  "kid" uuid [pk, not null]
+  "expires_at" timestamp [not null, note: 'Mirrors the natural exp claim of the revoked JWT. After this timestamp the row is safe to GC because the JWT itself is already expired.']
+  "revoked_at" timestamp [not null, default: `clock_timestamp()`]
+
+  Indexes {
+    expires_at [type: btree, name: "jwt_revocations_by_expires_at"]
+  }
+  Note: 'Fast-path blocklist for revoked JWT kids (suspend, generation bump). Checked early in validate. Pruned daily where expires_at < now().'
+}
+
+Table "kid_to_tenant_key" {
+  "kid" uuid [pk, not null, note: 'Random UUID emitted in the JWT kid header. Carries no structural information about the tenant or generation it resolves to.']
+  "tenant_id" uuid [not null]
+  "generation" integer [not null]
+  "created_at" timestamp [not null, default: `clock_timestamp()`]
+
+  Indexes {
+    (tenant_id, generation) [type: btree, name: "kid_to_tenant_key_by_tenant"]
+    (tenant_id, generation) [type: btree, unique, name: "kid_to_tenant_key_unique_per_generation"]
+  }
+  Note: 'Server-side opaque-kid → (tenant, generation) registry per design D1. Populated on JWT sign, read on validate. Cached in-memory at the application layer.'
+}
+
+Table "notification" {
+  "id" uuid [pk, not null, default: `gen_random_uuid()`]
+  "tenant_id" uuid [not null]
+  "recipient_id" uuid [not null]
+  "type" "character varying(50)" [not null]
+  "severity" "character varying(20)" [not null, default: `'INFO'::charactervarying`]
+  "payload" jsonb [not null, default: `'{}'::jsonb`]
+  "read_at" timestamp
+  "acted_at" timestamp
+  "created_at" timestamp [not null, default: `now()`]
+  "expires_at" timestamp
+
+  Indexes {
+    `((payload->>'referralId'::text))` [type: btree, name: "idx_notification_payload_referral_id"]
+    (tenant_id, created_at) [type: btree, name: "idx_notification_tenant"]
+    (recipient_id, created_at) [type: btree, name: "idx_notification_unread"]
+  }
+}
+
+Table "one_time_access_code" {
+  "id" uuid [pk, not null, default: `gen_random_uuid()`]
+  "user_id" uuid [not null]
+  "tenant_id" uuid [not null]
+  "code_hash" "character varying(255)" [not null]
+  "expires_at" timestamp [not null]
+  "used" boolean [not null, default: false]
+  "created_at" timestamp [not null, default: `now()`]
+  "created_by" uuid [not null]
+
+  Indexes {
+    (tenant_id, expires_at) [type: btree, name: "idx_one_time_access_code_tenant_expires"]
+    expires_at [type: btree, name: "idx_ott_expires"]
+    user_id [type: btree, name: "idx_ott_user_id"]
+  }
+}
+
+Table "password_reset_token" {
+  "id" uuid [pk, not null, default: `gen_random_uuid()`]
+  "user_id" uuid [not null]
+  "tenant_id" uuid [not null]
+  "token_hash" character(64) [not null]
+  "expires_at" timestamp [not null]
+  "used" boolean [not null, default: false]
+  "created_at" timestamp [not null, default: `now()`]
+
+  Indexes {
+    expires_at [type: btree, name: "idx_password_reset_token_expires"]
+    token_hash [type: btree, unique, name: "idx_password_reset_token_hash"]
+    (tenant_id, expires_at) [type: btree, name: "idx_password_reset_token_tenant_expires"]
+  }
+}
+
+Table "platform_admin_access_log" {
+  "id" uuid [pk, not null]
+  "platform_user_id" uuid [not null]
+  "action" text [not null]
+  "resource" text
+  "resource_id" uuid
+  "justification" text [not null]
+  "request_method" text [not null]
+  "request_path" text [not null]
+  "request_body_excerpt" text [note: 'Body fingerprint (Content-Type + Content-Length + SHA-256), NEVER raw body. Forensic correlation against application logs at the same audit_event_id.']
+  "before_state" jsonb
+  "after_state" jsonb
+  "audit_event_id" uuid [note: 'Pre-generated id of the companion audit_events row (Decision 11). No FK enforcement (D1) — Phase B forbids audit_events deletes so orphan risk is hypothetical.']
+  "timestamp" timestamp [not null, default: `now()`]
+
+
+  Indexes {
+    (action, timestamp) [type: btree, name: "platform_admin_access_log_action_time"]
+    resource_id [type: btree, name: "platform_admin_access_log_resource"]
+    timestamp [type: btree, name: "platform_admin_access_log_time"]
+    (platform_user_id, timestamp) [type: btree, name: "platform_admin_access_log_user_time"]
+  }
+  Note: 'Phase G-4.3 platform-admin audit ledger. Append-only via REVOKE UPDATE/DELETE + BEFORE-mutate trigger. Written by the @PlatformAdminOnly AOP aspect alongside an audit_events row in a single REQUIRES_NEW transaction. Compliance queries: see docs/runbook.md. WARNING: an audit row indicates the action was ATTEMPTED, not necessarily completed — for actual completion correlate via audit_event_id against application logs at the same correlation window.'
+}
+
+Table "platform_key_material" {
+  "id" uuid [pk, not null]
+  "generation" integer [not null]
+  "kid" text [unique, not null]
+  "key_bytes" bytea [not null]
+  "active" boolean [not null, default: true]
+  "created_at" timestamp [not null, default: `now()`]
+
+  Indexes {
+    kid [type: btree, name: "platform_key_material_active_kid"]
+    `(true)` [type: btree, unique, name: "platform_key_material_one_active"]
+  }
+  Note: 'JWT signing key for iss=fabt-platform tokens (Phase G-4 / issue #141). One active row at a time enforced by EXCLUDE constraint. Initial row populated by PlatformKeyRotationService on first boot via HKDF from master KEK.'
+}
+
+Table "platform_user" {
+  "id" uuid [pk, not null]
+  "email" text
+  "password_hash" text
+  "mfa_secret" text
+  "mfa_enabled" boolean [not null, default: false]
+  "account_locked" boolean [not null, default: true]
+  "created_at" timestamp [not null, default: `now()`]
+  "last_login_at" timestamp
+  "anonymized_at" timestamp
+  "failed_mfa_attempts_at" "timestamp[]" [not null, default: `'{}'::timestampwithtimezone[]`, note: 'Rolling window of recent failed-MFA timestamps. Pruned on every insert by platform_user_record_failure to the threshold-window only.']
+  "locked_out_at" timestamp [note: 'NULL = not auto-locked. Non-NULL = MFA-counter triggered lockout at this instant. Cron clears + unlocks at +15min.']
+  "last_totp_code" text [note: 'Most-recently-accepted TOTP code; used to reject replay within the 89s ±1-step RFC 6238 window.']
+  "last_totp_used_at" timestamp
+  "mfa_enrolled_at" timestamp
+
+  Indexes {
+    email [type: btree, unique, name: "platform_user_email_unique"]
+    locked_out_at [type: btree, name: "platform_user_locked_out_at"]
+  }
+  Note: 'Platform operator identity (Phase G-4 / issue #141). Distinct from app_user — no tenant_id. JWTs issued from this table use iss=fabt-platform signed by platform_key_material.'
+}
+
+Table "platform_user_backup_code" {
+  "id" uuid [pk, not null]
+  "platform_user_id" uuid [not null]
+  "code_hash" text [not null]
+  "code_salt" bytea [not null]
+  "used_at" timestamp
+  "created_at" timestamp [not null, default: `now()`]
+
+  Indexes {
+    platform_user_id [type: btree, name: "platform_user_backup_code_owner"]
+  }
+  Note: 'Single-use SHA-256+salt-hashed MFA recovery codes for platform_user. 10 codes generated at MFA setup, displayed once, marked used_at on use. Regeneration via Phase H+ endpoint deletes and re-creates the row set.'
+}
+
+Table "referral_token" {
+  "id" uuid [pk, not null, default: `gen_random_uuid()`]
+  "shelter_id" uuid [not null]
+  "tenant_id" uuid [not null]
+  "referring_user_id" uuid [not null]
+  "household_size" integer [not null, default: 1]
+  "population_type" "character varying(50)" [not null]
+  "urgency" "character varying(20)" [not null, default: `'STANDARD'::charactervarying`]
+  "special_needs" "character varying(500)"
+  "callback_number" "character varying(50)" [not null]
+  "status" "character varying(20)" [not null, default: `'PENDING'::charactervarying`]
+  "created_at" timestamp [not null, default: `now()`]
+  "responded_at" timestamp
+  "responded_by" uuid
+  "expires_at" timestamp [not null]
+  "rejection_reason" "character varying(500)"
+  "escalation_policy_id" uuid
+  "claimed_by_admin_id" uuid
+  "claim_expires_at" timestamp
+  "escalation_chain_broken" boolean [not null, default: false]
+  "shelter_name" "character varying(255)"
+
+
+  Indexes {
+    claim_expires_at [type: btree, name: "idx_referral_token_active_claim"]
+    (status, expires_at) [type: btree, name: "idx_referral_token_expired"]
+    (tenant_id, expires_at) [type: btree, name: "idx_referral_token_pending_by_expiry"]
+    created_at [type: btree, name: "idx_referral_token_pending_created_at"]
+    (status, expires_at) [type: btree, name: "idx_referral_token_pending_expires"]
+    (status, responded_at) [type: btree, name: "idx_referral_token_purge"]
+    (shelter_id, status) [type: btree, name: "idx_referral_token_shelter_status"]
+    (referring_user_id, status) [type: btree, name: "idx_referral_token_user"]
+    (referring_user_id, shelter_id) [type: btree, unique, name: "uq_referral_token_pending"]
+  }
+}
+
+Table "reservation" {
+  "id" uuid [pk, not null, default: `gen_random_uuid()`]
+  "shelter_id" uuid [not null]
+  "tenant_id" uuid [not null]
+  "population_type" "character varying(50)" [not null]
+  "user_id" uuid [not null]
+  "status" "character varying(50)" [not null, default: `'HELD'::charactervarying`]
+  "expires_at" timestamp [not null]
+  "confirmed_at" timestamp
+  "cancelled_at" timestamp
+  "created_at" timestamp [not null, default: `now()`]
+  "notes" "character varying(500)"
+  "idempotency_key" "character varying(36)"
+  "held_for_client_name_encrypted" text [note: 'Base64 v1 EncryptionEnvelope of the third-party client name (when an outreach worker / navigator holds a bed on behalf of someone who is not a platform user). Encrypted via SecretEncryptionService.encryptForTenant(tenantId, KeyPurpose.RESERVATION_PII, name). Spring Batch purges 24h post-resolution per design D4.']
+  "held_for_client_dob_encrypted" text [note: 'Base64 v1 EncryptionEnvelope of the third-party client date of birth (ISO-8601 string format before encryption). Used for shelter check-in confirmation. Same purge schedule as held_for_client_name_encrypted.']
+  "hold_notes_encrypted" text [note: 'Base64 v1 EncryptionEnvelope of free-text coordination notes from navigator to shelter coordinator. May contain names and contact information of supervision officers. Same purge schedule as held_for_client_name_encrypted — NOT a permanent record.']
+
+
+  Indexes {
+    (status, expires_at) [type: btree, name: "idx_reservation_expiry"]
+    (shelter_id, population_type, status) [type: btree, name: "idx_reservation_shelter_status"]
+    (tenant_id, user_id, status) [type: btree, name: "idx_reservation_user_status"]
+  }
+}
+
+Table "shelter" {
+  "id" uuid [pk, not null, default: `gen_random_uuid()`]
+  "tenant_id" uuid [not null]
+  "name" "character varying(255)" [not null]
+  "address_street" "character varying(255)"
+  "address_city" "character varying(100)"
+  "address_state" "character varying(50)"
+  "address_zip" "character varying(20)"
+  "phone" "character varying(50)"
+  "latitude" doubleprecision
+  "longitude" doubleprecision
+  "dv_shelter" boolean [not null, default: false]
+  "created_at" timestamp [not null, default: `now()`]
+  "updated_at" timestamp [not null, default: `now()`]
+  "active" boolean [not null, default: true]
+  "deactivated_at" timestamp
+  "deactivated_by" uuid
+  "deactivation_reason" "character varying(50)"
+  "shelter_type" "character varying(50)" [not null, default: `'EMERGENCY'::charactervarying`, note: 'Controlled vocabulary classification (EMERGENCY/DV/TRANSITIONAL/SUBSTANCE_USE_TREATMENT/MENTAL_HEALTH_TREATMENT/REENTRY_TRANSITIONAL/PERMANENT_SUPPORTIVE/RAPID_REHOUSING). Enforced at app layer via ShelterType enum. Carries no implied compliance status — self-reported classification for filtering and display only.']
+  "county" "character varying(100)" [note: 'Shelter county. Validated app-layer against tenant.config.active_counties (default: NC 100-county list). NO DB-level enum (design D3 / warroom H2 2026-04-28).']
+  "requires_verification_call" boolean [not null, default: false, note: 'Sentinel flag: shelter requires a direct call before eligibility can be assumed, regardless of what eligibility_criteria says. Used by the search UI to render the "call to verify" badge AND by BedSearchService H1 three-way logic — when acceptsFelonies=true is queried and a shelter has null eligibility_criteria, the shelter is included only if requires_verification_call=true (annotated with the badge). See design D1 acceptsFelonies-with-sentinel section.']
+
+
+  Indexes {
+    (tenant_id, county) [type: btree, name: "idx_shelter_tenant_county"]
+    (tenant_id, dv_shelter) [type: btree, name: "idx_shelter_tenant_dv"]
+    (tenant_id, name) [type: btree, name: "idx_shelter_tenant_name"]
+  }
+}
+
+Table "shelter_constraints" {
+  "shelter_id" uuid [pk, not null]
+  "sobriety_required" boolean [not null, default: false]
+  "id_required" boolean [not null, default: false]
+  "referral_required" boolean [not null, default: false]
+  "pets_allowed" boolean [not null, default: false]
+  "wheelchair_accessible" boolean [not null, default: false]
+  "curfew_time" time
+  "max_stay_days" integer
+  "population_types_served" "text[]" [not null, default: `'{}'::text[]`]
+  "eligibility_criteria" jsonb [note: 'Structured eligibility criteria per design D1. Schema includes criminal_record_policy (sub-object: accepts_felonies bool, excluded_offense_types string[], individualized_assessment bool, vawa_protections_apply bool, notes), program_requirements string[], documentation_required string[], intake_hours string, custom_tags string[]. All keys nullable. NULL means "not specified" — UI shows the requires_verification_call sentinel as fallback.']
+
+  Indexes {
+    eligibility_criteria [type: gin, name: "idx_shelter_constraints_eligibility"]
+  }
+}
+
+Table "subscription" {
+  "id" uuid [pk, not null, default: `gen_random_uuid()`]
+  "tenant_id" uuid [not null]
+  "event_type" "character varying(100)" [not null]
+  "filter" jsonb [not null, default: `'{}'::jsonb`]
+  "callback_url" "character varying(1000)" [not null]
+  "callback_secret_hash" "character varying(255)" [not null]
+  "status" "character varying(50)" [not null, default: `'ACTIVE'::charactervarying`]
+  "expires_at" timestamp
+  "last_error" text
+  "created_at" timestamp [not null, default: `now()`]
+  "consecutive_failures" integer [not null, default: 0]
+
+  Indexes {
+    (event_type, status) [type: btree, name: "idx_subscription_event_type"]
+    (tenant_id, status) [type: btree, name: "idx_subscription_tenant_status"]
+  }
+}
+
+Table "surge_event" {
+  "id" uuid [pk, not null, default: `gen_random_uuid()`]
+  "tenant_id" uuid [not null]
+  "status" "character varying(20)" [not null, default: `'ACTIVE'::charactervarying`]
+  "reason" "character varying(500)" [not null]
+  "bounding_box" jsonb
+  "activated_by" uuid [not null]
+  "activated_at" timestamp [not null, default: `now()`]
+  "deactivated_at" timestamp
+  "deactivated_by" uuid
+  "scheduled_end" timestamp
+  "created_at" timestamp [not null, default: `now()`]
+
+
+  Indexes {
+    (tenant_id, status) [type: btree, name: "idx_surge_event_tenant_status"]
+  }
+}
+
+Table "tenant" {
+  "id" uuid [pk, not null, default: `gen_random_uuid()`, note: 'Parent of CASCADE FKs (V84 + V61 + V80 + V82). hardDelete(tenant_id) chain-removes every per-tenant child row in a single DELETE. audit_events preserves its tenant_id without FK per shred-auditability contract (Q-F6-5).']
+  "name" "character varying(255)" [not null]
+  "slug" "character varying(100)" [unique, not null]
+  "config" jsonb [not null, default: `'{}'::jsonb`]
+  "created_at" timestamp [not null, default: `now()`]
+  "updated_at" timestamp [not null, default: `now()`]
+  "state" "character varying(32)" [not null, default: `'ACTIVE'::charactervarying`, note: 'Lifecycle FSM state. Phase A column-only; Phase F adds the transition state machine.']
+  "jwt_key_generation" integer [not null, default: 1, note: 'Generation counter for per-tenant JWT signing key. Bumped on suspend (atomic invalidation) and operator rotation. Read by JwtService.validate when resolving kid → (tenant, generation).']
+  "data_residency_region" "character varying(50)" [not null, default: `'us-any'::charactervarying`, note: 'Region pin (e.g. us-ashburn, eu-frankfurt). Standard pooled tier uses us-any. Read by Phase F silo routing.']
+  "oncall_email" "character varying(255)" [note: 'Per-tenant on-call email for tenant-tagged Grafana alerts. Nullable; falls back to platform-default routing when absent.']
+  "offboard_export_receipt_uri" text [note: 'Filesystem path (v0.51.0) or S3 URI (Phase H) where TenantOffboardExportService wrote the GDPR Art. 20 data-portability dump. Set by offboard(); required non-null before archive() proceeds.']
+  "archived_at" timestamp [note: 'Timestamp when archive() flipped state to ARCHIVED. Starts the 30-day retention clock for hardDelete() (F-6).']
+
+}
+
+Table "tenant_audit_chain_head" {
+  "tenant_id" uuid [pk, not null]
+  "last_hash" bytea [not null]
+  "last_row_id" uuid
+  "updated_at" timestamp [not null, default: `now()`]
+
+  Note: 'Per-tenant hash-chain pointer for tamper-evident audit (Phase F-4 seed, Phase G-1 writer). Single row per tenant — UPDATEd on every audit INSERT by the future AuditChainHasher component.'
+}
+
+Table "tenant_dek" {
+  "kid" uuid [pk, not null, note: 'Opaque random UUID emitted in the v1 EncryptionEnvelope kid field. Disjoint pool from kid_to_tenant_key (which holds JWT-signing kids).']
+  "tenant_id" uuid [not null]
+  "purpose" "character varying(32)" [not null, note: 'Canonical purpose string matching org.fabt.shared.security.KeyPurpose. Purpose binding prevents a TOTP ciphertext from decrypting under the webhook-secret DEK even if both DEKs exist for the same tenant.']
+  "generation" integer [not null, default: 1]
+  "wrapped_dek" bytea [not null, note: 'AES-KWP output (40 bytes for a 32-byte DEK). Unwrap requires the master-KEK-derived wrapping key from KeyDerivationService.deriveKekWrappingKey(tenant_id). Without this row the DEK cannot be reconstructed — that is the whole point.']
+  "active" boolean [not null, default: true, note: 'TRUE for the current generation per (tenant, purpose); partial unique index enforces at most one active row. Old generations linger during the rotation grace window so pre-rotation ciphertexts still decrypt.']
+  "created_at" timestamp [not null, default: `clock_timestamp()`]
+  "rotated_at" timestamp
+
+
+  Indexes {
+    (tenant_id, purpose) [type: btree, unique, name: "tenant_dek_active_per_tenant_purpose_uq"]
+    tenant_id [type: btree, name: "tenant_dek_by_tenant"]
+    (tenant_id, purpose, generation) [type: btree, unique, name: "tenant_dek_tenant_purpose_gen_uq"]
+  }
+  Note: 'Per-tenant, per-purpose random 256-bit DEKs wrapped via AES-KWP (RFC 5649) under a master-KEK-derived wrapping key. Shred surface per design-f6-real-cryptoshred §3: ON DELETE CASCADE from tenant means hardDelete destroys every wrapped DEK for the tenant in a single DB statement, rendering any surviving ciphertext permanently unrecoverable.'
+}
+
+Table "tenant_key_material" {
+  "tenant_id" uuid [not null]
+  "generation" integer [not null, note: 'Monotonic generation counter per tenant. Starts at 1, bumps on rotation. Combined with tenant_id, identifies a unique HKDF-derived DEK.']
+  "created_at" timestamp [not null, default: `clock_timestamp()`]
+  "rotated_at" timestamp
+  "active" boolean [not null, default: true, note: 'TRUE for the current generation per tenant; partial unique index enforces at most one active row. Old generations linger for the grace window then can be GCd.']
+
+
+  Indexes {
+    (tenant_id, generation) [pk, name: "tenant_key_material_pkey"]
+    tenant_id [type: btree, unique, name: "tenant_key_material_active_per_tenant"]
+  }
+  Note: 'Per-tenant DEK generation history. Exactly one active row per tenant; old generations preserved for dual-key-accept decryption during rotation grace.'
+}
+
+Table "tenant_oauth2_provider" {
+  "id" uuid [pk, not null, default: `gen_random_uuid()`]
+  "tenant_id" uuid [not null]
+  "provider_name" "character varying(100)" [not null]
+  "client_id" "character varying(500)" [not null]
+  "client_secret_encrypted" "character varying(1000)" [not null]
+  "issuer_uri" "character varying(500)"
+  "enabled" boolean [not null, default: true]
+  "created_at" timestamp [not null, default: `now()`]
+
+  Indexes {
+    (tenant_id, provider_name) [unique, name: "tenant_oauth2_provider_tenant_id_provider_name_key"]
+  }
+}
+
+Table "user_oauth2_link" {
+  "id" uuid [pk, not null, default: `gen_random_uuid()`]
+  "user_id" uuid [not null]
+  "provider_name" "character varying(100)" [not null]
+  "external_subject_id" "character varying(500)" [not null]
+  "linked_at" timestamp [not null, default: `now()`]
+
+  Indexes {
+    (provider_name, external_subject_id) [unique, name: "user_oauth2_link_provider_name_external_subject_id_key"]
+    user_id [type: btree, name: "idx_user_oauth2_link_user"]
+  }
+}
+
+Table "webhook_delivery_log" {
+  "id" uuid [pk, not null, default: `gen_random_uuid()`]
+  "subscription_id" uuid [not null]
+  "event_type" "character varying(100)" [not null]
+  "status_code" integer
+  "response_time_ms" integer
+  "attempted_at" timestamp [not null, default: `now()`]
+  "attempt_number" integer [not null, default: 1]
+  "response_body" text
+
+  Indexes {
+    (subscription_id, attempted_at) [type: btree, name: "idx_delivery_log_subscription"]
+  }
+}
+
+Ref "api_key_tenant_id_fkey":"tenant"."id" < "api_key"."tenant_id" [delete: cascade]
+
+Ref "app_user_tenant_id_fkey":"tenant"."id" < "app_user"."tenant_id" [delete: cascade]
+
+Ref "bed_availability_shelter_id_fkey":"shelter"."id" < "bed_availability"."shelter_id" [delete: cascade]
+
+Ref "bed_availability_tenant_id_fkey":"tenant"."id" < "bed_availability"."tenant_id" [delete: cascade]
+
+Ref "bed_search_log_tenant_id_fkey":"tenant"."id" < "bed_search_log"."tenant_id" [delete: cascade]
+
+Ref "coordinator_assignment_shelter_id_fkey":"shelter"."id" < "coordinator_assignment"."shelter_id" [delete: cascade]
+
+Ref "coordinator_assignment_user_id_fkey":"app_user"."id" < "coordinator_assignment"."user_id" [delete: cascade]
+
+Ref "daily_utilization_summary_shelter_id_fkey":"shelter"."id" < "daily_utilization_summary"."shelter_id" [delete: cascade]
+
+Ref "daily_utilization_summary_tenant_id_fkey":"tenant"."id" < "daily_utilization_summary"."tenant_id" [delete: cascade]
+
+Ref "escalation_policy_created_by_fkey":"app_user"."id" < "escalation_policy"."created_by" [delete: set null]
+
+Ref "escalation_policy_tenant_id_fkey":"tenant"."id" < "escalation_policy"."tenant_id" [delete: cascade]
+
+Ref "fk_api_key_shelter":"shelter"."id" < "api_key"."shelter_id"
+
+Ref "hmis_audit_log_tenant_id_fkey":"tenant"."id" < "hmis_audit_log"."tenant_id" [delete: cascade]
+
+Ref "hmis_outbox_shelter_id_fkey":"shelter"."id" < "hmis_outbox"."shelter_id" [delete: set null]
+
+Ref "hmis_outbox_tenant_id_fkey":"tenant"."id" < "hmis_outbox"."tenant_id" [delete: cascade]
+
+Ref "import_log_tenant_id_fkey":"tenant"."id" < "import_log"."tenant_id" [delete: cascade]
+
+Ref "job_exec_ctx_fk":"batch_job_execution"."job_execution_id" < "batch_job_execution_context"."job_execution_id"
+
+Ref "job_exec_params_fk":"batch_job_execution"."job_execution_id" < "batch_job_execution_params"."job_execution_id"
+
+Ref "job_exec_step_fk":"batch_job_execution"."job_execution_id" < "batch_step_execution"."job_execution_id"
+
+Ref "job_inst_exec_fk":"batch_job_instance"."job_instance_id" < "batch_job_execution"."job_instance_id"
+
+Ref "kid_to_tenant_key_fk_material":"tenant_key_material".("tenant_id", "generation") < "kid_to_tenant_key".("tenant_id", "generation") [delete: cascade]
+
+Ref "kid_to_tenant_key_tenant_id_fkey":"tenant"."id" < "kid_to_tenant_key"."tenant_id" [delete: cascade]
+
+Ref "notification_recipient_id_fkey":"app_user"."id" < "notification"."recipient_id" [delete: cascade]
+
+Ref "notification_tenant_id_fkey":"tenant"."id" < "notification"."tenant_id" [delete: cascade]
+
+Ref "one_time_access_code_created_by_fkey":"app_user"."id" < "one_time_access_code"."created_by"
+
+Ref "one_time_access_code_tenant_id_fkey":"tenant"."id" < "one_time_access_code"."tenant_id" [delete: cascade]
+
+Ref "one_time_access_code_user_id_fkey":"app_user"."id" < "one_time_access_code"."user_id" [delete: cascade]
+
+Ref "password_reset_token_tenant_id_fkey":"tenant"."id" < "password_reset_token"."tenant_id" [delete: cascade]
+
+Ref "password_reset_token_user_id_fkey":"app_user"."id" < "password_reset_token"."user_id" [delete: cascade]
+
+Ref "platform_admin_access_log_platform_user_id_fkey":"platform_user"."id" < "platform_admin_access_log"."platform_user_id"
+
+Ref "platform_user_backup_code_platform_user_id_fkey":"platform_user"."id" < "platform_user_backup_code"."platform_user_id" [delete: cascade]
+
+Ref "referral_token_claimed_by_admin_id_fkey":"app_user"."id" < "referral_token"."claimed_by_admin_id"
+
+Ref "referral_token_escalation_policy_id_fkey":"escalation_policy"."id" < "referral_token"."escalation_policy_id"
+
+Ref "referral_token_referring_user_id_fkey":"app_user"."id" < "referral_token"."referring_user_id"
+
+Ref "referral_token_responded_by_fkey":"app_user"."id" < "referral_token"."responded_by"
+
+Ref "referral_token_shelter_id_fkey":"shelter"."id" < "referral_token"."shelter_id" [delete: cascade]
+
+Ref "referral_token_tenant_id_fkey":"tenant"."id" < "referral_token"."tenant_id" [delete: cascade]
+
+Ref "reservation_shelter_id_fkey":"shelter"."id" < "reservation"."shelter_id" [delete: cascade]
+
+Ref "reservation_tenant_id_fkey":"tenant"."id" < "reservation"."tenant_id" [delete: cascade]
+
+Ref "reservation_user_id_fkey":"app_user"."id" < "reservation"."user_id"
+
+Ref "shelter_constraints_shelter_id_fkey":"shelter"."id" < "shelter_constraints"."shelter_id" [delete: cascade]
+
+Ref "shelter_deactivated_by_fkey":"app_user"."id" < "shelter"."deactivated_by"
+
+Ref "shelter_tenant_id_fkey":"tenant"."id" < "shelter"."tenant_id" [delete: cascade]
+
+Ref "step_exec_ctx_fk":"batch_step_execution"."step_execution_id" < "batch_step_execution_context"."step_execution_id"
+
+Ref "subscription_tenant_id_fkey":"tenant"."id" < "subscription"."tenant_id" [delete: cascade]
+
+Ref "surge_event_activated_by_fkey":"app_user"."id" < "surge_event"."activated_by"
+
+Ref "surge_event_deactivated_by_fkey":"app_user"."id" < "surge_event"."deactivated_by"
+
+Ref "surge_event_tenant_id_fkey":"tenant"."id" < "surge_event"."tenant_id" [delete: cascade]
+
+Ref "tenant_audit_chain_head_tenant_id_fkey":"tenant"."id" < "tenant_audit_chain_head"."tenant_id" [delete: cascade]
+
+Ref "tenant_dek_tenant_fk":"tenant"."id" < "tenant_dek"."tenant_id" [delete: cascade]
+
+Ref "tenant_key_material_tenant_id_fkey":"tenant"."id" < "tenant_key_material"."tenant_id" [delete: cascade]
+
+Ref "tenant_oauth2_provider_tenant_id_fkey":"tenant"."id" < "tenant_oauth2_provider"."tenant_id" [delete: cascade]
+
+Ref "user_oauth2_link_user_id_fkey":"app_user"."id" < "user_oauth2_link"."user_id" [delete: cascade]
+
+Ref "webhook_delivery_log_subscription_id_fkey":"subscription"."id" < "webhook_delivery_log"."subscription_id" [delete: cascade]

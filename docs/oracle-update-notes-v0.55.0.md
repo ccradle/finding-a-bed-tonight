@@ -110,7 +110,7 @@ consulted:
 
 ## 2. Scope & Non-Scope
 
-**Deploying:** v0.55.0 — transitional-reentry-support slice 4 (search filters, eligibility display + edit, coordinator hold dialog with PII purge, admin reservation settings panel, V91-V95 schema work + V95 demo seed expansion).
+**Deploying:** v0.55.0 — transitional-reentry-support slice 4 (search filters, eligibility display + edit, coordinator hold dialog with PII purge, admin reservation settings panel, V91-V96 schema work + V95 demo seed expansion).
 
 **From:** `v0.54.0` live at `findabed.org`. Confirm current via:
 
@@ -165,7 +165,7 @@ curl -s https://findabed.org/api/v1/version
 
 | Service (prod container_name) | What triggers recreate | Changed? | Recreate required? |
 |---|---|---|---|
-| `fabt-backend` | New JAR (0.55.0) + new V91-V95 migrations + new endpoints | Yes | Yes |
+| `fabt-backend` | New JAR (0.55.0) + new V91-V96 migrations + new endpoints | Yes | Yes |
 | `fabt-frontend` | New bundle (reentry components + JsonString wire-format fix) | Yes | Yes |
 | `finding-a-bed-tonight-postgres-1` | `fabt-pgaudit:v0.45.0` image unchanged; pgaudit.conf unchanged | No | No |
 | `finding-a-bed-tonight-prometheus-1` | No new rules file in `deploy/prometheus/`; no compose-file edit; no inode change | No | No |
@@ -226,6 +226,153 @@ curl -s https://findabed.org/api/v1/version
 > # Use as `docker compose "${COMPOSE_CHAIN[@]}" ...`
 > ```
 
+### 5.0. Static content (docs site) — ship the v0.55 demo + audit fixes FIRST
+
+Static content is served from `/var/www/findabed-docs/` on the Oracle VM
+(verified during v0.53 deploy). Nginx serves these via `try_files` — no
+restart needed after copying. Static deploys safely before the backend
+swap because the new HTML/PNG is content-only (no API contract change);
+the v0.54 backend serves it just fine until §5.6 swaps the image.
+
+v0.55 ships **58 stale-or-new files** (12 HTML + 46 PNG): the §6 demo
+audit fixes (2 BLOCKERs + 4 HIGHs + 7 MEDIUMs across 10 demo HTML files
++ root index.html), the new `demo/reentry-story.html` capability deep-
+dive, and 46 screenshots — **40 broader v0.55 refresh** (re-captured
+against v0.55 surfaces per the 2026-05-01 screenshot deploy warroom)
+**+ 6 NEW reentry walkthrough captures**. The 9 originally-blocked PNGs
+(13/22/dv-04/05/07/dark-quartet/09) were re-captured against a clean DB
+on 2026-05-01 with patched capture-spec navigation logic and visually
+verified pre-commit; see `docs/audits/2026-05-01-screenshot-deploy-warroom/warroom.md`.
+
+```bash
+# From your local Windows / Git Bash machine. FABT_VM_IP is set
+# out-of-band per feedback_no_ip_in_repo (it lives in memory + the
+# operator's local env, never in git).
+cd /c/Development/findABed
+
+# 1. Root index.html (1 file) — §2.1 "ever" claim DV-scoped
+scp -i ~/.ssh/fabt-oracle index.html \
+  ubuntu@${FABT_VM_IP}:/var/www/findabed-docs/
+
+# 2. 11 demo HTML files (10 modified + 1 NEW reentry-story.html)
+scp -i ~/.ssh/fabt-oracle \
+  demo/dvindex.html \
+  demo/for-cities.html \
+  demo/for-coc-admins.html \
+  demo/for-coordinators.html \
+  demo/for-funders.html \
+  demo/hmisindex.html \
+  demo/index.html \
+  demo/outreach-one-pager.html \
+  demo/pitch-briefs.html \
+  demo/reentry-story.html \
+  demo/shelter-onboarding.html \
+  ubuntu@${FABT_VM_IP}:/var/www/findabed-docs/demo/
+
+# 3. 40 modified screenshots — broader v0.55 refresh (per
+#    docs/audits/2026-05-01-screenshot-deploy-warroom/warroom.md amendment).
+#    Shipped after AM re-capture of the 9 previously-blocked files
+#    (13/22/dv-04/05/07/dark-quartet/09) which now have correct content
+#    + no E2E test-data leakage. All 40 PNGs visually verified before commit.
+scp -i ~/.ssh/fabt-oracle \
+  demo/screenshots/01-login.png \
+  demo/screenshots/02-bed-search.png \
+  demo/screenshots/03-search-results.png \
+  demo/screenshots/04-shelter-detail-search.png \
+  demo/screenshots/05-reservation-hold.png \
+  demo/screenshots/06-coordinator-dashboard.png \
+  demo/screenshots/07-coordinator-bed-update.png \
+  demo/screenshots/08-spanish.png \
+  demo/screenshots/09-admin-users.png \
+  demo/screenshots/10-admin-create-user.png \
+  demo/screenshots/11-admin-shelters.png \
+  demo/screenshots/12-add-shelter.png \
+  demo/screenshots/13-admin-shelter-detail.png \
+  demo/screenshots/14-admin-surge.png \
+  demo/screenshots/15-admin-observability.png \
+  demo/screenshots/16-admin-oauth2-providers.png \
+  demo/screenshots/19-change-password.png \
+  demo/screenshots/20-import-211-preview.png \
+  demo/screenshots/21-import-211-success.png \
+  demo/screenshots/22-admin-shelters-edit.png \
+  demo/screenshots/23-shelter-edit-phone.png \
+  demo/screenshots/24-shelter-edit-dv-toggle.png \
+  demo/screenshots/25-dv-confirm-dialog.png \
+  demo/screenshots/26-coordinator-edit-form.png \
+  demo/screenshots/analytics-01-executive-summary.png \
+  demo/screenshots/analytics-02-utilization-trends.png \
+  demo/screenshots/analytics-03-demand-signals.png \
+  demo/screenshots/analytics-04-batch-jobs.png \
+  demo/screenshots/analytics-05-hic-pit-export.png \
+  demo/screenshots/dark-admin.png \
+  demo/screenshots/dark-coordinator.png \
+  demo/screenshots/dark-login.png \
+  demo/screenshots/dark-search.png \
+  demo/screenshots/dv-01-search-referral-button.png \
+  demo/screenshots/dv-02-referral-request-modal.png \
+  demo/screenshots/dv-03-my-referrals-pending.png \
+  demo/screenshots/dv-04-coordinator-screening.png \
+  demo/screenshots/dv-05-referral-accepted.png \
+  demo/screenshots/dv-06-warm-handoff.png \
+  demo/screenshots/dv-07-referral-reject-reason.png \
+  demo/screenshots/hmis-01-export-tab.png \
+  demo/screenshots/hmis-02-dv-aggregation.png \
+  demo/screenshots/hmis-03-push-controls.png \
+  demo/screenshots/notif-01-header-bell.png \
+  demo/screenshots/notif-02-dropdown-empty.png \
+  demo/screenshots/notif-03-coordinator-bell.png \
+  ubuntu@${FABT_VM_IP}:/var/www/findabed-docs/demo/screenshots/
+
+# 4. 6 NEW reentry screenshots (capture-reentry-screenshots.spec.ts output)
+scp -i ~/.ssh/fabt-oracle \
+  demo/screenshots/reentry-01-advanced-search-filters.png \
+  demo/screenshots/reentry-02-search-results-filtered.png \
+  demo/screenshots/reentry-03-shelter-detail-eligibility.png \
+  demo/screenshots/reentry-04-hold-dialog-attribution.png \
+  demo/screenshots/reentry-05-admin-reservation-settings.png \
+  demo/screenshots/reentry-06-no-match-failure-path.png \
+  ubuntu@${FABT_VM_IP}:/var/www/findabed-docs/demo/screenshots/
+
+# Verify on VM:
+ssh -i ~/.ssh/fabt-oracle ubuntu@${FABT_VM_IP} "
+  echo '=== root index ==='
+  ls -la /var/www/findabed-docs/index.html
+  echo '=== 11 demo HTML ==='
+  ls -la /var/www/findabed-docs/demo/{dvindex,for-cities,for-coc-admins,for-coordinators,for-funders,hmisindex,index,outreach-one-pager,pitch-briefs,reentry-story,shelter-onboarding}.html
+  echo '=== screenshot count (expect 62 PNGs total = 56 pre-deploy + 6 NEW reentry) ==='
+  find /var/www/findabed-docs/demo/screenshots/ -maxdepth 1 -type f -name '*.png' | wc -l
+  echo '=== broader v0.55 refresh + 6 NEW reentry-* ==='
+  ls -la /var/www/findabed-docs/demo/screenshots/{01,02,03,04,05,06,07,08,09,10,11,12,13,14,15,16,19,20,21,22,23,24,25,26}-*.png \\
+        /var/www/findabed-docs/demo/screenshots/analytics-{01,02,03,04,05}-*.png \\
+        /var/www/findabed-docs/demo/screenshots/dark-{admin,coordinator,login,search}.png \\
+        /var/www/findabed-docs/demo/screenshots/dv-{01,02,03,04,05,06,07}-*.png \\
+        /var/www/findabed-docs/demo/screenshots/hmis-{01,02,03}-*.png \\
+        /var/www/findabed-docs/demo/screenshots/notif-{01,02,03}-*.png \\
+        /var/www/findabed-docs/demo/screenshots/reentry-{01,02,03,04,05,06}-*.png \\
+        2>&1 | wc -l
+"
+# Expected:
+#   reentry-story.html exactly 18376 bytes (NEW; previously 404 → SPA fallback)
+#   reentry-*.png 6 files present (NEW)
+#   for-funders.html ~16190 bytes (BLOCKER-FND-1 + HIGH-FND-2/3 added text)
+#   for-coc-admins.html ~18772 bytes (BLOCKER-COC-1 + HIGH-COC-2 + truthfulness rewrites)
+#   screenshot count = 62 (56 pre-existing + 6 NEW reentry)
+#   ls listing wc = 46 (40 modified-and-redeployed + 6 NEW reentry)
+```
+
+**No nginx reload required** — static content read per-request. Cloudflare
+caches HTML + PNG aggressively, so a CDN purge is required after scp:
+- Cloudflare → findabed.org → Caching → Configuration → Purge Cached Content
+- Choose **Purge Everything** (1-2 min refill from origin; broader hammer
+  but simpler than enumerating 40+ URLs)
+- Verify: `curl -sf -w "%{size_download}\n" -o /dev/null https://findabed.org/demo/reentry-story.html`
+  should return exactly 18376 bytes (NOT 592 — that's the SPA fallback shell)
+
+Per `feedback_stale_sw_on_deploy.md`: SPA SW caches `/login` and `/outreach`
+React routes but NOT `/demo/*.html` (nginx serves those as real files
+ahead of the SPA fallback chain). Demo pages refresh on next request
+post-Cloudflare-purge; SPA users may still need hard-reload after §5.5.
+
 ### 1. Preserve last-good image tags
 
 ```bash
@@ -254,12 +401,13 @@ git log --oneline -1
 ls -1 infra/docker/Dockerfile.backend infra/docker/Dockerfile.frontend
 # Expected: both present.
 
-ls -1 backend/src/main/resources/db/migration/V9{1,2,3,4,5}__*.sql
+ls -1 backend/src/main/resources/db/migration/V9{1,2,3,4,5,6}__*.sql
 # Expected: V91 shelter_type_county_and_reentry_flag,
 #           V92 eligibility_criteria_jsonb,
 #           V93 reservation_pii_encrypted,
 #           V94 shelter_requires_verification_call,
-#           V95 seed_reentry_demo_shelters_east_west.
+#           V95 seed_reentry_demo_shelters_east_west,
+#           V96 seed_third_reentry_shelter_east.
 ```
 
 ### 4. Backend rebuild (clean + no-cache)
@@ -319,8 +467,9 @@ done
 # docker logs fabt-backend --tail 200
 
 docker exec finding-a-bed-tonight-postgres-1 psql -U fabt -d fabt -tAc \
-    "SELECT version, description, success FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 6;"
-# Expected top 5 rows in descending order:
+    "SELECT version, description, success FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 7;"
+# Expected top 6 rows in descending order:
+#   V96 | seed third reentry shelter east                 | t
 #   V95 | seed reentry demo shelters east west            | t
 #   V94 | shelter requires verification call              | t
 #   V93 | reservation pii encrypted                       | t
@@ -450,6 +599,134 @@ docker exec finding-a-bed-tonight-postgres-1 psql -U fabt -d fabt -tAc \
 # Expected: both rows show 'true' (V95 seeds the flag on east+west).
 ```
 
+#### Prod demo tenants — flip features.reentryMode (BLOCKER B3)
+
+V0.55 introduces an API serialization gate (§16.B) and four frontend gates
+(§16.C) that hide reentry-specific UI surfaces (advanced filters,
+eligibility section, hold-attribution PII fields, coordinator dashboard
+PII display) for any tenant whose `config.features.reentryMode` is unset
+or false. Without this post-deploy step, the prod demo tenants (`blueridge`
+and `mountain` per `project_live_demo_seed_inventory`) will look broken
+to a visitor — the new reentry capabilities will not surface for any
+non-DV outreach worker login.
+
+Default-off is the production-correct posture for any tenant that has
+not affirmatively opted into reentry; this step is the affirmative opt-in
+for the demo-tier tenants the public site exercises.
+
+```bash
+# Pre-flip verification — confirm which tenants currently have the flag set:
+docker exec finding-a-bed-tonight-postgres-1 psql -U fabt -d fabt -tAc \
+    "SELECT slug, config #>> '{features,reentryMode}' AS reentry_mode
+       FROM tenant
+       ORDER BY slug;"
+# Expected pre-flip: dev-coc-east + dev-coc-west show 'true' (V95 seed);
+# dev-coc + blueridge + mountain (and any other prod tenants) show NULL
+# or 'false'.
+
+# Flip prod demo tenants. Use the JSONB concat pattern (NOT jsonb_set with
+# a nested path on a missing parent — that returns the input unchanged
+# when 'features' does not yet exist; the concat pattern creates the key
+# correctly whether or not 'features' is already present).
+docker exec finding-a-bed-tonight-postgres-1 psql -U fabt -d fabt -c "
+UPDATE tenant
+   SET config = config
+       || jsonb_build_object(
+              'features',
+              coalesce(config -> 'features', '{}'::jsonb)
+                || jsonb_build_object('reentryMode', true))
+ WHERE slug IN ('blueridge','mountain')
+RETURNING slug, config -> 'features' AS features;"
+# Expected: 2 rows returned, each with features = {"reentryMode": true}.
+# If 0 rows, the slugs differ from this list — query the live tenant
+# table (`SELECT slug FROM tenant WHERE slug NOT LIKE 'dev-%';`) and
+# update the WHERE clause.
+```
+
+Token-TTL caveat: the JWT `reentryMode` claim is captured at token-issue
+time. Operators currently logged in will not see the new surface until
+their access token refreshes (15-minute TTL bound) or they log out + back
+in. Expect a soft window between the SQL flip and visible UI change.
+
+DEK note: this flag flip touches `tenant.config` only. It does NOT
+require the `RESERVATION_PII` DEK to be rotated, and it has no effect
+on data-at-rest. It is a UI/API serialization toggle exclusively.
+
+### §6.5 PII purge verification
+
+The hold-attribution PII columns added in V93 (`held_for_client_name_encrypted`, `held_for_client_dob_encrypted`, `hold_notes_encrypted` on `reservation`) are erased no later than 25 hours after a reservation reaches a terminal status. Implementation: `ReservationService.purgeExpiredHoldAttribution(Instant)` invoked by `ReferralTokenPurgeService.purgeExpiredHoldAttribution()` on a `@Scheduled(fixedDelay=900_000)` (15 minutes — worst-case PII lifetime is 24h+15m). Verify post-deploy:
+
+**1) Confirm the `@Scheduled` purge bean is registered in the running backend.** First check whether `actuator/scheduledtasks` is exposed in this deploy — `management.endpoints.web.exposure.include` does not include `scheduledtasks` in the default v0.55 management config, so a 404 here is **expected, not a failure**. If 404, skip to the log-parse fallback immediately below. If the endpoint is exposed:
+
+```bash
+curl -fsS http://localhost:9091/actuator/scheduledtasks 2>&1 \
+  | python3 -m json.tool \
+  | grep -A2 -E "purgeExpiredHoldAttribution|purgeTerminalTokens"
+# Expected (when exposed): two scheduled tasks visible —
+# purgeTerminalTokens (DV referral tokens, 1h fixedRate) and
+# purgeExpiredHoldAttribution (hold-attribution PII, 15m fixedDelay).
+# Expected (when NOT exposed): HTTP 404 — fall through to log-parse below.
+# Only treat as failure if exposed AND a task is missing from the JSON.
+```
+
+Log-parse fallback (preferred for v0.55, and required when actuator/scheduledtasks is not exposed):
+
+```bash
+docker logs fabt-backend --since 30m 2>&1 | grep "purgeExpiredHoldAttribution"
+# Expected: at least one log line within the last 30 minutes
+# (15m schedule + ~15m grace). Format:
+#   purgeExpiredHoldAttribution: purged=N
+# where N is the count of rows whose ciphertext columns were nulled this run.
+# A line every ~15 minutes confirms the schedule fires.
+```
+
+**2) Confirm a sample row honored the 25-hour SLA.** Pick a reservation that resolved >25 hours ago and verify its ciphertext columns are NULL:
+
+```bash
+docker exec finding-a-bed-tonight-postgres-1 psql -U fabt -d fabt -c "
+SELECT id, status,
+       held_for_client_name_encrypted IS NULL AS name_purged,
+       held_for_client_dob_encrypted IS NULL AS dob_purged,
+       hold_notes_encrypted IS NULL AS notes_purged,
+       updated_at
+FROM reservation
+WHERE status IN ('CANCELLED','CONFIRMED','EXPIRED','CANCELLED_SHELTER_DEACTIVATED')
+  AND updated_at < NOW() - INTERVAL '25 hours'
+  AND (held_for_client_name_encrypted IS NOT NULL
+       OR held_for_client_dob_encrypted IS NOT NULL
+       OR hold_notes_encrypted IS NOT NULL)
+LIMIT 5;"
+# Expected: ZERO rows (i.e. NO terminal-status reservations older than 25h
+# with un-nulled ciphertext). Any row returned is a 25h SLA violation —
+# stop the deploy, capture the row IDs, surface in chat.
+```
+
+**First-run waiver:** on a fresh v0.55 deploy, the candidate set this query measures (terminal-status reservations whose hold ended >25h ago AND still have un-nulled ciphertext) is naturally empty — there has not been time for any v0.55 hold-attribution row to age past the 25h SLA. **0 rows in this case confirms the invariant, not the purge execution path.** The first real exercise of the purge fires ~25h after the first navigator records optional hold attribution post-deploy. Schedule a re-run of this probe ~26-30h after the first reentry-mode hold lands, and capture the result in the deploy log; until then, rely on step 1's log-parse output (a `purged=N` line every ~15 min) as the running confirmation that the bean is firing.
+
+**3) Confirm the purge audit-event lifecycle.** v0.55 emits audit events for hold-attribution PII writes, decrypt-on-read (throttled), and purges:
+
+```bash
+docker exec finding-a-bed-tonight-postgres-1 psql -U fabt -d fabt -tAc "
+SELECT event_type, count(*)
+FROM audit_events
+WHERE event_type IN (
+    'RESERVATION_HELD_FOR_CLIENT_RECORDED',
+    'RESERVATION_PII_DECRYPTED_ON_READ',
+    'RESERVATION_PII_PURGED'
+)
+  AND timestamp > NOW() - INTERVAL '24 hours'
+GROUP BY event_type;"
+# Expected: at least one RESERVATION_PII_PURGED row (the scheduled job has
+# emitted at least one event in the last 24 hours, even if its purgedCount
+# was 0). If demo activity has used the navigator hold dialog, also expect
+# RESERVATION_HELD_FOR_CLIENT_RECORDED rows. Throttle on the read-side
+# emitter is one row per (coordinator, shelter, hour) tuple.
+```
+
+**Honest disclosure (v0.55):** The Prometheus metric proving the purge SLA at scale (`fabt.reservation.pii_purge.success.count` + `fabt.reservation.pii_purge.lag_seconds` histogram + failure alert) is **NOT YET WIRED** in v0.55. Tracked for v0.56, target Q2-2026. Until then, rely on the log-parse fallback (step 1) and the audit-event count (step 3) as the operator-side signal. See `docs/security/compliance-posture-matrix.md` "Hold-attribution PII (v0.55+)" section for the full disclosure.
+
+**Stale ciphertext after DEK rotation:** if a tenant's `tenant_dek` row for the `RESERVATION_PII` purpose is rotated or hard-deleted, prior ciphertext becomes unrecoverable (this IS the at-rest crypto-shred posture by design). The purge job continues to function — it nulls the columns regardless of decryptability. There is no operator action required for crypto-shredded ciphertext beyond confirming the row was purged on its normal SLA.
+
 ### Prometheus rules unchanged but loaded
 
 ```bash
@@ -474,6 +751,45 @@ docker exec fabt-backend sh -c \
 
 If anyone tests the new UI from a browser that was logged in pre-deploy, **use incognito or clear site data**. Old service worker will serve cached JS (per `feedback_stale_sw_on_deploy.md`).
 
+### Static-content (docs site) verification
+
+After §5.0 scp + Cloudflare "Purge Everything":
+
+```bash
+# 1. reentry-story.html now serves real content (NOT 592-byte SPA fallback)
+curl -sf -w "Bytes: %{size_download}\n" -o /dev/null https://findabed.org/demo/reentry-story.html
+# Expected: ~18376 bytes. 592 bytes means the file isn't on the VM (or the
+# scp landed in the wrong dir) and nginx is falling through to the SPA.
+
+# 2. All 6 NEW reentry screenshots reachable
+for s in 01-advanced-search-filters 02-search-results-filtered 03-shelter-detail-eligibility 04-hold-dialog-attribution 05-admin-reservation-settings 06-no-match-failure-path; do
+  curl -sf -o /dev/null -w "reentry-${s}.png: %{http_code}\n" https://findabed.org/demo/screenshots/reentry-${s}.png
+done
+# Expected: all 200.
+
+# 3. BLOCKER-FND-1 fix landed (no platform-wide PII overclaim)
+curl -sf https://findabed.org/demo/for-funders.html | grep -cE "opt-in privacy posture|Zero client PII on the DV referral path"
+# Expected: 2+ matches (line 10 og:description + line 285 Defense bullet).
+curl -sf https://findabed.org/demo/for-funders.html | grep -cE 'Open-source, zero-PII"|<strong>Zero client PII\.</strong>'
+# Expected: 0 — the unscoped tagline + bare bullet are gone.
+
+# 4. BLOCKER-COC-1 reentry-mode section landed
+curl -sf https://findabed.org/demo/for-coc-admins.html | grep -c "Reentry-Mode Tenant Flag"
+# Expected: 1+ — the new ~250-word section.
+
+# 5. HIGH-IDX-1 5th tile in More Walkthroughs grid
+curl -sf https://findabed.org/demo/index.html | grep -c "Reentry Walkthrough"
+# Expected: 1.
+
+# 6. §2.1 root index.html "ever" claim DV-scoped
+curl -sf https://findabed.org/index.html | grep -c "DV referrals carry no client name and no address, ever"
+# Expected: 1 — the ever-scope replaced the platform-wide "no client name ever" claim.
+```
+
+If any of these return unexpected values, the static deploy didn't land
+cleanly — re-check §5.0 scp logs and Cloudflare purge confirmation
+before proceeding to §15 demo flow walkthroughs.
+
 ---
 
 ## 7. Rollback Matrix
@@ -481,15 +797,15 @@ If anyone tests the new UI from a browser that was logged in pre-deploy, **use i
 | Symptom | Action | Time to recover |
 |---|---|---|
 | Backend won't start (Flyway validate error) | Never modify applied migrations. Read `docker logs fabt-backend --tail 200` for Flyway specifics first. If a migration broke partway, full DB rollback is the safe path: `docker exec -i finding-a-bed-tonight-postgres-1 pg_restore -U fabt -d fabt --clean --if-exists < ~/fabt-backups/fabt-pre-v0.55.0-<TIMESTAMP>.dump`, then `docker tag fabt-backend:v0.54.0-lastgood fabt-backend:latest && docker compose "${COMPOSE_CHAIN[@]}" up -d --force-recreate backend`. | ~15 min |
-| Backend JAR fails for non-Flyway reasons (NPE on boot, bean wiring) | Image-only rollback. V91-V95 stay applied — they are forward-compatible (additive columns + JSONB index + nullable `_encrypted` columns + tenant-config JSON keys are all ignored by v0.54 code). `docker tag fabt-backend:v0.54.0-lastgood fabt-backend:latest && docker compose "${COMPOSE_CHAIN[@]}" up -d --force-recreate backend`. | ~5 min |
+| Backend JAR fails for non-Flyway reasons (NPE on boot, bean wiring) | Image-only rollback. V91-V96 stay applied — they are forward-compatible (additive columns + JSONB index + nullable `_encrypted` columns + tenant-config JSON keys are all ignored by v0.54 code). `docker tag fabt-backend:v0.54.0-lastgood fabt-backend:latest && docker compose "${COMPOSE_CHAIN[@]}" up -d --force-recreate backend`. | ~5 min |
 | New endpoints return 5xx in steady state | Image-only rollback per row above. The new endpoints disappear; existing tenant flow is unaffected. | ~5 min |
 | Frontend reentry surface broken or visually wrong | Frontend image-only rollback: `docker tag fabt-frontend:v0.54.0-lastgood fabt-frontend:latest && docker compose "${COMPOSE_CHAIN[@]}" up -d --force-recreate frontend`. The backend keeps running with the new JAR; reentry-mode UI surfaces are inaccessible until you rebuild the v0.55 frontend. | ~3 min |
 | Host nginx 502 after backend recreate | Frontend docker-network is stale — recreate frontend too. (Standard remediation per template.) | ~3 min |
 | Frontend serving stale JS post-deploy | Old service worker cached the bundle. Use incognito or clear site data. (`feedback_stale_sw_on_deploy.md`.) | <1 min |
-| Full rollback to v0.54 | `docker tag fabt-backend:v0.54.0-lastgood fabt-backend:latest && docker tag fabt-frontend:v0.54.0-lastgood fabt-frontend:latest && docker compose "${COMPOSE_CHAIN[@]}" up -d --force-recreate backend frontend`. **V91-V95 are NOT rolled back** — they are additive and forward-compatible with v0.54 backend. | ~6 min |
+| Full rollback to v0.54 | `docker tag fabt-backend:v0.54.0-lastgood fabt-backend:latest && docker tag fabt-frontend:v0.54.0-lastgood fabt-frontend:latest && docker compose "${COMPOSE_CHAIN[@]}" up -d --force-recreate backend frontend`. **V91-V96 are NOT rolled back** — they are additive and forward-compatible with v0.54 backend. | ~6 min |
 | V93 `_encrypted` column writes failed (DEK key missing) | Read `docker logs fabt-backend --tail 200` for `RESERVATION_PII` key-purpose errors. The new purpose extends `tenant_dek.purpose`. If DEK provisioning failed, image rollback (above) is fastest. The `_encrypted` columns are nullable, so v0.54 reads of v0.55-written rows ignore them. | ~5 min |
 
-> **V91-V95 are one-way migrations.** They are additive (columns,
+> **V91-V96 are one-way migrations.** They are additive (columns,
 > indexes, CHECK, JSON keys, seed rows) and coexist safely with v0.54
 > code which never reads or writes them. Rolling back the JAR rolls
 > back the calls, not the schema. Full DB rollback via `pg_restore`

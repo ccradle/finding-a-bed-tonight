@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, type FormEvent } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
+import { useAuth } from '../auth/useAuth';
 import { color } from '../theme/colors';
 import { text, weight } from '../theme/typography';
 
@@ -50,6 +51,7 @@ export function HoldDialog({
   onCancel,
 }: HoldDialogProps) {
   const intl = useIntl();
+  const { user } = useAuth();
 
   const [name, setName] = useState('');
   const [dob, setDob] = useState('');
@@ -169,6 +171,13 @@ export function HoldDialog({
     border: `1.5px solid ${color.border}`, fontSize: text.base, minHeight: 38,
     boxSizing: 'border-box', fontFamily: 'inherit',
   };
+  // v0.55 §11.3 — always-visible help text under each PII input.
+  // Screen readers announce on focus via aria-describedby on the input.
+  // Non-hover; renders unconditionally inside the (open-by-default) attribution details.
+  const helpTextStyle: React.CSSProperties = {
+    fontSize: text.xs, color: color.textTertiary,
+    margin: '4px 0 0', lineHeight: 1.45,
+  };
 
   return (
     <div
@@ -202,9 +211,33 @@ export function HoldDialog({
           {shelterName} — {populationTypeLabel}
         </p>
 
-        {/* Optional attribution — collapsed by default per §11.3. The
-            <details> element is keyboard + screen-reader accessible
-            without custom code. */}
+        {/* Round 5 §16.C.4 — entire attribution block is gated on
+            features.reentryMode. The §16.B API serialization gate is
+            the primary control; this hides the input UI so a non-reentry
+            tenant can't even compose PII to send. */}
+        {user?.reentryMode && (
+        <section data-testid="reentry-pii-fields">
+          {/* v0.55 §11 Round-2 (Devon DK-RR-A12 + Tomás DK-RR-4): privacy
+              note renders OUTSIDE the disclosure — always visible above
+              the (collapsed-by-default) attribution toggle. Operators
+              encounter the privacy posture at the moment they decide
+              whether to expand. The per-input help text below each PII
+              input lives INSIDE the disclosure (it is contextually tied
+              to the input it describes, and aria-describedby announces
+              it to screen-readers when focus enters the input — focus
+              cannot enter while the disclosure is collapsed, so the
+              help text being inside the disclosure is correct). */}
+          <p
+            data-testid="hold-attribution-privacy-note"
+            style={{
+              margin: '0 0 12px', padding: '10px 12px', borderRadius: 6,
+              backgroundColor: color.warningBg, color: color.warning,
+              fontSize: text.xs, lineHeight: 1.5,
+              border: `1px solid ${color.warning}`,
+            }}
+          >
+            <FormattedMessage id="hold.clientAttributionPrivacyNote" />
+          </p>
         <details
           data-testid="hold-attribution-toggle"
           style={{ marginBottom: 16, border: `1px solid ${color.border}`, borderRadius: 6 }}
@@ -218,20 +251,6 @@ export function HoldDialog({
             <FormattedMessage id="hold.dialog.addClientDetails" />
           </summary>
           <div style={{ padding: '4px 14px 14px' }}>
-            {/* Casey-reviewed privacy note — INSIDE the open <details>
-                per warroom M5. Operators see the privacy posture at
-                the moment they decide whether to enter PII. */}
-            <p
-              data-testid="hold-attribution-privacy-note"
-              style={{
-                margin: '0 0 12px', padding: '10px 12px', borderRadius: 6,
-                backgroundColor: color.warningBg, color: color.warning,
-                fontSize: text.xs, lineHeight: 1.5,
-                border: `1px solid ${color.warning}`,
-              }}
-            >
-              <FormattedMessage id="hold.clientAttributionPrivacyNote" />
-            </p>
 
             <div style={fieldStyle}>
               <label htmlFor="hold-client-name-input" style={labelStyle}>
@@ -248,7 +267,15 @@ export function HoldDialog({
                 onChange={(e) => setName(e.target.value)}
                 maxLength={100}
                 style={inputStyle}
+                aria-describedby="hold-client-name-help"
               />
+              <p
+                id="hold-client-name-help"
+                data-testid="hold-help-client-name"
+                style={helpTextStyle}
+              >
+                <FormattedMessage id="hold.help.clientName" />
+              </p>
             </div>
 
             <div style={fieldStyle}>
@@ -267,7 +294,15 @@ export function HoldDialog({
                 min={dobFloor}
                 max={today}
                 style={inputStyle}
+                aria-describedby="hold-client-dob-help"
               />
+              <p
+                id="hold-client-dob-help"
+                data-testid="hold-help-client-dob"
+                style={helpTextStyle}
+              >
+                <FormattedMessage id="hold.help.clientDob" />
+              </p>
             </div>
 
             <div style={fieldStyle}>
@@ -282,10 +317,20 @@ export function HoldDialog({
                 maxLength={500}
                 rows={3}
                 style={{ ...inputStyle, resize: 'vertical' }}
+                aria-describedby="hold-notes-help"
               />
+              <p
+                id="hold-notes-help"
+                data-testid="hold-help-notes"
+                style={helpTextStyle}
+              >
+                <FormattedMessage id="hold.help.notes" />
+              </p>
             </div>
           </div>
         </details>
+        </section>
+        )}
 
         {error && (
           <div

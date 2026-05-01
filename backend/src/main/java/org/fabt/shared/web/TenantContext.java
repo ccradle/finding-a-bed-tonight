@@ -33,6 +33,23 @@ public final class TenantContext {
 
     public static final ScopedValue<Context> CONTEXT = ScopedValue.newInstance();
 
+    /**
+     * Round 5 §16.B — request-scoped {@code features.reentryMode} flag,
+     * sourced from the JWT claim emitted by {@code JwtService}. Bound by
+     * {@code JwtAuthenticationFilter} alongside {@link #CONTEXT}; null /
+     * unbound means "not in a JWT-authenticated request" (batch jobs,
+     * scheduled tasks, system contexts) which all default to {@code false}
+     * so PII is never surfaced from non-tenant contexts.
+     *
+     * <p>Why a separate {@link ScopedValue} rather than a 4th field on
+     * {@link Context}: there are 60+ {@code callWithContext} /
+     * {@code runWithContext} sites across batch jobs and services; adding
+     * a field would cascade to every one. A separate binding keeps the
+     * flag flow explicit (filter binds it; reader checks it) and leaves
+     * batch contexts unchanged with the safe default.
+     */
+    public static final ScopedValue<Boolean> REENTRY_MODE = ScopedValue.newInstance();
+
     private TenantContext() {}
 
     public static UUID getTenantId() {
@@ -45,6 +62,16 @@ public final class TenantContext {
 
     public static boolean getDvAccess() {
         return CONTEXT.isBound() && CONTEXT.get().dvAccess();
+    }
+
+    /**
+     * Round 5 §16.B — current request's {@code features.reentryMode} value.
+     * Returns {@code false} when unbound (the safe default — batch jobs and
+     * unauthenticated requests will not surface PII through serialization
+     * gates that consult this method).
+     */
+    public static boolean getReentryMode() {
+        return REENTRY_MODE.isBound() && Boolean.TRUE.equals(REENTRY_MODE.get());
     }
 
     /**
@@ -84,5 +111,19 @@ public final class TenantContext {
     public static <T, X extends Throwable> T callWithContext(UUID tenantId, UUID userId, boolean dvAccess,
             ScopedValue.CallableOp<? extends T, X> action) throws X {
         return ScopedValue.where(CONTEXT, new Context(tenantId, userId, dvAccess)).call(action);
+    }
+
+    /**
+     * Round 5 §16.B — overload that binds {@link #REENTRY_MODE} alongside
+     * the main {@link #CONTEXT}. Used by {@code JwtAuthenticationFilter} to
+     * propagate the JWT-claim value into the request scope; readers (e.g.
+     * {@code ReservationResponse#from}) consult {@link #getReentryMode()}.
+     */
+    public static <T, X extends Throwable> T callWithContext(UUID tenantId, UUID userId, boolean dvAccess,
+            boolean reentryMode,
+            ScopedValue.CallableOp<? extends T, X> action) throws X {
+        return ScopedValue.where(CONTEXT, new Context(tenantId, userId, dvAccess))
+                .where(REENTRY_MODE, reentryMode)
+                .call(action);
     }
 }

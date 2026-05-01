@@ -262,6 +262,23 @@ The CoC admin queue for pending DV referrals. Per-tenant versioned escalation po
 
 Full scope: `openspec/changes/archive/coc-admin-escalation/` — proposal.md, design.md (D1–D20), spec.md (13 requirements / 62 scenarios), tasks.md.
 
+### §2.6 transitional-reentry-support (v0.55.0)
+
+Reentry-housing-navigator surface added in v0.55.0. Introduces a shelter classification taxonomy (EMERGENCY / TRANSITIONAL / REENTRY_TRANSITIONAL / DV plus deferred values), a county-aware advanced search for outreach workers, structured eligibility criteria (criminal-record-policy + program-requirements + documentation-required + intake-hours) on `shelter_constraints.eligibility_criteria` JSONB, and a coordinator-side hold dialog with optional client attribution + 24-hour PII purge. The slice unblocks the navigator persona (Demetrius Holloway in PERSONAS.md) — a third-party hold workflow where the navigator holds beds for clients who may not be platform users themselves.
+
+**Key decisions (summary — full rationale in `openspec/changes/archive/transitional-reentry-support/design.md`):**
+
+- **D1** — Eligibility criteria stored as JSONB with a partial GIN index (`idx_shelter_constraints_eligibility`, V92, `WHERE eligibility_criteria IS NOT NULL`). Containment queries use `@>` / `?` / `?|` / `?&`; pure JSON-path extraction (`->`/`->>`) is NOT accelerated. Most shelters launch with NULL; the `requires_verification_call` boolean sentinel (V94) covers the gap by surfacing a "call to verify" badge AND broadening the BedSearchService H1 three-way `accepts_felonies` filter to INCLUDE shelters with null eligibility ONLY when the sentinel flag is true.
+- **D2 / D3** — `shelter.shelter_type` (V91, controlled vocabulary) is coupled to `shelter.dv_shelter` via the `shelter_dv_implies_dv_type` CHECK constraint: `dv_shelter=true` requires `shelter_type='DV'`. ShelterService keeps the two fields in lockstep on every write. The DV referral path is therefore structurally unreachable through navigator-hold inventory; the V91 CHECK is the integrity guarantee.
+- **D4 — Encrypted-reservation-PII sub-module.** V93 adds three nullable `_encrypted` columns on `reservation` (`held_for_client_name_encrypted`, `held_for_client_dob_encrypted`, `hold_notes_encrypted`) and extends `tenant_dek.purpose` with `RESERVATION_PII`. Encryption uses `SecretEncryptionService.encryptForTenant(KeyPurpose.RESERVATION_PII)`, base64 v1 envelope. Two-layer PII posture: (a) at-rest crypto-shred via `tenant_dek` rotation, (b) Spring Batch nulls the columns "no later than 25 hours after terminal status" (per `reentry-release-readiness` D10 + D11 — v0.55 introduces this hardening). The PII surface is opt-in; the navigator decides per hold whether to record client identifiers. PII fields are NEVER published over AsyncAPI by design (see `docs/asyncapi.yaml ReservationEventMessage` summary).
+- **D5 — Per-tenant `features.reentryMode` flag.** `tenant.config` JSONB carries a `features.reentryMode` boolean that gates the reentry UI surface (advanced filters, hold-attribution fields). Admin-configurable via the existing tenant config endpoint; default `false`. Activating the flag does not change schema or backend behavior — only UI affordance.
+- **D6 — Hold duration is tenant-configurable.** `tenant.config` carries `holdDurationMinutes`. Default 90 minutes. Reentry deployments set 180–240 minutes because release-day transit (prison bus → shelter intake) routinely exceeds 90 minutes. Configurable via the new admin Reservation Settings panel.
+- **ArchUnit boundary** — eligibility-criteria evaluation lives in a new `org.fabt.shelter.eligibility` package with `AcceptsFeloniesEvaluator` as the canonical entry point. ShelterService delegates rather than embedding the three-way logic, keeping `BedSearchService` boundary-clean (it filters by `requires_verification_call` directly but never inspects eligibility JSONB).
+
+**Deployment note.** v0.55 ships with a `reentry-release-readiness` paired-archive change covering public-facing PII disclosure, audit events for the new PII surface, the 25-hour purge SLA contract (with operational-signal gap honestly disclosed in `compliance-posture-matrix.md`), DOB-validation log-leak fix, and a `demo/reentry-story.html` capability deep-dive. Tag `v0.55.0` requires both archives complete.
+
+Full scope: `openspec/changes/archive/transitional-reentry-support/` and `openspec/changes/archive/reentry-release-readiness/` — proposals, designs, spec deltas, tasks.
+
 ---
 
 ## Appendix — Reading this diagram

@@ -81,7 +81,7 @@ This is the most important section for your DV shelter directors. Here is what t
 
 - The shelter exists (name, general service area, population types)
 - Current bed availability (number only)
-- **No client names. No client information of any kind. Zero PII.**
+- **No client names. No client information of any kind. Zero PII.** *(DV referral path; the v0.55+ non-DV navigator-hold path may optionally collect client name, DOB, and notes — encrypted at rest, erased no later than 25 hours after the hold ends. The structural separation is enforced by the V91 `shelter_dv_implies_dv_type` CHECK constraint.)*
 - **The shelter's physical address is never stored in the system.**
 
 ### How referrals work
@@ -105,7 +105,7 @@ Bed holds and availability updates DO work offline — they queue locally and se
 
 ### Legal framing
 
-The DV protection architecture is designed to support VAWA and FVPSA requirements. It has not been independently certified as compliant. The zero-PII, zero-address, 24-hour hard-delete design means there is effectively nothing to subpoena -- the data does not exist.
+The DV protection architecture is designed to support VAWA and FVPSA requirements. It has not been independently certified as compliant. The DV referral path's zero-PII, zero-address, 24-hour hard-delete design means there is effectively nothing to subpoena from a DV referral — the data does not exist. *(v0.55+ note: the non-DV navigator-hold path optionally collects client name, DOB, and notes for third-party hold workflows like reentry housing navigators; these are encrypted at rest, erased no later than 25 hours after the hold ends, and structurally separated from the DV path by the V91 `shelter_dv_implies_dv_type` CHECK constraint.)*
 
 For the full technical and legal basis, see [DV-OPAQUE-REFERRAL.md](DV-OPAQUE-REFERRAL.md).
 

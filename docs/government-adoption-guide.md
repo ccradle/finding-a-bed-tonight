@@ -70,7 +70,7 @@ The Apache 2.0 license explicitly permits commercial support services. This is h
 - **SSO Resilience:** If an identity provider (Google, Microsoft, Keycloak) experiences an outage, password-authenticated users continue working without interruption. The two authentication paths are architecturally independent. See docs/runbook.md for full degradation behavior.
 - **Credential Management:** Self-service password change, admin-initiated password reset, and admin-generated one-time access codes for field worker recovery (15-minute expiry, single-use, bcrypt-hashed). Minimum 12-character passwords per NIST 800-63B (length over complexity). All existing sessions are invalidated on password change. SSO-only users are handled gracefully. DV safeguard: access code generation for DV-authorized users requires DV-authorized admin.
 - **Rate Limiting:** Authentication and password management endpoints are protected against brute force attacks (login: 10/15min, password change: 5/15min, admin reset: 10/15min, TOTP verification: 20/15min + 5 per token, forgot-password: 3/60min per IP)
-- **DV Protection:** Defense-in-depth — database RLS + service-layer access checks + zero client PII
+- **DV Protection:** Defense-in-depth — database RLS + service-layer access checks + DV referral path stores zero client PII (opaque-token model). Non-DV navigator holds may optionally collect client name, DOB, and notes; these are encrypted at rest with a per-tenant DEK and erased no later than 25 hours after the hold reaches a terminal status. The DV referral path is unchanged and remains zero-PII.
 - **Audit:** HMIS push audit log with SHA-256 payload hashing
 - **WCAG:** Self-assessed ACR covering all 50 WCAG 2.1 Level A/AA criteria (see docs/WCAG-ACR.md). Typography system uses CSS custom properties as centralized design tokens — consistent font rendering across all platforms, automated Playwright tests verify WCAG 1.4.12 text spacing compliance.
 - **Security Scanning:** OWASP ZAP API scan run against a local development environment (HTTP, no TLS) using the OpenAPI spec — zero HIGH/CRITICAL findings across 116 checks. This covers application-level vulnerabilities (injection, XSS, access control). TLS configuration, reverse proxy hardening, and production infrastructure scanning have not yet been performed and should be completed before any public-facing deployment. See docs/security/ for the baseline report.
@@ -118,14 +118,17 @@ This is the same assurance that applies to PostgreSQL, Linux, or any Apache-lice
 
 FABT is designed to support VAWA (34 U.S.C. 12291(b)(2)), FVPSA, and HUD HMIS confidentiality requirements. Key protections:
 
-- **Zero client PII** — no client names, SSNs, DOBs, or addresses in the database
+- **DV referral path: zero client PII** — DV referrals contain no client names, SSNs, DOBs, or addresses
+- **Non-DV navigator hold (optional, opt-in):** client name, DOB, and free-text notes may be collected on third-party holds (e.g., reentry housing navigators), encrypted at rest with a per-tenant DEK (`tenant_dek.purpose='RESERVATION_PII'`), and erased no later than 25 hours after the hold reaches a terminal status. **PII fields are NOT surfaced in the UI or returned by the API unless the CoC administrator has affirmatively enabled `features.reentryMode = true` on the tenant configuration.** Default-off is the production-correct posture; the v0.55 §16.B API serialization gate strips the three PII fields from every response for tenants that have not opted in, and four frontend conditional renders hide the reentry-specific UI surfaces. A CoC adopting FABT does not become a PII collector by default — the platform stays zero-PII for the deployment until the CoC administrator makes an explicit, audited decision to enable reentry collection.
 - **Opaque referral** — DV referral tokens contain only household size, urgency, and worker callback number
-- **24-hour hard delete** — terminal referral tokens are permanently deleted within 24 hours
+- **24-hour hard delete** — terminal DV referral tokens are permanently deleted within 24 hours
 - **Court subpoena response** — nothing survives to be subpoenaed because data is hard-deleted, not soft-deleted
 - **Address redaction** — DV shelter addresses are never exposed in API responses to unauthorized users
 - **Small-cell suppression** — DV aggregate data is suppressed when fewer than 3 DV shelters exist (Design D18)
 
 See docs/DV-OPAQUE-REFERRAL.md for the complete legal basis, architecture, and VAWA self-assessment checklist.
+
+**v0.55 hold-attribution PII is NOT used in the DV referral path.** v0.55 introduces an optional, opt-in PII collection capability (client name, DOB, free-text notes) for non-DV navigator holds — used by reentry housing navigators and other third-party hold workflows. This optional capability is structurally segregated from the DV referral path: the V91 CHECK constraint `shelter_dv_implies_dv_type` enforces that any shelter flagged `dv_shelter=true` must carry `shelter_type='DV'`, and the platform's service layer routes DV-flagged inventory exclusively through the opaque-token DV referral path which collects no client identifiers. The new hold-attribution fields are available only on non-DV navigator holds, are encrypted at rest with a per-tenant DEK (`tenant_dek.purpose='RESERVATION_PII'`), and are erased no later than 25 hours after the hold reaches a terminal status.
 
 **Important:** This design is intended to support compliance but does not constitute legal compliance certification. Organizations deploying FABT for DV referrals should consult qualified legal counsel regarding applicable federal, state, and local confidentiality requirements.
 
