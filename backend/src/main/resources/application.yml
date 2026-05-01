@@ -142,6 +142,14 @@ resilience4j:
 
 fabt:
   deployment-tier: ${FABT_DEPLOYMENT_TIER:lite}
+  platform:
+    # Public contact email for the FABT project team. Set via env var
+    # FABT_PLATFORM_CONTACT_EMAIL on prod (~/fabt-secrets/.env.prod) and dev
+    # operator-local env. Empty string here means "not configured" — the
+    # /api/v1/public/contact-info endpoint returns the empty value and the
+    # static-site /contact.js falls back to the GH-issues link. Same anti-leak
+    # posture as feedback_no_ip_in_repo: the literal address never enters git.
+    contact-email: ${FABT_PLATFORM_CONTACT_EMAIL:}
   jwt:
     # 60 minutes for dev/test (Playwright suites take 8-10 min).
     # Production should override to 15 via FABT_JWT_ACCESS_TOKEN_EXPIRY_MINUTES env var.
