@@ -126,6 +126,24 @@ class HmisPushContractTest extends BaseIntegrationTest {
         });
     }
 
+    /**
+     * Scope of this assertion: catches a future regression that adds a field to
+     * {@link HmisInventoryRecord} whose name matches the v0.55.0-introduced
+     * hold-attribution PII patterns ({@code held_for_client_*}, {@code client_name},
+     * {@code client_dob}, {@code hold_notes}).
+     *
+     * <p><b>Known limitation:</b> this reflection check is structurally blind to
+     * <em>new</em> PII categories. A field named {@code requesterIdentity},
+     * {@code applicantSsn}, or {@code guestEmail} would NOT match the pattern
+     * list and would NOT fail here. The actual leak gate for broader PII
+     * categories is the {@code hmisOutboxEntryTable_hasNoPiiColumns} check
+     * (schema-absent at the outbox table) plus the
+     * {@code holdAttributionPii_absentFromTransformerSerializedPayload} check
+     * (substring-payload search of seeded values). When adding a new PII
+     * category to the {@code reservation} table or any other source table,
+     * extend {@link #PII_FIELD_NAME_PATTERNS} <em>and</em> seed the new value
+     * into the substring-payload test.
+     */
     @Test
     @DisplayName("Schema-absent at projection record: HmisInventoryRecord has no PII-flavored fields")
     void hmisInventoryRecord_hasNoPiiFlavoredFields() {
