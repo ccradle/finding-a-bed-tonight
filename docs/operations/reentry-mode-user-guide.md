@@ -135,6 +135,72 @@ because intent differs — operational vs platform-grade). Both rows
 are appended to the tenant's audit chain and survive caller
 rollback per the standard audit posture.
 
+### 1.1 Disabling `features.reentryMode`
+
+Same endpoint, same get-merge-put pattern, only the merged value
+differs:
+
+```bash
+# Same step 1 (GET) as the enable flow above.
+jq '.features.reentryMode = false' /tmp/tenant-config.json \
+  > /tmp/tenant-config-next.json
+# Same step 3 (PUT) as the enable flow above.
+```
+
+The token-TTL caveat applies symmetrically — users currently signed
+in retain `reentryMode=true` on their existing JWT until the 15-min
+TTL expires or they re-authenticate. Plan a flag-off the same way
+you plan a flag-on: in a window where short-lived inconsistency is
+acceptable.
+
+**Backend write-path note.** Disabling the flag does NOT erase
+already-persisted ciphertext on `reservation.held_for_client_*_encrypted`.
+The serialization gate at `ReservationResponse.from(...)` returns
+`null` for those fields once the new JWT is issued, so the API
+visibly stops emitting them — but the underlying ciphertext stays
+on disk until the regular 25-hour post-resolution purge runs (see
+section 5). To accelerate erasure, resolve outstanding holds
+(cancel / confirm / expire) and wait for the next purge cycle, or
+contact the platform operator to invoke a one-shot purge.
+
+### 1.2 Local dev quick-flip
+
+For local-dev `dev-coc` testing the seed flips the flag to `true`
+during `./dev-start.sh --fresh` so developers can exercise the
+reentry surfaces immediately. To toggle in a running dev DB without
+re-seeding:
+
+```bash
+# Flip to false (production-realistic baseline)
+docker compose exec -T postgres psql -U fabt -d fabt -c \
+  "UPDATE tenant SET config = jsonb_set(config, '{features,reentryMode}', 'false') WHERE slug = 'dev-coc';"
+
+# Flip back to true
+docker compose exec -T postgres psql -U fabt -d fabt -c \
+  "UPDATE tenant SET config = jsonb_set(config, '{features,reentryMode}', 'true') WHERE slug = 'dev-coc';"
+```
+
+The token-TTL caveat applies — log out + back in (or wait 15 min)
+for the JWT claim to refresh. Test users seeded by `infra/scripts/
+seed-data.sql` use `admin123` / `email` per
+`reference_demo_seed_credentials`.
+
+**Seed-data.sql gap (v0.55).** The V95 + V96 reentry shelters live
+in Flyway migrations and are wiped by `seed-reset.sql` on `--fresh`.
+After running `--fresh`, replay them manually:
+
+```bash
+docker compose exec -T postgres psql -U fabt -d fabt < \
+  backend/src/main/resources/db/migration/V95__seed_reentry_demo_shelters_east_west.sql
+docker compose exec -T postgres psql -U fabt -d fabt < \
+  backend/src/main/resources/db/migration/V96__seed_third_reentry_shelter_east.sql
+```
+
+This restores 3 reentry shelters (Onslow Womens Reentry + Beaufort
+Reentry Annex on `dev-coc-east`; Henderson Reentry House on
+`dev-coc-west`). Tracked for fix in v0.55.1: mirror these inserts
+into `seed-data.sql` so `--fresh` is reentry-aware end-to-end.
+
 ---
 
 ## 2. Curating `tenant.config.active_counties`
