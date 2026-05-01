@@ -123,6 +123,7 @@
   "search.resultCount": "{count, plural, one {# shelter found} other {# shelters found}}",
   "search.noResults": "No shelters match your filters",
   "search.tryDifferent": "Try adjusting your search criteria",
+  "search.resultsRegion": "Search results",
   "search.allTypes": "All Population Types",
   "search.singleAdult": "Single Adults",
   "search.family": "Families with Children",

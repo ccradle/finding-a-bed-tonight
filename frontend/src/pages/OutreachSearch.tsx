@@ -995,7 +995,12 @@ export function OutreachSearch() {
         </div>
       )}
 
-      {/* Results */}
+      {/* Results region — wraps result cards + empty-state. v0.55.1-T1: gives screen-reader probes a stable landmark to scope to (the freshness badges live on the cards within this region). */}
+      <div
+        role="region"
+        aria-label={intl.formatMessage({ id: 'search.resultsRegion' })}
+        data-testid="search-results-region"
+      >
       {!loading && filtered.map((r) => {
         const avail = totalBedsAvailable(r);
         const isFull = avail === 0;
@@ -1196,6 +1201,7 @@ export function OutreachSearch() {
           <div style={{ fontSize: text.base, marginTop: 6 }}><FormattedMessage id="search.tryDifferent" /></div>
         </div>
       )}
+      </div>
 
       {/* Detail modal */}
       {selectedShelter && (

@@ -67,18 +67,22 @@ test.describe('Virtual Screen Reader Tests', () => {
     await outreachPage.waitForTimeout(3000);
 
     const doc = await getPageDOM(outreachPage);
-    const main = doc.querySelector('main') || doc.body;
+    // v0.55.1-T1: scope the screen-reader probe to the search-results region
+    // landmark, NOT the entire <main>. Slice 4 §8/§9 added shelter-type chips,
+    // county dropdown, advanced-filters group, and accepts-felonies toggle to
+    // the filter bar, pushing the freshness badges past the prior 100-step
+    // probe window. Scoping to the results region (where the badges actually
+    // live, on shelter cards) is also closer to how AT users navigate — by
+    // landmark, not sequentially through filters.
+    const resultsRegion =
+      doc.querySelector('[data-testid="search-results-region"]') ||
+      doc.querySelector('[role="region"][aria-label]') ||
+      doc.querySelector('main') ||
+      doc.body;
 
-    await virtual.start({ container: main as unknown as HTMLElement });
+    await virtual.start({ container: resultsRegion as unknown as HTMLElement });
 
-    // Navigate through all elements
-    // Slice 4 §8/§9 added shelter-type chips + county dropdown +
-    // accepts-felonies toggle to the advanced-filters section, which
-    // pushes the freshness badges past index 50 in the tab order.
-    // Bumped to 100 to keep the test forward-compatible if more filters
-    // land. If this still fails, scope `getPageDOM` to the results
-    // region (the badges live on the shelter cards, not in the filter
-    // bar).
+    // Navigate through elements within the results region.
     const phrases: string[] = [];
     for (let i = 0; i < 100; i++) {
       await virtual.next();
@@ -88,10 +92,17 @@ test.describe('Virtual Screen Reader Tests', () => {
 
     await virtual.stop();
 
-    const allSpoken = phrases.join(' ');
-
-    // Freshness badges should announce "Fresh" or "Stale" text (WCAG 1.4.1)
-    expect(allSpoken).toMatch(/Fresh|Stale|Unknown/);
+    // Freshness badges should announce "Fresh" or "Stale" text (WCAG 1.4.1).
+    // v0.55.1-T1 + warroom M4: assert at least 3 distinct freshness-badge
+    // announcements (≥50% of seeded shelters in the default search). A single
+    // match would be too lenient — a regression that surfaces only the very
+    // first shelter card's badge would still pass.
+    const freshnessMatches = phrases.filter((p) => /Fresh|Stale|Unknown/.test(p));
+    expect(
+      freshnessMatches.length,
+      `Expected ≥3 freshness-badge announcements in the results region; ` +
+        `found ${freshnessMatches.length}: ${freshnessMatches.join(', ')}`,
+    ).toBeGreaterThanOrEqual(3);
   });
 
   test('admin panel: tab bar has correct ARIA roles', async ({ adminPage }) => {
