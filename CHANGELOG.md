@@ -108,8 +108,8 @@ borderline pending future native-speaker review. The audit document
 (`openspec/changes/archive/2026-05-01-v0-55-1-followup/audit/synthetic-maria-pass.md`)
 contains per-key reasoning and citations. AI-synthetic linguistic
 review is functionally useful for catching obvious word-choice issues
-but is NOT equivalent to real-native review for nuance, regional
-register, or community-specific terminology. The remaining 5 reentry
+but does not match real-native review on nuance, regional register,
+or community-specific terminology. The remaining 5 reentry
 keys plus the revised 3 should receive a real-native-speaker review
 pass when one becomes available. Tracked in
 `project_v055_1_backlog.md` D2 as an option (not a gate) for v0.55.2+.
