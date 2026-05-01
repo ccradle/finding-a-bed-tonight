@@ -89,6 +89,38 @@ At 10+ adopters, one of several paths:
 
 > "This is open-source software — like PostgreSQL, which powers many city databases. Your deployment runs on your infrastructure. If the project team disappeared tomorrow, your system continues to run unchanged. Updates and new features come from the community, and the Apache 2.0 license ensures you can always modify or maintain the software yourself or through a contractor."
 
+## Measurement posture — notification deep-linking (2026-05-01)
+
+The notification-deep-linking change (shipped as v0.39.0, 2026-04-14) added
+three Micrometer instruments — a deep-link click counter, a stale-referral
+counter, and a time-to-action histogram — with three Grafana panels on the
+DV Referrals dashboard. The intent (Priya Anand's lens) was to enable a
+pre/post comparison of coordinator time-from-notification-to-referral-accept
+once a pilot deployment was active.
+
+**Operational signal verified live (findabed.org, 2026-05-01):**
+
+| Instrument | 30-day max state | Read |
+|---|---|---|
+| `fabt_notification_deeplink_click_count_total` | 0 series — never incremented | No bell-click telemetry recorded on the demo site |
+| `fabt_notification_stale_referral_count_total` | 0 series — never incremented | No stale-fallback incidents recorded |
+| `fabt_notification_time_to_action_seconds_*` | 4 observations across 3 types (1 escalation.1h + 1 escalation.3_5h + 2 referral.requested) | Histogram populated, almost certainly by CI / Playwright traffic; quantiles saturated at the 30s bucket boundary |
+
+**What this means for the measurement narrative:**
+
+The metrics infrastructure is verified live and shape-correct. Prometheus
+scrapes the backend cleanly; the histogram registers the expected 4 series
+(bucket / count / max / sum); the Grafana panels render. A pilot
+deployment with active coordinator users will materialize the pre/post
+comparison Priya asked for. The demo site itself does not exercise the
+bell-click flow because demo traffic uses Try-It-Live preset users walking
+prepared paths — the bell-click code path is exercised only by tests.
+
+This is the honest reading per `feedback_truthfulness_above_all`: we have
+operational signal verified, but no pilot baseline. Pre/post measurement
+becomes possible the day a pilot CoC's coordinators start clicking
+notifications in normal workflow.
+
 ---
 
 *Finding A Bed Tonight — Sustainability Narrative*
