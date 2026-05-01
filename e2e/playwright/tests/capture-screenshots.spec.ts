@@ -150,11 +150,14 @@ test.describe('Demo Screenshot Capture', () => {
     await adminPage.goto('/admin');
     await adminPage.locator('main button', { hasText: /^Shelters$/ }).first().click();
     await adminPage.waitForTimeout(1000);
-    const firstShelterLink = adminPage.locator('main tbody tr td').first();
-    if (await firstShelterLink.count() > 0) {
-      await firstShelterLink.click();
-      await adminPage.waitForTimeout(1500);
-    }
+    // Click an Edit link in the first shelter row; the <td>:first content
+    // is plain text and not a navigation target. The Edit anchor lives in
+    // the rightmost column and routes to the shelter detail/edit form.
+    const firstEditLink = adminPage.locator('main tbody tr a', { hasText: /^Edit$/ }).first();
+    await firstEditLink.click();
+    // Wait for the shelter form to render (proves navigation completed)
+    await adminPage.locator('[data-testid="shelter-name"]').waitFor({ state: 'visible', timeout: 10000 });
+    await adminPage.waitForTimeout(500);
     await adminPage.screenshot({ path: path.join(DEMO_DIR, '13-admin-shelter-detail.png'), fullPage: true });
   });
 
@@ -220,11 +223,17 @@ test.describe('Demo Screenshot Capture', () => {
     await adminPage.waitForTimeout(3000);
     await adminPage.screenshot({ path: path.join(DEMO_DIR, '21-import-211-success.png'), fullPage: true });
 
-    // --- Screenshot 22: Shelters tab with Edit links ---
+    // --- Screenshot 22: Shelters tab with Edit links (post-211-import) ---
     // "Every shelter in the community is here — including the three that just arrived."
+    // Differentiates from screenshot 11 (which captures pre-import) via a
+    // hover-state on the first Edit link, visually signaling the edit
+    // affordance the filename promises.
     await adminPage.goto('/admin');
     await adminPage.locator('main button', { hasText: /^Shelters$/ }).first().click();
     await adminPage.waitForTimeout(1500);
+    const firstEditLinkForHover = adminPage.locator('main tbody tr a', { hasText: /^Edit$/ }).first();
+    await firstEditLinkForHover.hover();
+    await adminPage.waitForTimeout(300);
     await adminPage.screenshot({ path: path.join(DEMO_DIR, '22-admin-shelters-edit.png'), fullPage: true });
 
     // --- Screenshot 23: Edit shelter phone ---

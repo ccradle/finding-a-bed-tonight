@@ -265,20 +265,58 @@ scp -i ~/.ssh/fabt-oracle \
   demo/shelter-onboarding.html \
   ubuntu@${FABT_VM_IP}:/var/www/findabed-docs/demo/
 
-# 3. 12 modified screenshots (post-§10/§11/§16 captures + 20-25 import flow)
+# 3. 40 modified screenshots — broader v0.55 refresh (per
+#    docs/audits/2026-05-01-screenshot-deploy-warroom/warroom.md amendment).
+#    Shipped after AM re-capture of the 9 previously-blocked files
+#    (13/22/dv-04/05/07/dark-quartet/09) which now have correct content
+#    + no E2E test-data leakage. All 40 PNGs visually verified before commit.
 scp -i ~/.ssh/fabt-oracle \
+  demo/screenshots/01-login.png \
   demo/screenshots/02-bed-search.png \
   demo/screenshots/03-search-results.png \
   demo/screenshots/04-shelter-detail-search.png \
   demo/screenshots/05-reservation-hold.png \
+  demo/screenshots/06-coordinator-dashboard.png \
+  demo/screenshots/07-coordinator-bed-update.png \
+  demo/screenshots/08-spanish.png \
+  demo/screenshots/09-admin-users.png \
+  demo/screenshots/10-admin-create-user.png \
   demo/screenshots/11-admin-shelters.png \
+  demo/screenshots/12-add-shelter.png \
   demo/screenshots/13-admin-shelter-detail.png \
+  demo/screenshots/14-admin-surge.png \
+  demo/screenshots/15-admin-observability.png \
+  demo/screenshots/16-admin-oauth2-providers.png \
+  demo/screenshots/19-change-password.png \
   demo/screenshots/20-import-211-preview.png \
   demo/screenshots/21-import-211-success.png \
   demo/screenshots/22-admin-shelters-edit.png \
   demo/screenshots/23-shelter-edit-phone.png \
   demo/screenshots/24-shelter-edit-dv-toggle.png \
   demo/screenshots/25-dv-confirm-dialog.png \
+  demo/screenshots/26-coordinator-edit-form.png \
+  demo/screenshots/analytics-01-executive-summary.png \
+  demo/screenshots/analytics-02-utilization-trends.png \
+  demo/screenshots/analytics-03-demand-signals.png \
+  demo/screenshots/analytics-04-batch-jobs.png \
+  demo/screenshots/analytics-05-hic-pit-export.png \
+  demo/screenshots/dark-admin.png \
+  demo/screenshots/dark-coordinator.png \
+  demo/screenshots/dark-login.png \
+  demo/screenshots/dark-search.png \
+  demo/screenshots/dv-01-search-referral-button.png \
+  demo/screenshots/dv-02-referral-request-modal.png \
+  demo/screenshots/dv-03-my-referrals-pending.png \
+  demo/screenshots/dv-04-coordinator-screening.png \
+  demo/screenshots/dv-05-referral-accepted.png \
+  demo/screenshots/dv-06-warm-handoff.png \
+  demo/screenshots/dv-07-referral-reject-reason.png \
+  demo/screenshots/hmis-01-export-tab.png \
+  demo/screenshots/hmis-02-dv-aggregation.png \
+  demo/screenshots/hmis-03-push-controls.png \
+  demo/screenshots/notif-01-header-bell.png \
+  demo/screenshots/notif-02-dropdown-empty.png \
+  demo/screenshots/notif-03-coordinator-bell.png \
   ubuntu@${FABT_VM_IP}:/var/www/findabed-docs/demo/screenshots/
 
 # 4. 6 NEW reentry screenshots (capture-reentry-screenshots.spec.ts output)

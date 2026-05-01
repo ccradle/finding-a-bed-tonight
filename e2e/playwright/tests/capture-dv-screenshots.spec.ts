@@ -90,38 +90,59 @@ test.describe('DV Referral Screenshot Capture', () => {
     // Navigate to coordinator dashboard — admin has dvAccess so can see DV shelters
     await adminPage.goto('/coordinator');
     await adminPage.waitForTimeout(2000);
-    // Find and expand a DV shelter card
-    const cards = adminPage.locator('main button[style*="text-align: left"]');
-    const count = await cards.count();
-    for (let i = 0; i < count; i++) {
-      const cardText = await cards.nth(i).textContent();
-      if (cardText && /Safe Haven|DV/i.test(cardText)) {
-        await cards.nth(i).click();
-        await adminPage.waitForTimeout(2000);
+    // Iterate DV cards to find the one with a pending referral (the shelter
+    // dv-03 submitted to may not be the .first() DV badge in display order).
+    const dvBadges = adminPage.locator('[data-testid^="dv-badge-"]');
+    const dvCount = await dvBadges.count();
+    let foundShelterId: string | null = null;
+    for (let i = 0; i < dvCount; i++) {
+      const dvBadge = dvBadges.nth(i);
+      const dvShelterId = (await dvBadge.getAttribute('data-testid'))!.replace('dv-badge-', '');
+      const cardBtn = adminPage.locator(`[data-testid="shelter-card-${dvShelterId}"]`);
+      await cardBtn.click();
+      await adminPage.waitForTimeout(1500);
+      const screeningCount = await adminPage.locator('[data-testid^="screening-"]').count();
+      if (screeningCount > 0) {
+        foundShelterId = dvShelterId;
         break;
       }
+      // Not this one — collapse and try next
+      await cardBtn.click();
+      await adminPage.waitForTimeout(300);
     }
+    if (!foundShelterId) throw new Error('No DV shelter with pending referral found — dv-03 prerequisite did not produce a visible screening row');
+    await adminPage.waitForTimeout(500);
     await adminPage.screenshot({ path: path.join(DEMO_DIR, 'dv-04-coordinator-screening.png'), fullPage: true });
   });
 
   test('dv-05 - Accept referral confirmation', async ({ adminPage }) => {
     await adminPage.goto('/coordinator');
     await adminPage.waitForTimeout(2000);
-    const cards = adminPage.locator('main button[style*="text-align: left"]');
-    const count = await cards.count();
-    for (let i = 0; i < count; i++) {
-      const cardText = await cards.nth(i).textContent();
-      if (cardText && /Safe Haven|DV/i.test(cardText)) {
-        await cards.nth(i).click();
-        await adminPage.waitForTimeout(2000);
-        const acceptBtn = adminPage.locator('[data-testid^="accept-referral-"]').first();
-        if (await acceptBtn.count() > 0) {
-          await acceptBtn.click();
-          await adminPage.waitForTimeout(1000);
-        }
+    // Iterate DV cards to find the one with a pending referral
+    const dvBadges = adminPage.locator('[data-testid^="dv-badge-"]');
+    const dvCount = await dvBadges.count();
+    let refId: string | null = null;
+    for (let i = 0; i < dvCount; i++) {
+      const dvBadge = dvBadges.nth(i);
+      const dvShelterId = (await dvBadge.getAttribute('data-testid'))!.replace('dv-badge-', '');
+      const cardBtn = adminPage.locator(`[data-testid="shelter-card-${dvShelterId}"]`);
+      await cardBtn.click();
+      await adminPage.waitForTimeout(1500);
+      const screeningRow = adminPage.locator('[data-testid^="screening-"]').first();
+      if (await screeningRow.count() > 0) {
+        refId = (await screeningRow.getAttribute('data-testid'))!.replace('screening-', '');
         break;
       }
+      await cardBtn.click();
+      await adminPage.waitForTimeout(300);
     }
+    if (!refId) throw new Error('No pending referral found for dv-05');
+    await adminPage.locator(`[data-testid="accept-referral-${refId}"]`).click();
+    // After accept, the screening row is removed (the API marks the
+    // referral ACCEPTED and pendingReferrals refetches). Wait for the row
+    // to disappear so the screenshot reflects the post-accept state.
+    await adminPage.locator(`[data-testid="screening-${refId}"]`).waitFor({ state: 'detached', timeout: 10000 });
+    await adminPage.waitForTimeout(500);
     await adminPage.screenshot({ path: path.join(DEMO_DIR, 'dv-05-referral-accepted.png'), fullPage: true });
   });
 
@@ -164,29 +185,33 @@ test.describe('DV Referral Screenshot Capture', () => {
       await adminPage.getByTestId('referral-submit').click();
       await adminPage.waitForTimeout(1500);
     }
-    // Now go to coordinator and reject
+    // Now go to coordinator and reject — iterate DV cards to find the pending referral
     await adminPage.goto('/coordinator');
     await adminPage.waitForTimeout(2000);
-    const cards = adminPage.locator('main button[style*="text-align: left"]');
-    const count = await cards.count();
-    for (let i = 0; i < count; i++) {
-      const cardText = await cards.nth(i).textContent();
-      if (cardText && /Safe Haven|DV/i.test(cardText)) {
-        await cards.nth(i).click();
-        await adminPage.waitForTimeout(2000);
-        const rejectBtn = adminPage.locator('[data-testid^="reject-referral-"]').first();
-        if (await rejectBtn.count() > 0) {
-          await rejectBtn.click();
-          await adminPage.waitForTimeout(500);
-          const reasonInput = adminPage.locator('[data-testid^="reject-reason-"]').first();
-          if (await reasonInput.count() > 0) {
-            await reasonInput.fill('No capacity for pets at this time');
-            await adminPage.waitForTimeout(300);
-          }
-        }
+    const dvBadges = adminPage.locator('[data-testid^="dv-badge-"]');
+    const dvCount = await dvBadges.count();
+    let refId: string | null = null;
+    for (let i = 0; i < dvCount; i++) {
+      const dvBadge = dvBadges.nth(i);
+      const dvShelterId = (await dvBadge.getAttribute('data-testid'))!.replace('dv-badge-', '');
+      const cardBtn = adminPage.locator(`[data-testid="shelter-card-${dvShelterId}"]`);
+      await cardBtn.click();
+      await adminPage.waitForTimeout(1500);
+      const screeningRow = adminPage.locator('[data-testid^="screening-"]').first();
+      if (await screeningRow.count() > 0) {
+        refId = (await screeningRow.getAttribute('data-testid'))!.replace('screening-', '');
         break;
       }
+      await cardBtn.click();
+      await adminPage.waitForTimeout(300);
     }
+    if (!refId) throw new Error('No pending referral found for dv-07');
+    // Click Reject — this opens the inline reject-reason input via setRejectingId
+    await adminPage.locator(`[data-testid="reject-referral-${refId}"]`).click();
+    const reasonInput = adminPage.locator(`[data-testid="reject-reason-${refId}"]`);
+    await reasonInput.waitFor({ state: 'visible', timeout: 5000 });
+    await reasonInput.fill('No capacity for pets at this time');
+    await adminPage.waitForTimeout(300);
     await adminPage.screenshot({ path: path.join(DEMO_DIR, 'dv-07-referral-reject-reason.png'), fullPage: true });
   });
 });

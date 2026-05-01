@@ -106,12 +106,17 @@ test.describe('Dark Mode Rendering (T-20)', () => {
     await page.waitForTimeout(2000);
     await page.screenshot({ path: path.join(DEMO_DIR, 'dark-admin.png'), fullPage: true });
 
-    // Login page
-    await page.goto('/login');
-    await page.waitForTimeout(1000);
-    await page.screenshot({ path: path.join(DEMO_DIR, 'dark-login.png'), fullPage: true });
-
     await context.close();
+
+    // Login page — fresh non-authed context. Without this, the authed
+    // session from the prior context redirects /login to the last authed
+    // home, so dark-login.png ends up identical to dark-admin.png.
+    const loginContext = await browser.newContext({ colorScheme: 'dark' });
+    const loginPage = await loginContext.newPage();
+    await loginPage.goto('/login');
+    await loginPage.waitForTimeout(1500);
+    await loginPage.screenshot({ path: path.join(DEMO_DIR, 'dark-login.png'), fullPage: true });
+    await loginContext.close();
   });
 });
 
