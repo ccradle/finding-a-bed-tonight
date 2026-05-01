@@ -123,6 +123,7 @@
   "search.resultCount": "{count, plural, one {# refugio encontrado} other {# refugios encontrados}}",
   "search.noResults": "Ningún refugio coincide con sus filtros",
   "search.tryDifferent": "Intente ajustar sus criterios de búsqueda",
+  "search.resultsRegion": "Resultados de búsqueda",
   "search.allTypes": "Todos los Tipos",
   "search.singleAdult": "Adultos Solteros",
   "search.family": "Familias con Niños",
