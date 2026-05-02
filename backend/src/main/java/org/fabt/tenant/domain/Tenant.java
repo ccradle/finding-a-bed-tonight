@@ -6,6 +6,9 @@ import java.util.UUID;
 import org.fabt.shared.config.JsonString;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.relational.core.mapping.Table;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 @Table("tenant")
 public class Tenant {
@@ -123,5 +126,37 @@ public class Tenant {
 
     public void setArchivedAt(Instant archivedAt) {
         this.archivedAt = archivedAt;
+    }
+
+    /**
+     * Reads {@code tenant.config.dv_policy_enabled} from a tenant config JSONB
+     * string. Returns {@code false} on absent key, malformed JSON, non-boolean
+     * value, or null/blank input — the conservative read posture mirrors
+     * {@code ReservationConfigController.readHoldDurationFromConfig}.
+     *
+     * <p>The tenant DV-policy flag gates per-shelter {@code dv_shelter=true}
+     * writes (see {@code dv-policy-tenant-flag} OpenSpec change). Because this
+     * is a security-relevant invariant — a {@code true} reading authorizes a
+     * write that would otherwise be rejected — this method is conservative on
+     * ambiguity: any read failure resolves to {@code false}, NOT a thrown
+     * exception, so a corrupt config row does not accidentally allow DV
+     * shelter creation.
+     *
+     * <p>Static + parameterized rather than instance-state because Tenant is a
+     * Spring Data JDBC entity with no Jackson dependency; the ObjectMapper is
+     * threaded through from the calling service / controller (which already
+     * have it injected).
+     */
+    public static boolean isDvPolicyEnabled(JsonString config, ObjectMapper objectMapper) {
+        if (config == null || config.value() == null || config.value().isBlank()) {
+            return false;
+        }
+        try {
+            JsonNode root = objectMapper.readTree(config.value());
+            JsonNode val = root.get("dv_policy_enabled");
+            return val != null && val.isBoolean() && val.asBoolean();
+        } catch (JacksonException e) {
+            return false;
+        }
     }
 }

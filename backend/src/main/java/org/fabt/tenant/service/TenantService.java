@@ -147,6 +147,56 @@ public class TenantService {
         }
     }
 
+    /**
+     * Partial config update for {@code tenant.config.dv_policy_enabled}
+     * (dv-policy-tenant-flag OpenSpec change). Reads the existing config,
+     * sets the one key, writes back — preserves any other keys
+     * ({@code hold_duration_minutes}, {@code dv_address_visibility},
+     * {@code features.reentryMode}, {@code active_counties}, etc.) without
+     * clobbering them. Mirrors {@link #setHoldDurationMinutes} verbatim.
+     *
+     * <p><b>JSON key casing:</b> the persisted key is snake_case
+     * ({@code dv_policy_enabled}) to match the JSONB convention from V76+;
+     * the DTO field stays camelCase per Java + REST convention; the rename
+     * happens only at the JSONB-write boundary.
+     *
+     * <p>This method does NOT enforce the disable-path constraint
+     * ("forbidden while DV shelters exist"); that lives at the controller
+     * layer ({@code DvPolicyController}) where the structured-error code
+     * and audit emission live. This method trusts the caller — by the time
+     * a request reaches here, either the disable is allowed or the caller
+     * has already short-circuited with a rejection + audit.
+     *
+     * @param id tenant id
+     * @param value new value (caller pre-validated and pre-checked the disable-path constraint)
+     * @return updated Tenant
+     */
+    @Transactional
+    public Tenant setDvPolicyEnabled(UUID id, boolean value) {
+        Tenant tenant = tenantRepository.findById(id)
+                .orElseThrow(() -> new NoSuchElementException("Tenant not found: " + id));
+
+        try {
+            Map<String, Object> config;
+            if (tenant.getConfig() != null && tenant.getConfig().value() != null
+                && !tenant.getConfig().value().isBlank()) {
+                config = new java.util.HashMap<>(
+                    objectMapper.readValue(tenant.getConfig().value(),
+                        new tools.jackson.core.type.TypeReference<Map<String, Object>>() {}));
+            } else {
+                config = new java.util.HashMap<>();
+            }
+            config.put("dv_policy_enabled", value);
+
+            String configJson = objectMapper.writeValueAsString(config);
+            tenant.setConfig(JsonString.of(configJson));
+            tenant.setUpdatedAt(Instant.now());
+            return tenantRepository.save(tenant);
+        } catch (JacksonException e) {
+            throw new IllegalStateException("Failed to merge dv_policy_enabled into tenant.config", e);
+        }
+    }
+
     @Transactional
     public Tenant updateConfig(UUID id, Map<String, Object> config) {
         Tenant tenant = tenantRepository.findById(id)
