@@ -5,6 +5,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased] — v0.56.0 in progress
+
+This section drafts the v0.56.0 entry as the bundle assembles. Per the post-v0.55 prioritization warroom, v0.56.0 will bundle:
+
+- `dv-policy-tenant-flag` — captured below; backend feature complete, frontend complete, deploy pending
+- `info-email-contact` Slice B+ — paused on dv-policy-tenant-flag; resumes after this lands
+- GH #67 (in-app issue reporting) — depends on info-email-contact's `useContactInfo()` hook
+
+The Unreleased section is renamed to `[v0.56.0] — YYYY-MM-DD — <bundle theme>` at tag time once all three are merged and deployed.
+
+### dv-policy-tenant-flag (in progress)
+
+- **New tenant config key `dv_policy_enabled`** (boolean, default `false` on absent). Gates per-shelter `dv_shelter=true` writes via service-layer invariant in `ShelterService.create / update / activate`. Mirrors the v0.55 `features.reentryMode` JSONB-config pattern.
+- **Flyway V97 backfill** (`V97__backfill_dv_policy_enabled.sql`): sets `dv_policy_enabled=true` on every tenant that already has at least one shelter with `dv_shelter=true` at migration time. Idempotent; safe to re-run. The 3 demo tenants all backfill (each seeds at least one DV shelter). `seed-data.sql` defensively also sets the key on `--fresh` reseeds.
+- **`PATCH /api/v1/admin/tenants/{tenantId}/dv-policy`** — dedicated endpoint, COC_ADMIN-scoped + requires `dvAccess=true` (RLS coupling — see design D10). Tenant-scoping check fires before any DV-shelter inventory query so cross-tenant probes do not leak inventory state via timing or response data. Disable path (`true → false`) is forbidden while active DV shelters exist on the tenant; rejection includes a count of remaining DV shelters and emits a `TENANT_CONFIG_UPDATED` audit row with `outcome: "rejected"` (audit-first-then-throw ordering preserves the forensic record). Cross-tenant probe attempts also emit a defense-in-depth audit row with `rejection_code: "tenant.crossTenantAccess"`.
+- **Structured error code registry** (`org.fabt.shared.errors.ErrorCodes` + `StructuredErrorException`). New convention introduced as part of this change; three codes registered (`tenant.dvPolicy.cannotDisableWhileDvSheltersExist`, `shelter.dvShelter.requiresDvPolicy`, `tenant.crossTenantAccess`). Surfaces via `context.errorCode` in 400 response bodies for client-parseable UX.
+- **Admin UI**: new `DvPolicySettings.tsx` panel adjacent to `ReservationSettings` in admin Settings. Toggle with extra-confirm modal (distinct enable / disable copy). Disable-rejection error renders the count and links to the admin Shelters tab filtered to active DV shelters. No-optimistic-update (toggle does not flip until backend confirms).
+- **i18n**: 13 new EN strings; 13 ES strings (AI-synthetic, marked for native-Spanish review at `reference_es_json_ai_synthetic_reviewed.md`).
+- **Frontend bug fix bundled**: `ApiError` class now captures the backend `context` field (was `details` previously, but the backend always sent `context`; the field-name mismatch silently dropped structured error payloads for all 400 responses, not just dv-policy).
+- **`ShelterImportService` 211 CSV import path**: per-row reject is preserved by the existing `try/catch` infrastructure — DV rows on flag-off tenants are reported per-row rather than failing the whole batch. Behavior locked in by a dedicated IT.
+- **Tests**: 1489+ backend + 210+ Vitest, all green. Plus new dv-policy-specific coverage: 16 unit tests on the helper / service-write, 6 V97 migration IT scenarios (Riley's 4-tenant multi-state fixture), 10 controller IT scenarios (cross-tenant no-leak, audit-row content assertion, dvAccess gate), 10 ShelterService invariant scenarios, 3 211 import IT scenarios. Existing tests across 16+ classes were updated to enable the flag on test tenants — `TestAuthHelper.setupTestTenant` and `setupSecondaryTenant` default the flag to `true` (test fixtures represent operational CoCs; the flag-off case is exercised by raw-JDBC test setup in dedicated specs).
+- **Deploy notes**: see `openspec/changes/dv-policy-tenant-flag/runbook-fragments.md` (in the docs repo) for the v0.56 oracle-update-notes input — pre-deploy backfill scope query, Flyway HWM transition (V96 → V97), `--fresh` behavior clarification, onboarding sequence for fresh CoCs, rollback policy.
+
+---
+
 ## [v0.55.1] — 2026-05-01 — v0.55.0 follow-up (ops-only release)
 
 **Release class: ops-only.** No DB migration. No backend image rebuild.
