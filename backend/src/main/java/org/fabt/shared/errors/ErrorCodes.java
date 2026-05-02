@@ -49,6 +49,27 @@ public final class ErrorCodes {
      */
     public static final String TENANT_CROSS_TENANT_ACCESS = "tenant.crossTenantAccess";
 
+    /**
+     * Platform-level observability config write rejected because a monitor
+     * interval was outside the [1, 1440] minute range (D4 bounds), an unknown
+     * field key was supplied, or a non-numeric value was supplied for an
+     * interval field. New in platform-observability-split (2026-05-02).
+     *
+     * <p>Bounds rationale: 1-minute floor prevents NOAA-API rate-limit floods;
+     * 1440-minute ceiling (24h) prevents operator-typo'd intervals that would
+     * silently disable monitoring.
+     */
+    public static final String PLATFORM_OBSERVABILITY_INTERVAL_OUT_OF_RANGE =
+            "platform.observability.intervalOutOfRange";
+
+    /**
+     * Platform-level {@code tracing_endpoint} write rejected because the
+     * supplied value is not a valid URI (missing scheme, missing host, blank,
+     * or non-string type). New in platform-observability-split (2026-05-02).
+     */
+    public static final String PLATFORM_OBSERVABILITY_TRACING_ENDPOINT_MALFORMED =
+            "platform.observability.tracingEndpointMalformed";
+
     private ErrorCodes() {
         // utility class
     }
