@@ -483,7 +483,7 @@
   "admin.dvPolicy.modal.disable.body": "Disabling DV shelter operations means this Continuum of Care can no longer create or manage DV shelters. Before this can take effect, every active DV shelter at this CoC must be deactivated first. If any active DV shelters remain, the request will be rejected and you'll see how many remain. This change is auditable and takes effect immediately once allowed. You can re-enable DV shelter operations at any time.",
   "admin.dvPolicy.modal.disable.confirm": "Disable DV shelter operations",
   "admin.dvPolicy.disableRejectedWithCount": "{count, plural, one {This CoC currently operates 1 active Domestic Violence shelter. To turn off DV shelter operations, deactivate the DV shelter first, then return to this setting.} other {This CoC currently operates # active Domestic Violence shelters. To turn off DV shelter operations, deactivate each DV shelter first, then return to this setting.}}",
-  "admin.dvPolicy.inventoryLinkLabel": "View this CoC's active DV shelters",
+  "admin.dvPolicy.inventoryLinkLabel": "Open the Shelters tab (DV shelters are tagged \"DV\")",
   "admin.dvPolicy.loadFailed": "Could not load current DV-policy state. Reload the page to try again — saving is disabled until the current value loads.",
   "admin.dvPolicy.saveError": "Failed to save DV-policy change.",
   "password.change.button": "Password",

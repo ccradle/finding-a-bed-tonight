@@ -1,4 +1,4 @@
-import { useState, useEffect, useContext } from 'react';
+import { useState, useEffect, useContext, useRef } from 'react';
 import { FormattedMessage, useIntl } from 'react-intl';
 import { api, ApiError } from '../../../services/api';
 import { color } from '../../../theme/colors';
@@ -73,6 +73,15 @@ export function DvPolicySettings() {
   const [showConfirm, setShowConfirm] = useState<'enable' | 'disable' | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<{ message: string; remainingDvShelters?: number } | null>(null);
+
+  // Modal focus management — warroom round 3 H2. Following the
+  // SheltersTab dialog pattern (deactDialogRef + useEffect), focus the
+  // cancel button when the modal opens so keyboard users land inside
+  // the modal rather than on the now-hidden toggle.
+  const cancelButtonRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (showConfirm) cancelButtonRef.current?.focus();
+  }, [showConfirm]);
 
   useEffect(() => {
     if (!tenantId) return;
@@ -181,9 +190,22 @@ export function DvPolicySettings() {
           data-testid="dv-policy-toggle"
           style={{
             padding: '8px 16px',
-            backgroundColor: (saving || loadFailed)
-              ? color.borderMedium
-              : (enabled ? color.success : color.borderMedium),
+            // Warroom round 3 H4 (axe-core regression — both modes):
+            // - Light mode disabled state: prior `color.borderMedium`
+            //   (#d1d5db) bg + white text = 1.47:1 ❌
+            // - Dark mode enabled state: prior `color.success` (#42be65)
+            //   bg + white text = 2.39:1 ❌ (exposed when V97 backfill
+            //   flipped dev-coc to dv_policy_enabled=true)
+            // Both states resolved by unifying on `color.primary`, which
+            // passes AA in both modes (light #1a56db = 7.8:1, dark
+            // #0f62fe = 5.0:1 per global.css). State (enabled vs disabled)
+            // is conveyed by the button LABEL ("Disable DV..." vs
+            // "Enable DV...") plus `aria-pressed` — the WCAG-recommended
+            // pattern for toggle semantics. Color was decorative.
+            // Saving / loadFailed: kept on borderMedium because the
+            // `disabled` attribute removes the button from interactive
+            // semantics (WCAG 1.4.3 inactive-control exception).
+            backgroundColor: (saving || loadFailed) ? color.borderMedium : color.primary,
             color: color.textInverse,
             border: 'none',
             borderRadius: 8,
@@ -227,11 +249,19 @@ export function DvPolicySettings() {
         >
           <div>{error.message}</div>
           {error.remainingDvShelters !== undefined && error.remainingDvShelters > 0 && (
-            // Inventory link — Demetrius/Devon round 1. Routes to admin
-            // Shelters tab filtered to active DV shelters so the operator
-            // can identify what blocks the disable.
+            // Inventory link — Demetrius/Devon round 1; warroom round 3 B1
+            // pivot. AdminPanel selects the active tab from the URL HASH
+            // (see {@code tabKeyFromHash} in AdminPanel.tsx + the
+            // {@code useHashSearchParams} hook), NOT from query params.
+            // Earlier draft used "?tab=shelters&dvShelter=true&active=true"
+            // which AdminPanel ignored — clicking it landed on the default
+            // Users tab and amplified operator confusion. Wire the link to
+            // the hash convention. SheltersTab has no DV-only filter UI, so
+            // the operator lands on the full Shelters list where active DV
+            // shelters carry a visible "DV" badge — that's what the i18n
+            // copy promises.
             <a
-              href="?tab=shelters&dvShelter=true&active=true"
+              href="/admin#shelters"
               data-testid="dv-policy-shelter-inventory-link"
               style={{
                 display: 'inline-block', marginTop: 6,
@@ -245,13 +275,17 @@ export function DvPolicySettings() {
         </div>
       )}
 
-      {/* Extra-confirm modal — distinct copy per direction (Simone round 1) */}
+      {/* Extra-confirm modal — distinct copy per direction (Simone round 1).
+          Warroom round 3 H1: Escape closes the modal (matches SheltersTab
+          pattern + W3C ARIA Modal Dialog spec). Disabled while saving so
+          a half-applied PATCH can't be abandoned mid-flight. */}
       {intent && (
         <div
           role="dialog"
           aria-modal="true"
           aria-labelledby="dv-policy-modal-title"
           data-testid="dv-policy-confirm-modal"
+          onKeyDown={(e) => { if (e.key === 'Escape' && !saving) cancelFlip(); }}
           style={{
             position: 'fixed', inset: 0,
             backgroundColor: 'rgba(0,0,0,0.5)',
@@ -281,6 +315,7 @@ export function DvPolicySettings() {
             <div style={{ marginTop: 20, display: 'flex', gap: 12, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
               <button
                 type="button"
+                ref={cancelButtonRef}
                 onClick={cancelFlip}
                 disabled={saving}
                 data-testid="dv-policy-cancel-button"

@@ -159,6 +159,13 @@ public class DvPolicyController {
             details.put("rejection_code", ErrorCodes.TENANT_CROSS_TENANT_ACCESS);
             details.put("actor_tenant_id", callerTenantId != null ? callerTenantId.toString() : null);
             details.put("target_tenant_id", tenantId.toString());
+            // Warroom round 3 M4: surface the rare null-tenant-context branch
+            // explicitly so incident response can distinguish "JWT bypassed
+            // tenant context" from "different valid tenant probing this one".
+            // Both still 403; the audit row tells them apart.
+            if (callerTenantId == null) {
+                details.put("note", "missing_tenant_context");
+            }
             eventPublisher.publishEvent(new AuditEventRecord(
                     actorUserIdEarly, null, AuditEventType.TENANT_CONFIG_UPDATED, details, null));
             throw new AccessDeniedException(
@@ -208,13 +215,16 @@ public class DvPolicyController {
                 emitConfigUpdated(actorUserId, oldValue, oldValue, "rejected",
                         ErrorCodes.TENANT_DV_POLICY_CANNOT_DISABLE_WHILE_DV_SHELTERS_EXIST,
                         activeDvCount);
-                String message = String.format(
-                        "This CoC currently operates %d active Domestic Violence shelter%s. "
-                                + "To turn off DV shelter operations, deactivate %s DV shelter first, "
-                                + "then return to this setting.",
-                        activeDvCount,
-                        activeDvCount == 1 ? "" : "s",
-                        activeDvCount == 1 ? "the" : "each");
+                // Warroom round 3 M1: short structured-only breadcrumb. The
+                // user-facing copy lives in the frontend i18n bundle
+                // ({@code admin.dvPolicy.disableRejectedWithCount}, ICU
+                // plural-aware), keyed off {@code errorCode} +
+                // {@code remaining_dv_shelter_count}. This message is what
+                // non-frontend clients (cURL, ops debugging) see — keep it
+                // short, neutral, and locale-agnostic. Don't duplicate the
+                // user-facing English text here so it doesn't drift.
+                String message = "Disable rejected: " + activeDvCount
+                        + " active DV shelter(s) remain on this tenant.";
                 throw new StructuredErrorException(
                         ErrorCodes.TENANT_DV_POLICY_CANNOT_DISABLE_WHILE_DV_SHELTERS_EXIST,
                         message,
@@ -240,11 +250,17 @@ public class DvPolicyController {
 
     /**
      * Emits {@link AuditEventType#TENANT_CONFIG_UPDATED} with the
-     * dv-policy-tenant-flag details shape (warroom design D7):
-     * {@code config_key, old_value, new_value, outcome, rejection_code,
-     * remaining_dv_shelter_count}. The applied path passes
+     * dv-policy-tenant-flag details shape (warroom design D7 + round 3 M3):
+     * {@code config_key, old_value, new_value, value_changed, outcome,
+     * rejection_code, remaining_dv_shelter_count}. The applied path passes
      * {@code rejection_code = null} and {@code remaining_dv_shelter_count = null}.
      * The rejected path passes both as non-null.
+     *
+     * <p>{@code value_changed} (warroom round 3 M3) lets audit-replay tooling
+     * filter idempotent re-sets without comparing old_value/new_value pairs.
+     * On a no-op re-set (old == new) the field is {@code false}; on a real
+     * flip the field is {@code true}. On rejected disables it's {@code false}
+     * because the value didn't actually change.
      */
     private void emitConfigUpdated(UUID actorUserId, boolean oldValue, boolean newValue,
                                    String outcome, String rejectionCode, Long remainingDvShelterCount) {
@@ -252,6 +268,7 @@ public class DvPolicyController {
         details.put("config_key", "dv_policy_enabled");
         details.put("old_value", oldValue);
         details.put("new_value", newValue);
+        details.put("value_changed", oldValue != newValue);
         details.put("outcome", outcome);
         details.put("rejection_code", rejectionCode);
         details.put("remaining_dv_shelter_count", remainingDvShelterCount);

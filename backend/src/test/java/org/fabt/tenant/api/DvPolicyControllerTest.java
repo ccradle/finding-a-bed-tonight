@@ -110,15 +110,57 @@ class DvPolicyControllerTest extends BaseIntegrationTest {
     }
 
     @Test
-    @DisplayName("Idempotent re-enable when already true — 200, audit still emitted with old=new")
+    @DisplayName("Idempotent re-enable when already true — 200, audit still emitted with old=new + value_changed false")
     void idempotentReEnable() {
-        // First enable
+        // First enable — real flip (false → true), value_changed=true
         patch(primaryTenantId, true, cocAdminHeaders);
-        // Second enable — no-op for the value
+        // Second enable — idempotent re-set (true → true), value_changed=false
         ResponseEntity<Map<String, Object>> response = patch(primaryTenantId, true, cocAdminHeaders);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(readDvPolicyKey(primaryTenantId)).isEqualTo("true");
+
+        // Warroom round 3 H3: every successful PATCH (real or idempotent)
+        // emits an audit row — the controller surfaces operator INTENT in the
+        // chain, not just state changes. Two PATCH calls must produce two
+        // applied rows, and warroom round 3 M3's value_changed field must
+        // distinguish them: first row (real flip) value_changed=true, second
+        // (no-op re-confirm) value_changed=false. A regression that silently
+        // suppressed the second emit would leak through unless we count.
+        long appliedRows = TenantContext.callWithContext(primaryTenantId, true,
+                () -> jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM audit_events "
+                                + "WHERE action = 'TENANT_CONFIG_UPDATED' "
+                                + "AND details ->> 'config_key' = 'dv_policy_enabled' "
+                                + "AND details ->> 'outcome' = 'applied'",
+                        Long.class));
+        assertThat(appliedRows)
+                .as("Two PATCH calls must emit two applied audit rows — intent is the audit signal, not just state delta")
+                .isEqualTo(2L);
+
+        long valueChangedTrueRows = TenantContext.callWithContext(primaryTenantId, true,
+                () -> jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM audit_events "
+                                + "WHERE action = 'TENANT_CONFIG_UPDATED' "
+                                + "AND details ->> 'config_key' = 'dv_policy_enabled' "
+                                + "AND details ->> 'outcome' = 'applied' "
+                                + "AND (details ->> 'value_changed')::boolean = true",
+                        Long.class));
+        assertThat(valueChangedTrueRows)
+                .as("First PATCH was a real flip — exactly one row should carry value_changed=true")
+                .isEqualTo(1L);
+
+        long valueChangedFalseRows = TenantContext.callWithContext(primaryTenantId, true,
+                () -> jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM audit_events "
+                                + "WHERE action = 'TENANT_CONFIG_UPDATED' "
+                                + "AND details ->> 'config_key' = 'dv_policy_enabled' "
+                                + "AND details ->> 'outcome' = 'applied' "
+                                + "AND (details ->> 'value_changed')::boolean = false",
+                        Long.class));
+        assertThat(valueChangedFalseRows)
+                .as("Second PATCH was an idempotent re-set — exactly one row should carry value_changed=false")
+                .isEqualTo(1L);
     }
 
     // ----- Disable path --------------------------------------------------

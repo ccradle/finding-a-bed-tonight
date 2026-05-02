@@ -483,7 +483,7 @@
   "admin.dvPolicy.modal.disable.body": "Deshabilitar las operaciones de refugios de VD significa que este Continuum of Care ya no podrá crear ni gestionar refugios de VD. Antes de que esto pueda surtir efecto, todos los refugios de VD activos en este CoC deben desactivarse primero. Si quedan refugios de VD activos, la solicitud será rechazada y usted verá cuántos quedan. Este cambio es auditable y entra en vigor inmediatamente una vez permitido. Puede volver a habilitar las operaciones de refugios de VD en cualquier momento.",
   "admin.dvPolicy.modal.disable.confirm": "Deshabilitar operaciones de refugios de VD",
   "admin.dvPolicy.disableRejectedWithCount": "{count, plural, one {Este CoC actualmente opera 1 refugio activo de violencia doméstica. Para desactivar las operaciones de refugios de VD, desactive primero el refugio de VD y luego regrese a esta configuración.} other {Este CoC actualmente opera # refugios activos de violencia doméstica. Para desactivar las operaciones de refugios de VD, desactive primero cada refugio de VD y luego regrese a esta configuración.}}",
-  "admin.dvPolicy.inventoryLinkLabel": "Ver los refugios de VD activos de este CoC",
+  "admin.dvPolicy.inventoryLinkLabel": "Abrir la pestaña Refugios (los refugios de VD están etiquetados \"DV\")",
   "admin.dvPolicy.loadFailed": "No se pudo cargar el estado actual de la política de VD. Recargue la página para intentar de nuevo — guardar está deshabilitado hasta que se cargue el valor actual.",
   "admin.dvPolicy.saveError": "Error al guardar el cambio de política de VD.",
   "password.change.button": "Contraseña",
