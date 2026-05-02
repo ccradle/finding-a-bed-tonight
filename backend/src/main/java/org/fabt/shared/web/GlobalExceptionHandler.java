@@ -118,9 +118,18 @@ public class GlobalExceptionHandler {
         // (Slice 2D verify-round-2 W2: validateShelterTypes returns a
         // detailed message that listed valid enum values; without this
         // context relay the operator only saw the canned text.)
-        java.util.Map<String, Object> context = ex.getMessage() != null
-                ? java.util.Map.of("detail", ex.getMessage())
-                : java.util.Map.of();
+        java.util.Map<String, Object> context = new java.util.LinkedHashMap<>();
+        if (ex.getMessage() != null) {
+            context.put("detail", ex.getMessage());
+        }
+        // StructuredErrorException carries an explicit error code + optional
+        // structured context fields for client-parseable UX (dv-policy-tenant-flag
+        // change, ErrorCodes registry). Surface both in the response context
+        // so the frontend can match on the code without parsing the message.
+        if (ex instanceof org.fabt.shared.errors.StructuredErrorException sex) {
+            context.put("errorCode", sex.errorCode());
+            sex.context().forEach(context::putIfAbsent);
+        }
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
                 .body(new ErrorResponse("bad_request", message, 400, context));
