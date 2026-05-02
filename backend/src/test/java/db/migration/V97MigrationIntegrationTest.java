@@ -71,20 +71,26 @@ import static org.assertj.core.api.Assertions.assertThat;
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class V97MigrationIntegrationTest extends BaseIntegrationTest {
 
-    private static final String V97_SQL = """
-            UPDATE tenant
-            SET config = jsonb_set(
-                    COALESCE(config, '{}'::jsonb),
-                    '{dv_policy_enabled}',
-                    'true'::jsonb,
-                    true
-                )
-            WHERE id IN (
-                SELECT DISTINCT tenant_id
-                FROM shelter
-                WHERE dv_shelter = true
-            )
-            """;
+    /**
+     * Loaded from {@code db/migration/V97__backfill_dv_policy_enabled.sql} at
+     * test class init time so the IT exercises the SAME SQL the production
+     * migration runs. Eliminates the drift risk of mirroring the SQL in
+     * a Java constant. (Riley warroom round 2, L1.)
+     */
+    private static final String V97_SQL = loadMigrationSql();
+
+    private static String loadMigrationSql() {
+        try (var stream = V97MigrationIntegrationTest.class.getResourceAsStream(
+                "/db/migration/V97__backfill_dv_policy_enabled.sql")) {
+            if (stream == null) {
+                throw new IllegalStateException(
+                        "V97__backfill_dv_policy_enabled.sql not found on classpath");
+            }
+            return new String(stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("Failed to load V97 migration SQL", e);
+        }
+    }
 
     @Autowired private JdbcTemplate jdbc;
     @Autowired private TestAuthHelper authHelper;

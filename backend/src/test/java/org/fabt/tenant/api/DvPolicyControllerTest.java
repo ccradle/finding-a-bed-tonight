@@ -243,6 +243,26 @@ class DvPolicyControllerTest extends BaseIntegrationTest {
         assertThat(response.getHeaders().toString())
                 .as("Response headers must not leak the count")
                 .doesNotContain("remaining_dv_shelter_count");
+
+        // §6.3 defense-in-depth (Marcus warroom 2): the controller MUST emit
+        // a TENANT_CONFIG_UPDATED audit row with rejection_code
+        // tenant.crossTenantAccess on the cross-tenant attempt. The audit
+        // lands in the CALLER'S (primary) tenant audit chain — the
+        // forensic signal lives where incident-response would look.
+        Long crossTenantAuditCount = TenantContext.callWithContext(primaryTenantId, true,
+                () -> jdbc.queryForObject(
+                        "SELECT COUNT(*) FROM audit_events "
+                                + "WHERE action = 'TENANT_CONFIG_UPDATED' "
+                                + "AND details ->> 'config_key' = 'dv_policy_enabled' "
+                                + "AND details ->> 'outcome' = 'rejected' "
+                                + "AND details ->> 'rejection_code' = ? "
+                                + "AND details ->> 'target_tenant_id' = ?",
+                        Long.class,
+                        ErrorCodes.TENANT_CROSS_TENANT_ACCESS,
+                        secondaryTenantId.toString()));
+        assertThat(crossTenantAuditCount)
+                .as("cross-tenant probe MUST emit a forensic audit row — defense-in-depth")
+                .isEqualTo(1);
     }
 
     // ----- Validation ----------------------------------------------------

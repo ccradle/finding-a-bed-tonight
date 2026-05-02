@@ -99,19 +99,32 @@ public class DvPolicyController {
     }
 
     @Operation(
-            summary = "Update tenant DV-policy flag (COC_ADMIN)",
+            summary = "Update tenant DV-policy flag (COC_ADMIN, dvAccess=true)",
             description = "Sets the dv_policy_enabled JSONB flag on tenant.config. "
-                    + "True authorizes per-shelter dv_shelter=true writes. "
-                    + "False is forbidden while any active DV shelter exists on the "
-                    + "tenant — the operator must first deactivate every active DV "
-                    + "shelter, then re-attempt the disable. Tenant-scoped: caller's "
-                    + "JWT-bound tenant must equal the path tenant. Spec capability: "
-                    + "dv-policy-tenant-flag."
+                    + "True authorizes per-shelter dv_shelter=true writes (enforced by "
+                    + "ShelterService.create / update / activate). False is forbidden "
+                    + "while any active DV shelter exists on the tenant — the operator "
+                    + "must first deactivate every active DV shelter, then re-attempt "
+                    + "the disable. Tenant-scoped: caller's JWT-bound tenant must equal "
+                    + "the path tenant; cross-tenant access returns 403 with no body "
+                    + "and no DV-shelter-count leak (a defense-in-depth audit row "
+                    + "is emitted on the attempt). Requires dvAccess=true on the JWT "
+                    + "(see design D10) so the disable-path inventory query, which "
+                    + "reads shelter through RLS, sees DV shelters.\n"
+                    + "\nExample request body: `{\"dvPolicyEnabled\": true}`\n"
+                    + "Example success response: `{\"tenantId\": \"...\", \"dvPolicyEnabled\": true}`\n"
+                    + "Example disable-rejection: `{\"error\": \"bad_request\", \"context\": "
+                    + "{\"errorCode\": \"tenant.dvPolicy.cannotDisableWhileDvSheltersExist\", "
+                    + "\"remaining_dv_shelter_count\": 2, ...}}`\n"
+                    + "\nSpec capability: dv-policy-tenant-flag (OpenSpec change 2026-05). "
+                    + "Future ADR: openspec change 16.1 will extract the shared "
+                    + "JSONB-config-key endpoint convention."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Flag updated; response confirms tenantId + new value"),
-            @ApiResponse(responseCode = "400", description = "Disable rejected because active DV shelters exist (errorCode: tenant.dvPolicy.cannotDisableWhileDvSheltersExist)"),
-            @ApiResponse(responseCode = "403", description = "Cross-tenant access or insufficient role")
+            @ApiResponse(responseCode = "400", description = "Disable rejected because active DV shelters exist (errorCode: tenant.dvPolicy.cannotDisableWhileDvSheltersExist; remaining_dv_shelter_count in context)"),
+            @ApiResponse(responseCode = "401", description = "Not authenticated"),
+            @ApiResponse(responseCode = "403", description = "Cross-tenant access, missing COC_ADMIN role, or dvAccess=false")
     })
     @PatchMapping("/{tenantId}/dv-policy")
     @PreAuthorize("hasRole('COC_ADMIN')")
@@ -121,12 +134,33 @@ public class DvPolicyController {
             @Valid @RequestBody DvPolicyRequest request,
             Authentication authentication) {
 
+        // Parse actor up-front — needed by both the cross-tenant audit
+        // (STEP 1) and the rejected-disable audit (STEP 3).
+        UUID actorUserIdEarly = parseUserId(authentication);
+
         // STEP 1 — Tenant-scoping guard. Executes BEFORE any inventory query
         // so a probe from Tenant A cannot learn whether Tenant B has DV
         // shelters via timing or via the error message (warroom round 1,
         // Marcus). 403 with no body — no existence-leak.
+        //
+        // Defense-in-depth (warroom round 2, §6.3): emit a
+        // TENANT_CONFIG_UPDATED audit row with rejection_code
+        // tenant.crossTenantAccess BEFORE throwing. The 403 response
+        // itself carries no body / no leak; the audit row is the
+        // forensic signal that records the lateral-movement attempt
+        // for incident response. The audit lands in the CALLER'S
+        // tenant audit chain (TenantContext-scoped by the persister)
+        // so reading the actor's tenant audit shows the attempt.
         UUID callerTenantId = TenantContext.getTenantId();
         if (callerTenantId == null || !callerTenantId.equals(tenantId)) {
+            Map<String, Object> details = new LinkedHashMap<>();
+            details.put("config_key", "dv_policy_enabled");
+            details.put("outcome", "rejected");
+            details.put("rejection_code", ErrorCodes.TENANT_CROSS_TENANT_ACCESS);
+            details.put("actor_tenant_id", callerTenantId != null ? callerTenantId.toString() : null);
+            details.put("target_tenant_id", tenantId.toString());
+            eventPublisher.publishEvent(new AuditEventRecord(
+                    actorUserIdEarly, null, AuditEventType.TENANT_CONFIG_UPDATED, details, null));
             throw new AccessDeniedException(
                     "DV-policy changes are scoped to the caller's tenant");
         }
@@ -146,7 +180,8 @@ public class DvPolicyController {
                     "DV-policy management requires dvAccess=true");
         }
 
-        UUID actorUserId = parseUserId(authentication);
+        // Reuse actorUserIdEarly parsed above (STEP 1 prep).
+        UUID actorUserId = actorUserIdEarly;
 
         // STEP 2 — Read current value before the write so the audit row can
         // record the pre-change state. Tenant.isDvPolicyEnabled defaults to
