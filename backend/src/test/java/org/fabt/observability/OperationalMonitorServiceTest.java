@@ -39,6 +39,7 @@ class OperationalMonitorServiceTest {
     @Mock private SurgeEventService surgeEventService;
     @Mock private NoaaClient noaaClient;
     @Mock private ObservabilityConfigService configService;
+    @Mock private PlatformConfigService platformConfigService;
     @Mock private TenantRepository tenantRepository;
 
     private ObservabilityMetrics metrics;
@@ -54,7 +55,8 @@ class OperationalMonitorServiceTest {
         metrics = new ObservabilityMetrics(registry);
         monitorService = new OperationalMonitorService(
                 jdbcTemplate, shelterRepository, bedSearchService,
-                surgeEventService, noaaClient, metrics, configService, tenantRepository, "KRDU");
+                surgeEventService, noaaClient, metrics, configService,
+                platformConfigService, tenantRepository, "KRDU");
 
         // Default config returns 32°F threshold
         lenient().when(configService.getConfig(any())).thenReturn(ObservabilityConfigService.ObservabilityConfig.DEFAULTS);
