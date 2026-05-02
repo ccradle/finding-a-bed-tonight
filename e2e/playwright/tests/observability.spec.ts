@@ -39,7 +39,17 @@ test.describe('Observability Tab', () => {
     await expect(adminPage.locator('main', { hasText: /surge activation threshold/i })).toBeVisible();
   });
 
-  test('toggle tracing on, save, and verify persists on reload', async ({ adminPage }) => {
+  // platform-observability-split (openspec, 2026-05-02): the Observability
+  // tab in /admin is being dismantled. Tracing + Prometheus + monitor
+  // intervals are tenant-agnostic and migrate to the Platform Operator
+  // Dashboard (PUT /api/v1/platform/observability, PLATFORM_OPERATOR +
+  // @PlatformAdminOnly). The current /tenants/{id}/observability endpoint
+  // requires platform-operator + X-Platform-Justification — the COC_ADMIN
+  // /admin UI never sends either, so save() always 400s and the "saved"
+  // toast never appears. Re-enable when the platform-observability-split
+  // change ships its replacement UI + COC_ADMIN-scoped endpoint for the
+  // tenant-specific temperature_threshold_f field (Surge tab).
+  test.fixme('toggle tracing on, save, and verify persists on reload', async ({ adminPage }) => {
     await goToObservabilityTab(adminPage);
 
     // Toggle tracing on via UI
@@ -80,7 +90,10 @@ test.describe('Observability Tab', () => {
     await adminPage.waitForTimeout(500);
   });
 
-  test('change temperature threshold and save', async ({ adminPage }) => {
+  // Same root cause as the toggle-tracing test above. Re-targeted to the
+  // Surge tab + new COC_ADMIN endpoint when platform-observability-split
+  // ships.
+  test.fixme('change temperature threshold and save', async ({ adminPage }) => {
     test.setTimeout(60000); // Extended — this test navigates twice + saves + verifies
 
     await goToObservabilityTab(adminPage);

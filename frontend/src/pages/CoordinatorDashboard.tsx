@@ -1257,7 +1257,13 @@ export function CoordinatorDashboard() {
                               {user?.reentryMode && hold.heldForClientName && (
                                 <div
                                   data-testid={`coordinator-hold-client-${hold.id}`}
-                                  style={{ fontSize: text['2xs'], color: color.textTertiary, marginTop: 2 }}
+                                  // textTertiary (#94a3b8 dark) on bgHighlight (#1e3a5f) =
+                                  // 4.48:1 — fails WCAG AA at 11px. textSecondary (#cbd5e1)
+                                  // gives ~6.5:1 on the same surface and matches the role
+                                  // (these per-hold rows are read more than the regular
+                                  // dashboard tertiary labels). Caught by
+                                  // notification-deep-linking-axe.spec.ts:136.
+                                  style={{ fontSize: text['2xs'], color: color.textSecondary, marginTop: 2 }}
                                 >
                                   <FormattedMessage id="coord.heldForClient" />: {hold.heldForClientName}
                                 </div>
@@ -1265,7 +1271,9 @@ export function CoordinatorDashboard() {
                             </div>
                             <div
                               data-testid={`coordinator-hold-remaining-${hold.id}`}
-                              style={{ fontSize: text['2xs'], color: color.textTertiary, whiteSpace: 'nowrap' }}
+                              // Same fix as the client row above — textTertiary on bgHighlight
+                              // fails AA at 11px; textSecondary clears it.
+                              style={{ fontSize: text['2xs'], color: color.textSecondary, whiteSpace: 'nowrap' }}
                             >
                               {hold.remainingSeconds <= 0
                                 ? <FormattedMessage id="referral.expired" />
