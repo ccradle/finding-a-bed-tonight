@@ -29,6 +29,12 @@ class ShelterIntegrationTest extends BaseIntegrationTest {
     @BeforeEach
     void setUp() {
         authHelper.setupTestTenant();
+        // Required precondition for tests in this class that exercise
+        // DV-shelter writes (test_cocAdminCanChangeDvFlag, hsdsExport-redacts...).
+        // The dv-policy-tenant-flag invariant (2026-05-02) gates per-shelter
+        // dv_shelter=true writes on the tenant flag; without this, those tests
+        // hit shelter.dvShelter.requiresDvPolicy at the create/update boundary.
+        authHelper.enableDvPolicyForTenant(authHelper.getTestTenantId());
         authHelper.setupAdminUser();
         authHelper.setupCocAdminUser();
         authHelper.setupCoordinatorUser();

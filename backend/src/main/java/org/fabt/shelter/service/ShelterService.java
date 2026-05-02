@@ -34,6 +34,8 @@ import org.fabt.shelter.repository.ShelterConstraintsRepository;
 import org.fabt.shelter.repository.ShelterRepository;
 import org.fabt.shared.audit.AuditEventRecord;
 import org.fabt.shared.audit.AuditEventType;
+import org.fabt.shared.errors.ErrorCodes;
+import org.fabt.shared.errors.StructuredErrorException;
 import org.fabt.shared.cache.CacheNames;
 import org.fabt.shared.cache.TenantScopedCacheService;
 import org.fabt.shelter.api.CreateShelterRequest;
@@ -42,6 +44,7 @@ import org.fabt.shelter.api.ShelterDetailResponse.AvailabilityDto;
 import org.fabt.shelter.api.UpdateShelterRequest;
 import org.fabt.shelter.domain.PopulationType;
 import org.fabt.shared.web.TenantContext;
+import org.fabt.tenant.domain.Tenant;
 import org.fabt.tenant.service.TenantService;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Lazy;
@@ -263,9 +266,39 @@ public class ShelterService {
         }
     }
 
+    /**
+     * Tenant DV-policy invariant guard (dv-policy-tenant-flag OpenSpec
+     * change task §5). When a write attempts to set {@code dv_shelter=true}
+     * on a shelter, the parent tenant MUST have
+     * {@code config.dv_policy_enabled=true}. Throws
+     * {@link StructuredErrorException} with code
+     * {@link ErrorCodes#SHELTER_DV_SHELTER_REQUIRES_DV_POLICY} when the
+     * tenant flag is absent or false.
+     *
+     * <p>Centralized here so {@link #create}, {@link #update} (flip-up
+     * case), and {@link #doReactivate} all share the same enforcement.
+     */
+    private void requireDvPolicyEnabledOrFail(UUID tenantId) {
+        Tenant tenant = tenantService.findById(tenantId).orElseThrow(
+                () -> new NoSuchElementException("Tenant not found: " + tenantId));
+        if (!Tenant.isDvPolicyEnabled(tenant.getConfig(), objectMapper)) {
+            throw new StructuredErrorException(
+                    ErrorCodes.SHELTER_DV_SHELTER_REQUIRES_DV_POLICY,
+                    "DV shelter operations are not enabled for this CoC. "
+                            + "Enable DV policy in admin Settings before flipping a shelter to DV.");
+        }
+    }
+
     @Transactional
     public Shelter create(CreateShelterRequest req) {
         UUID tenantId = TenantContext.getTenantId();
+
+        // dv-policy-tenant-flag invariant (§5.1): a create with dvShelter=true
+        // is rejected when the tenant flag is off. Fires BEFORE persistence
+        // so the row never lands.
+        if (req.dvShelter()) {
+            requireDvPolicyEnabledOrFail(tenantId);
+        }
 
         // Validate population types in constraints
         if (req.constraints() != null && req.constraints().populationTypesServed() != null) {
@@ -401,6 +434,18 @@ public class ShelterService {
         // Track DV-sensitive changes for audit logging
         boolean dvFlagChanged = req.dvShelter() != null && req.dvShelter() != shelter.isDvShelter();
         boolean addressChanged = shelter.isDvShelter() && isAddressChanging(shelter, req);
+
+        // dv-policy-tenant-flag invariant (§5.2): flip-up only — when the
+        // request changes dvShelter from false to true, the tenant flag must
+        // be enabled. Other update shapes are no-ops for this invariant:
+        // - already true, no change in this PATCH: untouched (pre-existing
+        //   row predates this change OR was created under a previously-
+        //   enabled flag)
+        // - flip-down (true → false): always allowed
+        // - dvShelter omitted: untouched
+        if (req.dvShelter() != null && req.dvShelter() && !shelter.isDvShelter()) {
+            requireDvPolicyEnabledOrFail(tenantId);
+        }
         String oldDvFlag = String.valueOf(shelter.isDvShelter());
         String oldAddress = formatAddress(shelter);
 
@@ -740,6 +785,16 @@ public class ShelterService {
 
         if (shelter.isActive()) {
             throw new IllegalStateException("Shelter is already active");
+        }
+
+        // dv-policy-tenant-flag invariant (§5.4): reactivating a DV shelter
+        // requires the tenant flag to be on. Without this guard, an operator
+        // who deactivated DV shelters → disabled the flag → tries to
+        // re-activate without re-enabling could resurrect a DV shelter on
+        // a flag-off tenant — exactly the failure mode the invariant
+        // (warroom design D5 + Marcus/Alex round 1) was added to prevent.
+        if (shelter.isDvShelter()) {
+            requireDvPolicyEnabledOrFail(tenantId);
         }
 
         String previousReason = shelter.getDeactivationReason();
