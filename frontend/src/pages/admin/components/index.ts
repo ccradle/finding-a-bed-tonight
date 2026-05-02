@@ -4,4 +4,5 @@ export { ErrorBox } from './ErrorBox';
 export { NoData } from './NoData';
 export { Spinner } from './Spinner';
 export { ReservationSettings } from './ReservationSettings';
+export { DvPolicySettings } from './DvPolicySettings';
 export { TabErrorBoundary } from './TabErrorBoundary';

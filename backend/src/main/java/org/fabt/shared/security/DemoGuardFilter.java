@@ -225,6 +225,15 @@ public class DemoGuardFilter extends OncePerRequestFilter {
         if (path.matches("/api/v1/admin/tenants/[^/]+/hold-duration")) {
             return "Hold duration changes are disabled in the demo environment — would affect other visitors' reservation flow.";
         }
+        // dv-policy-tenant-flag task §4.10: same posture as hold-duration —
+        // the endpoint is COC_ADMIN-scoped and changing the flag affects
+        // every visitor's view of the demo tenant's DV-shelter inventory
+        // (a disable would remove the per-shelter dv_shelter writes from
+        // all subsequent demo flows). Friendly per-path message
+        // distinguishes this from the generic tenant-management branch.
+        if (path.matches("/api/v1/admin/tenants/[^/]+/dv-policy")) {
+            return "DV-policy changes are disabled in the demo environment — would affect other visitors' view of DV-shelter operations.";
+        }
         if (path.startsWith("/api/v1/tenants")) return "Tenant management is disabled in the demo environment.";
         if (path.startsWith("/api/v1/import")) return "Data import is disabled in the demo environment.";
         if (path.startsWith("/api/v1/batch")) return "Batch job management is disabled in the demo environment.";

@@ -60,10 +60,17 @@ class ShelterServiceLockstepTest extends BaseIntegrationTest {
      */
     private UUID createTenant(String slugSuffix) {
         UUID id = UUID.randomUUID();
+        // dv_policy_enabled=true so create/update/reactivate with dvShelter=true
+        // pass the dv-policy-tenant-flag invariant guard added 2026-05-02. The
+        // lockstep contract under test (V91 dv_shelter ↔ shelter_type='DV') is
+        // orthogonal to the dv-policy invariant, but the tests exercise paths
+        // that go through both — so the fixture must satisfy both.
+        UUID id_ = id;
         jdbc.update(
-            "INSERT INTO tenant (id, name, slug, config) VALUES (?, ?, ?, '{}'::jsonb)",
-            id, "Lockstep Test Tenant " + slugSuffix, "lockstep-" + slugSuffix);
-        return id;
+            "INSERT INTO tenant (id, name, slug, config) VALUES (?, ?, ?, ?::jsonb)",
+            id_, "Lockstep Test Tenant " + slugSuffix, "lockstep-" + slugSuffix,
+            "{\"dv_policy_enabled\":true}");
+        return id_;
     }
 
     private CreateShelterRequest minimalCreateReq(String name, boolean dv) {

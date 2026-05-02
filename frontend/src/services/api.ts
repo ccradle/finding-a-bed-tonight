@@ -8,12 +8,25 @@ export interface ErrorResponse {
   error: string;
   message: string;
   details?: Record<string, string>;
+  /**
+   * Structured context payload from the backend GlobalExceptionHandler
+   * (Java field name {@code context} on {@code ErrorResponse}). Carries
+   * client-parseable fields like {@code errorCode} (for
+   * StructuredErrorException-flavored 400s),
+   * {@code remaining_dv_shelter_count} (dv-policy-tenant-flag disable-
+   * rejection), and {@code detail} (free-text exception message). The
+   * field name was {@code details} in this TS interface previously,
+   * which silently swallowed the {@code context} payload because the
+   * names didn't match. Aligned 2026-05-02 alongside dv-policy-tenant-flag.
+   */
+  context?: Record<string, unknown>;
 }
 
 export class ApiError extends Error {
   public status: number;
   public error: string;
   public details?: Record<string, string>;
+  public context?: Record<string, unknown>;
 
   constructor(response: ErrorResponse) {
     super(response.message);
@@ -21,6 +34,7 @@ export class ApiError extends Error {
     this.status = response.status;
     this.error = response.error;
     this.details = response.details;
+    this.context = response.context;
   }
 }
 

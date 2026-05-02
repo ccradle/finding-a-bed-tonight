@@ -665,7 +665,7 @@ Table "tenant" {
   "id" uuid [pk, not null, default: `gen_random_uuid()`, note: 'Parent of CASCADE FKs (V84 + V61 + V80 + V82). hardDelete(tenant_id) chain-removes every per-tenant child row in a single DELETE. audit_events preserves its tenant_id without FK per shred-auditability contract (Q-F6-5).']
   "name" "character varying(255)" [not null]
   "slug" "character varying(100)" [unique, not null]
-  "config" jsonb [not null, default: `'{}'::jsonb`]
+  "config" jsonb [not null, default: `'{}'::jsonb`, note: 'Tenant-scoped operational config. Known keys: hold_duration_minutes (slice 2C); features.reentryMode (v0.55); active_counties; dv_address_visibility; dv_policy_enabled (boolean, default false on absent — gates per-shelter dv_shelter=true writes via ShelterService invariant; backfilled true by V97 for tenants with existing DV shelters; flipped via dedicated PATCH /api/v1/admin/tenants/{id}/dv-policy endpoint per dv-policy-tenant-flag OpenSpec change 2026-05).']
   "created_at" timestamp [not null, default: `now()`]
   "updated_at" timestamp [not null, default: `now()`]
   "state" "character varying(32)" [not null, default: `'ACTIVE'::charactervarying`, note: 'Lifecycle FSM state. Phase A column-only; Phase F adds the transition state machine.']

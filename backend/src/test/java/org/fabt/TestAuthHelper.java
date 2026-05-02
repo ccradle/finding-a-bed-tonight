@@ -56,12 +56,26 @@ public class TestAuthHelper {
     /**
      * Creates a test tenant with the given slug, or returns the existing one.
      * Must be called before creating users.
+     *
+     * <p><b>dv_policy_enabled defaults to true</b> (dv-policy-tenant-flag,
+     * 2026-05-02). Test tenants represent a fully-operational CoC; the
+     * majority of tests using {@code setupTestTenant} aren't testing the
+     * tenant-bootstrap flow and just want write surfaces to work. Tests
+     * that specifically verify the flag-OFF behavior MUST construct their
+     * own tenant via raw JDBC (see
+     * {@code ShelterServiceDvPolicyInvariantTest.createTenant}). Without
+     * this default, ~16 existing tests across {@code AvailabilityIntegrationTest},
+     * {@code DvReferralIntegrationTest}, {@code HmisBridgeIntegrationTest},
+     * etc. break because they create DV shelters via the API on
+     * freshly-bootstrapped tenants — these tests model the pre-invariant
+     * world; defaulting the flag honors their intent.
      */
     public Tenant setupTestTenant(String slug) {
         testTenant = tenantService.findBySlug(slug).orElse(null);
         if (testTenant == null) {
             testTenant = tenantService.create("Test Tenant " + slug, slug);
         }
+        enableDvPolicyForTenant(testTenant.getId());
         return testTenant;
     }
 
@@ -148,8 +162,15 @@ public class TestAuthHelper {
      * slug would race into the {@code create} branch and one would 409.</p>
      */
     public Tenant setupSecondaryTenant(String slug) {
-        return tenantService.findBySlug(slug)
+        Tenant t = tenantService.findBySlug(slug)
                 .orElseGet(() -> tenantService.create("Secondary Tenant " + slug, slug));
+        // dv_policy_enabled=true default — see setupTestTenant javadoc.
+        // Cross-tenant isolation tests don't care about flag state; they
+        // care about isolation. Defaulting the flag prevents the
+        // dv-policy-tenant-flag invariant from rejecting DV-shelter
+        // fixtures on secondary tenants.
+        enableDvPolicyForTenant(t.getId());
+        return t;
     }
 
     /**
@@ -273,6 +294,26 @@ public class TestAuthHelper {
         headers.setBearerAuth(token);
         headers.set("Content-Type", "application/json");
         return headers;
+    }
+
+    /**
+     * Enables the {@code dv_policy_enabled} flag on the given tenant —
+     * required precondition for tests that exercise DV-shelter writes
+     * via {@link org.fabt.shelter.service.ShelterService#create},
+     * {@link org.fabt.shelter.service.ShelterService#update} (flip-up),
+     * or {@link org.fabt.shelter.service.ShelterService#reactivate}
+     * (dv-policy-tenant-flag invariant guard, 2026-05-02).
+     *
+     * <p>Tests that specifically verify the flag-OFF behavior (rejection)
+     * SHOULD NOT call this; they should construct their own tenant via
+     * raw JDBC with the desired config (see
+     * {@code ShelterServiceDvPolicyInvariantTest.createTenant}).
+     */
+    public void enableDvPolicyForTenant(UUID tenantId) {
+        // Goes through TenantService.setDvPolicyEnabled (added 2026-05-02 for
+        // dv-policy-tenant-flag) rather than raw SQL — keeps TestAuthHelper
+        // service-layer-only per its javadoc convention.
+        tenantService.setDvPolicyEnabled(tenantId, true);
     }
 
     public UUID getTestTenantId() {
