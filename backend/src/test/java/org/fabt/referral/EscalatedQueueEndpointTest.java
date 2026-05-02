@@ -73,6 +73,10 @@ class EscalatedQueueEndpointTest extends BaseIntegrationTest {
 
         tenantB = tenantService.findBySlug("queue-tenant-b")
                 .orElseGet(() -> tenantService.create("Queue Tenant B", "queue-tenant-b"));
+        // dv-policy-tenant-flag invariant requires the flag enabled before
+        // DV-shelter writes (createDvShelter below). tenantB bypasses
+        // authHelper's setup helpers, so enable the flag explicitly.
+        authHelper.enableDvPolicyForTenant(tenantB.getId());
 
         // Tenant A users — outreach worker, coordinator, CoC admin (all DV-flagged).
         var outreachA = authHelper.setupUserWithDvAccess(

@@ -14,7 +14,7 @@ import org.fabt.shared.audit.AuditEventType;
 import org.fabt.shared.errors.ErrorCodes;
 import org.fabt.shared.errors.StructuredErrorException;
 import org.fabt.shared.web.TenantContext;
-import org.fabt.shelter.repository.ShelterRepository;
+import org.fabt.shelter.service.ShelterService;
 import org.fabt.tenant.domain.Tenant;
 import org.fabt.tenant.service.TenantService;
 import org.springframework.context.ApplicationEventPublisher;
@@ -78,16 +78,22 @@ import tools.jackson.databind.ObjectMapper;
 public class DvPolicyController {
 
     private final TenantService tenantService;
-    private final ShelterRepository shelterRepository;
+    private final ShelterService shelterService;
     private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
 
+    /**
+     * Depends on {@link ShelterService} (not {@link org.fabt.shelter.repository.ShelterRepository}
+     * directly) because the modular-monolith ArchitectureTest forbids
+     * cross-module repository injection. ShelterService exposes
+     * {@code countActiveDvShelters} for this purpose.
+     */
     public DvPolicyController(TenantService tenantService,
-                              ShelterRepository shelterRepository,
+                              ShelterService shelterService,
                               ApplicationEventPublisher eventPublisher,
                               ObjectMapper objectMapper) {
         this.tenantService = tenantService;
-        this.shelterRepository = shelterRepository;
+        this.shelterService = shelterService;
         this.eventPublisher = eventPublisher;
         this.objectMapper = objectMapper;
     }
@@ -162,7 +168,7 @@ public class DvPolicyController {
         // UUIDs, names, addresses, or any per-shelter identifier — only
         // the integer count.
         if (oldValue && !newValue) {
-            long activeDvCount = shelterRepository.countActiveDvSheltersByTenantId(tenantId);
+            long activeDvCount = shelterService.countActiveDvShelters(tenantId);
             if (activeDvCount > 0) {
                 emitConfigUpdated(actorUserId, oldValue, oldValue, "rejected",
                         ErrorCodes.TENANT_DV_POLICY_CANNOT_DISABLE_WHILE_DV_SHELTERS_EXIST,

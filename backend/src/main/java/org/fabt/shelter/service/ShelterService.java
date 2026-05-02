@@ -278,6 +278,18 @@ public class ShelterService {
      * <p>Centralized here so {@link #create}, {@link #update} (flip-up
      * case), and {@link #doReactivate} all share the same enforcement.
      */
+    /**
+     * Count of active shelters with {@code dv_shelter=true} for the given
+     * tenant. Exposed at the service layer so cross-module callers (e.g.,
+     * {@link org.fabt.tenant.api.DvPolicyController} for its disable-path
+     * guard) can use it without injecting {@link ShelterRepository}
+     * directly — the modular-monolith architecture forbids tenant-module
+     * code from reaching shelter-module repositories.
+     */
+    public long countActiveDvShelters(UUID tenantId) {
+        return shelterRepository.countActiveDvSheltersByTenantId(tenantId);
+    }
+
     private void requireDvPolicyEnabledOrFail(UUID tenantId) {
         Tenant tenant = tenantService.findById(tenantId).orElseThrow(
                 () -> new NoSuchElementException("Tenant not found: " + tenantId));
