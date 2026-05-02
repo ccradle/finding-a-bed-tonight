@@ -7,6 +7,37 @@ import { text, weight } from '../../../theme/typography';
 import { AuthContext } from '../../../auth/AuthContext';
 
 /**
+ * Pure helper extracted for Vitest coverage (codebase convention: no
+ * RTL / jsdom in this tree, so component behavior is Playwright-tested
+ * but business logic is unit-tested via extracted predicates — see
+ * {@code ConfirmActionModal.test.ts} for the same pattern).
+ *
+ * Inspects an ApiError thrown by the dv-policy PATCH endpoint and
+ * returns either:
+ * - {@code structured} — the disable-rejection (error code matches +
+ *   numeric count present); caller renders the count-aware message +
+ *   inventory link
+ * - {@code generic} — any other ApiError; caller renders a generic
+ *   "save failed" message with optional `err.message` fallback
+ */
+export type DvPolicyErrorParse =
+  | { kind: 'structured'; remainingDvShelters: number }
+  | { kind: 'generic'; message?: string };
+
+export function parseDvPolicyError(err: unknown): DvPolicyErrorParse {
+  if (!(err instanceof ApiError)) {
+    return { kind: 'generic' };
+  }
+  const errorCode = err.context?.errorCode as string | undefined;
+  const remainingRaw = err.context?.remaining_dv_shelter_count;
+  if (errorCode === 'tenant.dvPolicy.cannotDisableWhileDvSheltersExist'
+      && typeof remainingRaw === 'number') {
+    return { kind: 'structured', remainingDvShelters: remainingRaw };
+  }
+  return { kind: 'generic', message: err.message };
+}
+
+/**
  * dv-policy-tenant-flag — admin panel section letting a COC_ADMIN flip
  * the tenant-wide {@code dv_policy_enabled} JSONB flag.
  *
@@ -84,21 +115,18 @@ export function DvPolicySettings() {
       // Disable-rejection: backend returns 400 with context.errorCode
       // tenant.dvPolicy.cannotDisableWhileDvSheltersExist + count.
       // Surface count + inventory link via the error state.
-      let message = intl.formatMessage({ id: 'admin.dvPolicy.saveError' });
+      const parsed = parseDvPolicyError(err);
+      let message: string;
       let remaining: number | undefined;
-      if (err instanceof ApiError) {
-        const errorCode = err.context?.errorCode as string | undefined;
-        const remainingRaw = err.context?.remaining_dv_shelter_count;
-        if (errorCode === 'tenant.dvPolicy.cannotDisableWhileDvSheltersExist'
-            && typeof remainingRaw === 'number') {
-          remaining = remainingRaw;
-          message = intl.formatMessage(
-            { id: 'admin.dvPolicy.disableRejectedWithCount' },
-            { count: remaining },
-          );
-        } else if (err.message) {
-          message = err.message;
-        }
+      if (parsed.kind === 'structured') {
+        remaining = parsed.remainingDvShelters;
+        message = intl.formatMessage(
+          { id: 'admin.dvPolicy.disableRejectedWithCount' },
+          { count: remaining },
+        );
+      } else {
+        message = parsed.message
+          ?? intl.formatMessage({ id: 'admin.dvPolicy.saveError' });
       }
       setError({ message, remainingDvShelters: remaining });
       setShowConfirm(null);
