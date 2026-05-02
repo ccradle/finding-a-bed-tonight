@@ -61,7 +61,7 @@ VALUES (
     -- side-by-side demonstration is done by §16.D's reentry-mode-gate spec
     -- which creates an ephemeral non-reentry tenant on-the-fly per
     -- feedback_isolated_test_data.
-    '{"api_key_auth_enabled": true, "default_locale": "en", "hold_duration_minutes": 90, "dv_referral_expiry_minutes": 240, "dv_address_visibility": "ADMIN_AND_ASSIGNED", "hmis_vendors": [], "features": {"reentryMode": true}, "observability": {"prometheus_enabled": true, "tracing_enabled": false, "tracing_endpoint": "http://localhost:4318/v1/traces", "monitor_stale_interval_minutes": 5, "monitor_dv_canary_interval_minutes": 15, "monitor_temperature_interval_minutes": 60, "temperature_threshold_f": 32}}',
+    '{"api_key_auth_enabled": true, "default_locale": "en", "hold_duration_minutes": 90, "dv_referral_expiry_minutes": 240, "dv_address_visibility": "ADMIN_AND_ASSIGNED", "dv_policy_enabled": true, "hmis_vendors": [], "features": {"reentryMode": true}, "observability": {"prometheus_enabled": true, "tracing_enabled": false, "tracing_endpoint": "http://localhost:4318/v1/traces", "monitor_stale_interval_minutes": 5, "monitor_dv_canary_interval_minutes": 15, "monitor_temperature_interval_minutes": 60, "temperature_threshold_f": 32}}',
     NOW(), NOW()
 ) ON CONFLICT (slug) DO NOTHING;
 
@@ -604,7 +604,7 @@ VALUES (
     -- PII) and the §16.B API serialization gate both surface reentry data for
     -- this tenant. Other dev tenants (dev-coc) stay unset, demonstrating the
     -- ungated shape side-by-side.
-    '{"api_key_auth_enabled": true, "default_locale": "en", "hold_duration_minutes": 90, "dv_referral_expiry_minutes": 240, "dv_address_visibility": "ADMIN_AND_ASSIGNED", "hmis_vendors": [], "features": {"reentryMode": true}, "observability": {"prometheus_enabled": true, "tracing_enabled": false, "tracing_endpoint": "http://localhost:4318/v1/traces", "monitor_stale_interval_minutes": 5, "monitor_dv_canary_interval_minutes": 15, "monitor_temperature_interval_minutes": 60, "temperature_threshold_f": 32, "noaa_station_id": "KAVL"}}',
+    '{"api_key_auth_enabled": true, "default_locale": "en", "hold_duration_minutes": 90, "dv_referral_expiry_minutes": 240, "dv_address_visibility": "ADMIN_AND_ASSIGNED", "dv_policy_enabled": true, "hmis_vendors": [], "features": {"reentryMode": true}, "observability": {"prometheus_enabled": true, "tracing_enabled": false, "tracing_endpoint": "http://localhost:4318/v1/traces", "monitor_stale_interval_minutes": 5, "monitor_dv_canary_interval_minutes": 15, "monitor_temperature_interval_minutes": 60, "temperature_threshold_f": 32, "noaa_station_id": "KAVL"}}',
     NOW(), NOW()
 ) ON CONFLICT (slug) DO UPDATE SET
     name = EXCLUDED.name,
@@ -690,7 +690,7 @@ VALUES (
     -- screenshot shot-05 of the demo capture spec exercises the customised-
     -- duration surface; the longer window also lets a coordinator hold a bed
     -- across a typical reentry intake-handoff cycle.
-    '{"api_key_auth_enabled": true, "default_locale": "en", "hold_duration_minutes": 180, "dv_referral_expiry_minutes": 240, "dv_address_visibility": "ADMIN_AND_ASSIGNED", "hmis_vendors": [], "features": {"reentryMode": true}, "observability": {"prometheus_enabled": true, "tracing_enabled": false, "tracing_endpoint": "http://localhost:4318/v1/traces", "monitor_stale_interval_minutes": 5, "monitor_dv_canary_interval_minutes": 15, "monitor_temperature_interval_minutes": 60, "temperature_threshold_f": 32, "noaa_station_id": "KEWN"}}',
+    '{"api_key_auth_enabled": true, "default_locale": "en", "hold_duration_minutes": 180, "dv_referral_expiry_minutes": 240, "dv_address_visibility": "ADMIN_AND_ASSIGNED", "dv_policy_enabled": true, "hmis_vendors": [], "features": {"reentryMode": true}, "observability": {"prometheus_enabled": true, "tracing_enabled": false, "tracing_endpoint": "http://localhost:4318/v1/traces", "monitor_stale_interval_minutes": 5, "monitor_dv_canary_interval_minutes": 15, "monitor_temperature_interval_minutes": 60, "temperature_threshold_f": 32, "noaa_station_id": "KEWN"}}',
     NOW(), NOW()
 ) ON CONFLICT (slug) DO UPDATE SET
     name = EXCLUDED.name,
