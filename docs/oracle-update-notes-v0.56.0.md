@@ -116,9 +116,9 @@ consulted:
   - file: feedback_legal_scan_in_comments.md
     # why-cited: legal-language scan applies to JSDoc + JavaDoc, not
     # just user-facing copy. Already cleared by the round-7 `2d337b2`
-    # commit on the platform-obs feature branch (4 "compliant" + 1 "no
-    # way to" rephrased to "follows the W3C ARIA APG Switch Pattern" /
-    # "could not").
+    # commit on the platform-obs feature branch (4 overclaim words + 1
+    # impossibility phrase rephrased to "follows the W3C ARIA APG
+    # Switch Pattern" / "could not").
   - file: feedback_check_ports_before_assuming.md
     # why-cited: post-deploy frontend smoke uses port 8081 (nginx) in
     # local rehearsal and the public URL via Cloudflare for prod smoke.
