@@ -26,7 +26,7 @@
  * operator is acting on) and a real POST handler.
  */
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback, Fragment } from 'react';
 import { color } from '../../theme/colors';
 import { usePlatformMetadata } from './PlatformMetadataContext';
 import {
@@ -37,6 +37,7 @@ import {
   type PlatformAction,
 } from './platformActions';
 import { PlatformActionCard } from './components/PlatformActionCard';
+import { ObservabilityActionCard } from './components/ObservabilityActionCard';
 import { PLATFORM_OPERATOR_USER_GUIDE_URL } from './constants';
 import { platformFetch } from './helpers/platformApi';
 
@@ -77,25 +78,142 @@ function formatTimestamp(iso: string | null | undefined): string {
   }
 }
 
+/**
+ * Shape of GET /api/v1/platform/observability. Mirrors PlatformConfig.java
+ * (camelCase on the wire — see PlatformObservabilityControllerTest assertions
+ * that pin "prometheusEnabled" / "monitorStaleIntervalMinutes" etc.).
+ */
+interface ObservabilityConfig {
+  prometheusEnabled: boolean;
+  tracingEnabled: boolean;
+  tracingEndpoint: string;
+  monitorStaleIntervalMinutes: number;
+  monitorDvCanaryIntervalMinutes: number;
+  monitorTemperatureIntervalMinutes: number;
+}
+
+/**
+ * Wire shape of GET /api/v1/tenants — see TenantResponse.java.
+ * Warroom round 7 (2026-05-03): the previous flag-gated `View` button now
+ * fetches via platformFetch + renders inline. Slice E will add sort/filter.
+ */
+interface TenantSummary {
+  id: string;
+  name: string;
+  slug: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Returns a per-action-id "Current: …" string for the observability cards,
+ * pre-formatted (booleans → "enabled" / "disabled", intervals → "N minutes",
+ * endpoint as-is). Returns undefined for action ids the config doesn't speak to,
+ * so non-observability cards render no value row.
+ */
+function formatCurrentValue(actionId: string, cfg: ObservabilityConfig | null): string | undefined {
+  if (!cfg) return undefined;
+  const fmtBool = (v: boolean) => (v ? 'enabled' : 'disabled');
+  const fmtMin = (v: number) => `${v} minute${v === 1 ? '' : 's'}`;
+  switch (actionId) {
+    case 'obs-prometheus':       return fmtBool(cfg.prometheusEnabled);
+    case 'obs-tracing':          return fmtBool(cfg.tracingEnabled);
+    case 'obs-tracing-endpoint': return cfg.tracingEndpoint;
+    case 'obs-stale-interval':   return fmtMin(cfg.monitorStaleIntervalMinutes);
+    case 'obs-canary-interval':  return fmtMin(cfg.monitorDvCanaryIntervalMinutes);
+    case 'obs-temp-interval':    return fmtMin(cfg.monitorTemperatureIntervalMinutes);
+    default:                     return undefined;
+  }
+}
+
 export default function PlatformDashboard() {
   const { data: operator, loading } = usePlatformMetadata();
-  // `acting` flag drives the disabled-state on the banner's dismiss button +
-  // any future spinner; setActing is called inside handleActivate around
-  // the platformFetch. Keeping both halves so a future "Saving…" indicator
-  // can be wired without re-plumbing state.
-  const [acting, setActing] = useState(false);
+  // `result` drives the dismiss-able banner above the operator metadata.
+  // The observability cards manage their own per-card saving / saved /
+  // error UI inline (warroom round 6) — they don't write to `result`.
+  // `result` is reserved for future non-card actions (lifecycle Slice E).
   const [result, setResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  // Observability snapshot driving the "Current: …" line on each obs card.
+  // Re-fetched on mount + after every successful PUT so the displayed value
+  // never lags the platform_config row.
+  const [obsConfig, setObsConfig] = useState<ObservabilityConfig | null>(null);
+
+  // Tenant-list inline viewer state (warroom round 7). null = collapsed
+  // (the View card is in resting state); empty array = open + currently
+  // showing zero tenants; populated array = open + showing rows.
+  const [tenantList, setTenantList] = useState<TenantSummary[] | null>(null);
+  const [tenantListLoading, setTenantListLoading] = useState(false);
+  const [tenantListError, setTenantListError] = useState<string | null>(null);
+
+  const refreshObsConfig = useCallback(async () => {
+    try {
+      const resp = await platformFetch('/api/v1/platform/observability', { method: 'GET' });
+      if (resp.ok) {
+        const data = (await resp.json()) as ObservabilityConfig;
+        setObsConfig(data);
+      }
+      // 401/403 are handled by platformFetch (auto-redirect); other errors
+      // leave obsConfig null → cards render with no Current row, which is
+      // the same as the pre-fetch state. No user-visible spinner since the
+      // request typically completes in tens of ms; if a tester sees the
+      // "Current: …" lines blank longer than that, the network tab tells
+      // them why.
+    } catch {
+      // network failure — same as above; degrade gracefully.
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshObsConfig();
+  }, [refreshObsConfig]);
+
+  /**
+   * Fetches the tenant list via platformFetch (which carries the JWT)
+   * and pushes the result into local state. Warroom round 7: replaces
+   * the prior `window.open` path that stripped the JWT in a new tab.
+   */
+  const fetchTenantList = useCallback(async () => {
+    setTenantListLoading(true);
+    setTenantListError(null);
+    try {
+      const resp = await platformFetch('/api/v1/tenants', { method: 'GET' });
+      if (resp.ok) {
+        const data = (await resp.json()) as TenantSummary[];
+        setTenantList(data);
+      } else {
+        setTenantListError(`Could not load tenants (status ${resp.status}).`);
+        // Open the panel even on error so the operator sees the message
+        // instead of the click silently doing nothing.
+        setTenantList([]);
+      }
+    } catch {
+      setTenantListError('Network error. Try Refresh.');
+      setTenantList([]);
+    } finally {
+      setTenantListLoading(false);
+    }
+  }, []);
 
   const handleActivate = async (action: PlatformAction) => {
+    // Warroom round 6 (2026-05-03): observability actions now use the
+    // ObservabilityActionCard inline-edit form — they never reach this
+    // handler. Anything that does is either a GET (new-tab open) or a
+    // tenant-lifecycle action (Slice E ships the typed-confirm modal).
+    if (action.category === 'observability') {
+      // Defensive: if a code path ever wires an obs action to this
+      // handler again, fail loudly rather than fall through to the
+      // bygone window.prompt flow.
+      const msg = `PlatformDashboard: observability action "${action.id}" reached handleActivate; should be handled by ObservabilityActionCard.`;
+      if (typeof console !== 'undefined') console.error(msg);
+      throw new Error(msg);
+    }
+
     // Round 8 N1 (warroom round 4 restore): defensive guard for any
     // destructive action whose endpoint is NOT yet wired in this slice.
     // Tenant-lifecycle destructive actions remain flag-gated and unhandled
-    // here (Slice E ships their typed-confirmation modal + POST handler).
-    // Without this guard, a future flag-flip on a tenant-lifecycle card
-    // would issue a navigation GET via window.open against a destructive
-    // POST/DELETE endpoint, returning 405 with no audit trail. Throw
-    // loudly so the broken state surfaces in monitoring + console
-    // immediately rather than 3am-paged.
+    // here. Without this guard, a future flag-flip would issue a
+    // navigation GET via window.open against a destructive POST/DELETE
+    // endpoint, returning 405 with no audit trail.
     if (action.dangerLevel === 'destructive' && action.flagGate === 'fabt.tenant.lifecycle.enabled') {
       const msg =
         `PlatformDashboard: destructive lifecycle action "${action.id}" is not wired ` +
@@ -120,110 +238,42 @@ export default function PlatformDashboard() {
       throw new Error(msg);
     }
 
+    // Warroom round 7 (2026-05-03): tenant-list opens an inline panel
+    // below the Lifecycle category instead of `window.open`-ing the
+    // auth-required JSON endpoint into a new tab. Toggles open/closed.
+    if (action.id === 'tenant-list') {
+      if (tenantList === null) {
+        await fetchTenantList();
+      } else {
+        setTenantList(null);
+        setTenantListError(null);
+      }
+      return;
+    }
+
     if (action.method === 'GET') {
       window.open(action.endpoint, '_blank', 'noopener,noreferrer');
       return;
     }
 
-    // Destructive observability actions get an extra confirm prompt before
-    // anything else (warroom round 4 B1+B2 fix). The proper modal-form
-    // upgrade is captured as §15.6 follow-up; this minimal extra-confirm
-    // closes the immediate destructive-without-warning regression. The
-    // confirm copy names the action explicitly so the operator can't dismiss
-    // it on muscle memory.
-    if (action.dangerLevel === 'destructive') {
-      const confirmed = window.confirm(
-        `${action.title} is a DESTRUCTIVE platform-wide change.\n\n` +
-        `${action.description}\n\n` +
-        `Continue?`
-      );
-      if (!confirmed) return;
-    }
+    // Anything else falling through here is a category we don't yet wire
+    // (no destructive lifecycle POST handler in v0.54). Fail loudly.
+    const msg = `PlatformDashboard: action "${action.id}" has no inline handler — Slice E pending.`;
+    if (typeof console !== 'undefined') console.error(msg);
+    setResult({ type: 'error', message: msg });
+  };
 
-    // Handle PUT/POST/DELETE (platform-observability-split 2026-05-02)
-    const justification = window.prompt(
-      `Enter justification for: ${action.title}\n(This will be recorded in the audit trail)`,
-    );
-    if (!justification) return;
-
-    const body: Record<string, unknown> = {};
-    if (action.needsValue) {
-      const rawValue = window.prompt(`Enter new value for ${action.title}:`);
-      if (rawValue === null) return;
-
-      // Map action ID to field name
-      const fieldMap: Record<string, string> = {
-        'obs-prometheus': 'prometheus_enabled',
-        'obs-tracing': 'tracing_enabled',
-        'obs-tracing-endpoint': 'tracing_endpoint',
-        'obs-stale-interval': 'monitor_stale_interval_minutes',
-        'obs-canary-interval': 'monitor_dv_canary_interval_minutes',
-        'obs-temp-interval': 'monitor_temperature_interval_minutes',
-      };
-
-      const field = fieldMap[action.id];
-      if (!field) {
-        setResult({
-          type: 'error',
-          message: `Unknown observability action: ${action.id}`,
-        });
-        return;
-      }
-
-      const trimmed = rawValue.trim();
-      if (field === 'prometheus_enabled' || field === 'tracing_enabled') {
-        // Booleans: accept true/false (any case). Reject other inputs to
-        // avoid sending the backend a string that fails type validation.
-        if (trimmed.toLowerCase() === 'true') body[field] = true;
-        else if (trimmed.toLowerCase() === 'false') body[field] = false;
-        else {
-          setResult({
-            type: 'error',
-            message: `Invalid value for ${action.title}. Enter "true" or "false".`,
-          });
-          return;
-        }
-      } else if (field === 'tracing_endpoint') {
-        // String: pass through verbatim. Validation is the backend's job.
-        body[field] = trimmed;
-      } else {
-        // Intervals: integer minutes. Reject non-numeric.
-        if (!/^\d+$/.test(trimmed)) {
-          setResult({
-            type: 'error',
-            message: `Invalid value for ${action.title}. Enter a whole number of minutes.`,
-          });
-          return;
-        }
-        body[field] = parseInt(trimmed, 10);
-      }
-    }
-
-    setActing(true);
-    setResult(null);
-    try {
-      const response = await platformFetch(action.endpoint, {
-        method: action.method,
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Platform-Justification': justification,
-        },
-        body: JSON.stringify(body),
-      });
-
-      if (response.ok) {
-        setResult({ type: 'success', message: `${action.title} applied successfully.` });
-      } else {
-        const errorData = await response.json().catch(() => ({}));
-        setResult({
-          type: 'error',
-          message: errorData.message || `Failed to apply ${action.title} (Status ${response.status})`,
-        });
-      }
-    } catch {
-      setResult({ type: 'error', message: `Network error applying ${action.title}` });
-    } finally {
-      setActing(false);
+  // Per-card observability current value (boolean | number | string).
+  const obsCurrentValue = (fieldKey: string | undefined): boolean | number | string | undefined => {
+    if (!fieldKey || !obsConfig) return undefined;
+    switch (fieldKey) {
+      case 'prometheus_enabled': return obsConfig.prometheusEnabled;
+      case 'tracing_enabled': return obsConfig.tracingEnabled;
+      case 'tracing_endpoint': return obsConfig.tracingEndpoint;
+      case 'monitor_stale_interval_minutes': return obsConfig.monitorStaleIntervalMinutes;
+      case 'monitor_dv_canary_interval_minutes': return obsConfig.monitorDvCanaryIntervalMinutes;
+      case 'monitor_temperature_interval_minutes': return obsConfig.monitorTemperatureIntervalMinutes;
+      default: return undefined;
     }
   };
 
@@ -282,12 +332,11 @@ export default function PlatformDashboard() {
           <span>{result.message}</span>
           <button
             onClick={() => setResult(null)}
-            disabled={acting}
             style={{
               background: 'transparent',
               border: 'none',
               color: 'inherit',
-              cursor: acting ? 'wait' : 'pointer',
+              cursor: 'pointer',
               fontSize: '1.25rem',
               lineHeight: 1,
             }}
@@ -377,11 +426,27 @@ export default function PlatformDashboard() {
       )}
 
       {CATEGORY_ORDER.map((category) => (
-        <CategorySection
-          key={category}
-          category={category}
-          onActivate={handleActivate}
-        />
+        <Fragment key={category}>
+          <CategorySection
+            category={category}
+            onActivate={handleActivate}
+            obsConfig={obsConfig}
+            obsCurrentValue={obsCurrentValue}
+            refreshObsConfig={refreshObsConfig}
+          />
+          {/* Tenant-list inline panel renders directly under the Lifecycle
+              category section so the operator sees the data adjacent to the
+              card that triggered it. */}
+          {category === 'lifecycle' && tenantList !== null && (
+            <TenantListPanel
+              tenants={tenantList}
+              loading={tenantListLoading}
+              error={tenantListError}
+              onRefresh={fetchTenantList}
+              onClose={() => { setTenantList(null); setTenantListError(null); }}
+            />
+          )}
+        </Fragment>
       ))}
     </main>
   );
@@ -403,9 +468,20 @@ function MetaItem({ label, value, testid }: { label: string; value: string; test
 function CategorySection({
   category,
   onActivate,
+  obsConfig,
+  obsCurrentValue,
+  refreshObsConfig,
 }: {
   category: ActionCategory;
   onActivate: (action: PlatformAction) => void;
+  /** Latest GET /api/v1/platform/observability snapshot, or null while
+   *  the initial fetch is in flight. Drives the "Current: …" line on
+   *  observability cards. */
+  obsConfig: ObservabilityConfig | null;
+  /** Resolves an action's fieldKey to its current persisted value. */
+  obsCurrentValue: (fieldKey: string | undefined) => boolean | number | string | undefined;
+  /** Re-fetches obsConfig after the inline-edit form saves. */
+  refreshObsConfig: () => void;
 }) {
   const actions = PLATFORM_ACTIONS.filter((a) => a.category === category);
 
@@ -462,14 +538,177 @@ function CategorySection({
         }}
       >
         {actions.map((action) => (
-          <PlatformActionCard
-            key={action.id}
-            action={action}
-            enabled={actionEnabled(action)}
-            onActivate={onActivate}
-          />
+          action.category === 'observability' ? (
+            <ObservabilityActionCard
+              key={action.id}
+              action={action}
+              currentValue={obsCurrentValue(action.fieldKey)}
+              onSaved={refreshObsConfig}
+            />
+          ) : (
+            <PlatformActionCard
+              key={action.id}
+              action={action}
+              enabled={actionEnabled(action)}
+              onActivate={onActivate}
+              currentValueDisplay={formatCurrentValue(action.id, obsConfig)}
+            />
+          )
         ))}
       </div>
+    </section>
+  );
+}
+
+/**
+ * Inline tenant-list panel that renders directly under the Lifecycle
+ * category section when the operator clicks the "View" button on the
+ * `tenant-list` action card. Read-only for v0.55; Slice E adds sort/filter.
+ */
+function TenantListPanel({
+  tenants,
+  loading,
+  error,
+  onRefresh,
+  onClose,
+}: {
+  tenants: TenantSummary[];
+  loading: boolean;
+  error: string | null;
+  onRefresh: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <section
+      aria-label="Tenant list"
+      data-testid="platform-tenant-list-panel"
+      style={{
+        marginTop: '-1rem',
+        marginBottom: '2rem',
+        padding: '1rem',
+        border: `1px solid ${color.border}`,
+        borderRadius: '8px',
+        backgroundColor: color.bgSecondary,
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: '0.75rem',
+          gap: 8,
+          flexWrap: 'wrap',
+        }}
+      >
+        <h3 style={{ margin: 0, fontSize: '1rem' }}>
+          Tenants{tenants.length > 0 ? ` (${tenants.length})` : ''}
+        </h3>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            type="button"
+            onClick={onRefresh}
+            disabled={loading}
+            data-testid="platform-tenant-list-refresh"
+            style={{
+              padding: '0.5rem 0.875rem',
+              fontSize: '0.875rem',
+              fontWeight: 600,
+              borderRadius: '4px',
+              border: `2px solid ${color.border}`,
+              cursor: loading ? 'wait' : 'pointer',
+              backgroundColor: color.bg,
+              color: color.text,
+            }}
+          >
+            {loading ? 'Loading…' : 'Refresh'}
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            data-testid="platform-tenant-list-close"
+            style={{
+              padding: '0.5rem 0.875rem',
+              fontSize: '0.875rem',
+              fontWeight: 600,
+              borderRadius: '4px',
+              border: `2px solid ${color.border}`,
+              cursor: 'pointer',
+              backgroundColor: color.bg,
+              color: color.text,
+            }}
+          >
+            Close
+          </button>
+        </div>
+      </div>
+
+      {error && (
+        <p
+          role="alert"
+          data-testid="platform-tenant-list-error"
+          style={{
+            margin: 0,
+            marginBottom: '0.75rem',
+            padding: '8px 12px',
+            fontSize: '0.875rem',
+            color: color.error,
+            backgroundColor: color.errorBg,
+            border: `1px solid ${color.errorBorder}`,
+            borderRadius: 8,
+          }}
+        >
+          {error}
+        </p>
+      )}
+
+      {tenants.length === 0 && !loading && !error && (
+        <p
+          data-testid="platform-tenant-list-empty"
+          style={{ margin: 0, fontSize: '0.875rem', color: color.textSecondary }}
+        >
+          No tenants yet.
+        </p>
+      )}
+
+      {tenants.length > 0 && (
+        <div style={{ overflowX: 'auto' }}>
+          <table
+            style={{
+              width: '100%',
+              borderCollapse: 'collapse',
+              fontSize: '0.875rem',
+            }}
+          >
+            <thead>
+              <tr style={{ textAlign: 'left', borderBottom: `1px solid ${color.border}` }}>
+                <th style={{ padding: '6px 8px', fontWeight: 600 }}>Name</th>
+                <th style={{ padding: '6px 8px', fontWeight: 600 }}>Slug</th>
+                <th style={{ padding: '6px 8px', fontWeight: 600 }}>Created</th>
+                <th style={{ padding: '6px 8px', fontWeight: 600 }}>Updated</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tenants.map((t) => (
+                <tr
+                  key={t.id}
+                  data-testid={`platform-tenant-row-${t.slug}`}
+                  style={{ borderBottom: `1px solid ${color.border}` }}
+                >
+                  <td style={{ padding: '6px 8px', fontWeight: 600 }}>{t.name}</td>
+                  <td style={{ padding: '6px 8px', fontFamily: 'monospace' }}>{t.slug}</td>
+                  <td style={{ padding: '6px 8px', color: color.textSecondary }}>
+                    {formatTimestamp(t.createdAt)}
+                  </td>
+                  <td style={{ padding: '6px 8px', color: color.textSecondary }}>
+                    {formatTimestamp(t.updatedAt)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </section>
   );
 }
