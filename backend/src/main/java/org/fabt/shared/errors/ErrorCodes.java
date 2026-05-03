@@ -70,6 +70,36 @@ public final class ErrorCodes {
     public static final String PLATFORM_OBSERVABILITY_TRACING_ENDPOINT_MALFORMED =
             "platform.observability.tracingEndpointMalformed";
 
+    /**
+     * Platform-observability PUT supplied a value of the wrong runtime type
+     * for a recognized field (e.g. string for a boolean field, double for an
+     * integer field). Distinct from {@link #PLATFORM_OBSERVABILITY_INTERVAL_OUT_OF_RANGE}
+     * which signals a numeric value that's outside the [1, 1440] range.
+     * New in platform-observability-split warroom round 4 (2026-05-03 review).
+     */
+    public static final String PLATFORM_OBSERVABILITY_FIELD_TYPE_MISMATCH =
+            "platform.observability.fieldTypeMismatch";
+
+    /**
+     * Platform-observability PUT supplied a key that the {@code platform_config}
+     * schema does not recognize. Rejected to prevent typos silently widening
+     * the persisted JSONB. New in platform-observability-split warroom round 4
+     * (2026-05-03 review).
+     */
+    public static final String PLATFORM_OBSERVABILITY_UNKNOWN_FIELD =
+            "platform.observability.unknownField";
+
+    /**
+     * Per-tenant surge temperature threshold write rejected because the
+     * supplied value is outside the [-50, 150] degF range, is non-numeric, or
+     * is missing. New in platform-observability-split (2026-05-02).
+     *
+     * <p>Bounds rationale: covers extreme weather; rejects literal-zero typo
+     * that would always trigger surge.
+     */
+    public static final String TENANT_SURGE_THRESHOLD_OUT_OF_RANGE =
+            "tenant.surgeThreshold.outOfRange";
+
     private ErrorCodes() {
         // utility class
     }

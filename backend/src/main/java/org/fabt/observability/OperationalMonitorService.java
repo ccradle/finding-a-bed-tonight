@@ -280,24 +280,26 @@ public class OperationalMonitorService implements SchedulingConfigurer {
      * evaluation fans out on virtual threads.
      */
     public void checkTemperatureSurgeGap() {
-        // initialDelay=90s ensures ObservabilityConfigService.refreshCache() (runs
-        // every 60s from t=0) has populated per-tenant config before the first
-        // per-tenant station lookup. Without it the first run races the cache
-        // and all tenants fall back to the global default station.
+        // initialDelay=90s ensures PlatformConfigService + per-tenant config
+        // caches are primed before the first per-tenant station lookup.
+        // The cadence (monitorTemperatureIntervalMinutes) is set when the
+        // task is registered in scheduleAll() — platform-wide. The body only
+        // needs the per-tenant station id + threshold (both per-tenant).
         List<UUID> tenantIds = tenantIds();
         // Fetch temperature once per distinct station across all tenants this cycle,
         // so multiple tenants sharing a station don't hit NOAA N times.
         Map<String, Double> tempByStation = new ConcurrentHashMap<>();
         BoundedFanOut.forEachTenant(tenantIds, false, MAX_CONCURRENT_TENANT_CHECKS, tenantId -> {
-            var cfg = configService.getConfig(tenantId);
-            String resolvedStation = cfg.noaaStationId() != null ? cfg.noaaStationId() : defaultStationId;
+            var perTenantCfg = configService.getConfig(tenantId);
+            String resolvedStation = perTenantCfg.noaaStationId() != null
+                    ? perTenantCfg.noaaStationId() : defaultStationId;
             Double tempF = tempByStation.computeIfAbsent(resolvedStation, noaaClient::getCurrentTemperatureFahrenheit);
             if (tempF == null) {
                 log.debug("Temperature monitor: unable to fetch NOAA data for station {} (tenant {}), skipping", resolvedStation, tenantId);
                 return;
             }
 
-            double threshold = cfg.temperatureThresholdF();
+            double threshold = perTenantCfg.temperatureThresholdF();
             boolean surgeActive = surgeEventService.getActive().isPresent();
             boolean gapDetected = tempF < threshold && !surgeActive;
 

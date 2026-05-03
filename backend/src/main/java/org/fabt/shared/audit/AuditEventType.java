@@ -572,11 +572,23 @@ public enum AuditEventType {
     PLATFORM_HMIS_EXPORTED,
 
     /**
-     * A PLATFORM_OPERATOR exercised an OAuth2 test-connection endpoint via
-     * {@code POST /api/v1/tenants/{id}/oauth2-providers/{p}/test}.
-     * AE.tenant_id = target tenant.
+     * A PLATFORM_OPERATOR exercising the test-connection endpoint for OAuth2
+     * providers. AED.tenant_id = target tenant.
      */
     PLATFORM_OAUTH2_TESTED,
+
+    /**
+     * A PLATFORM_OPERATOR updated the platform-wide observability config
+     * via {@code PUT /api/v1/platform/observability}. Platform-wide action;
+     * AE.tenant_id = SYSTEM_TENANT_ID, NOT chained.
+     *
+     * <p>Emitted once per changed field in the patch (design D5).
+     * Detail blob: {@code {field, previous_value, new_value, value_changed}}.
+     * Value changed is true if the new value differs from the previous one;
+     * idempotent updates still produce an audit row (D5) but with
+     * {@code value_changed = false}.</p>
+     */
+    PLATFORM_OBSERVABILITY_UPDATED,
 
     /**
      * A PLATFORM_OPERATOR triggered a batch job via

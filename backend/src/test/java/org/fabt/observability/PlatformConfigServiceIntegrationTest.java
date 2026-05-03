@@ -168,21 +168,25 @@ class PlatformConfigServiceIntegrationTest extends BaseIntegrationTest {
     @Test
     @DisplayName("update() rejects non-integer interval value")
     void rejectsNonIntegerInterval() {
+        // Warroom round 4 B6: type-mismatch on interval gets the dedicated
+        // FIELD_TYPE_MISMATCH code (was overloading INTERVAL_OUT_OF_RANGE).
         assertThatThrownBy(() -> service.update(
                 Map.of("monitor_stale_interval_minutes", "ten"), ACTOR))
                 .isInstanceOf(StructuredErrorException.class)
                 .hasFieldOrPropertyWithValue("errorCode",
-                        ErrorCodes.PLATFORM_OBSERVABILITY_INTERVAL_OUT_OF_RANGE);
+                        ErrorCodes.PLATFORM_OBSERVABILITY_FIELD_TYPE_MISMATCH);
     }
 
     @Test
     @DisplayName("update() rejects unknown field key")
     void rejectsUnknownKey() {
+        // Warroom round 4 B6: unknown fields get the dedicated UNKNOWN_FIELD
+        // code (was overloading INTERVAL_OUT_OF_RANGE).
         assertThatThrownBy(() -> service.update(
                 Map.of("definitely_not_a_real_field", true), ACTOR))
                 .isInstanceOf(StructuredErrorException.class)
                 .hasFieldOrPropertyWithValue("errorCode",
-                        ErrorCodes.PLATFORM_OBSERVABILITY_INTERVAL_OUT_OF_RANGE)
+                        ErrorCodes.PLATFORM_OBSERVABILITY_UNKNOWN_FIELD)
                 .hasMessageContaining("Unknown");
     }
 
@@ -210,11 +214,13 @@ class PlatformConfigServiceIntegrationTest extends BaseIntegrationTest {
     @Test
     @DisplayName("update() rejects non-boolean for boolean field")
     void rejectsNonBooleanForBoolean() {
+        // Warroom round 4 B6: type-mismatch on a boolean gets the dedicated
+        // FIELD_TYPE_MISMATCH code (was overloading INTERVAL_OUT_OF_RANGE).
         assertThatThrownBy(() -> service.update(
                 Map.of("tracing_enabled", "yes"), ACTOR))
                 .isInstanceOf(StructuredErrorException.class)
                 .hasFieldOrPropertyWithValue("errorCode",
-                        ErrorCodes.PLATFORM_OBSERVABILITY_INTERVAL_OUT_OF_RANGE);
+                        ErrorCodes.PLATFORM_OBSERVABILITY_FIELD_TYPE_MISMATCH);
     }
 
     // ----- bounds boundaries (inclusive) ---------------------------------

@@ -13,6 +13,27 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+/**
+ * Per-tenant surge-trigger config reader. Caches the parsed
+ * {@code tenant.config.observability} sub-map for every tenant and refreshes
+ * it on a fixed schedule.
+ *
+ * <p><b>platform-observability-split (2026-05-02):</b> the 6 platform-wide
+ * fields (prometheus_enabled, tracing_enabled, tracing_endpoint, and the 3
+ * monitor cadences) moved to {@link PlatformConfigService}. This service now
+ * exposes ONLY the genuine per-tenant fields: {@code temperatureThresholdF}
+ * (geographic surge threshold, varies by tenant) and {@code noaaStationId}
+ * (local weather station id). The original record kept the wider field set
+ * for one release as a backward-read; warroom round 4 (2026-05-03) closed
+ * that off — the obsoleted JSONB keys are still tolerated on read (parser
+ * silently ignores unknown sub-fields), they are simply no longer surfaced
+ * by the Java type system. JSONB key drop happens in the v0.58+ follow-up
+ * (§15.1).
+ *
+ * <p>The class name {@code ObservabilityConfigService} is kept for now to
+ * avoid a churn-only rename across many call sites; a v0.58+ rename to
+ * {@code TenantSurgeConfigService} is captured as §15.2.
+ */
 @Service
 public class ObservabilityConfigService {
 
@@ -27,39 +48,41 @@ public class ObservabilityConfigService {
         this.objectMapper = objectMapper;
     }
 
+    /**
+     * Per-tenant surge config. Two fields:
+     * <ul>
+     *   <li>{@code temperatureThresholdF} — Fahrenheit threshold below which the
+     *       monitor flags a temperature/surge gap. Geographic; per-tenant.</li>
+     *   <li>{@code noaaStationId} — local NOAA weather station code (KAVL, KEWN,
+     *       …); nullable, falling back to the global
+     *       {@code fabt.monitoring.noaa.station-id} property when null.</li>
+     * </ul>
+     *
+     * <p>The 6 platform-wide fields (prometheus, tracing, monitor cadences)
+     * formerly on this record live on {@link PlatformConfig} now.
+     */
     public record ObservabilityConfig(
-            boolean prometheusEnabled,
-            boolean tracingEnabled,
-            String tracingEndpoint,
-            int monitorStaleIntervalMinutes,
-            int monitorDvCanaryIntervalMinutes,
-            int monitorTemperatureIntervalMinutes,
             double temperatureThresholdF,
             String noaaStationId
     ) {
-        // noaaStationId is nullable — null means fall back to the global
-        // fabt.monitoring.noaa.station-id property (see NoaaClient). Set
-        // per-tenant to KAVL / KEWN / etc. to get correct local weather for
-        // the surge-trigger threshold.
-        static final ObservabilityConfig DEFAULTS = new ObservabilityConfig(
-                true, false, "http://localhost:4318/v1/traces", 5, 15, 60, 32.0, null
-        );
-    }
-
-    public boolean isTracingEnabled(UUID tenantId) {
-        return getConfig(tenantId).tracingEnabled();
-    }
-
-    public boolean isPrometheusEnabled(UUID tenantId) {
-        return getConfig(tenantId).prometheusEnabled();
-    }
-
-    public ObservabilityConfig getMonitorIntervals(UUID tenantId) {
-        return getConfig(tenantId);
+        static final ObservabilityConfig DEFAULTS = new ObservabilityConfig(32.0, null);
     }
 
     public ObservabilityConfig getConfig(UUID tenantId) {
         return configCache.getOrDefault(tenantId, ObservabilityConfig.DEFAULTS);
+    }
+
+    /**
+     * Per-tenant temperature threshold (geographic concern — per-tenant).
+     * Platform-wide fields moved to PlatformConfigService in
+     * platform-observability-split.
+     */
+    public Double getTemperatureThresholdF(UUID tenantId) {
+        return getConfig(tenantId).temperatureThresholdF();
+    }
+
+    public String getNoaaStationId(UUID tenantId) {
+        return getConfig(tenantId).noaaStationId();
     }
 
     @Scheduled(fixedRate = 60_000)
@@ -86,13 +109,13 @@ public class ObservabilityConfigService {
                 return ObservabilityConfig.DEFAULTS;
             }
 
+            // Backward-read: obsoleted platform-wide JSONB keys
+            // (prometheus_enabled, tracing_enabled, tracing_endpoint,
+            // monitor_*_interval_minutes) may still be present on prod tenant
+            // rows from before V98. We read but DO NOT expose them — the
+            // PlatformConfig surface has authority. Per design D3 the keys
+            // are dropped in v0.58+.
             return new ObservabilityConfig(
-                    getBooleanOrDefault(obs, "prometheus_enabled", true),
-                    getBooleanOrDefault(obs, "tracing_enabled", false),
-                    getStringOrDefault(obs, "tracing_endpoint", "http://localhost:4318/v1/traces"),
-                    getIntOrDefault(obs, "monitor_stale_interval_minutes", 5),
-                    getIntOrDefault(obs, "monitor_dv_canary_interval_minutes", 15),
-                    getIntOrDefault(obs, "monitor_temperature_interval_minutes", 60),
                     getDoubleOrDefault(obs, "temperature_threshold_f", 32.0),
                     getStringOrNull(obs, "noaa_station_id")
             );
@@ -102,26 +125,11 @@ public class ObservabilityConfigService {
         }
     }
 
-    private static boolean getBooleanOrDefault(JsonNode node, String field, boolean defaultValue) {
-        JsonNode value = node.get(field);
-        return value != null ? value.asBoolean(defaultValue) : defaultValue;
-    }
-
-    private static String getStringOrDefault(JsonNode node, String field, String defaultValue) {
-        JsonNode value = node.get(field);
-        return value != null && !value.isNull() ? value.asText(defaultValue) : defaultValue;
-    }
-
     private static String getStringOrNull(JsonNode node, String field) {
         JsonNode value = node.get(field);
         if (value == null || value.isNull()) return null;
         String text = value.asText(null);
         return text == null || text.isBlank() ? null : text;
-    }
-
-    private static int getIntOrDefault(JsonNode node, String field, int defaultValue) {
-        JsonNode value = node.get(field);
-        return value != null ? value.asInt(defaultValue) : defaultValue;
     }
 
     private static double getDoubleOrDefault(JsonNode node, String field, double defaultValue) {

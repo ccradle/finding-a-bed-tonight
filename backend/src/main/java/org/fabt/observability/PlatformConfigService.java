@@ -114,7 +114,9 @@ public class PlatformConfigService {
     /**
      * Reload the cache from the DB. Called by {@link #onApplicationReady}
      * and by {@link #update} after a successful write. Public so tests can
-     * trigger a re-read after manipulating the row directly.
+     * trigger a re-read after manipulating the row directly, and so
+     * {@code setUp()} methods that reset the DB row via JDBC can sync
+     * the in-memory cache.
      */
     public void refresh() {
         try {
@@ -160,11 +162,16 @@ public class PlatformConfigService {
     public PlatformConfig update(Map<String, Object> patch, UUID actorId) {
         validatePatch(patch);
 
-        // Read existing config as a mutable map. Use the JSONB ::text cast
-        // so JdbcTemplate hands us a String we can hand to ObjectMapper
-        // directly (avoids the org.postgresql.util.PGobject unboxing dance).
+        // Read existing config under a row-level lock (warroom round 4 B5):
+        // without the lock, two concurrent operator PUTs against different
+        // fields can read the same baseline, compute their merges in
+        // parallel, and have the second writer overwrite the first writer's
+        // change (classic lost-update). FOR UPDATE serialises the read +
+        // subsequent UPDATE within the same @Transactional, blocking any
+        // concurrent writer until commit/rollback. The JSONB ::text cast
+        // avoids the org.postgresql.util.PGobject unboxing dance.
         String currentJson = jdbc.queryForObject(
-                "SELECT config::text FROM platform_config WHERE id = ?",
+                "SELECT config::text FROM platform_config WHERE id = ? FOR UPDATE",
                 String.class, SINGLETON_ID);
         Map<String, Object> merged;
         try {
@@ -215,8 +222,10 @@ public class PlatformConfigService {
             switch (key) {
                 case "prometheus_enabled", "tracing_enabled" -> {
                     if (!(value instanceof Boolean)) {
+                        // Warroom round 4 B6: distinct error code for type
+                        // mismatch (was overloading INTERVAL_OUT_OF_RANGE).
                         throw new StructuredErrorException(
-                                ErrorCodes.PLATFORM_OBSERVABILITY_INTERVAL_OUT_OF_RANGE,
+                                ErrorCodes.PLATFORM_OBSERVABILITY_FIELD_TYPE_MISMATCH,
                                 key + " must be a boolean",
                                 Map.of("field", key, "received", String.valueOf(value)));
                     }
@@ -226,7 +235,9 @@ public class PlatformConfigService {
                      "monitor_dv_canary_interval_minutes",
                      "monitor_temperature_interval_minutes" -> validateInterval(key, value);
                 default -> throw new StructuredErrorException(
-                        ErrorCodes.PLATFORM_OBSERVABILITY_INTERVAL_OUT_OF_RANGE,
+                        // Warroom round 4 B6: distinct error code for unknown
+                        // fields (was overloading INTERVAL_OUT_OF_RANGE).
+                        ErrorCodes.PLATFORM_OBSERVABILITY_UNKNOWN_FIELD,
                         "Unknown platform observability field: " + key,
                         Map.of("field", key));
             }
@@ -264,8 +275,11 @@ public class PlatformConfigService {
         if (value instanceof Integer i) intValue = i;
         else if (value instanceof Long l) intValue = Math.toIntExact(l);
         else {
+            // Warroom round 4 B6: type mismatch (e.g. operator sent "abc" or
+            // a fractional value) gets the dedicated TYPE_MISMATCH code, not
+            // the bounds code — same JSON status (400), distinct semantics.
             throw new StructuredErrorException(
-                    ErrorCodes.PLATFORM_OBSERVABILITY_INTERVAL_OUT_OF_RANGE,
+                    ErrorCodes.PLATFORM_OBSERVABILITY_FIELD_TYPE_MISMATCH,
                     key + " must be an integer",
                     Map.of("field", key, "received", String.valueOf(value)));
         }
