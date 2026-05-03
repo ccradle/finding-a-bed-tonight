@@ -14,7 +14,6 @@ const ApiKeysTab = lazy(() => import('./tabs/ApiKeysTab'));
 const ImportsTab = lazy(() => import('./tabs/ImportsTab'));
 const SubscriptionsTab = lazy(() => import('./tabs/SubscriptionsTab'));
 const SurgeTab = lazy(() => import('./tabs/SurgeTab'));
-const ObservabilityTab = lazy(() => import('./tabs/ObservabilityTab'));
 const OAuth2ProvidersTab = lazy(() => import('./tabs/OAuth2ProvidersTab'));
 const HmisExportTab = lazy(() => import('./tabs/HmisExportTab'));
 const AnalyticsTab = lazy(() => import('./tabs/AnalyticsTab'));
@@ -29,7 +28,6 @@ const TABS: { key: TabKey; labelId: string }[] = [
   { key: 'apiKeys', labelId: 'admin.apiKeys' },
   { key: 'imports', labelId: 'admin.imports' },
   { key: 'subscriptions', labelId: 'admin.subscriptions' },
-  { key: 'observability', labelId: 'admin.observability' },
   { key: 'oauth2Providers', labelId: 'admin.oauth2Providers' },
   { key: 'hmisExport', labelId: 'admin.hmisExport' },
   { key: 'analytics', labelId: 'admin.analytics' },
@@ -42,7 +40,6 @@ const TAB_COMPONENTS: Record<TabKey, React.LazyExoticComponent<React.ComponentTy
   imports: ImportsTab,
   subscriptions: SubscriptionsTab,
   surge: SurgeTab,
-  observability: ObservabilityTab,
   oauth2Providers: OAuth2ProvidersTab,
   hmisExport: HmisExportTab,
   analytics: AnalyticsTab,

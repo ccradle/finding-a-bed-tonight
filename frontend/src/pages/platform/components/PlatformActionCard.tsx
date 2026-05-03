@@ -22,12 +22,21 @@ interface Props {
   /** Called when the operator clicks the card. Dashboard handles
    *  destructive-confirm vs immediate-submit branching. */
   onActivate: (action: PlatformAction) => void;
+  /**
+   * Current persisted value for the field this action edits, pre-formatted
+   * for display (e.g., "5 minutes", "enabled", "http://otel:4318/v1/traces").
+   * Optional — actions that aren't field-editors (system status, lifecycle
+   * triggers) leave this undefined and the card renders no value row.
+   * Warroom round 6 fix: previously the operator could not see the
+   * current state before deciding to set a new one.
+   */
+  currentValueDisplay?: string;
 }
 
 const TOOLTIP_DISABLED =
   'This action is disabled in this deployment. Contact platform engineering to enable.';
 
-export function PlatformActionCard({ action, enabled, onActivate }: Props) {
+export function PlatformActionCard({ action, enabled, onActivate, currentValueDisplay }: Props) {
   const isDisabled = !enabled;
   // Wave 2 / §6.9 axe — `opacity: 0.6` for disabled cards effectively
   // blended `--color-text-secondary` to ~#878d97 over `--color-bg`,
@@ -61,10 +70,39 @@ export function PlatformActionCard({ action, enabled, onActivate }: Props) {
       >
         {action.description}
       </p>
+      {currentValueDisplay !== undefined && (
+        <p
+          style={{
+            marginTop: 0,
+            marginBottom: '0.75rem',
+            fontSize: '0.875rem',
+            color: color.text,
+            fontWeight: 600,
+            wordBreak: 'break-all',
+          }}
+          data-testid={`platform-action-${action.id}-current`}
+        >
+          Current: <span style={{ fontWeight: 400 }}>{currentValueDisplay}</span>
+        </p>
+      )}
       <button
         type="button"
-        disabled={isDisabled}
-        onClick={() => onActivate(action)}
+        // Warroom round 7 (2026-05-03) — Tomás recommendation per W3C ARIA APG
+        // (https://www.w3.org/WAI/ARIA/apg/practices/keyboard-interface/#focusabilityofdisabledcontrols).
+        // Native `disabled` removes the button from tab order, so a keyboard-
+        // only operator can never land on it to discover *why* it's disabled
+        // (the title tooltip is mouse-only). `aria-disabled="true"` keeps the
+        // button focusable + screen-reader-discoverable, and the click handler
+        // is guarded explicitly below to preserve the no-op behavior.
+        aria-disabled={isDisabled}
+        onClick={() => {
+          // Click guard — `aria-disabled` does NOT block the browser-level click
+          // event the way the native `disabled` attribute does. Without this
+          // guard, a flag-gated lifecycle action would fire its handler and
+          // throw the defensive Error in PlatformDashboard.handleActivate.
+          if (isDisabled) return;
+          onActivate(action);
+        }}
         title={isDisabled ? TOOLTIP_DISABLED : undefined}
         data-testid={`platform-action-${action.id}-button`}
         style={{

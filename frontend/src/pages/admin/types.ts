@@ -75,4 +75,8 @@ export interface SubscriptionRow {
   createdAt: string;
 }
 
-export type TabKey = 'users' | 'shelters' | 'apiKeys' | 'imports' | 'subscriptions' | 'surge' | 'observability' | 'oauth2Providers' | 'hmisExport' | 'analytics' | 'dvEscalations';
+// platform-observability-split (2026-05-02): 'observability' removed —
+// the per-tenant observability tab is gone; platform-wide config moved
+// to the platform-operator dashboard, the temperature threshold moved
+// to the surge tab.
+export type TabKey = 'users' | 'shelters' | 'apiKeys' | 'imports' | 'subscriptions' | 'surge' | 'oauth2Providers' | 'hmisExport' | 'analytics' | 'dvEscalations';

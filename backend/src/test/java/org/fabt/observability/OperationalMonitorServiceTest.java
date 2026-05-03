@@ -39,6 +39,7 @@ class OperationalMonitorServiceTest {
     @Mock private SurgeEventService surgeEventService;
     @Mock private NoaaClient noaaClient;
     @Mock private ObservabilityConfigService configService;
+    @Mock private PlatformConfigService platformConfigService;
     @Mock private TenantRepository tenantRepository;
 
     private ObservabilityMetrics metrics;
@@ -54,7 +55,8 @@ class OperationalMonitorServiceTest {
         metrics = new ObservabilityMetrics(registry);
         monitorService = new OperationalMonitorService(
                 jdbcTemplate, shelterRepository, bedSearchService,
-                surgeEventService, noaaClient, metrics, configService, tenantRepository, "KRDU");
+                surgeEventService, noaaClient, metrics, configService,
+                platformConfigService, tenantRepository, "KRDU");
 
         // Default config returns 32°F threshold
         lenient().when(configService.getConfig(any())).thenReturn(ObservabilityConfigService.ObservabilityConfig.DEFAULTS);
@@ -214,10 +216,12 @@ class OperationalMonitorServiceTest {
     @Test
     void checkTemperatureSurgeGap_configurableThreshold() {
         Tenant tenant = createTenant();
-        // Configure a higher threshold (40°F)
+        // Configure a higher threshold (40°F).
+        // platform-observability-split: ObservabilityConfig record narrowed
+        // to (temperatureThresholdF, noaaStationId) — platform-wide fields
+        // moved to PlatformConfig.
         when(configService.getConfig(tenantId)).thenReturn(
-                new ObservabilityConfigService.ObservabilityConfig(
-                        true, false, "http://localhost:4318/v1/traces", 5, 15, 60, 40.0, null));
+                new ObservabilityConfigService.ObservabilityConfig(40.0, null));
         when(noaaClient.getCurrentTemperatureFahrenheit(anyString())).thenReturn(35.0);
         when(tenantRepository.findAll()).thenReturn(List.of(tenant));
         when(surgeEventService.getActive()).thenReturn(Optional.empty());
@@ -247,8 +251,7 @@ class OperationalMonitorServiceTest {
     void checkTemperatureSurgeGap_tenantSpecificStationIsUsed() {
         Tenant tenant = createTenant();
         when(configService.getConfig(tenantId)).thenReturn(
-                new ObservabilityConfigService.ObservabilityConfig(
-                        true, false, "http://localhost:4318/v1/traces", 5, 15, 60, 32.0, "KAVL"));
+                new ObservabilityConfigService.ObservabilityConfig(32.0, "KAVL"));
         when(noaaClient.getCurrentTemperatureFahrenheit("KAVL")).thenReturn(20.0);
         when(tenantRepository.findAll()).thenReturn(List.of(tenant));
         when(surgeEventService.getActive()).thenReturn(Optional.empty());

@@ -102,20 +102,27 @@ class TenantPathGuardIntegrationTest extends BaseIntegrationTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
     }
 
+    /**
+     * The old GET/PUT /api/v1/tenants/{id}/observability endpoints were
+     * removed (platform-observability-split §5.5). Platform-wide config now
+     * lives at /api/v1/platform/observability (PLATFORM_OPERATOR only).
+     * Cross-tenant access to the per-tenant /surge-threshold endpoint
+     * returns 404 (TenantPathGuard design D3: existence-leak prevention).
+     */
     @Test
-    @DisplayName("PUT /tenants/{B}/observability from Tenant A → 403 (G-4.4: @PlatformAdminOnly)")
-    void crossTenantUpdateObservability_returnsForbidden() {
+    @DisplayName("PUT /tenants/{B}/surge-threshold from Tenant A → 404")
+    void crossTenantUpdateSurgeThreshold_returnsNotFound() {
         ResponseEntity<String> response = put(
-                "/api/v1/tenants/" + tenantB.getId() + "/observability",
-                "{\"prometheus_enabled\":false}");
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+                "/api/v1/tenants/" + tenantB.getId() + "/surge-threshold",
+                "{\"temperature_threshold_f\":40.0}");
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }
 
     @Test
-    @DisplayName("GET /tenants/{B}/observability from Tenant A → 403 (G-4.4: @PlatformAdminOnly)")
-    void crossTenantGetObservability_returnsForbidden() {
-        ResponseEntity<String> response = get("/api/v1/tenants/" + tenantB.getId() + "/observability");
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    @DisplayName("GET /tenants/{B}/surge-threshold from Tenant A → 404")
+    void crossTenantGetSurgeThreshold_returnsNotFound() {
+        ResponseEntity<String> response = get("/api/v1/tenants/" + tenantB.getId() + "/surge-threshold");
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }
 
     @Test

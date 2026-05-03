@@ -120,6 +120,28 @@ test.describe('F11 platform-operator training walkthrough (manual rehearsal)', (
         }),
       });
     });
+    // Warroom round 6: PlatformDashboard mounts a useEffect that GETs
+    // /api/v1/platform/observability so each obs card can render its
+    // "Current: …" line. Mock it so the walkthrough doesn't hit a real
+    // backend (or get redirected to /platform/login on a 401).
+    await page.route('**/api/v1/platform/observability', async (route, request) => {
+      if (request.method() === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            prometheusEnabled: true,
+            tracingEnabled: false,
+            tracingEndpoint: 'http://localhost:4318/v1/traces',
+            monitorStaleIntervalMinutes: 5,
+            monitorDvCanaryIntervalMinutes: 15,
+            monitorTemperatureIntervalMinutes: 60,
+          }),
+        });
+        return;
+      }
+      await route.fallback();
+    });
 
     narrate(1, 'Open /platform/login. You should see "Platform Operator Sign-In" + a cross-link to /login.');
     await page.goto('/platform/login');
@@ -186,7 +208,9 @@ test.describe('F11 platform-operator training walkthrough (manual rehearsal)', (
       'Hover any lifecycle card (e.g. Suspend tenant). The button is disabled in this deployment (fabt.tenant.lifecycle.enabled=false) — the tooltip explains.',
     );
     const suspendBtn = page.getByTestId('platform-action-tenant-suspend-button');
-    await expect(suspendBtn).toBeDisabled();
+    // Warroom round 7 (2026-05-03): native `disabled` → `aria-disabled` so
+    // keyboard-only operators can focus the button + read the tooltip.
+    await expect(suspendBtn).toHaveAttribute('aria-disabled', 'true');
     await expect(suspendBtn).toHaveAttribute(
       'title',
       /disabled in this deployment/i,

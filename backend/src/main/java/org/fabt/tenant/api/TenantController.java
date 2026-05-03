@@ -10,8 +10,6 @@ import io.swagger.v3.oas.annotations.Parameter;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.fabt.observability.ObservabilityConfigService;
-import org.fabt.observability.ObservabilityConfigService.ObservabilityConfig;
 import org.fabt.shared.web.TenantContext;
 import org.fabt.tenant.domain.Tenant;
 import org.fabt.tenant.service.TenantLifecycleService;
@@ -37,7 +35,6 @@ public class TenantController {
     private static final Logger log = LoggerFactory.getLogger(TenantController.class);
 
     private final TenantService tenantService;
-    private final ObservabilityConfigService observabilityConfigService;
     /**
      * Optional — the F-4 atomic-create path. Present when
      * {@code fabt.tenant.lifecycle.enabled=true}, absent otherwise. When present,
@@ -48,11 +45,16 @@ public class TenantController {
      */
     private final ObjectProvider<TenantLifecycleService> tenantLifecycleServiceProvider;
 
+    // platform-observability-split (2026-05-02): the per-tenant observability
+    // GET/PUT endpoints that lived on this controller moved out — write goes
+    // through TemperatureThresholdController + PlatformObservabilityController,
+    // read goes through TemperatureThresholdController.get(). The
+    // ObservabilityConfigService injection that supported the old endpoints
+    // was removed with them.
+
     public TenantController(TenantService tenantService,
-                            ObservabilityConfigService observabilityConfigService,
                             ObjectProvider<TenantLifecycleService> tenantLifecycleServiceProvider) {
         this.tenantService = tenantService;
-        this.observabilityConfigService = observabilityConfigService;
         this.tenantLifecycleServiceProvider = tenantLifecycleServiceProvider;
     }
 
@@ -149,43 +151,8 @@ public class TenantController {
     }
 
     @Operation(
-            summary = "Get observability settings for a tenant",
-            description = "Returns the current observability configuration for the specified tenant, " +
-                    "including Prometheus/tracing toggles and monitor intervals. Settings are read from " +
-                    "tenant config JSONB and cached with a 60-second refresh interval."
-    )
-    @GetMapping("/{id}/observability")
-    @PreAuthorize("hasRole('PLATFORM_OPERATOR')")
-    public ResponseEntity<ObservabilityConfig> getObservabilityConfig(
-            @Parameter(description = "UUID of the tenant") @PathVariable UUID id) {
-        // G-4.4: TenantPathGuard removed — see TenantController.update for rationale.
-        return ResponseEntity.ok(observabilityConfigService.getConfig(id));
-    }
-
-    @Operation(
-            summary = "Update observability settings for a tenant",
-            description = "Updates the observability section of the tenant's config JSONB. Accepts a map " +
-                    "of observability settings (prometheus_enabled, tracing_enabled, tracing_endpoint, " +
-                    "monitor intervals). Changes take effect within 60 seconds without restart."
-    )
-    @PutMapping("/{id}/observability")
-    @PreAuthorize("hasRole('PLATFORM_OPERATOR')")
-    @org.fabt.auth.platform.PlatformAdminOnly(
-            reason = "Tenant observability config update — affects what monitoring + tracing flows out of the tenant; platform authority required",
-            emits = org.fabt.shared.audit.AuditEventType.PLATFORM_TENANT_OBSERVABILITY_UPDATED)
-    public ResponseEntity<ObservabilityConfig> updateObservabilityConfig(
-            @Parameter(description = "UUID of the tenant") @PathVariable UUID id,
-            @RequestBody Map<String, Object> observabilitySettings) {
-        // G-4.4: TenantPathGuard removed — see TenantController.update for rationale.
-        Map<String, Object> currentConfig = tenantService.getConfig(id);
-        currentConfig.put("observability", observabilitySettings);
-        tenantService.updateConfig(id, currentConfig);
-        observabilityConfigService.refreshCache();
-        return ResponseEntity.ok(observabilityConfigService.getConfig(id));
-    }
-
-    @Operation(
             summary = "Change DV address visibility policy",
+
             description = "Updates the DV shelter address visibility policy for a tenant. " +
                     "Valid policies: ADMIN_AND_ASSIGNED (default), ADMIN_ONLY, ALL_DV_ACCESS, NONE. " +
                     "Requires PLATFORM_OPERATOR role + X-Platform-Justification header + X-Confirm-Policy-Change: CONFIRM header. " +

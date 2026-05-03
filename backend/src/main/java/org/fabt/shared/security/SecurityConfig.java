@@ -169,14 +169,19 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/tenants/*/oauth2-providers/**").hasRole("COC_ADMIN")
 
                         // Tenant config (read + write tenant.config JSONB) — COC_ADMIN.
-                        // Must be BEFORE the general /api/v1/tenants/** matcher.
-                        // Latent G-4.4 gap: TenantConfigController declares
+                        // Slice 4 §12: the /api/v1/tenants/{id}/config endpoint uses
                         // @PreAuthorize("hasRole('COC_ADMIN')") but the catch-all rule
                         // below short-circuited it to PLATFORM_OPERATOR-only, breaking
                         // the COC_ADMIN admin panel that reads/writes hold_duration_minutes
                         // (slice 4 §12). Aligning the URL rule with the method gate
                         // restores the documented authority.
                         .requestMatchers("/api/v1/tenants/*/config").hasRole("COC_ADMIN")
+
+                        // Surge temperature threshold — COC_ADMIN (platform-observability-split)
+                        // Must be BEFORE the /api/v1/tenants/** catch-all below so
+                        // the method-level @PreAuthorize("hasRole('COC_ADMIN')") fires.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/tenants/*/surge-threshold").hasRole("COC_ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/tenants/*/surge-threshold").hasRole("COC_ADMIN")
 
                         // OAuth2 test-connection — PLATFORM_OPERATOR (G-4.4: SSRF-mitigation; method also has @PlatformAdminOnly)
                         .requestMatchers("/api/v1/oauth2/**").hasAnyRole("PLATFORM_OPERATOR", "PLATFORM_ADMIN")
