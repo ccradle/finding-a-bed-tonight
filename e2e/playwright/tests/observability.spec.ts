@@ -1,133 +1,140 @@
 import { test, expect } from '../fixtures/auth.fixture';
-import * as fs from 'fs';
-import * as path from 'path';
+import {
+  loginPlatformOperator,
+  loginAsSmokeUser,
+  platformAdminFetch,
+  type PlatformOperatorSession,
+} from '../helpers/auth/platform-operator';
 
-/**
- * Force fresh login by deleting cached auth state.
- * Portfolio Lesson 42: Cached tokens expire mid-suite (15-min lifespan).
- * Per-test acquisition adds ~1s overhead but prevents silent 401 → redirect → context closed.
- */
-function clearAdminAuthState() {
-  const stateFile = path.join(__dirname, '..', 'auth', 'admin.json');
-  if (fs.existsSync(stateFile)) fs.unlinkSync(stateFile);
-}
+test.describe('Observability — Platform Dashboard + Surge Tab', () => {
+  let session: PlatformOperatorSession;
 
-/** Navigate to Observability tab and wait for config to load */
-async function goToObservabilityTab(page: import('@playwright/test').Page) {
-  await page.goto('/admin');
-  await expect(page.locator('main h1')).toContainText(/administration/i);
-  await page.locator('button[role="tab"]', { hasText: /^Observability$/ }).click();
-  await expect(page.locator('main h3', { hasText: /observability configuration/i }))
-    .toBeVisible({ timeout: 5000 });
-  await page.waitForTimeout(500);
-}
-
-test.describe('Observability Tab', () => {
-  test('observability tab is visible and loads config', async ({ adminPage }) => {
-    await goToObservabilityTab(adminPage);
-
-    // Toggle switches should be present
-    await expect(adminPage.locator('main', { hasText: /prometheus metrics/i })).toBeVisible();
-    await expect(adminPage.locator('main', { hasText: /opentelemetry tracing/i })).toBeVisible();
-
-    // Monitor interval inputs should be present
-    await expect(adminPage.locator('main', { hasText: /stale shelter check/i })).toBeVisible();
-    await expect(adminPage.locator('main', { hasText: /dv canary check/i })).toBeVisible();
-    await expect(adminPage.locator('main', { hasText: /temperature check/i })).toBeVisible();
-
-    // Temperature threshold input should be present
-    await expect(adminPage.locator('main', { hasText: /surge activation threshold/i })).toBeVisible();
+  // Use beforeAll: single MFA login for all tests in this describe block.
+  // Avoids TOTP replay collision (89s window) that occurs with beforeEach
+  // when the smoke user's last_totp_code is already set.
+  test.beforeAll(async ({ request }) => {
+    session = await loginAsSmokeUser(request);
   });
 
-  // platform-observability-split (openspec, 2026-05-02): the Observability
-  // tab in /admin is being dismantled. Tracing + Prometheus + monitor
-  // intervals are tenant-agnostic and migrate to the Platform Operator
-  // Dashboard (PUT /api/v1/platform/observability, PLATFORM_OPERATOR +
-  // @PlatformAdminOnly). The current /tenants/{id}/observability endpoint
-  // requires platform-operator + X-Platform-Justification — the COC_ADMIN
-  // /admin UI never sends either, so save() always 400s and the "saved"
-  // toast never appears. Re-enable when the platform-observability-split
-  // change ships its replacement UI + COC_ADMIN-scoped endpoint for the
-  // tenant-specific temperature_threshold_f field (Surge tab).
-  test.fixme('toggle tracing on, save, and verify persists on reload', async ({ adminPage }) => {
-    await goToObservabilityTab(adminPage);
+  // platform-observability-split (openspec, 2026-05-02):
+  // Tracing + Prometheus + monitor intervals are now on the Platform Dashboard
+  // (PUT /api/v1/platform/observability, PLATFORM_OPERATOR + @PlatformAdminOnly).
+  // Temperature threshold is now on the Surge tab (COC_ADMIN scope).
+  test('toggle tracing on, save, and verify persists on reload', async ({ request }) => {
+    // GET current config (API returns camelCase fields)
+    let resp = await platformAdminFetch(request, session, 'GET', '/api/v1/platform/observability', 'toggle tracing test');
+    expect(resp.ok()).toBeTruthy();
+    type ObservabilityConfig = {
+      tracingEnabled: boolean;
+      [key: string]: unknown;
+    };
+    const config = (await resp.json()) as ObservabilityConfig;
+    const wasEnabled = config.tracingEnabled;
 
-    // Toggle tracing on via UI
-    const tracingToggle = adminPage.getByTestId('toggle-tracing');
-    await expect(tracingToggle).toBeVisible();
+    // Toggle tracing
+    resp = await platformAdminFetch(
+      request, session, 'PUT', '/api/v1/platform/observability',
+      'toggle tracing test',
+      { tracing_enabled: !wasEnabled }
+    );
+    expect(resp.ok(), `PUT failed: ${await resp.text()}`).toBeTruthy();
 
-    // Check initial state — should be off (aria-checked="false")
-    const initialState = await tracingToggle.getAttribute('aria-checked');
-    if (initialState === 'true') {
-      // Already on — toggle off first, save, then toggle on
-      await tracingToggle.click();
-      await adminPage.getByTestId('observability-save').click();
-      await adminPage.waitForTimeout(500);
-      await goToObservabilityTab(adminPage);
-    }
+    // Verify GET reflects new state
+    resp = await platformAdminFetch(request, session, 'GET', '/api/v1/platform/observability', 'verify tracing toggle');
+    const updated = (await resp.json()) as ObservabilityConfig;
+    expect(updated.tracingEnabled).toBe(!wasEnabled);
 
-    // Toggle tracing ON
-    await adminPage.getByTestId('toggle-tracing').click();
-    await adminPage.waitForTimeout(200);
-
-    // Save via UI
-    await adminPage.getByTestId('observability-save').click();
-    await adminPage.waitForTimeout(1000);
-    await expect(adminPage.locator('main', { hasText: /saved/i })).toBeVisible();
-
-    // Reload and verify tracing persists
-    await goToObservabilityTab(adminPage);
-
-    // OTLP endpoint should be visible (tracing is on)
-    await expect(adminPage.locator('main', { hasText: /otlp endpoint/i })).toBeVisible({ timeout: 5000 });
-
-    // Verify toggle shows ON state
-    await expect(adminPage.getByTestId('toggle-tracing')).toHaveAttribute('aria-checked', 'true');
-
-    // Clean up: toggle tracing back OFF
-    await adminPage.getByTestId('toggle-tracing').click();
-    await adminPage.getByTestId('observability-save').click();
-    await adminPage.waitForTimeout(500);
+    // Clean up: restore original state. Warroom round 5 fix — the prior
+    // version did `if (wasEnabled) PUT { tracing_enabled: true }`, which
+    // (a) skipped restore entirely when wasEnabled was false (the default
+    // post-V98), leaving the platform_config row with `tracing_enabled:
+    // true` and polluting subsequent tests / dev-stack state, and (b)
+    // wrote the wrong value (`true`) when restoring a previously-true
+    // state — only correct by accident. Always PUT the captured baseline.
+    resp = await platformAdminFetch(
+      request, session, 'PUT', '/api/v1/platform/observability',
+      'restore tracing state',
+      { tracing_enabled: wasEnabled }
+    );
+    expect(resp.ok(), `Restore failed: ${await resp.text()}`).toBeTruthy();
   });
 
-  // Same root cause as the toggle-tracing test above. Re-targeted to the
-  // Surge tab + new COC_ADMIN endpoint when platform-observability-split
-  // ships.
-  test.fixme('change temperature threshold and save', async ({ adminPage }) => {
+  test('change temperature threshold — modal flow + persistence + Escape', async ({ adminPage }) => {
     test.setTimeout(60000); // Extended — this test navigates twice + saves + verifies
 
-    await goToObservabilityTab(adminPage);
+    // Navigate to Surge tab (temperature threshold moved here)
+    await adminPage.goto('/admin');
+    await expect(adminPage.locator('main h1')).toContainText(/administration/i);
+    await adminPage.locator('button[role="tab"]', { hasText: /^Surge$/ }).click();
 
-    // Find and fill the threshold input (fill auto-scrolls)
-    await adminPage.getByTestId('temp-threshold').fill('40');
+    // Spec §6.7 data-testid contract.
+    const settings = adminPage.getByTestId('surge-temperature-settings');
+    await expect(settings).toBeVisible({ timeout: 5000 });
 
-    // Save (data-testid to avoid ambiguity with ReservationSettings Save)
-    await adminPage.getByTestId('observability-save').click();
-    await adminPage.waitForTimeout(1000);
-    await expect(adminPage.locator('main', { hasText: /saved/i })).toBeVisible();
+    const input = adminPage.getByTestId('temperature-threshold-input');
+    const save = adminPage.getByTestId('temperature-save-button');
+    await expect(input).toBeVisible();
+
+    // 1) Modal-flow happy path.
+    await input.fill('40');
+    await save.click();
+
+    // Confirm modal should open with focus on cancel (warroom round 3 H2).
+    const modal = adminPage.getByTestId('temperature-confirm-modal');
+    await expect(modal).toBeVisible({ timeout: 3000 });
+    const cancelBtn = adminPage.getByTestId('temperature-cancel-button');
+    const confirmBtn = adminPage.getByTestId('temperature-confirm-button');
+    await expect(cancelBtn).toBeFocused();
+
+    // 2) Escape closes the modal (warroom round 3 H1) without persisting.
+    await adminPage.keyboard.press('Escape');
+    await expect(modal).not.toBeVisible();
+
+    // 3) Re-open and confirm. After confirmation, saved-toast surfaces and
+    //    a reload reflects the new persisted value.
+    await input.fill('40');
+    await save.click();
+    await expect(modal).toBeVisible({ timeout: 3000 });
+    await confirmBtn.click();
+    await expect(adminPage.getByTestId('temperature-saved-toast')).toBeVisible({ timeout: 5000 });
 
     // Re-navigate and verify persistence
-    await goToObservabilityTab(adminPage);
-    await expect(adminPage.getByTestId('temp-threshold')).toHaveValue('40');
+    await adminPage.goto('/admin');
+    await adminPage.locator('button[role="tab"]', { hasText: /^Surge$/ }).click();
+    await expect(adminPage.getByTestId('temperature-threshold-input')).toHaveValue('40');
 
     // Clean up: reset to 32
-    await adminPage.getByTestId('temp-threshold').fill('32');
-    await adminPage.getByTestId('observability-save').click();
-    await adminPage.waitForTimeout(500);
+    await adminPage.getByTestId('temperature-threshold-input').fill('32');
+    await adminPage.getByTestId('temperature-save-button').click();
+    await adminPage.getByTestId('temperature-confirm-button').click();
+    await expect(adminPage.getByTestId('temperature-saved-toast')).toBeVisible({ timeout: 5000 });
   });
 
-  test('temperature status section displays when data available', async ({ adminPage }) => {
-    await goToObservabilityTab(adminPage);
+  test('SurgeTab structure — temperature settings always render (warroom round 4)', async ({ adminPage }) => {
+    // Round 4 fix: this test was previously a conditional no-op — if the
+    // monitor banner wasn't visible (which it usually isn't in CI before
+    // the 90s warmup), the test passed with zero assertions. Now we assert
+    // structural elements that are ALWAYS present (the threshold input
+    // settings) plus a tolerant assertion on the optional banner.
+    await adminPage.goto('/admin');
+    await expect(adminPage.locator('main h1')).toContainText(/administration/i);
+    await adminPage.locator('button[role="tab"]', { hasText: /^Surge$/ }).click();
 
-    // Temperature status may or may not be visible depending on whether the
-    // hourly monitor has run. If visible, verify structure.
-    const tempBanner = adminPage.locator('main', { hasText: /station:/i });
-    const bannerCount = await tempBanner.count();
+    // Hard requirement: SurgeTemperatureSettings panel + the threshold input
+    // are always rendered when the operator opens the Surge tab.
+    await expect(adminPage.getByTestId('surge-temperature-settings')).toBeVisible({ timeout: 5000 });
+    await expect(adminPage.getByTestId('temperature-threshold-input')).toBeVisible();
+    await expect(adminPage.getByTestId('temperature-save-button')).toBeVisible();
 
-    if (bannerCount > 0) {
+    // Optional: temperature monitor banner. If it's rendered (monitor has
+    // already run at least once), verify it has the structure we expect;
+    // if it isn't rendered yet (cold start), no assertion fires here.
+    // This is intentional — the banner is a runtime-driven surface, but
+    // unlike the prior version of this test, the test is NOT a no-op:
+    // the assertions above always fire.
+    const banner = adminPage.locator('main', { hasText: /station:/i });
+    if (await banner.count() > 0) {
       await expect(adminPage.locator('main', { hasText: /threshold/i }).first()).toBeVisible();
-      await expect(adminPage.locator('main', { hasText: /last checked/i })).toBeVisible();
     }
-    // If no temperature data yet (monitor hasn't run), that's acceptable
   });
 });

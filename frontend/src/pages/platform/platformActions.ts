@@ -13,7 +13,7 @@
  * (per OpenSpec design.md Decision D3 — render disabled with tooltip).
  */
 
-export type ActionCategory = 'lifecycle' | 'operator' | 'system';
+export type ActionCategory = 'lifecycle' | 'operator' | 'observability' | 'system';
 
 export type DangerLevel = 'safe' | 'destructive';
 
@@ -36,7 +36,7 @@ export interface PlatformAction {
   /** UI category — drives the heading the card renders under. */
   category: ActionCategory;
   /** HTTP method on the backing API endpoint. */
-  method: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  method: 'GET' | 'POST' | 'PATCH' | 'DELETE' | 'PUT';
   /** Backing API path. May contain `:tenantId` for tenant-scoped actions. */
   endpoint: string;
   /**
@@ -52,6 +52,11 @@ export interface PlatformAction {
    * (warroom round 1 Jordan + spec). Safe actions submit immediately.
    */
   dangerLevel: DangerLevel;
+  /**
+   * If true, handleActivate will prompt for a value before sending
+   * the request. Used for scalar platform-config fields (intervals, endpoints).
+   */
+  needsValue?: boolean;
 }
 
 export const PLATFORM_ACTIONS: PlatformAction[] = [
@@ -120,6 +125,84 @@ export const PLATFORM_ACTIONS: PlatformAction[] = [
     flagGate: 'fabt.tenant.lifecycle.enabled',
     dangerLevel: 'destructive',
   },
+  // ---- Observability -------------------------------------------------
+  // platform-observability-split (2026-05-02). dangerLevel per tasks.md §8.2:
+  //  - prometheus / tracing toggles → safe (boolean flips, easy to undo)
+  //  - tracing-endpoint            → destructive (a bad endpoint blackholes spans)
+  //  - dv-canary-interval          → destructive (security cadence; lowering
+  //                                  weakens platform's posture)
+  //  - temperature-interval        → destructive (NOAA rate-limit risk)
+  //  - stale-interval              → safe (no external rate-limit, easy to revert)
+  // Warroom round 4 fix: original implementation had ALL six as safe.
+  {
+    id: 'obs-prometheus',
+    title: 'Prometheus Metrics',
+    description: 'Toggle the JVM-level Prometheus scrape endpoint.',
+    buttonLabel: 'Toggle',
+    category: 'observability',
+    method: 'PUT',
+    endpoint: '/api/v1/platform/observability',
+    dangerLevel: 'safe',
+    needsValue: true,
+  },
+  {
+    id: 'obs-tracing',
+    title: 'OpenTelemetry Tracing',
+    description: 'Toggle the JVM-level OTel exporter.',
+    buttonLabel: 'Toggle',
+    category: 'observability',
+    method: 'PUT',
+    endpoint: '/api/v1/platform/observability',
+    dangerLevel: 'safe',
+    needsValue: true,
+  },
+  {
+    id: 'obs-tracing-endpoint',
+    title: 'OTLP Endpoint',
+    description:
+      'Set the OTLP collector URL (e.g. Jaeger/Tempo). A bad URL blackholes spans — destructive.',
+    buttonLabel: 'Set URL',
+    category: 'observability',
+    method: 'PUT',
+    endpoint: '/api/v1/platform/observability',
+    dangerLevel: 'destructive',
+    needsValue: true,
+  },
+  {
+    id: 'obs-stale-interval',
+    title: 'Stale Shelter Cadence',
+    description: 'Minutes between stale-shelter detection cycles.',
+    buttonLabel: 'Set Interval',
+    category: 'observability',
+    method: 'PUT',
+    endpoint: '/api/v1/platform/observability',
+    dangerLevel: 'safe',
+    needsValue: true,
+  },
+  {
+    id: 'obs-canary-interval',
+    title: 'DV Canary Cadence',
+    description:
+      'Minutes between security RLS-canary probes. Lengthening this weakens the platform’s DV-leak detection posture — destructive.',
+    buttonLabel: 'Set Interval',
+    category: 'observability',
+    method: 'PUT',
+    endpoint: '/api/v1/platform/observability',
+    dangerLevel: 'destructive',
+    needsValue: true,
+  },
+  {
+    id: 'obs-temp-interval',
+    title: 'Temperature Cadence',
+    description:
+      'Minutes between NOAA weather fetch cycles. Floor of 1 minute reserved by NOAA rate-limit — destructive.',
+    buttonLabel: 'Set Interval',
+    category: 'observability',
+    method: 'PUT',
+    endpoint: '/api/v1/platform/observability',
+    dangerLevel: 'destructive',
+    needsValue: true,
+  },
   // ---- System Status -------------------------------------------------
   {
     id: 'system-health',
@@ -146,7 +229,8 @@ export const PLATFORM_ACTIONS: PlatformAction[] = [
 export const CATEGORY_LABELS: Record<ActionCategory, string> = {
   lifecycle: 'Tenant Lifecycle',
   operator: 'Operator Management',
+  observability: 'Observability',
   system: 'System Status',
 };
 
-export const CATEGORY_ORDER: ActionCategory[] = ['lifecycle', 'operator', 'system'];
+export const CATEGORY_ORDER: ActionCategory[] = ['lifecycle', 'operator', 'observability', 'system'];

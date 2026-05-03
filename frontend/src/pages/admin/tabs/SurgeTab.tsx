@@ -4,11 +4,22 @@ import { api } from '../../../services/api';
 import { color } from '../../../theme/colors';
 import { text, weight } from '../../../theme/typography';
 import { StatusBadge, ErrorBox, NoData, Spinner } from '../components';
+import { SurgeTemperatureSettings } from '../components/SurgeTemperatureSettings';
 import { tableStyle, thStyle, tdStyle, primaryBtnStyle, inputStyle } from '../styles';
+
+interface TemperatureStatus {
+  temperatureF: number | null;
+  stationId: string | null;
+  thresholdF: number;
+  surgeActive: boolean;
+  gapDetected: boolean;
+  lastChecked: string | null;
+}
 
 function SurgeTab() {
   const intl = useIntl();
   const [surges, setSurges] = useState<{ id: string; status: string; reason: string; activatedAt: string; deactivatedAt: string | null }[]>([]);
+  const [tempStatus, setTempStatus] = useState<TemperatureStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -29,7 +40,14 @@ function SurgeTab() {
     }
   }, [intl]);
 
-  useEffect(() => { fetchSurges(); }, [fetchSurges]);
+  const loadTempStatus = useCallback(async () => {
+    try {
+      const data = await api.get<TemperatureStatus>('/api/v1/monitoring/temperature');
+      setTempStatus(data);
+    } catch { /* monitor may not have run yet */ }
+  }, []);
+
+  useEffect(() => { fetchSurges(); loadTempStatus(); }, [fetchSurges, loadTempStatus]);
 
   const activateSurge = async () => {
     setSubmitting(true);
@@ -64,9 +82,58 @@ function SurgeTab() {
 
   if (loading) return <Spinner />;
 
+  const sectionStyle: React.CSSProperties = {
+    background: color.bg, borderRadius: 12, padding: 20,
+    boxShadow: '0 1px 3px rgba(0,0,0,0.08)', marginBottom: 16,
+  };
+
   return (
     <div>
       {error && <ErrorBox message={error} />}
+
+      {/* Temperature Status Banner (moved from Observability tab) */}
+      {tempStatus && typeof tempStatus.temperatureF === 'number' && (
+        <div style={{
+          ...sectionStyle,
+          background: tempStatus.gapDetected
+            ? `linear-gradient(135deg, ${color.warningBg} 0%, ${color.warningBright} 100%)`
+            : `linear-gradient(135deg, ${color.successBg} 0%, ${color.successBorder} 100%)`,
+          border: tempStatus.gapDetected ? `2px solid ${color.warningMid}` : `2px solid ${color.successBright}`,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ fontSize: text['3xl'], fontWeight: weight.extrabold }}>
+              {tempStatus.temperatureF.toFixed(1)}°F
+            </span>
+            <div>
+              <div style={{ fontWeight: weight.semibold, fontSize: text.base }}>
+                <FormattedMessage id="admin.observability.station" /> {tempStatus.stationId || 'Unknown'}
+              </div>
+              <div style={{ fontSize: text.sm, color: color.textTertiary }}>
+                <FormattedMessage id="admin.observability.threshold" />: {tempStatus.thresholdF}°F
+                {tempStatus.surgeActive && <span> · <FormattedMessage id="admin.observability.surgeActive" /></span>}
+              </div>
+            </div>
+          </div>
+          {tempStatus.gapDetected && (
+            <div style={{
+              marginTop: 10, padding: '8px 12px', background: 'rgba(245,158,11,0.15)',
+              borderRadius: 8, fontSize: text.sm, fontWeight: weight.semibold, color: color.warning,
+            }}>
+              {tempStatus.temperatureF.toFixed(0)}°F — <FormattedMessage id="admin.observability.belowThreshold"
+                values={{ threshold: tempStatus.thresholdF.toString() }} />.{' '}
+              <FormattedMessage id="admin.observability.considerSurge" />
+            </div>
+          )}
+          {tempStatus.lastChecked && (
+            <div style={{ fontSize: text.xs, color: color.textTertiary, marginTop: 6 }}>
+              <FormattedMessage id="admin.observability.lastChecked" />: {new Date(tempStatus.lastChecked).toLocaleString()}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Surge Activation Threshold (moved from Observability tab) */}
+      <SurgeTemperatureSettings />
 
       {activeSurge && (
         <div style={{

@@ -26,6 +26,7 @@
  * operator is acting on) and a real POST handler.
  */
 
+import { useState } from 'react';
 import { color } from '../../theme/colors';
 import { usePlatformMetadata } from './PlatformMetadataContext';
 import {
@@ -37,6 +38,7 @@ import {
 } from './platformActions';
 import { PlatformActionCard } from './components/PlatformActionCard';
 import { PLATFORM_OPERATOR_USER_GUIDE_URL } from './constants';
+import { platformFetch } from './helpers/platformApi';
 
 /**
  * Spring property `fabt.tenant.lifecycle.enabled` is currently NOT
@@ -77,46 +79,152 @@ function formatTimestamp(iso: string | null | undefined): string {
 
 export default function PlatformDashboard() {
   const { data: operator, loading } = usePlatformMetadata();
+  // `acting` flag drives the disabled-state on the banner's dismiss button +
+  // any future spinner; setActing is called inside handleActivate around
+  // the platformFetch. Keeping both halves so a future "Saving…" indicator
+  // can be wired without re-plumbing state.
+  const [acting, setActing] = useState(false);
+  const [result, setResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  const handleActivate = (action: PlatformAction) => {
-    // v0.54 ground truth: the only enabled cards in this deployment are
-    // safe + permitAll (`/actuator/health`, `/api/v1/version`) — both
-    // open cleanly in a new tab without an Authorization header. All
-    // other actions are flag-gated disabled, so this branch is the only
-    // one that ever fires. Slice E adds an in-page result viewer +
-    // destructive-action POST handler.
-    //
-    // Round 8 N1: defensive guard so a future flag-flip on Slice E
-    // can't silently mis-fire. `window.open` would issue a navigation
-    // GET against a destructive POST/DELETE endpoint and return 405
-    // in a new tab with no audit trail. Throw loudly so the broken
-    // state is visible in monitoring + console immediately rather
-    // than 3am-paged.
-    if (action.dangerLevel === 'destructive') {
+  const handleActivate = async (action: PlatformAction) => {
+    // Round 8 N1 (warroom round 4 restore): defensive guard for any
+    // destructive action whose endpoint is NOT yet wired in this slice.
+    // Tenant-lifecycle destructive actions remain flag-gated and unhandled
+    // here (Slice E ships their typed-confirmation modal + POST handler).
+    // Without this guard, a future flag-flip on a tenant-lifecycle card
+    // would issue a navigation GET via window.open against a destructive
+    // POST/DELETE endpoint, returning 405 with no audit trail. Throw
+    // loudly so the broken state surfaces in monitoring + console
+    // immediately rather than 3am-paged.
+    if (action.dangerLevel === 'destructive' && action.flagGate === 'fabt.tenant.lifecycle.enabled') {
       const msg =
-        `PlatformDashboard: destructive action "${action.id}" is not wired ` +
-        `for activation in v0.54. The flag-gate must remain false until ` +
+        `PlatformDashboard: destructive lifecycle action "${action.id}" is not wired ` +
+        `for activation in this slice. The flag-gate must remain false until ` +
         `Slice E ships the typed-confirmation modal + POST handler.`;
       if (typeof console !== 'undefined') {
         console.error(msg);
       }
       throw new Error(msg);
     }
+
     // Same defense for safe actions whose endpoint requires auth — the
-    // new-tab navigation strips the Authorization header and the
-    // operator would see a 401 JSON body in the new tab. Today no
-    // such action is enabled (tenant-list is flag-gated; system-* are
-    // permitAll), but Slice E may add new entries; refuse early.
-    if (action.flagGate) {
+    // new-tab navigation strips the Authorization header and the operator
+    // would see a 401 JSON body in the new tab. Refuse early.
+    if (action.flagGate && actionEnabled(action) === false) {
       const msg =
         `PlatformDashboard: action "${action.id}" has a flagGate but reached ` +
-        `handleActivate. Flag-gated actions should remain disabled in v0.54.`;
+        `handleActivate. Flag-gated actions should remain disabled.`;
       if (typeof console !== 'undefined') {
         console.error(msg);
       }
       throw new Error(msg);
     }
-    window.open(action.endpoint, '_blank', 'noopener,noreferrer');
+
+    if (action.method === 'GET') {
+      window.open(action.endpoint, '_blank', 'noopener,noreferrer');
+      return;
+    }
+
+    // Destructive observability actions get an extra confirm prompt before
+    // anything else (warroom round 4 B1+B2 fix). The proper modal-form
+    // upgrade is captured as §15.6 follow-up; this minimal extra-confirm
+    // closes the immediate destructive-without-warning regression. The
+    // confirm copy names the action explicitly so the operator can't dismiss
+    // it on muscle memory.
+    if (action.dangerLevel === 'destructive') {
+      const confirmed = window.confirm(
+        `${action.title} is a DESTRUCTIVE platform-wide change.\n\n` +
+        `${action.description}\n\n` +
+        `Continue?`
+      );
+      if (!confirmed) return;
+    }
+
+    // Handle PUT/POST/DELETE (platform-observability-split 2026-05-02)
+    const justification = window.prompt(
+      `Enter justification for: ${action.title}\n(This will be recorded in the audit trail)`,
+    );
+    if (!justification) return;
+
+    const body: Record<string, unknown> = {};
+    if (action.needsValue) {
+      const rawValue = window.prompt(`Enter new value for ${action.title}:`);
+      if (rawValue === null) return;
+
+      // Map action ID to field name
+      const fieldMap: Record<string, string> = {
+        'obs-prometheus': 'prometheus_enabled',
+        'obs-tracing': 'tracing_enabled',
+        'obs-tracing-endpoint': 'tracing_endpoint',
+        'obs-stale-interval': 'monitor_stale_interval_minutes',
+        'obs-canary-interval': 'monitor_dv_canary_interval_minutes',
+        'obs-temp-interval': 'monitor_temperature_interval_minutes',
+      };
+
+      const field = fieldMap[action.id];
+      if (!field) {
+        setResult({
+          type: 'error',
+          message: `Unknown observability action: ${action.id}`,
+        });
+        return;
+      }
+
+      const trimmed = rawValue.trim();
+      if (field === 'prometheus_enabled' || field === 'tracing_enabled') {
+        // Booleans: accept true/false (any case). Reject other inputs to
+        // avoid sending the backend a string that fails type validation.
+        if (trimmed.toLowerCase() === 'true') body[field] = true;
+        else if (trimmed.toLowerCase() === 'false') body[field] = false;
+        else {
+          setResult({
+            type: 'error',
+            message: `Invalid value for ${action.title}. Enter "true" or "false".`,
+          });
+          return;
+        }
+      } else if (field === 'tracing_endpoint') {
+        // String: pass through verbatim. Validation is the backend's job.
+        body[field] = trimmed;
+      } else {
+        // Intervals: integer minutes. Reject non-numeric.
+        if (!/^\d+$/.test(trimmed)) {
+          setResult({
+            type: 'error',
+            message: `Invalid value for ${action.title}. Enter a whole number of minutes.`,
+          });
+          return;
+        }
+        body[field] = parseInt(trimmed, 10);
+      }
+    }
+
+    setActing(true);
+    setResult(null);
+    try {
+      const response = await platformFetch(action.endpoint, {
+        method: action.method,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Platform-Justification': justification,
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (response.ok) {
+        setResult({ type: 'success', message: `${action.title} applied successfully.` });
+      } else {
+        const errorData = await response.json().catch(() => ({}));
+        setResult({
+          type: 'error',
+          message: errorData.message || `Failed to apply ${action.title} (Status ${response.status})`,
+        });
+      }
+    } catch {
+      setResult({ type: 'error', message: `Network error applying ${action.title}` });
+    } finally {
+      setActing(false);
+    }
   };
 
   const backupCodes = operator?.backupCodesRemaining ?? null;
@@ -153,6 +261,42 @@ export default function PlatformDashboard() {
         </a>
         .
       </p>
+
+      {result && (
+        <div
+          role="alert"
+          data-testid="platform-action-result"
+          style={{
+            padding: '1rem',
+            marginBottom: '1.5rem',
+            borderRadius: '8px',
+            backgroundColor: result.type === 'success' ? color.successBg : color.errorBg,
+            color: result.type === 'success' ? color.successMid : color.error,
+            border: `1px solid ${result.type === 'success' ? color.successBorder : color.errorBorder}`,
+            fontWeight: 600,
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+          }}
+        >
+          <span>{result.message}</span>
+          <button
+            onClick={() => setResult(null)}
+            disabled={acting}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: 'inherit',
+              cursor: acting ? 'wait' : 'pointer',
+              fontSize: '1.25rem',
+              lineHeight: 1,
+            }}
+            aria-label="Dismiss"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {/* Header: operator metadata. Loading and 410 are handled by the
           banner above; this section just renders what we have. */}
