@@ -1,8 +1,8 @@
 // ============================================================================
 // Finding A Bed Tonight (FABT) — Database Schema
-// Source: live PostgreSQL @ Flyway HWM V95 (transitional-reentry-support
-//         + reentry-release-readiness)
-// Last synced: 2026-04-30 (regenerated via pg_dump + sql2dbml + curated
+// Source: live PostgreSQL @ Flyway HWM V98 (dv-policy-tenant-flag +
+//         platform-observability-split)
+// Last synced: 2026-05-03 (regenerated via pg_dump + sql2dbml + curated
 //         enum/Project preservation per `feedback_update_docs_with_code`)
 // ============================================================================
 
@@ -461,6 +461,15 @@ Table "platform_admin_access_log" {
     (platform_user_id, timestamp) [type: btree, name: "platform_admin_access_log_user_time"]
   }
   Note: 'Phase G-4.3 platform-admin audit ledger. Append-only via REVOKE UPDATE/DELETE + BEFORE-mutate trigger. Written by the @PlatformAdminOnly AOP aspect alongside an audit_events row in a single REQUIRES_NEW transaction. Compliance queries: see docs/runbook.md. WARNING: an audit row indicates the action was ATTEMPTED, not necessarily completed — for actual completion correlate via audit_event_id against application logs at the same correlation window.'
+}
+
+Table "platform_config" {
+  "id" uuid [pk, not null, default: `'00000000-0000-0000-0000-000000000001'::uuid`, note: 'Singleton row id enforced by platform_config_singleton CHECK constraint.']
+  "config" jsonb [not null, default: `'{}'::jsonb`, note: 'Platform-wide observability + scheduler config. Schema (informally enforced by PlatformConfig record + endpoint validation): prometheus_enabled (bool), tracing_enabled (bool), tracing_endpoint (string URL), monitor_stale_interval_minutes (int 1..1440), monitor_dv_canary_interval_minutes (int 1..1440), monitor_temperature_interval_minutes (int 1..1440). Bounds enforced by the controller, not at the DB layer (design D4).']
+  "updated_at" timestamp [not null, default: `now()`]
+  "updated_by" uuid [note: 'platform_user.id of the operator who last applied a change, or NULL for the initial-seed row. Cross-references the audit_events row for each PLATFORM_OBSERVABILITY_UPDATED emission.']
+
+  Note: 'Platform-wide observability + scheduler config (V98, platform-observability-split, 2026-05). Single-row table enforced by the platform_config_singleton CHECK constraint. Read by PlatformConfigService at startup + on every monitor reschedule; written by PUT /api/v1/platform/observability (PLATFORM_OPERATOR + @PlatformAdminOnly + X-Platform-Justification header). Houses the 6 tenant-agnostic fields the /admin#observability tab used to (incorrectly) store per-tenant — temperature_threshold_f stays per-tenant via /admin#surge.'
 }
 
 Table "platform_key_material" {

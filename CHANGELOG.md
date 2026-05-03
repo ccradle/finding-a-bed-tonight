@@ -5,17 +5,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [Unreleased] — v0.56.0 in progress
+## [v0.56.0] — 2026-05-03 — DV-policy tenant flag + platform-observability split
 
-This section drafts the v0.56.0 entry as the bundle assembles. Per the post-v0.55 prioritization warroom, v0.56.0 will bundle:
+Two openspec changes ship in this release: `dv-policy-tenant-flag` (tenant-scoped acknowledgement that gates per-shelter DV writes) and `platform-observability-split` (move tenant-agnostic observability config from /admin to platform tier). Backend rebuild + frontend rebuild + two new Flyway migrations (V97, V98). The originally-planned `info-email-contact` + GH #67 items did not make this bundle and are deferred to a later release.
 
-- `dv-policy-tenant-flag` — captured below; backend feature complete, frontend complete, deploy pending
-- `info-email-contact` Slice B+ — paused on dv-policy-tenant-flag; resumes after this lands
-- GH #67 (in-app issue reporting) — depends on info-email-contact's `useContactInfo()` hook
-
-The Unreleased section is renamed to `[v0.56.0] — YYYY-MM-DD — <bundle theme>` at tag time once all three are merged and deployed.
-
-### dv-policy-tenant-flag (in progress)
+### dv-policy-tenant-flag
 
 - **New tenant config key `dv_policy_enabled`** (boolean, default `false` on absent). Gates per-shelter `dv_shelter=true` writes via service-layer invariant in `ShelterService.create / update / activate`. Mirrors the v0.55 `features.reentryMode` JSONB-config pattern.
 - **Flyway V97 backfill** (`V97__backfill_dv_policy_enabled.sql`): sets `dv_policy_enabled=true` on every tenant that already has at least one shelter with `dv_shelter=true` at migration time. Idempotent; safe to re-run. The 3 demo tenants all backfill (each seeds at least one DV shelter). `seed-data.sql` defensively also sets the key on `--fresh` reseeds.
@@ -27,6 +21,24 @@ The Unreleased section is renamed to `[v0.56.0] — YYYY-MM-DD — <bundle theme
 - **`ShelterImportService` 211 CSV import path**: per-row reject is preserved by the existing `try/catch` infrastructure — DV rows on flag-off tenants are reported per-row rather than failing the whole batch. Behavior locked in by a dedicated IT.
 - **Tests**: 1489+ backend + 210+ Vitest, all green. Plus new dv-policy-specific coverage: 16 unit tests on the helper / service-write, 6 V97 migration IT scenarios (Riley's 4-tenant multi-state fixture), 10 controller IT scenarios (cross-tenant no-leak, audit-row content assertion, dvAccess gate), 10 ShelterService invariant scenarios, 3 211 import IT scenarios. Existing tests across 16+ classes were updated to enable the flag on test tenants — `TestAuthHelper.setupTestTenant` and `setupSecondaryTenant` default the flag to `true` (test fixtures represent operational CoCs; the flag-off case is exercised by raw-JDBC test setup in dedicated specs).
 - **Deploy notes**: see `openspec/changes/dv-policy-tenant-flag/runbook-fragments.md` (in the docs repo) for the v0.56 oracle-update-notes input — pre-deploy backfill scope query, Flyway HWM transition (V96 → V97), `--fresh` behavior clarification, onboarding sequence for fresh CoCs, rollback policy.
+
+### platform-observability-split
+
+- **New `platform_config` singleton table** (`V98__platform_config.sql`). Houses 6 tenant-agnostic observability fields (prometheus_enabled, tracing_enabled, tracing_endpoint, monitor_stale_interval_minutes, monitor_dv_canary_interval_minutes, monitor_temperature_interval_minutes). Single-row invariant enforced by `platform_config_singleton` CHECK on a canonical UUID. Seeds default values matching the prior `@Scheduled` literal cadences (5/15/60 minutes) so behavior is identical immediately after migration.
+- **`GET /api/v1/platform/observability`** (PLATFORM_OPERATOR + `@PlatformAdminOnly`) reads the platform config; **`PUT /api/v1/platform/observability`** (same + `X-Platform-Justification` header) writes a partial-merge update. Per-field audit emission (`PLATFORM_OBSERVABILITY_UPDATED` AuditEventType) with `field`, `old_value`, `new_value`, `value_changed`, `outcome=applied` payload. `SELECT … FOR UPDATE` row lock on the singleton row prevents lost updates under concurrent operator writes.
+- **`PUT /api/v1/tenants/{id}/surge-threshold`** (COC_ADMIN, no platform-justification header). Replaces the broken-since-G-4.4 `PUT /api/v1/tenants/{id}/observability` for the one tenant-specific field (Fahrenheit threshold for surge activation). Validation `-50 ≤ threshold ≤ 150` with `tenant.surgeThreshold.outOfRange` error code; emits `TENANT_CONFIG_UPDATED` audit. Read-modify-write preserves sibling JSONB keys.
+- **`OperationalMonitorService` rewired** (`SchedulingConfigurer` + `TaskScheduler` + dynamic `ScheduledFuture`). Replaces the literal `@Scheduled(fixedRate=…)` annotations so platform-operator interval changes take effect on the next reschedule cycle without a backend restart. Mirrors the existing `BatchJobScheduler` pattern.
+- **`OperationalMonitorService.rescheduleFromConfig()`** is invoked from `PlatformObservabilityController` on every successful PUT that touches an interval field; non-interval fields skip the reschedule.
+- **Removed**: `/admin#observability` tab. **Moved**: temperature threshold to `/admin#surge` (operator suggestion 2026-05-02 — surge thresholds belong alongside surge activation controls).
+- **Frontend**: new `frontend/src/pages/admin/components/SurgeTemperatureSettings.tsx` (modal + inline-edit form for the threshold; mirrors the dv-policy parseTemperatureError extracted-helper pattern). Platform Operator Dashboard gains a new `'observability'` ActionCategory with 6 inline-edit cards via the new `frontend/src/pages/platform/components/ObservabilityActionCard.tsx` (toggle / number / url field types per W3C ARIA APG; bounded number inputs; URL inputs with placeholder hints; current-value display row; 2-step destructive confirm with operator justification textarea).
+- **Accessibility**: PlatformActionCard switched from native `disabled` attribute to `aria-disabled="true"` + click guard. Per W3C ARIA APG (https://www.w3.org/WAI/ARIA/apg/practices/keyboard-interface/#focusabilityofdisabledcontrols), keeping the button focusable lets a keyboard-only operator land on it and discover the disabled-state tooltip via screen reader; native `disabled` removes it from tab order entirely.
+- **Tenant-list View card** wired to an inline TenantListPanel via `platformFetch` (carries the JWT). Replaces the prior `window.open` flow that stripped the JWT in a new tab.
+- **Structured error code registry** extended: `platform.observability.intervalOutOfRange`, `platform.observability.tracingEndpointMalformed`, `platform.observability.fieldTypeMismatch`, `platform.observability.unknownField`, `tenant.surgeThreshold.outOfRange`. `parseObservabilityError` extracted helper covered by 10 Vitest cases.
+- **i18n**: 4 new EN keys (`admin.observability.thresholdDescription`, `admin.observability.thresholdError`, `admin.observability.confirmTitle`, `admin.observability.confirmBody`) + 4 ES keys. ES additions are AI-synthetic (Claude with web-citation grounding, NOT a native speaker) per `feedback_truthfulness_above_all`; tracked at `reference_es_json_ai_synthetic_reviewed.md`.
+- **Frontend bug fix**: `observability.spec.ts` cleanup-logic bug where `if (wasEnabled) PUT true` skipped the restore branch when `wasEnabled === false`, polluting dev DB on first run. Fixed to unconditional `PUT { tracing_enabled: wasEnabled }`.
+- **Tests**: 1538/1538 backend (13 new `PlatformObservabilityControllerTest` IT scenarios + 10 new `TemperatureThresholdControllerTest` scenarios incl. COORDINATOR/OUTREACH forbidden, audit row content assertion, sibling-key preservation; updated `PlatformConfigServiceIntegrationTest` for new error codes; `TenantPathGuardIntegrationTest` expects 404 for cross-tenant `/surge-threshold`); 228/228 Vitest (10 new `ObservabilityActionCard.test.ts` + 8 new `SurgeTemperatureSettings.test.ts`); 32/32 Playwright (16 dashboard / inline-edit + 16 regression — `platform-dashboard-inline-flows.spec.ts` is new; existing `platform-ui-dashboard.spec.ts`, `platform-training-walkthrough.spec.ts`, `observability.spec.ts` updated for `aria-disabled` and the new endpoint surface).
+- **BREAKING (operator-facing)**: COC_ADMINs lose write access to the 6 platform-wide observability fields. They never reliably had write access (G-4.4 broke it; the UI was visible but every save 400'd), but the surfaced UI is gone now and the endpoint stays PLATFORM_OPERATOR-only. Operators looking for "where do I configure tracing?" should use the Platform Operator Dashboard (requires platform login + justification).
+- **Deploy notes**: V98 is additive (singleton table seeded with prior literal defaults). The pre-existing per-tenant `tenant.config.observability.*` JSONB keys remain readable for one release cycle (design D3 backward-read); a v0.58+ Flyway migration drops them once prod observability confirms zero reads. Service rollback (revert the JAR) is fully safe — old code reads from per-tenant config which still exists.
 
 ---
 
