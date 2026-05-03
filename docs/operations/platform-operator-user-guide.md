@@ -295,6 +295,96 @@ exposes credentials over the wrong channel.
 
 ---
 
+## 9. Configuring observability
+
+> **v0.56 status:** the dashboard's **Observability** section is the
+> only operator surface that can flip Prometheus metrics on/off,
+> toggle the OpenTelemetry exporter, change the OTLP endpoint, and
+> tune the three monitor cadences (stale-shelter detection, DV-canary
+> probe, NOAA temperature fetch). Pre-v0.56 these fields lived on the
+> CoC admin **Observability** tab and reliably 400'd on every save
+> (the G-4.4 endpoint role split moved them under
+> `@PlatformAdminOnly` but the UI never carried the
+> `X-Platform-Justification` header). The CoC tab is gone in v0.56;
+> the platform dashboard is the single source of truth.
+
+The Observability cards are **inline-edit cards** — the input lives
+on the card itself, not in a popup. Three field types render
+differently:
+
+- **Toggles** (Prometheus Metrics, OpenTelemetry Tracing) — switch
+  control, label state-stable ("Enabled" / "Disabled" reflects the
+  *current* value, not the proposed new one). Aligns with the W3C
+  ARIA APG Switch Pattern.
+- **Bounded numbers** (Stale Shelter Cadence, DV Canary Cadence,
+  Temperature Cadence) — narrow numeric input + "minutes" suffix,
+  bounded `1..1440`. Out-of-range values are caught client-side and
+  the backend re-validates with `platform.observability.intervalOutOfRange`.
+- **URL** (OTLP Endpoint) — wide text input + placeholder hint.
+  Backend validates parseability with
+  `platform.observability.tracingEndpointMalformed`.
+
+Each card displays the **current persisted value** above the editor
+— you can see the existing setting before deciding to change it.
+
+### Saving a change
+
+When you click **Edit**, the input becomes active and the **Save**
+button enables only after you type a value that differs from the
+current one. The Save button color reflects the card's danger level:
+
+- **Safe** (Prometheus toggle, Tracing toggle, Stale Shelter Cadence)
+  — green button, single-confirm modal asking only for the
+  justification text (≥10 chars).
+- **Destructive** (OTLP Endpoint, DV Canary Cadence, Temperature
+  Cadence) — red button, **two-step confirmation**: a confirmation
+  modal with the justification field, then the actual PUT after you
+  click Confirm. Bad OTLP endpoints blackhole spans; lengthening the
+  DV canary weakens the platform's leak-detection posture; floors
+  on the temperature cadence are reserved by NOAA's rate-limit.
+
+Every successful PUT writes one `audit_events` row per changed field
+(`event_type='PLATFORM_OBSERVABILITY_UPDATED'`) carrying `field`,
+`old_value`, `new_value`, `value_changed`, and your operator id.
+Monitor-interval changes additionally trigger
+`OperationalMonitorService.rescheduleFromConfig()` so the new
+cadence takes effect on the next scheduler cycle without a backend
+restart. Toggles and the OTLP endpoint do not trigger reschedule —
+they take effect on the next scrape / span export.
+
+### Where the temperature threshold lives now
+
+The one tenant-specific observability field — the Fahrenheit
+threshold for surge activation recommendations — has moved from the
+old `/admin#observability` tab to `/admin#surge`. CoC admins set
+it via the **SurgeTemperatureSettings** panel embedded in the
+Surge tab. The backend endpoint is `PUT /api/v1/tenants/{id}/surge-threshold`
+and does NOT require a platform-justification header — it is
+COC_ADMIN-scoped and operator-readable. Validation is `-50 ≤ value ≤ 150`
+with `tenant.surgeThreshold.outOfRange` on rejection.
+
+### Common situations
+
+| What you want to do | Where | Notes |
+|---|---|---|
+| Turn Prometheus metrics off temporarily | Platform dashboard → Observability → Prometheus Metrics → Edit → toggle Off → Save | Justification mandatory. Takes effect on next scrape. |
+| Point the OTLP exporter at a new collector | Platform dashboard → Observability → OTLP Endpoint → Edit → paste URL → Confirm twice | A bad URL blackholes spans silently — verify the collector first. |
+| Lengthen the stale-shelter detection cycle from 5 min to 10 min | Platform dashboard → Observability → Stale Shelter Cadence → Edit → 10 → Save | Safe action; takes effect on next reschedule. |
+| Tighten the DV canary probe (shorten the cadence) | Platform dashboard → Observability → DV Canary Cadence → Edit → smaller number → Confirm twice | Tightening is destructive-flagged because lowering increases load on the security path; lengthening is destructive because it weakens posture. The dashboard treats both directions as destructive on this field. |
+| Change a CoC's surge-activation temperature threshold | Admin → Surge → SurgeTemperatureSettings → enter new °F → Save | CoC-admin scope; no platform login required. Uses the new `/surge-threshold` endpoint. |
+
+### When something goes wrong
+
+| Symptom | Likely cause | Self-serve action |
+|---|---|---|
+| Save returns "Out of range" | Number outside `1..1440` (intervals) or `-50..150` (threshold) | Re-enter within bounds. |
+| Save returns "Tracing endpoint malformed" | URL not parseable (no scheme, bad host) | Re-enter as `http://collector:4318/v1/traces` or similar. |
+| Save returns "Justification required" | You hit the endpoint via curl without `X-Platform-Justification` | Use the dashboard, which adds the header automatically. |
+| Toggle visually flipped but the next scrape still misses metrics | OTel exporter wraps the Prometheus toggle at startup — toggling at runtime requires a brief settle time | Wait one full scrape interval (15s default), recheck. |
+| Card shows "Could not load current value" | Backend `GET /api/v1/platform/observability` returned non-200 | Reload the page; if persistent, escalate. |
+
+---
+
 ## See also
 
 - [`oracle-update-notes-v0.54.0.md`](../oracle-update-notes-v0.54.0.md)
