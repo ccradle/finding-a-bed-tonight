@@ -9,9 +9,10 @@
  * Editing state — same card chrome but body swaps to a small accessible
  * form:
  *  - field-type-appropriate input pre-populated with current value
- *      - toggle  → ARIA APG-compliant switch (role="switch" + aria-checked,
- *                  label state-stable per W3C APG: "the label on a switch
- *                  does not change when its state changes")
+ *      - toggle  → switch implementing the W3C ARIA APG Switch Pattern
+ *                  (role="switch" + aria-checked, label state-stable per
+ *                  the APG: "the label on a switch does not change when
+ *                  its state changes")
  *      - number  → &lt;input type="number" min max step="1"&gt; with bounds
  *                  hint as aria-describedby + JS guard against out-of-range
  *      - url     → &lt;input type="url" placeholder=""&gt; with URL.canParse

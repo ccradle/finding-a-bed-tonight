@@ -4,8 +4,8 @@ import { test, expect } from '@playwright/test';
  * Playwright coverage for warroom rounds 6 + 7 (2026-05-03):
  *
  *  Round 6 — replaced the window.prompt() flow on the platform dashboard
- *  observability cards with an inline-edit form using ARIA-APG-compliant
- *  switches, type-appropriate inputs, and a 2-step destructive confirm.
+ *  observability cards with an inline-edit form following the W3C ARIA APG
+ *  Switch Pattern, type-appropriate inputs, and a 2-step destructive confirm.
  *
  *  Round 7 — wired the previously flag-gated `View` button on the
  *  `tenant-list` card to an inline read-only panel below the Lifecycle
@@ -225,7 +225,7 @@ test.describe('Platform dashboard — observability inline-edit (warroom round 6
     // Enter edit.
     await page.getByTestId('platform-action-obs-tracing-edit').click();
 
-    // ARIA-APG-compliant switch.
+    // ARIA APG Switch Pattern (role="switch" + aria-checked).
     const sw = page.getByTestId('platform-action-obs-tracing-toggle');
     await expect(sw).toHaveAttribute('role', 'switch');
     await expect(sw).toHaveAttribute('aria-checked', 'false');

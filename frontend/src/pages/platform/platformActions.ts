@@ -24,8 +24,9 @@ export type DangerLevel = 'safe' | 'destructive';
  * W3C ARIA APG, shadcn/ui form patterns, and Nielsen heuristics for
  * error prevention + recognition over recall.
  *
- * - `toggle`  — boolean. Renders an ARIA-APG-compliant switch
- *               (role="switch" + aria-checked, label state-stable).
+ * - `toggle`  — boolean. Renders a switch following the W3C ARIA APG
+ *               Switch Pattern (role="switch" + aria-checked, label
+ *               state-stable).
  * - `number`  — bounded integer. Renders &lt;input type="number"
  *               min={min} max={max} step="1"&gt; with bounds hint
  *               via aria-describedby.

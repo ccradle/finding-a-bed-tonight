@@ -27,7 +27,7 @@ interface Props {
    * for display (e.g., "5 minutes", "enabled", "http://otel:4318/v1/traces").
    * Optional — actions that aren't field-editors (system status, lifecycle
    * triggers) leave this undefined and the card renders no value row.
-   * Warroom round 6 fix: previously the operator had no way to know the
+   * Warroom round 6 fix: previously the operator could not see the
    * current state before deciding to set a new one.
    */
   currentValueDisplay?: string;
