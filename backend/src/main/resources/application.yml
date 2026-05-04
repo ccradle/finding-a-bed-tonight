@@ -267,3 +267,24 @@ bucket4j:
             - capacity: 5
               time: 1
               unit: hours
+    # Per-IP throttle on the public contact-info read endpoint
+    # (info-email-contact §4.4). Anonymous-friendly (no auth header to scope on)
+    # so per-IP is the only natural key. 60/min is generous: the frontend
+    # ContactInfoProvider fetches once on mount and refetches on auth-state
+    # transition (§5.3) — far below 60/min for any legitimate session.
+    # The static-site /contact.js (§6) ALSO calls this endpoint on every page
+    # load that hydrates the footer; 60/min lets a single visitor flip through
+    # ~60 pages a minute without 429ing. A bot scraping the email at higher
+    # cadence is the threat model.
+    - cache-name: rate-limit-public-contact-info
+      url: /api/v1/public/contact-info
+      http-response-body: '{"error":"rate_limited","message":"Too many contact-info requests from this address. Try again later.","status":429}'
+      http-content-type: application/json
+      rate-limits:
+        # X-Real-IP-aware cache key per Marcus warroom B1 fix from
+        # dv-referral-create above.
+        - cache-key: "getHeader('X-Real-IP') != null and !getHeader('X-Real-IP').isBlank() ? getHeader('X-Real-IP') : getRemoteAddr()"
+          bandwidths:
+            - capacity: 60
+              time: 1
+              unit: minutes

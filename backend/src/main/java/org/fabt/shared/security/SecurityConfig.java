@@ -163,6 +163,14 @@ public class SecurityConfig {
                         .requestMatchers("/swagger-ui/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/tenants/*/oauth2-providers/public").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/version").permitAll()
+                        // Public read-only endpoints surfaced to anonymous traffic
+                        // (info-email-contact §4): /api/v1/public/contact-info reads
+                        // platform + caller-tenant contact email. Caller-tenant
+                        // resolution depends on TenantContext when authenticated;
+                        // anonymous callers receive the platform-only block. The
+                        // path namespace establishes the convention for any future
+                        // public-readable endpoints.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/public/**").permitAll()
 
                         // OAuth2 provider management — COC_ADMIN (G-4.4 stripped PLATFORM_ADMIN per V87 backfill posture)
                         // Must be BEFORE the general /api/v1/tenants/** matcher

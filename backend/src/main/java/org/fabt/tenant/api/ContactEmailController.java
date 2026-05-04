@@ -26,8 +26,6 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import tools.jackson.core.JacksonException;
-import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 /**
@@ -161,8 +159,7 @@ public class ContactEmailController {
         // recoverable + auditable.)
         Tenant tenant = tenantService.findById(tenantId).orElseThrow(
                 () -> new java.util.NoSuchElementException("Tenant not found: " + tenantId));
-        String oldValue = readContactEmailFromConfig(objectMapper,
-                tenant.getConfig() != null ? tenant.getConfig().value() : null);
+        String oldValue = Tenant.readContactEmail(tenant.getConfig(), objectMapper);
         boolean dvPolicyEnabled = Tenant.isDvPolicyEnabled(tenant.getConfig(), objectMapper);
 
         // Normalize null and blank to empty string (clear). The DTO permits
@@ -198,28 +195,6 @@ public class ContactEmailController {
         body.put("tenantId", tenantId.toString());
         body.put("contactEmail", newValue);
         return ResponseEntity.ok(body);
-    }
-
-    /**
-     * Best-effort read of {@code contact.email} from a tenant config JSON
-     * string for the audit "old_value" capture. Returns null on parse failure
-     * or absent key — the audit row records null which the forensic reader
-     * interprets as "unknown / no prior override". Mirrors
-     * {@code ReservationConfigController.readHoldDurationFromConfig}'s
-     * conservative posture: never throw from a read whose only purpose is
-     * audit metadata.
-     */
-    private static String readContactEmailFromConfig(ObjectMapper objectMapper, String configJson) {
-        if (configJson == null || configJson.isBlank()) return null;
-        try {
-            JsonNode node = objectMapper.readTree(configJson);
-            JsonNode contact = node.get("contact");
-            if (contact == null || !contact.isObject()) return null;
-            JsonNode email = contact.get("email");
-            return (email != null && email.isTextual()) ? email.asText() : null;
-        } catch (JacksonException e) {
-            return null;
-        }
     }
 
     /**
