@@ -549,9 +549,13 @@ FROM audit_events
 WHERE event_type = 'PLATFORM_OBSERVABILITY_UPDATED'
   AND timestamp > NOW() - INTERVAL '1 hour'
 GROUP BY event_type;"
-# Expected: 0 if no operator PUT was performed during the gate window;
-# >= 1 if the gate above included a write. Schema confirms the new
-# enum value is registered.
+# Expected: 0 unless an operator manually performed a PUT during the
+# gate window. The §6 platform-observability smoke gate above does
+# GET-only — no audit row is written by the gate itself. A non-zero
+# count here means either (a) the manual smoke included a write,
+# (b) an operator performed real work during the deploy window, or
+# (c) a regression is auto-emitting on reads (investigate). Schema
+# also confirms the new enum value is registered.
 ```
 
 ### OperationalMonitorService scheduled tasks loaded
@@ -559,11 +563,13 @@ GROUP BY event_type;"
 ```bash
 docker logs fabt-backend --since 5m 2>&1 \
     | grep -E "Operational monitors registered" | head -5
-# Expected: exactly one INFO line at startup matching:
-#   o.f.observability.OperationalMonitorService : \
-#     Operational monitors registered: stale=Xmin, dv-canary=Ymin, temperature=Zmin
-# (X/Y/Z come from platform_config — should match the V98 seed defaults
-# 5/15/60 unless an operator has flipped them post-deploy.)
+# Expected: exactly one INFO line at startup matching the message body:
+#   Operational monitors registered: stale=Xmin, dv-canary=Ymin, temperature=Zmin
+# (Logback abbreviates the logger prefix to o.f.o.OperationalMonitorService
+# under the default %logger{36} pattern — the grep above matches the
+# message body, so the prefix form is incidental.)
+# X/Y/Z come from platform_config — should match the V98 seed defaults
+# 5/15/60 unless an operator has flipped them post-deploy.
 # This is the literal log line emitted by configureTasks() at line 186
 # of OperationalMonitorService.java. The actuator/scheduledtasks endpoint
 # is NOT exposed in the default v0.56 management config; this log line
@@ -586,6 +592,10 @@ curl -sI http://localhost:9091/actuator/prometheus | head -3
 
 If anyone tests the new admin/platform UI from a browser that was logged in pre-deploy, **use incognito or clear site data** (per `feedback_stale_sw_on_deploy.md`).
 
+### Declare deploy successful
+
+- [ ] **Deploy declared successful at UTC `____________`.** Recording this here closes the §6 gate window and triggers the §8 housekeeping queue. If any §6 gate failed, do NOT check this box — surface the failure in chat and route to §7 rollback.
+
 ---
 
 ## 7. Rollback Matrix
@@ -599,7 +609,7 @@ If anyone tests the new admin/platform UI from a browser that was logged in pre-
 | Host nginx 502 after backend recreate | Frontend docker-network is stale — recreate frontend too. (Standard remediation per template.) | ~3 min |
 | Frontend serving stale JS post-deploy | Old service worker cached the bundle. Use incognito or clear site data. | <1 min |
 | Operator flipped dv-policy to FALSE on a tenant + needs revert | The flag is a JSONB key — operator can re-flip via the admin UI (or via `psql` UPDATE if the backend is down). The forward-only V97 backfill does not need to be re-run; it only initialized rows with NO existing key. | <1 min |
-| Operator broke the OTel exporter via a bad `tracing_endpoint` URL | Same flow — operator (or DBA) reverts via the platform endpoint or `psql UPDATE platform_config SET config = jsonb_set(config, '{tracing_endpoint}', '"http://localhost:4318/v1/traces"'::jsonb)`. `OperationalMonitorService` does not reschedule on tracing-endpoint change (only on monitor-interval change), so revert takes effect on next OTel export. | <1 min |
+| Operator broke the OTel exporter via a bad `tracing_endpoint` URL | **Preferred:** revert via the platform endpoint (`PUT /api/v1/platform/observability` with the prior tracing_endpoint) — emits the per-field `PLATFORM_OBSERVABILITY_UPDATED` audit row that audit-replay tooling expects. **Fallback (backend down):** `psql UPDATE platform_config SET config = jsonb_set(config, '{tracing_endpoint}', '"http://localhost:4318/v1/traces"'::jsonb)`. The fallback bypasses the controller's audit emission — log the manual revert in incident-response notes (incident ID + UTC timestamp + operator id + old/new tracing_endpoint) so the audit gap is recorded out-of-band. `OperationalMonitorService` does not reschedule on tracing-endpoint change (only on monitor-interval change), so revert takes effect on next OTel export. | <1 min |
 | Full rollback to v0.55.1 | `docker tag fabt-backend:v0.55.0-lastgood fabt-backend:latest && docker tag fabt-frontend:v0.55.1-lastgood fabt-frontend:latest && docker compose "${COMPOSE_CHAIN[@]}" up -d --force-recreate backend frontend`. **V97-V98 are NOT rolled back** — they are additive and forward-compatible with v0.55.x backend. | ~6 min |
 
 > **V97-V98 are one-way migrations.** V97 is a JSONB key write that the v0.55.x backend ignores; V98 is a new table the v0.55.x backend never references. Rolling back the JAR rolls back the calls, not the schema. Full DB rollback via `pg_restore` is the path only when a migration itself fails partway — both v0.56 migrations are simple enough that this is unlikely.
@@ -627,9 +637,14 @@ If anyone tests the new admin/platform UI from a browser that was logged in pre-
       | python3 -m json.tool | grep -cE '"name":'
   ```
   Expected: same count as pre-deploy. v0.56 does not add rules.
-- [ ] Confirm alert names are unchanged (alertmanager template chain is unmodified in v0.56).
+- [ ] Confirm alert names are unchanged (alertmanager template chain is unmodified in v0.56):
+  ```bash
+  docker exec finding-a-bed-tonight-prometheus-1 wget -qO- http://localhost:9090/api/v1/rules \
+      | python3 -m json.tool | grep -E '"alert":' | sort -u
+  ```
+  Expected: same alert-name set as pre-deploy. v0.56 does not add or rename any alerts.
 - [ ] Append the v0.56 platform-obs Spanish keys (`admin.observability.thresholdDescription`, `thresholdError`, `confirmTitle`, `confirmBody`) to `reference_es_json_ai_synthetic_reviewed.md` memory — AI-synthetic review, not a native speaker. Same disclosure conventions as v0.55.1 D2.
-- [ ] Delete or expire any test alerts fired during deploy verification.
+- [ ] Delete or expire any test alerts fired during deploy verification (none expected for v0.56 deploy gates — applies only if the operator manually fires an alertmanager probe during gates).
 
 ---
 
