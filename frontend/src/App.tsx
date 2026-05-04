@@ -5,6 +5,7 @@ import { AuthProvider } from './auth/AuthContext';
 import { AuthGuard } from './auth/AuthGuard';
 import { getDefaultRouteForRoles } from './auth/AuthGuard';
 import { PlatformAuthProvider } from './auth/PlatformAuthContext';
+import { ContactInfoProvider } from './contact/ContactInfoContext';
 import {
   PlatformProtectedRoute,
   PlatformRedirectIfAuthenticated,
@@ -224,11 +225,18 @@ export default function App() {
   return (
     <IntlProvider locale={locale} messages={messages[locale]} defaultLocale="en">
       <AuthProvider>
-        <PlatformAuthProvider>
-          <BrowserRouter>
-            <AppRoutes locale={locale} onLocaleChange={handleLocaleChange} />
-          </BrowserRouter>
-        </PlatformAuthProvider>
+        {/* info-email-contact §5.4: ContactInfoProvider lives INSIDE
+            AuthProvider so its useContext(AuthContext) call resolves, but
+            OUTSIDE BrowserRouter so the contact-info state is available to
+            every route (LoginPage footer, AdminPanel, future surfaces from
+            §5.8 forward-compat note). */}
+        <ContactInfoProvider>
+          <PlatformAuthProvider>
+            <BrowserRouter>
+              <AppRoutes locale={locale} onLocaleChange={handleLocaleChange} />
+            </BrowserRouter>
+          </PlatformAuthProvider>
+        </ContactInfoProvider>
       </AuthProvider>
     </IntlProvider>
   );

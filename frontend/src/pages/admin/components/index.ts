@@ -5,4 +5,5 @@ export { NoData } from './NoData';
 export { Spinner } from './Spinner';
 export { ReservationSettings } from './ReservationSettings';
 export { DvPolicySettings } from './DvPolicySettings';
+export { ContactSettings } from './ContactSettings';
 export { TabErrorBoundary } from './TabErrorBoundary';
