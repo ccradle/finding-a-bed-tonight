@@ -4,7 +4,17 @@ import path from 'path';
 
 /**
  * info-email-contact §10.5 + §10.8 — static-site contact-placeholder
- * coverage. Two scenarios:
+ * coverage.
+ *
+ * <p><b>When/who runs this:</b> developer-workstation only today —
+ * the tests resolve the docs-repo path via {@code FABT_DOCS_ROOT} env
+ * var (or a default sibling-layout fallback). CI checks out only the
+ * code repo and gets clean skips with descriptive reasons. To enable
+ * in CI, add a docs-repo checkout step + set {@code FABT_DOCS_ROOT}
+ * (planned alongside the future weekly-nginx-mode job that
+ * {@code audience-pages-a11y.spec.ts} also waits on).
+ *
+ * <p>Two scenarios:
  *
  * §10.5 — JS-disabled fallback (M2): load each in-scope HTML page with
  *          JavaScript disabled in the browser context. The
@@ -86,11 +96,16 @@ test.describe('§10.5 — JS-disabled noscript fallback', () => {
                     linkCount,
                     'at least one noscript GH-Issues fallback link must render when JS is disabled',
                 ).toBeGreaterThanOrEqual(1);
-                await expect(
-                    noscriptLinks.first(),
-                    'first noscript fallback must be visible to JS-disabled visitors',
-                ).toBeVisible();
+                // Warroom round 1 N1-Marcus: assert EVERY matching link is
+                // visible, not just .first(). A regression that hid one of
+                // the two for-cities placeholders (§8.1 CTA OR §7.7 footer)
+                // via CSS would otherwise pass — the spec's intent is "every
+                // page surface that PROMISES a fallback delivers it".
                 for (let i = 0; i < linkCount; i++) {
+                    await expect(
+                        noscriptLinks.nth(i),
+                        `noscript fallback link #${i} must be visible to JS-disabled visitors`,
+                    ).toBeVisible();
                     const text = await noscriptLinks.nth(i).textContent();
                     expect(
                         text,
