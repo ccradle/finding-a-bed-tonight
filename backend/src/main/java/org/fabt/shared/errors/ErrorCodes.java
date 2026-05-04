@@ -100,6 +100,21 @@ public final class ErrorCodes {
     public static final String TENANT_SURGE_THRESHOLD_OUT_OF_RANGE =
             "tenant.surgeThreshold.outOfRange";
 
+    /**
+     * Per-tenant contact-email write rejected because the parent tenant's
+     * {@code dv_policy_enabled} flag is {@code true} and the request body
+     * supplied a non-empty email value. Setting a discoverable contact inbox
+     * on a DV-flagged tenant risks advertising a non-DV-safe address; the
+     * platform-default inbox stays in effect for these tenants. Empty-string
+     * PATCH (which clears the per-tenant override and reverts to platform
+     * inheritance) is always allowed even on DV-flagged tenants.
+     *
+     * <p>Spec: info-email-contact OpenSpec change task 3.3 (Q4=B operator
+     * decision 2026-05-01).
+     */
+    public static final String TENANT_CONTACT_EMAIL_DV_POLICY_FORBIDDEN =
+            "tenant.contactEmail.dvPolicyForbidden";
+
     private ErrorCodes() {
         // utility class
     }

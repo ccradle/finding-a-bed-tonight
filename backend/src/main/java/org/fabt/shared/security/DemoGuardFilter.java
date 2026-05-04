@@ -234,6 +234,18 @@ public class DemoGuardFilter extends OncePerRequestFilter {
         if (path.matches("/api/v1/admin/tenants/[^/]+/dv-policy")) {
             return "DV-policy changes are disabled in the demo environment — would affect other visitors' view of DV-shelter operations.";
         }
+        // info-email-contact task §3 (warroom round 1 MEDIUM-D1): contact-email
+        // is fail-secure-blocked by default (not in ALLOWED_MUTATIONS), but
+        // the path doesn't match the generic /api/v1/tenants branch below
+        // (it lives under /api/v1/admin/tenants), so without this branch
+        // the demo user sees the generic "This operation is disabled" message.
+        // Friendly per-path message for parity with hold-duration + dv-policy.
+        // Casey N1-round-2: keep the message factual — the surfaced-to-public
+        // contact email lands with §7 page-footer edits, so the
+        // would-affect-visitors framing is preemptive until that ships.
+        if (path.matches("/api/v1/admin/tenants/[^/]+/contact-email")) {
+            return "Contact-email changes are disabled in the demo environment.";
+        }
         if (path.startsWith("/api/v1/tenants")) return "Tenant management is disabled in the demo environment.";
         if (path.startsWith("/api/v1/import")) return "Data import is disabled in the demo environment.";
         if (path.startsWith("/api/v1/batch")) return "Batch job management is disabled in the demo environment.";
