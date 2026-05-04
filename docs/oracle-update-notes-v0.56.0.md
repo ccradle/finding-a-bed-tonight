@@ -153,7 +153,12 @@ curl -s https://findabed.org/api/v1/version
 - `PUT /api/v1/platform/observability` — same role + `X-Platform-Justification` header. Partial-merge update with `SELECT … FOR UPDATE` row lock. Per-field audit emission (`PLATFORM_OBSERVABILITY_UPDATED` AuditEventType). Triggers `OperationalMonitorService.rescheduleFromConfig()` on any monitor-interval change.
 - `PUT /api/v1/tenants/{id}/surge-threshold` — COC_ADMIN, no platform-justification header. Replaces the broken-since-G-4.4 `/observability` PUT for the temperature threshold. Validation `-50 ≤ threshold ≤ 150`; `tenant.surgeThreshold.outOfRange` error code. Emits `TENANT_CONFIG_UPDATED`.
 
-**Removed endpoint:** `PUT /api/v1/tenants/{id}/observability` — the 6 platform-wide fields move to the platform endpoint; the 1 tenant-specific field moves to `/surge-threshold`. The `GET /api/v1/tenants/{id}/observability` is kept (backward-read per design D3) — `SurgeTemperatureSettings` reads the threshold via this GET.
+**Removed endpoints:** Both `GET` and `PUT /api/v1/tenants/{id}/observability` are removed entirely from `TenantController`. The 6 platform-wide fields move to the platform endpoint; the 1 tenant-specific field (the temperature threshold) moves to a NEW endpoint pair on `TemperatureThresholdController`:
+
+- `GET /api/v1/tenants/{id}/surge-threshold` — COC_ADMIN, returns `{"temperature_threshold_f": <number>}`. Defaults to `32.0` if the tenant has never set a threshold.
+- `PUT /api/v1/tenants/{id}/surge-threshold` — COC_ADMIN, accepts `{"temperature_threshold_f": <number>}` in `[-50, 150]`, returns `200` with the same body shape, emits `TENANT_CONFIG_UPDATED` audit row.
+
+The `SurgeTemperatureSettings` admin panel reads via the new GET, NOT the removed `/observability` GET. Per-tenant backward-read of the OLD `tenant.config.observability` JSONB sub-map (where the threshold is still stored) is preserved by the read-modify-write pattern in the new controller (design D3) — the JSONB keys stay readable so a partial v0.55-back rollback is safe.
 
 **New AuditEventType enum value:** `PLATFORM_OBSERVABILITY_UPDATED` (one row per changed field with `field`, `old_value`, `new_value`, `value_changed`, `outcome=applied` payload).
 
@@ -176,6 +181,18 @@ curl -s https://findabed.org/api/v1/version
 - GH #67 (in-app issue reporting) — depends on info-email-contact.
 - Drop of the obsoleted per-tenant `tenant.config.observability.{prometheus_enabled, tracing_enabled, tracing_endpoint, monitor_*_interval_minutes}` JSONB keys — kept for backward-read per design D3; v0.58+ Flyway migration drops them after one release cycle of observed-zero-reads in prod.
 - Cross-authenticator MFA QA matrix completion (still tracked at `docs/operations/platform-operator-mfa-compatibility.md`).
+
+**Operator-comms one-liner** (paste into the post-deploy note to the 3 demo CoC admins so they aren't surprised by missing tabs):
+
+> v0.56 reorganizes the admin tabs. The **Observability** tab is gone — its
+> one CoC-tunable setting (the temperature threshold for surge activation
+> recommendations) has moved to **Admin → Surge** as a new
+> "Surge temperature settings" panel. The other 5 settings on the old tab
+> (Prometheus toggle, OTel tracing toggle + endpoint, monitor cadences for
+> stale-shelter / DV-canary / temperature) were always platform-operator
+> concerns; they now live exclusively on the Platform Operator Dashboard
+> (platform login required). No CoC-side action is needed for v0.56 —
+> the V97 backfill and V98 seed both apply automatically at backend startup.
 
 ---
 
@@ -200,7 +217,7 @@ curl -s https://findabed.org/api/v1/version
 - [ ] **pom.xml version bumped** — `cd backend && grep -nE "<version>0\." pom.xml | head -1` should report **0.56.0** at line 16. If still 0.55.0, edit `backend/pom.xml` line 16, commit on the release branch, and re-run `mvn -B -DskipTests clean package -q` to confirm the JAR filename is now `*0.56.0*.jar`. The Spring Boot Maven plugin writes the version into `META-INF/build-info.properties` at package time, which is what `/api/v1/version` reads at runtime.
 - [ ] **Backend tests green** — `cd backend && mvn -B test -q` — expect 1538/1538 passing locally (1414 pre-v0.56 + ~124 new tests across `PlatformObservabilityControllerTest`, `TemperatureThresholdControllerTest`, `PlatformConfigServiceIntegrationTest`, `V97MigrationIntegrationTest`, `DvPolicyControllerTest`, `ShelterServiceDvPolicyInvariantTest`, `TenantPathGuardIntegrationTest`).
 - [ ] **Frontend tests green** — `cd frontend && npm run test:run` — expect 228/228 Vitest (10 new `ObservabilityActionCard.test.ts` + 8 new `SurgeTemperatureSettings.test.ts` covering parseObservabilityError + parseTemperatureError).
-- [ ] **Mocked Playwright suite green locally** — `cd e2e/playwright && BASE_URL=http://localhost:8081 npx playwright test platform-dashboard-inline-flows.spec.ts platform-ui-dashboard.spec.ts platform-training-walkthrough.spec.ts observability.spec.ts --reporter=list` — expect 32/32 against `./dev-start.sh --nginx`. Run through nginx, NOT bare Vite (per `feedback_check_ports_before_assuming.md`).
+- [ ] **v0.56-relevant Playwright specs green locally** — `cd e2e/playwright && BASE_URL=http://localhost:8081 npx playwright test platform-dashboard-inline-flows.spec.ts platform-ui-dashboard.spec.ts platform-training-walkthrough.spec.ts observability.spec.ts --reporter=list` — expect 32/32 across these 4 specs (16 dashboard/inline-edit + 16 regression). Run through nginx, NOT bare Vite (per `feedback_check_ports_before_assuming.md`). The full nginx-targeted suite is exercised by main-branch CI before tagging; this gate just confirms the v0.56-touched specs locally.
 - [ ] **Pre-deploy DV-policy backfill scope query** (run on prod DB before deploy):
 
   ```bash
@@ -247,7 +264,7 @@ curl -s https://findabed.org/api/v1/version
 - [ ] **pg_dump backup** — `docker exec finding-a-bed-tonight-postgres-1 pg_dump -U fabt -d fabt -Fc > ~/fabt-backups/fabt-pre-v0.56.0-$(date -u +%Y%m%d-%H%M%S).dump`. Restore via `pg_restore`, NOT `psql`.
 - [ ] **Git tag + GitHub release published** — `git tag v0.56.0 && git push origin v0.56.0`, then `gh release create v0.56.0 --generate-notes`. Verify with `gh release view v0.56.0`. The deploy MUST checkout the tag, not main HEAD.
 - [ ] **SSH access confirmed** — open an SSH session to the VM before starting (`ssh -i ~/.ssh/fabt-oracle ubuntu@${FABT_VM_IP}`).
-- [ ] **Local rehearsal PASS** — run `make rehearse-deploy` (or equivalent local sequence) on this branch before tagging. The rehearsal harness exercises the V97 + V98 migrations against a clean DB plus the post-deploy smoke gate.
+- [x] **Local rehearsal PASS** — `make rehearse-deploy` ran 2026-05-03 18:55:56 UTC against `release/v0.56.0` HEAD `159e7df`. PASS — 15/15 smoke tests + 10/10 rehearsal steps green. Artifacts preserved at `/tmp/deploy-rehearsal-20260503-185556` (rehearsal.log + smoke trace + Playwright HTML report). Re-run is required if tagging slips beyond 72h per `deploy/release-gate-pins.txt`. **First attempt 18:53:09 UTC failed at Step 7 with port 5432 collision because dev-start.sh postgres was up on the host; standard `./dev-start.sh stop` before retry, restart after.**
 
 ---
 
@@ -402,8 +419,13 @@ curl -s https://findabed.org/api/v1/version
 
 ```bash
 docker exec finding-a-bed-tonight-postgres-1 psql -U fabt -d fabt -tAc \
-    "SELECT max(version::int) FROM flyway_schema_history WHERE success=true;"
+    "SELECT version FROM flyway_schema_history
+     WHERE success = true
+     ORDER BY installed_rank DESC LIMIT 1;"
 # Expected: 98
+# Note: ORDER BY installed_rank (not version::int) — versions like
+# V8_1 exist in the migration history and would break the int cast.
+# installed_rank is the monotonic application order Flyway maintains.
 ```
 
 ### V97 — DV-policy backfill verification
@@ -441,6 +463,19 @@ FROM platform_config;"
 #   is_initial_seed = t (no operator has flipped anything yet)
 ```
 
+### Surge-threshold endpoint smoke (login required)
+
+Confirms the new `TemperatureThresholdController` GET + PUT pair (which replaced the removed `/observability` endpoint) actually serves. The `SurgeTemperatureSettings` admin panel reads via this GET — if it 404s, the panel renders broken.
+
+```bash
+# Login as cocadmin@blueridge.fabt.org / dev-coc-west / admin123 (out-of-band token mint), then:
+curl -sS -H "Authorization: Bearer ${COC_ADMIN_JWT}" \
+    https://findabed.org/api/v1/tenants/${TENANT_ID}/surge-threshold
+# Expected: 200 with {"temperature_threshold_f": 32}
+# (32°F is the controller default when the tenant has never set one.
+# Demo tenants ship with 32 from V77 seed; real values may differ.)
+```
+
 ### dv-policy endpoint smoke (login required)
 
 ```bash
@@ -454,7 +489,9 @@ curl -sS -X PATCH -H "Authorization: Bearer ${COC_ADMIN_JWT}" \
     -H "Content-Type: application/json" \
     -d '{"dvPolicyEnabled": true}' \
     https://findabed.org/api/v1/admin/tenants/${TENANT_ID}/dv-policy
-# Expected: 204 (already true after V97 backfill — idempotent re-set).
+# Expected: 200 with body {"tenantId":"<uuid>","dvPolicyEnabled":true}
+# (Idempotent re-set against V97-backfilled-true tenants — the value
+# is unchanged, but the endpoint always returns the current state.)
 ```
 
 ### platform-observability endpoint smoke (SSH tunnel + platform login required)
@@ -468,13 +505,19 @@ curl -sS -H "Authorization: Bearer ${PLATFORM_JWT}" \
 # Expected: 200 + JSON body matching the V98 seed defaults.
 
 # Verify justification is REQUIRED on writes:
-curl -sS -o /dev/null -w "PUT without justification: %{http_code}\n" \
+curl -sS -w "\nHTTP %{http_code}\n" \
     -X PUT -H "Authorization: Bearer ${PLATFORM_JWT}" \
     -H "Content-Type: application/json" \
     -d '{"prometheus_enabled": true}' \
     https://findabed.org/api/v1/platform/observability
-# Expected: 400 (missing X-Platform-Justification — bad_request from
-# JustificationValidationFilter; structured errorCode missing_justification).
+# Expected: 400 with hand-rolled JSON body
+#   {"error":"missing_justification",
+#    "message":"X-Platform-Justification header is required for platform-admin endpoints.",
+#    "status":400}
+# Note: this 400 is written directly by JustificationValidationFilter
+# (NOT routed through the StructuredErrorException → context.errorCode
+# path the other v0.56 endpoints use). The discriminator field is
+# `error` at the top level, NOT `context.errorCode`.
 ```
 
 ### Audit row landed for any platform-obs write performed during gates
@@ -539,6 +582,7 @@ If anyone tests the new admin/platform UI from a browser that was logged in pre-
 - [ ] Archive both spent OpenSpec changes: `/opsx:archive dv-policy-tenant-flag` + `/opsx:archive platform-observability-split`. Sync delta specs into main specs first.
 - [ ] Manual demo walkthrough as cocadmin: admin Settings → DV Shelter Operations panel → toggle (with extra-confirm modal) → save → verify audit row. Confirm the disable-rejection error renders the count + link to filtered Shelters tab when the tenant has active DV shelters.
 - [ ] Manual smoke as platform operator (via SSH tunnel): `/platform` dashboard → Observability category → toggle a Prometheus value or change a monitor interval → confirm the 2-step destructive-confirm modal + per-field audit row + monitor reschedule (interval changes only).
+- [ ] **Keyboard-discoverability spot check** (W3C ARIA APG): on `/platform` dashboard, Tab onto a flag-gated lifecycle action card (e.g. **Suspend tenant** when `fabt.tenant.lifecycle.enabled=false`). Confirm the button receives focus AND announces its disabled state via the `aria-disabled="true"` attribute (verifiable via DevTools Accessibility panel or any AT). The v0.56 change replaced the native `disabled` attribute, which would have removed the button from tab order entirely. Reference: https://www.w3.org/WAI/ARIA/apg/practices/keyboard-interface/#focusabilityofdisabledcontrols.
 - [ ] Verify Prometheus rule count is unchanged from pre-deploy:
   ```bash
   docker exec finding-a-bed-tonight-prometheus-1 wget -qO- http://localhost:9090/api/v1/rules \

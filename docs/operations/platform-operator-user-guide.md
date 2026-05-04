@@ -314,8 +314,9 @@ differently:
 
 - **Toggles** (Prometheus Metrics, OpenTelemetry Tracing) — switch
   control, label state-stable ("Enabled" / "Disabled" reflects the
-  *current* value, not the proposed new one). Aligns with the W3C
-  ARIA APG Switch Pattern.
+  *current* value, not the proposed new one). Aligns with the
+  [W3C ARIA APG Switch Pattern](https://www.w3.org/WAI/ARIA/apg/patterns/switch/)
+  (Space toggles; label state-stable).
 - **Bounded numbers** (Stale Shelter Cadence, DV Canary Cadence,
   Temperature Cadence) — narrow numeric input + "minutes" suffix,
   bounded `1..1440`. Out-of-range values are caught client-side and
