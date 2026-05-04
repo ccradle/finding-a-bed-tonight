@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [v0.56.0] — 2026-05-03 — DV-policy tenant flag + platform-observability split
+## [v0.56.0] — 2026-05-04 — DV-policy tenant flag + platform-observability split
 
 Two openspec changes ship in this release: `dv-policy-tenant-flag` (tenant-scoped acknowledgement that gates per-shelter DV writes) and `platform-observability-split` (move tenant-agnostic observability config from /admin to platform tier). Backend rebuild + frontend rebuild + two new Flyway migrations (V97, V98). The originally-planned `info-email-contact` + GH #67 items did not make this bundle and are deferred to a later release.
 
