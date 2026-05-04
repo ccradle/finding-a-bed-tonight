@@ -184,15 +184,16 @@ The `SurgeTemperatureSettings` admin panel reads via the new GET, NOT the remove
 
 **Operator-comms one-liner** (paste into the post-deploy note to the 3 demo CoC admins so they aren't surprised by missing tabs):
 
-> v0.56 reorganizes the admin tabs. The **Observability** tab is gone — its
-> one CoC-tunable setting (the temperature threshold for surge activation
-> recommendations) has moved to **Admin → Surge** as a new
-> "Surge temperature settings" panel. The other 5 settings on the old tab
-> (Prometheus toggle, OTel tracing toggle + endpoint, monitor cadences for
-> stale-shelter / DV-canary / temperature) were always platform-operator
-> concerns; they now live exclusively on the Platform Operator Dashboard
-> (platform login required). No CoC-side action is needed for v0.56 —
-> the V97 backfill and V98 seed both apply automatically at backend startup.
+> v0.56 reorganizes the admin tabs. The **Observability** tab has been
+> split into two surfaces: its one CoC-tunable setting (the temperature
+> threshold for surge activation recommendations) has moved to
+> **Admin → Surge** as a new "Surge temperature settings" panel. The
+> other 5 settings on the old tab (Prometheus toggle, OTel tracing
+> toggle + endpoint, monitor cadences for stale-shelter / DV-canary /
+> temperature) were always platform-operator concerns and now live
+> exclusively on the Platform Operator Dashboard (platform login
+> required). No CoC-side action is needed for v0.56 — the V97 backfill
+> and V98 seed both apply automatically at backend startup.
 
 ---
 
@@ -262,7 +263,7 @@ The `SurgeTemperatureSettings` admin panel reads via the new GET, NOT the remove
 
 - [ ] **OCI key path mounted on the VM** — backend env has `FABT_OCI_AUDIT_ANCHOR_PRIVATE_KEY_PATH=/etc/fabt/oci/audit-anchor.pem`. Confirm via `docker inspect fabt-backend | grep -i oci_audit_anchor`.
 - [ ] **pg_dump backup** — `docker exec finding-a-bed-tonight-postgres-1 pg_dump -U fabt -d fabt -Fc > ~/fabt-backups/fabt-pre-v0.56.0-$(date -u +%Y%m%d-%H%M%S).dump`. Restore via `pg_restore`, NOT `psql`.
-- [ ] **Git tag + GitHub release published** — `git tag v0.56.0 && git push origin v0.56.0`, then `gh release create v0.56.0 --generate-notes`. Verify with `gh release view v0.56.0`. The deploy MUST checkout the tag, not main HEAD.
+- [x] **Git tag + GitHub release published** — `v0.56.0` tagged 2026-05-03 on main HEAD `88fd0c4` (`Merge pull request #175 from ccradle/release/v0.56.0`); release published at https://github.com/ccradle/finding-a-bed-tonight/releases/tag/v0.56.0. The deploy MUST checkout the tag, not main HEAD.
 - [ ] **SSH access confirmed** — open an SSH session to the VM before starting (`ssh -i ~/.ssh/fabt-oracle ubuntu@${FABT_VM_IP}`).
 - [x] **Local rehearsal PASS** — `make rehearse-deploy` ran 2026-05-03 18:55:56 UTC against `release/v0.56.0` HEAD `159e7df`. PASS — 15/15 smoke tests + 10/10 rehearsal steps green. Artifacts preserved at `/tmp/deploy-rehearsal-20260503-185556` (rehearsal.log + smoke trace + Playwright HTML report). Re-run is required if tagging slips beyond 72h per `deploy/release-gate-pins.txt`. **First attempt 18:53:09 UTC failed at Step 7 with port 5432 collision because dev-start.sh postgres was up on the host; standard `./dev-start.sh stop` before retry, restart after.**
 
@@ -444,6 +445,24 @@ ORDER BY t.slug;"
 # show dv_policy_value = NULL (helper defaults to false on absent).
 ```
 
+**Remediation if 0 tenants flipped:** V97 runs as superuser (no RLS), so
+the only way to get 0 flips is if the prod DB genuinely has no shelters
+with `dv_shelter = true`. Re-running V97 manually is forbidden (Flyway
+forward-only). Two valid responses:
+
+1. **Verify it's a real-zero, not a probe error.** Re-run the same
+   query as the `fabt` owner role (NOT `fabt_app` — RLS would mask DV
+   shelters). If still 0, the DB really has no DV shelters and the
+   pre-deploy expectation was wrong.
+2. **If a future tenant needs the flag set manually**, follow the
+   onboarding sequence in
+   `openspec/changes/dv-policy-tenant-flag/runbook-fragments.md`
+   §"Onboarding sequence for fresh CoCs": create the tenant + COC_ADMIN,
+   have the operator flip the flag via the admin UI before creating any
+   DV shelter (PATCH `/api/v1/admin/tenants/{tenantId}/dv-policy`). Do
+   NOT bypass the controller with raw SQL — the controller's audit row
+   is forensically required per the dv-policy-tenant-flag spec.
+
 ### V98 — platform_config singleton present + seeded
 
 ```bash
@@ -473,7 +492,8 @@ curl -sS -H "Authorization: Bearer ${COC_ADMIN_JWT}" \
     https://findabed.org/api/v1/tenants/${TENANT_ID}/surge-threshold
 # Expected: 200 with {"temperature_threshold_f": 32}
 # (32°F is the controller default when the tenant has never set one.
-# Demo tenants ship with 32 from V77 seed; real values may differ.)
+# Demo tenants ship with 32 from V76 (Blue Ridge) + V77 (Pamlico Sound)
+# seed migrations; real prod values may differ.)
 ```
 
 ### dv-policy endpoint smoke (login required)
@@ -496,7 +516,7 @@ curl -sS -X PATCH -H "Authorization: Bearer ${COC_ADMIN_JWT}" \
 
 ### platform-observability endpoint smoke (SSH tunnel + platform login required)
 
-> **SSH tunnel command + platform-operator credentials are shared in chat at deploy time, NOT committed here** (per `feedback_platform_login_via_ssh_tunnel.md`).
+> **SSH tunnel command + platform-operator credentials are shared in chat at deploy time, NOT committed here** (per `feedback_platform_login_via_ssh_tunnel.md`). Operators new to this flow should reference the v0.54 deploy notes for the SSH-tunnel + MFA login sequence — that runbook documented the activation procedure when the platform UI first shipped.
 
 ```bash
 # After establishing the platform-operator JWT via the SSH tunnel + MFA flow:
@@ -537,11 +557,29 @@ GROUP BY event_type;"
 ### OperationalMonitorService scheduled tasks loaded
 
 ```bash
-docker logs fabt-backend --since 5m 2>&1 | grep -E "OperationalMonitor|configureTasks|stale_interval" | head -10
-# Expected: at least one log line confirming the SchedulingConfigurer
-# bean wired its 3 tasks at startup. The actuator/scheduledtasks
-# endpoint is NOT exposed in the default v0.56 management config; use
-# log-grep as the verification path.
+docker logs fabt-backend --since 5m 2>&1 \
+    | grep -E "Operational monitors registered" | head -5
+# Expected: exactly one INFO line at startup matching:
+#   o.f.observability.OperationalMonitorService : \
+#     Operational monitors registered: stale=Xmin, dv-canary=Ymin, temperature=Zmin
+# (X/Y/Z come from platform_config — should match the V98 seed defaults
+# 5/15/60 unless an operator has flipped them post-deploy.)
+# This is the literal log line emitted by configureTasks() at line 186
+# of OperationalMonitorService.java. The actuator/scheduledtasks endpoint
+# is NOT exposed in the default v0.56 management config; this log line
+# IS the verification.
+```
+
+### Prometheus + tracing posture honors V98 seed
+
+```bash
+# Confirm prometheus_enabled=true (V98 seed) is wired — the JVM-level
+# Prometheus scrape endpoint should respond. The actuator/prometheus
+# endpoint binds to :9091 localhost-only.
+curl -sI http://localhost:9091/actuator/prometheus | head -3
+# Expected: HTTP/1.1 200 OK + Content-Type: text/plain; version=0.0.4
+# A 404 here means prometheus_enabled is false (or the actuator path is
+# misconfigured); a 401/403 means actuator security regressed.
 ```
 
 ### Stale-SW reminder
@@ -582,7 +620,7 @@ If anyone tests the new admin/platform UI from a browser that was logged in pre-
 - [ ] Archive both spent OpenSpec changes: `/opsx:archive dv-policy-tenant-flag` + `/opsx:archive platform-observability-split`. Sync delta specs into main specs first.
 - [ ] Manual demo walkthrough as cocadmin: admin Settings → DV Shelter Operations panel → toggle (with extra-confirm modal) → save → verify audit row. Confirm the disable-rejection error renders the count + link to filtered Shelters tab when the tenant has active DV shelters.
 - [ ] Manual smoke as platform operator (via SSH tunnel): `/platform` dashboard → Observability category → toggle a Prometheus value or change a monitor interval → confirm the 2-step destructive-confirm modal + per-field audit row + monitor reschedule (interval changes only).
-- [ ] **Keyboard-discoverability spot check** (W3C ARIA APG): on `/platform` dashboard, Tab onto a flag-gated lifecycle action card (e.g. **Suspend tenant** when `fabt.tenant.lifecycle.enabled=false`). Confirm the button receives focus AND announces its disabled state via the `aria-disabled="true"` attribute (verifiable via DevTools Accessibility panel or any AT). The v0.56 change replaced the native `disabled` attribute, which would have removed the button from tab order entirely. Reference: https://www.w3.org/WAI/ARIA/apg/practices/keyboard-interface/#focusabilityofdisabledcontrols.
+- [ ] **Keyboard-discoverability spot check** (W3C ARIA APG): on `/platform` dashboard, Tab onto a flag-gated lifecycle action card (e.g. **Suspend tenant** when `fabt.tenant.lifecycle.enabled=false`). Acceptance criteria: (1) the button receives focus on Tab (it is NOT skipped); (2) the DevTools Accessibility panel reports `disabled: true` and `aria-disabled: "true"`; (3) hovering shows the title tooltip "This action is disabled in this deployment. Contact platform engineering to enable."; (4) pressing Enter or Space does NOT trigger the action (click guard at `PlatformActionCard.tsx` line 102 short-circuits). The v0.56 change replaced the native `disabled` attribute, which would have removed the button from tab order entirely. Reference: https://www.w3.org/WAI/ARIA/apg/practices/keyboard-interface/#focusabilityofdisabledcontrols.
 - [ ] Verify Prometheus rule count is unchanged from pre-deploy:
   ```bash
   docker exec finding-a-bed-tonight-prometheus-1 wget -qO- http://localhost:9090/api/v1/rules \
