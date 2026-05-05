@@ -159,4 +159,39 @@ public class Tenant {
             return false;
         }
     }
+
+    /**
+     * Reads {@code tenant.config.contact.email} from a tenant config JSONB
+     * string. Returns {@code null} on absent key, malformed JSON, non-textual
+     * value, or null/blank input. Mirrors {@link #isDvPolicyEnabled}'s
+     * conservative-on-failure posture: an unreadable config row resolves to
+     * "no override" rather than throwing, which is the safe default — the
+     * frontend then falls back to the platform default.
+     *
+     * <p>Static + parameterized rather than instance-state for the same
+     * reason as {@code isDvPolicyEnabled}: Tenant is a Spring Data JDBC
+     * entity with no Jackson dependency; the ObjectMapper is threaded
+     * through from the calling controller / service.
+     *
+     * <p>Extracted from controller-private helpers so
+     * {@code ContactEmailController} (audit old_value capture) and
+     * {@code ContactInfoController} (read-endpoint response body) share
+     * one source of truth — info-email-contact §4 warroom round 1 M2-Sam.
+     */
+    public static String readContactEmail(JsonString config, ObjectMapper objectMapper) {
+        if (config == null || config.value() == null || config.value().isBlank()) {
+            return null;
+        }
+        try {
+            JsonNode root = objectMapper.readTree(config.value());
+            JsonNode contact = root.get("contact");
+            if (contact == null || !contact.isObject()) {
+                return null;
+            }
+            JsonNode email = contact.get("email");
+            return (email != null && email.isTextual()) ? email.asText() : null;
+        } catch (JacksonException e) {
+            return null;
+        }
+    }
 }

@@ -142,6 +142,14 @@ resilience4j:
 
 fabt:
   deployment-tier: ${FABT_DEPLOYMENT_TIER:lite}
+  platform:
+    # Public contact email for the FABT project team. Set via env var
+    # FABT_PLATFORM_CONTACT_EMAIL on prod (~/fabt-secrets/.env.prod) and dev
+    # operator-local env. Empty string here means "not configured" — the
+    # /api/v1/public/contact-info endpoint returns the empty value and the
+    # static-site /contact.js falls back to the GH-issues link. Same anti-leak
+    # posture as feedback_no_ip_in_repo: the literal address never enters git.
+    contact-email: ${FABT_PLATFORM_CONTACT_EMAIL:}
   jwt:
     # 60 minutes for dev/test (Playwright suites take 8-10 min).
     # Production should override to 15 via FABT_JWT_ACCESS_TOKEN_EXPIRY_MINUTES env var.
@@ -259,3 +267,24 @@ bucket4j:
             - capacity: 5
               time: 1
               unit: hours
+    # Per-IP throttle on the public contact-info read endpoint
+    # (info-email-contact §4.4). Anonymous-friendly (no auth header to scope on)
+    # so per-IP is the only natural key. 60/min is generous: the frontend
+    # ContactInfoProvider fetches once on mount and refetches on auth-state
+    # transition (§5.3) — far below 60/min for any legitimate session.
+    # The static-site /contact.js (§6) ALSO calls this endpoint on every page
+    # load that hydrates the footer; 60/min lets a single visitor flip through
+    # ~60 pages a minute without 429ing. A bot scraping the email at higher
+    # cadence is the threat model.
+    - cache-name: rate-limit-public-contact-info
+      url: /api/v1/public/contact-info
+      http-response-body: '{"error":"rate_limited","message":"Too many contact-info requests from this address. Try again later.","status":429}'
+      http-content-type: application/json
+      rate-limits:
+        # X-Real-IP-aware cache key per Marcus warroom B1 fix from
+        # dv-referral-create above.
+        - cache-key: "getHeader('X-Real-IP') != null and !getHeader('X-Real-IP').isBlank() ? getHeader('X-Real-IP') : getRemoteAddr()"
+          bandwidths:
+            - capacity: 60
+              time: 1
+              unit: minutes

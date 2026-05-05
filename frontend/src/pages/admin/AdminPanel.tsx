@@ -3,7 +3,7 @@ import { FormattedMessage } from 'react-intl';
 import { useLocation } from 'react-router-dom';
 import { color } from '../../theme/colors';
 import { text, weight } from '../../theme/typography';
-import { DvPolicySettings, ReservationSettings, Spinner, TabErrorBoundary } from './components';
+import { ContactSettings, DvPolicySettings, ReservationSettings, Spinner, TabErrorBoundary } from './components';
 import type { TabKey } from './types';
 
 // Lazy-load all tabs — each becomes a separate Vite chunk.
@@ -110,6 +110,9 @@ export function AdminPanel() {
 
       {/* DV Policy Settings (tenant-wide, always visible — dv-policy-tenant-flag 2026-05-02) */}
       <DvPolicySettings />
+
+      {/* Contact Email Settings (tenant-wide, always visible — info-email-contact §5.7) */}
+      <ContactSettings />
 
       {/* Tab bar — W3C APG Tabs pattern (WCAG 2.1.1) */}
       <div

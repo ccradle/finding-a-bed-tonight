@@ -2,6 +2,7 @@ import { useState, useEffect, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FormattedMessage, useIntl } from 'react-intl';
 import { useAuth } from '../auth/useAuth';
+import { useContactInfo } from '../contact/useContactInfo';
 import { getDefaultRouteForRoles } from '../auth/AuthGuard';
 import { text, weight } from '../theme/typography';
 import { color } from '../theme/colors';
@@ -23,6 +24,12 @@ interface LoginResponse {
 
 export function LoginPage() {
   const { login, isAuthenticated, user } = useAuth();
+  // info-email-contact §5.4 — anonymous footer surfaces the platform
+  // contact email so a stuck operator can email the project team
+  // without leaving the login screen. resolvedEmail is null when
+  // unconfigured OR when the fetch fails; that's the GH-issues-link
+  // fallback case (rendered below as a localized link).
+  const { resolvedEmail: contactEmail } = useContactInfo();
   const navigate = useNavigate();
   const intl = useIntl();
 
@@ -490,6 +497,31 @@ export function LoginPage() {
                 </button>
               );
             })}
+          </div>
+        )}
+        {/* info-email-contact §5.4 — anonymous contact-email surface so
+            an operator stuck at login can reach the project team. The
+            mailto link uses the resolved email; if useContactInfo() is
+            still loading or failed (resolvedEmail null), nothing renders
+            and the static-site /contact.js + GH-issues fallback (§6) is
+            available on every other page. */}
+        {contactEmail && (
+          <div
+            data-testid="login-contact-email"
+            style={{
+              marginTop: '16px',
+              fontSize: text.xs,
+              color: color.textMuted,
+              textAlign: 'center',
+            }}
+          >
+            <FormattedMessage id="login.contactEmail.prefix" />{' '}
+            <a
+              href={`mailto:${contactEmail}`}
+              style={{ color: color.primary, textDecoration: 'underline' }}
+            >
+              {contactEmail}
+            </a>
           </div>
         )}
         {appVersion && (

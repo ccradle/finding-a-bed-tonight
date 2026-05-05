@@ -171,6 +171,88 @@ public class TenantService {
      * @param value new value (caller pre-validated and pre-checked the disable-path constraint)
      * @return updated Tenant
      */
+    /**
+     * Partial config update for {@code tenant.config.contact.email}
+     * (info-email-contact OpenSpec change, task 3.3). Reads the existing
+     * config, sets the nested {@code contact.email} key, writes back —
+     * preserves any other top-level keys ({@code hold_duration_minutes},
+     * {@code dv_policy_enabled}, {@code dv_address_visibility},
+     * {@code features.reentryMode}, {@code active_counties}) and any other
+     * keys under {@code contact} (in case future contact-method fields are
+     * added) without clobbering them.
+     *
+     * <p><b>Empty / null semantics:</b> a null or blank input clears the
+     * key by removing {@code contact.email} from the JSONB. If the
+     * {@code contact} object is empty afterwards, the {@code contact} key
+     * itself is also removed (cleanest persisted state — readers can rely
+     * on "key present implies non-empty value"). A subsequent
+     * {@code GET /tenant/config} returns no {@code contact.email} key at
+     * all, signaling the operator inherits the platform-default email.
+     *
+     * <p><b>JSON key casing:</b> {@code contact.email} both written and read
+     * in lowercase. The DTO field stays {@code email} (camelCase, single word),
+     * matching the JSONB key 1:1 — no rename needed at this boundary.
+     *
+     * <p><b>Validation:</b> caller (controller) is responsible for format
+     * validation (Bean Validation @Email + @Size at the boundary) AND for
+     * the DV-policy guard ("non-empty forbidden when dv_policy_enabled=true").
+     * This service trusts the caller. The DV-policy guard is NOT enforced
+     * here because it requires reading the same row this method is about to
+     * write — better to centralize that check at the controller where the
+     * structured error code + audit emission already live.
+     *
+     * @param id tenant id
+     * @param email new email value; null or blank clears the key
+     * @return updated Tenant
+     */
+    @Transactional
+    public Tenant setContactEmail(UUID id, String email) {
+        Tenant tenant = tenantRepository.findById(id)
+                .orElseThrow(() -> new NoSuchElementException("Tenant not found: " + id));
+
+        try {
+            Map<String, Object> config;
+            if (tenant.getConfig() != null && tenant.getConfig().value() != null
+                && !tenant.getConfig().value().isBlank()) {
+                config = new java.util.HashMap<>(
+                    objectMapper.readValue(tenant.getConfig().value(),
+                        new tools.jackson.core.type.TypeReference<Map<String, Object>>() {}));
+            } else {
+                config = new java.util.HashMap<>();
+            }
+
+            // Read or initialize the contact subtree without clobbering any
+            // sibling keys a future feature might add (e.g. contact.phone).
+            // Cast is safe because Jackson's TypeReference<Map<String, Object>>
+            // produces String keys at deserialization time — non-String JSON
+            // keys cannot reach here. Mirrors the cast pattern used in
+            // setHoldDurationMinutes / setDvPolicyEnabled above.
+            @SuppressWarnings("unchecked")
+            Map<String, Object> contact = config.get("contact") instanceof Map<?, ?> existing
+                    ? new java.util.HashMap<>((Map<String, Object>) existing)
+                    : new java.util.HashMap<>();
+
+            if (email == null || email.isBlank()) {
+                contact.remove("email");
+            } else {
+                contact.put("email", email);
+            }
+
+            if (contact.isEmpty()) {
+                config.remove("contact");
+            } else {
+                config.put("contact", contact);
+            }
+
+            String configJson = objectMapper.writeValueAsString(config);
+            tenant.setConfig(JsonString.of(configJson));
+            tenant.setUpdatedAt(Instant.now());
+            return tenantRepository.save(tenant);
+        } catch (JacksonException e) {
+            throw new IllegalStateException("Failed to merge contact.email into tenant.config", e);
+        }
+    }
+
     @Transactional
     public Tenant setDvPolicyEnabled(UUID id, boolean value) {
         Tenant tenant = tenantRepository.findById(id)
