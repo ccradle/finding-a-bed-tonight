@@ -5,6 +5,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.57.1] — 2026-05-05 — Hotfix for v0.57.0 deploy abort
+
+**Release class: hotfix.** No spec, no code, no migration changes vs v0.57.0. Backend rebuild required (pom.xml bump baked into MANIFEST.mf); frontend image retagged from v0.57.0 (bundle bytes identical).
+
+The v0.57.0 deploy on 2026-05-05 ~11:21 UTC reached the `--force-recreate` step and produced two simultaneous post-deploy failures: the version endpoint reported `0.56` (the new code was running but the JAR's `Implementation-Version` was 0.56.0) and the new `FABT_PLATFORM_CONTACT_EMAIL` env var was absent inside the container. Site was rolled back to v0.56-lastgood images per runbook §7 within ~5 minutes (no user-visible breakage on the dynamic surface; static-site footers fell back to GitHub-Issues link as the documented degraded-but-safe state).
+
+### Fixed
+
+- **`backend/pom.xml` 0.56.0 → 0.57.1** (skipping 0.57.0 to avoid republishing the broken tag). The v0.57.0 §4 pre-deploy gate "pom.xml version bumped" was checklisted but never executed; cutting the v0.57.0 tag from a pom that still read 0.56.0 produced a JAR with the wrong version embedded in `META-INF/MANIFEST.MF` → `/api/v1/version` silently lied.
+- **`~/fabt-secrets/docker-compose.prod.yml`** (operator-managed, NEVER in git): added `FABT_PLATFORM_CONTACT_EMAIL: ${FABT_PLATFORM_CONTACT_EMAIL}` line to the `backend.environment:` block, between `FABT_DEPLOYMENT_TIER` and `MANAGEMENT_SERVER_ADDRESS`. Compose `--env-file` only handles compose-file variable interpolation; container env-var injection requires explicit `KEY: ${KEY}` mappings under `environment:` (or an `env_file:` directive). Adding the var only to `.env.prod` was a silent no-op. The diff is preserved as `~/fabt-secrets/docker-compose.prod.yml.pre-platform-contact-email-20260505-113009`.
+
+### Process gaps surfaced
+
+- **Rehearsal harness blindspot.** `make rehearse-deploy` exercises the dev `docker-compose.yml` env block (which has no explicit `FABT_*` mappings — bind-by-default for the dev stack), so a new var added only to the prod `~/fabt-secrets/docker-compose.prod.yml` is not eligible for rehearsal verification at all. Rehearsal returned `REHEARSAL PASS — safe to tag` for v0.57.0 because backend started + smoke specs passed; the gap is that "started" is a strictly weaker assertion than "started with the new env var visible to application code". Captured in `feedback_rehearsal_must_test_new_env_vars.md`.
+- **Pre-deploy §4 gate-as-checklist vs gate-as-runnable-command.** The pom.xml-bump gate is currently a `[ ]` operator-trust checkbox, not a command whose exit code blocks deploy. v0.57.1 follow-up: rewrite §4 gates to be runnable assertions.
+
+### Operational impact
+
+- Deploy abort + rollback was clean. Pre-deploy `pg_dump` backup at `~/fabt-backups/fabt-pre-v0.57.0-20260505-111649.dump` was untouched (no migration). Static-site footers were already serving the v0.57 markup with `/contact.js`; during the 5-minute v0.57 backend window + the rollback window, hydration silently fell back to the GitHub-Issues link (intended behavior — see runbook §5.0).
+- Secret leak — operator inspection during diagnosis used `docker inspect ... .Config.Env` which dumps the whole container env, exposing `FABT_JWT_SECRET`, `FABT_DB_*_PASSWORD`, `FABT_ENCRYPTION_KEY` to the operator session log. Per `feedback_never_print_rendered_secrets.md`, those credentials are queued for rotation (not in this release; tracked separately).
+
+### v0.57.1 deploy summary
+
+- Tagged 2026-05-05 ~11:31 UTC at main HEAD `5a820b3`; release: https://github.com/ccradle/finding-a-bed-tonight/releases/tag/v0.57.1.
+- Backend rebuilt + recreated from v0.57.1; frontend retagged from v0.57.0 (no bundle change).
+- Post-deploy verification (added: explicit `docker exec env | grep FABT_PLATFORM_CONTACT_EMAIL` assertion BEFORE declaring success): version `0.57` ✓, env passthrough ✓, startup log "platform contact email configured: present" ✓, `/api/v1/public/contact-info` returns expected JSON with correct Cache-Control split ✓, all 14 static pages return ≥1 placeholder ✓, bot-UA email-leak scan clean ✓.
+- Cloudflare Purge Everything completed post-deploy.
+
+---
+
 ## [v0.57.0] — 2026-05-05 — Per-tenant + platform contact email (info-email-contact)
 
 One openspec change ships in this release: `info-email-contact`. Backend rebuild + frontend rebuild + 14 modified static HTML pages (in the docs repo) + new `/contact.js` asset (also docs repo). **No Flyway migration** — Flyway HWM remains at `V98` (per-tenant email reuses the existing `tenant.config` JSONB column under a new `contact.email` sub-key). The deferred items from v0.56 (`issue-reporting-feedback` GH #67, `opsx-runbook-draft-skill`, `ci-runbook-consulted-check`) remain on the v0.57.1 / v0.57.2 backlog.
