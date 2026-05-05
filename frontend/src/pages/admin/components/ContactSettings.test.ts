@@ -72,7 +72,7 @@ describe('parseContactEmailError', () => {
     });
 
     it('returns generic for ApiError with empty-string detail (treats as no detail)', () => {
-        // Defensive: an empty detail string is functionally equivalent to
+        // Defensive: an empty detail string should behave the same as
         // no detail at all; the parser should NOT surface "" as a
         // beanValidation message because the UI would render an empty
         // banner that confuses the operator.

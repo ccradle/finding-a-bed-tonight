@@ -224,7 +224,7 @@ public class TenantService {
             // Read or initialize the contact subtree without clobbering any
             // sibling keys a future feature might add (e.g. contact.phone).
             // Cast is safe because Jackson's TypeReference<Map<String, Object>>
-            // guarantees String keys at deserialization time — non-String JSON
+            // produces String keys at deserialization time — non-String JSON
             // keys cannot reach here. Mirrors the cast pattern used in
             // setHoldDurationMinutes / setDvPolicyEnabled above.
             @SuppressWarnings("unchecked")
