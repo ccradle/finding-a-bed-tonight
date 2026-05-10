@@ -12,6 +12,8 @@ import java.util.UUID;
 
 import org.fabt.BaseIntegrationTest;
 import org.fabt.TestAuthHelper;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.search.Search;
 import org.fabt.referral.service.ReferralTokenPurgeService;
 import org.fabt.reservation.repository.ReservationRepository;
 import org.fabt.reservation.service.ReservationService;
@@ -19,6 +21,7 @@ import org.fabt.shared.security.CrossTenantCiphertextException;
 import org.fabt.shared.security.EncryptionEnvelope;
 import org.fabt.shared.security.KeyPurpose;
 import org.fabt.shared.security.SecretEncryptionService;
+import org.fabt.shared.web.TenantContext;
 import org.fabt.shelter.api.ShelterResponse;
 import org.fabt.testsupport.WithTenantContext;
 import org.junit.jupiter.api.BeforeEach;
@@ -71,6 +74,7 @@ class HoldAttributionIntegrationTest extends BaseIntegrationTest {
     @Autowired private ReservationService reservationService;
     @Autowired private ReferralTokenPurgeService referralTokenPurgeService;
     @Autowired private SecretEncryptionService encryptionService;
+    @Autowired private MeterRegistry meterRegistry;
 
     private UUID tenantId;
     private UUID shelterId;
@@ -784,6 +788,60 @@ class HoldAttributionIntegrationTest extends BaseIntegrationTest {
         assertThat(after.get("notes_enc"))
                 .as("@Scheduled entry must null notes ciphertext for an aged row")
                 .isNull();
+    }
+
+    @Test
+    @DisplayName("GH #177 @Scheduled purgeExpiredHoldAttribution binds SYSTEM_TENANT_ID explicitly "
+            + "(no fabt.audit.system_insert.count fallback)")
+    void scheduledEntryPoint_doesNotIncrementSystemFallbackCounter() {
+        // GH #177 regression guard. Pre-fix, ReferralTokenPurgeService:111
+        // wrapped in runWithContext(TenantContext.getTenantId(), ...) where
+        // getTenantId() is null on the scheduler thread → tenantId=null bound
+        // → downstream RESERVATION_PII_PURGED audit row hit the SYSTEM_TENANT_ID
+        // FALLBACK path in AuditEventService.onAuditEvent → counter
+        // fabt.audit.system_insert.count{action=RESERVATION_PII_PURGED}
+        // incremented on every invocation → FabtPhaseBSystemTenantFallback
+        // alert fired at ~1 event per 14.7 min on prod 2026-05-05.
+        //
+        // Fix binds TenantContext.SYSTEM_TENANT_ID explicitly; the audit row
+        // still lands under the SYSTEM tenant (legitimate platform-scope
+        // action) but via the explicit-bind path, so the counter stays flat.
+        // The counter is the canonical fallback signal — asserting on
+        // tenant_id alone is insufficient because both the bug state AND the
+        // fix state produce tenant_id=SYSTEM_TENANT_ID rows. Only the counter
+        // distinguishes them.
+        double counterBefore = systemInsertCounterValue("RESERVATION_PII_PURGED");
+
+        // Call the @Scheduled entry from outside any TenantContext — exactly
+        // what Spring's TaskScheduler does in production.
+        referralTokenPurgeService.purgeExpiredHoldAttribution();
+
+        double counterAfter = systemInsertCounterValue("RESERVATION_PII_PURGED");
+        assertThat(counterAfter - counterBefore)
+                .as("Scheduled purge MUST bind SYSTEM_TENANT_ID explicitly so the audit "
+                    + "row writes via the explicit-bind path, NOT the fallback path. If this "
+                    + "increments, the GH #177 regression is back and the FabtPhaseBSystemTenantFallback "
+                    + "alert will fire on prod within 30 min of next deploy.")
+                .isEqualTo(0.0);
+
+        // Defense-in-depth: the row IS expected to land with tenant_id=SYSTEM_TENANT_ID
+        // (the action is legitimately platform-scope), so confirm it landed there
+        // via the explicit-bind path the counter assertion just proved.
+        Integer matchingRows = WithTenantContext.readAsSystem(() -> jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM audit_events "
+                + "WHERE action = 'RESERVATION_PII_PURGED' AND tenant_id = ?::uuid",
+                Integer.class, TenantContext.SYSTEM_TENANT_ID));
+        assertThat(matchingRows)
+                .as("at least one RESERVATION_PII_PURGED row must exist under SYSTEM_TENANT_ID")
+                .isGreaterThanOrEqualTo(1);
+    }
+
+    private double systemInsertCounterValue(String action) {
+        Search search = meterRegistry.find("fabt.audit.system_insert.count").tag("action", action);
+        if (search.counter() == null) {
+            return 0.0;
+        }
+        return search.counter().count();
     }
 
     @Test
