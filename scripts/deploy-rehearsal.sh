@@ -317,6 +317,79 @@ done
 
 [[ $FAIL -eq 1 ]] && { echo -e "${RED}REHEARSAL FAIL — DO NOT TAG${NC} (gate: $FAIL_GATE) — artifacts: $ARTIFACT_DIR" >&2; exit 1; }
 
+# ── Step 8.6: Version match (catches v0.57.0 issue: pom not bumped on tag) ────
+# /api/v1/version returns major.minor (VersionController strips patch). The
+# value comes from BuildProperties → META-INF/build-info.properties → pom.xml
+# at mvn-package time. If the operator forgets to bump pom.xml on a release
+# tag, the JAR ships with the prior version baked in and prod silently runs
+# the wrong version. Rehearsal MUST refuse to greenlight that state.
+log "=== Step 8.6: Version-match assertion (pom.xml vs /api/v1/version) ==="
+EXPECTED_MAJOR_MINOR=$(grep -m1 -E '^    <version>' "$REPO_ROOT/backend/pom.xml" \
+    | sed -E 's|.*<version>([0-9]+\.[0-9]+).*|\1|')
+if [[ -z "$EXPECTED_MAJOR_MINOR" || ! "$EXPECTED_MAJOR_MINOR" =~ ^[0-9]+\.[0-9]+$ ]]; then
+    fail "VERSION_PARSE" "Could not parse major.minor from backend/pom.xml <version> line"
+else
+    ACTUAL_VERSION=$(curl -sf "http://localhost:18080/api/v1/version" 2>/dev/null \
+        | jq -r '.version // empty' 2>/dev/null || true)
+    if [[ -z "$ACTUAL_VERSION" ]]; then
+        fail "VERSION_FETCH" "/api/v1/version returned empty/missing version field"
+    elif [[ "$ACTUAL_VERSION" != "$EXPECTED_MAJOR_MINOR" ]]; then
+        fail "VERSION_MISMATCH" \
+            "/api/v1/version returned '${ACTUAL_VERSION}' but pom.xml says '${EXPECTED_MAJOR_MINOR}' — pom not bumped before tag (v0.57.0 abort cause #1)"
+    else
+        ok "Version endpoint matches pom.xml ($ACTUAL_VERSION)"
+    fi
+fi
+
+[[ $FAIL -eq 1 ]] && { echo -e "${RED}REHEARSAL FAIL — DO NOT TAG${NC} (gate: $FAIL_GATE) — artifacts: $ARTIFACT_DIR" >&2; exit 1; }
+
+# ── Step 8.7: Env-var passthrough (catches v0.57.0 issue: missing env mapping) ─
+# .env.rehearsal sets a value, the prod-overlay's `environment:` block maps it
+# into the container, and `docker exec env` proves it reached the JVM. The
+# v0.57.0 abort happened because FABT_PLATFORM_CONTACT_EMAIL was added to
+# .env.prod but NOT to the prod compose's environment: block — the container
+# never saw it (compose --env-file controls INTERPOLATION, not container env).
+# Rehearsal now derives the required-set from the rehearsal compose itself,
+# so any drift between "configured" and "passed through" trips this gate.
+log "=== Step 8.7: Env-passthrough assertion (compose env block → container env) ==="
+BACKEND_CONTAINER="$(docker ps --filter "name=fabt-rehearsal-backend" --format '{{.Names}}' | head -1)"
+if [[ -z "$BACKEND_CONTAINER" ]]; then
+    fail "ENV_PASSTHROUGH_NO_CONTAINER" "Could not find rehearsal backend container"
+else
+    # Extract FABT_* keys from the rehearsal compose's backend env block.
+    # Pattern: lines indented 6 spaces under `services.backend.environment:`,
+    # form `FABT_X: ${...}`. Stop at next service or top-level key.
+    REHEARSAL_FABT_KEYS=$(awk '
+        /^  backend:/ {in_backend=1; next}
+        in_backend && /^  [a-z]/ {in_backend=0; in_env=0}
+        in_backend && /^    environment:/ {in_env=1; next}
+        in_backend && in_env && /^    [a-z]/ {in_env=0}
+        in_env && /^      FABT_[A-Z_]+:/ {match($0, /FABT_[A-Z_]+/); print substr($0, RSTART, RLENGTH)}
+    ' "$REPO_ROOT/deploy/rehearsal-prod-overlay.yml" | sort -u)
+    if [[ -z "$REHEARSAL_FABT_KEYS" ]]; then
+        fail "ENV_PASSTHROUGH_PARSE" "Could not extract FABT_* keys from rehearsal-prod-overlay.yml backend env block"
+    else
+        log "  Asserting $(echo "$REHEARSAL_FABT_KEYS" | wc -l | tr -d ' ') FABT_* vars reach the container..."
+        CONTAINER_ENV=$(docker exec "$BACKEND_CONTAINER" env 2>>"$LOG" | grep '^FABT_' | sort)
+        echo "$CONTAINER_ENV" > "$ARTIFACT_DIR/container-env.txt"
+        MISSING_VARS=""
+        while IFS= read -r key; do
+            [[ -z "$key" ]] && continue
+            if ! echo "$CONTAINER_ENV" | grep -q "^${key}="; then
+                MISSING_VARS="${MISSING_VARS}${key} "
+            fi
+        done <<< "$REHEARSAL_FABT_KEYS"
+        if [[ -n "$MISSING_VARS" ]]; then
+            fail "ENV_PASSTHROUGH_MISSING" \
+                "Vars in rehearsal compose env block but absent from backend container: $MISSING_VARS — fix rehearsal compose mapping AND prod compose chain (v0.57.0 abort cause #2)"
+        else
+            ok "All FABT_* env vars from rehearsal compose reach the container"
+        fi
+    fi
+fi
+
+[[ $FAIL -eq 1 ]] && { echo -e "${RED}REHEARSAL FAIL — DO NOT TAG${NC} (gate: $FAIL_GATE) — artifacts: $ARTIFACT_DIR" >&2; exit 1; }
+
 # ── Step 8.5: Load dev seed data (mirrors dev-start.sh behavior) ─────────────
 # seed-data.sql creates the dev-coc tenant + @dev.fabt.org users with admin123.
 # These are NOT in Flyway migrations (they're dev/demo-only seed data loaded
