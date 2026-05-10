@@ -5,6 +5,40 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.57.2] — planned (drafted 2026-05-10) — Backend patch: SYSTEM_TENANT bind + SSE cleanup race + rehearsal hardening
+
+**Release class: backend-only patch.** No spec changes, no Flyway migrations (HWM stays at V98), no env-var additions, no frontend bundle change. Frontend container is recreated only to refresh docker-network coupling per the standard backend-rebuild matrix. Three small fixes roll up; none are user-visible behavior changes.
+
+### Fixed
+
+- **`ReferralTokenPurgeService.purgeExpiredHoldAttribution`** (#178, closes GH #177) — bind `TenantContext.SYSTEM_TENANT_ID` explicitly. The pre-fix `runWithContext(TenantContext.getTenantId(), true, ...)` from a `@Scheduled` thread received `null` for `getTenantId()` (no request context bound), so the downstream `RESERVATION_PII_PURGED` audit row hit the SYSTEM_TENANT fallback path in `AuditEventService.onAuditEvent`. The row landed correctly under the SYSTEM sentinel — but via fallback, which increments `fabt_audit_system_insert_count_total` and trips the `FabtPhaseBSystemTenantFallback` warning alert (firing on prod since 2026-05-05 12:04 UTC). Action is legitimately platform-scope (one summary row per scheduled invocation), so SYSTEM_TENANT_ID is the correct binding. Regression test in `HoldAttributionIntegrationTest#scheduledEntryPoint_doesNotIncrementSystemFallbackCounter` asserts the canonical fallback signal (counter delta = 0 across the @Scheduled invocation). Sweep verified 3 sibling sites (`ReferralTokenService.fabtDvReferralPendingGauge` — read-only SELECT; `ReferralTokenService.expireTokens` — Marcus M4 documented intentional, only DomainEvents emitted; `ReferralTokenPurgeService.purgeTerminalTokens` — hard-DELETE per VAWA, no audit row by design); only the `purgeExpiredHoldAttribution` emitter site needed the fix.
+- **`NotificationService` SSE emitter cleanup race** (#179) — value-conditional cleanup via `ConcurrentHashMap.remove(key, value)`. Pre-fix the per-emitter `Runnable cleanup` closure called `emitters.remove(userId)` by KEY only. On reconnect, the previous emitter's `complete()` scheduled its `onCompletion` to fire async via Spring's DeferredResult lifecycle. If `register()` re-entered and put a new entry under the same key BEFORE that stale callback fired, the callback would still `remove(userId)` — evicting the newer entry. The next `pushNotification(userId, ...)` then silently no-op'd (entry == null path), the catch-up never delivered, and `SseNotificationIntegrationTest.sseCatchupDeliversUnreadNotifications` timed out at exactly 5.020s in CI. Memory `project_sse_catchup_severity_order_flake.md` had the wrong test name + wrong root-cause hypothesis (corrected post-fix). Regression test in `SseStabilityTest#test_staleCleanupCallback_doesNotEvictNewerEmitter` exercises the bug deterministically — no async timing dependency.
+
+### Process
+
+- **Rehearsal harness gates** (#180) — closes the v0.57.0 abort gap. Two new fail-fast gates in `scripts/deploy-rehearsal.sh`:
+  - **Step 8.1 — `assert_version_match`**: `/api/v1/version` major.minor must equal `backend/pom.xml`'s `<version>` major.minor. If pom is not bumped on a release tag, the JAR ships with the prior version baked into MANIFEST.MF and the version endpoint silently lies (v0.57.0 cause #1).
+  - **Step 8.2 — `assert_env_passthrough`**: parse FABT_* keys from the rehearsal compose's `backend.environment:` block, then `docker exec env` to assert each one reaches the running container. Catches the v0.57.0 cause #2 — adding a var to `.env.prod` without the corresponding `environment:` mapping (compose `--env-file` controls interpolation, not container env).
+- **Rehearsal config drift backfill**: `FABT_PLATFORM_CONTACT_EMAIL` was missing from `deploy/rehearsal-prod-overlay.yml` AND `deploy/rehearsal.env.example`, even though it had been added to `~/fabt-secrets/docker-compose.prod.yml` during v0.57.1 recovery. The pre-fix rehearsal harness was rubber-stamping the same broken state we hit on prod. Now mirrored.
+- **Memory correction**: `project_sse_catchup_severity_order_flake.md` rewritten with corrected ground-truth diagnosis (the 5-day-old memory cited the wrong test, leading to a wrong fix hypothesis). Lessons section added: stack traces from passing tests aren't failures; verify against current CI logs before acting.
+- **Verification** — `make rehearse-deploy` validated end-to-end against this branch in two `REHEARSAL PASS` runs on 2026-05-10: (a) initial run before the renumber commit `45bb745` (gates fired under `8.6/8.7` labels — `/tmp/deploy-rehearsal-20260510-140105/`); (b) post-pom-bump re-run with renumbered labels firing as `Step 8.1` and `Step 8.2` (`/tmp/deploy-rehearsal-20260510-145518/`). All 10 steps + 13/15 Playwright smoke green in both runs (2 expected non-prod skips). Bash syntax + awk parser + version regex sanity-checked separately.
+
+### Not changed
+
+- **Flyway HWM**: V98. No new migrations.
+- **Env vars**: no new FABT_* on prod. The `FABT_PLATFORM_CONTACT_EMAIL` mapping in `~/fabt-secrets/docker-compose.prod.yml` (added DURING the v0.57.0→v0.57.1 hotfix sequence on 2026-05-05 to recover from the abort, not before it) stays. Verified 2026-05-10 against VM: container has 22 FABT_* vars; the prod compose backend env block lists 14 explicit FABT_* keys (the others are derived from FABT_DB_* into SPRING_DATASOURCE_*).
+- **Frontend bundle**: byte-identical to v0.57.1 (no `npm run build`). Container recreated only to refresh docker-network ARP per standard backend-rebuild matrix.
+- **Static content** (`/var/www/findabed-docs/`): no scp step.
+- **Compose chain**: same 4 files, same line counts, no edits.
+
+### Operational impact
+
+- After deploy, the `FabtPhaseBSystemTenantFallback` alert auto-resolves within ~30 min (one purge cycle on the 15-min `fixedDelay` schedule + alert's `for: 15m` clause).
+- No data backfill; existing `RESERVATION_PII_PURGED` rows remain under `tenant_id = SYSTEM_TENANT_ID` (correct per design — platform-scope action).
+- Rollback path: simple image-only retag to `v0.57.1-lastgood` (created at deploy §5.1). Forward-compatible — V98 schema is identical.
+
+---
+
 ## [v0.57.1] — 2026-05-05 — Hotfix for v0.57.0 deploy abort
 
 **Release class: hotfix.** No spec, no code, no migration changes vs v0.57.0. Backend rebuild required (pom.xml bump baked into MANIFEST.mf); frontend image retagged from v0.57.0 (bundle bytes identical).
