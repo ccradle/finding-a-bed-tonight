@@ -96,38 +96,28 @@ public class NotificationService {
         }
 
         SseEmitter emitter = new SseEmitter(EMITTER_TIMEOUT_MS);
+        EmitterEntry myEntry = new EmitterEntry(emitter, userId, tenantId, roles, dvAccess);
 
-        // Idempotent cleanup — Spring may fire onCompletion after onTimeout/onError,
-        // so cleanup can be called multiple times per emitter. Only decrement the gauge once.
-        Runnable cleanup = () -> {
-            if (emitters.remove(userId) != null) {
-                activeConnections.decrementAndGet();
-                log.debug("SSE emitter removed for user {}", userId);
-            }
-        };
-
-        // Spring #33421/#33340: register all three callbacks to prevent deadlock and leaks.
-        // Callbacks must be idempotent — heartbeat/sendEvent may have already removed the
-        // emitter from the map before these callbacks fire asynchronously (Design D5).
-        emitter.onCompletion(() -> {
-            if (emitters.containsKey(userId)) {
-                cleanup.run();
-            }
-        });
+        // Spring #33421/#33340: register all three callbacks to prevent deadlock and
+        // leaks. Each callback dispatches into removeEmitterIfMatches(userId, myEntry),
+        // which uses ConcurrentHashMap.remove(key, value) so a STALE callback (firing
+        // after a newer emitter has been registered for the same userId on reconnect)
+        // is a no-op rather than evicting the newer entry. This was the root cause of
+        // the SseCatchupDeliversUnreadNotifications flake: emitter1.complete()
+        // scheduled onCompletion async; before it fired, register() re-entered and
+        // put emitter2 under the same key; emitter1's stale callback then removed
+        // emitter2 by key, breaking catch-up delivery.
+        emitter.onCompletion(() -> removeEmitterIfMatches(userId, myEntry));
         emitter.onTimeout(() -> {
             log.warn("SSE emitter timed out for user {}", userId);
-            if (emitters.containsKey(userId)) {
-                cleanup.run();
-            }
+            removeEmitterIfMatches(userId, myEntry);
         });
         emitter.onError(e -> {
             log.warn("SSE emitter error for user {}: {}", userId, e.getClass().getSimpleName());
-            if (emitters.containsKey(userId)) {
-                cleanup.run();
-            }
+            removeEmitterIfMatches(userId, myEntry);
         });
 
-        emitters.put(userId, new EmitterEntry(emitter, userId, tenantId, roles, dvAccess));
+        emitters.put(userId, myEntry);
         activeConnections.incrementAndGet();
 
         // Send initial connection event with retry field and monotonic id
@@ -148,6 +138,30 @@ public class NotificationService {
 
         log.debug("SSE emitter registered for user {} (tenant {})", userId, tenantId);
         return emitter;
+    }
+
+    /**
+     * Value-conditional cleanup. Removes the emitter entry for {@code userId}
+     * iff the currently-registered entry equals {@code expectedEntry}. A stale
+     * callback (e.g. emitter1.onCompletion firing after register() has put
+     * emitter2 under the same key) is a no-op. Idempotent: if multiple
+     * lifecycle callbacks (onCompletion + onTimeout + onError) fire for the
+     * same emitter, only the first decrements the active-connections gauge.
+     *
+     * <p>Public for {@link org.fabt.notification.SseStabilityTest} (sibling
+     * package) to exercise the stale-callback path deterministically without
+     * depending on Spring's async DeferredResult callback scheduling. Not
+     * intended for any production caller — production code reaches this only
+     * via the lifecycle callbacks wired in {@link #register}.</p>
+     */
+    public boolean removeEmitterIfMatches(UUID userId, EmitterEntry expectedEntry) {
+        if (emitters.remove(userId, expectedEntry)) {
+            activeConnections.decrementAndGet();
+            log.debug("SSE emitter removed for user {}", userId);
+            return true;
+        }
+        log.debug("Stale SSE cleanup for user {} ignored — newer emitter is registered", userId);
+        return false;
     }
 
     /**
