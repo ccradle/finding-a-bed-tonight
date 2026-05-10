@@ -54,6 +54,10 @@ services:
       FABT_WEBHOOK_CONNECT_TIMEOUT_SECONDS: ${FABT_WEBHOOK_CONNECT_TIMEOUT_SECONDS}
       FABT_WEBHOOK_READ_TIMEOUT_SECONDS: ${FABT_WEBHOOK_READ_TIMEOUT_SECONDS}
       FABT_PANIC_ALERT_WEBHOOK: ${FABT_PANIC_ALERT_WEBHOOK:-}
+      # info-email-contact (v0.57): mirrors the prod compose `environment:`
+      # block. v0.57.0 deploy aborted because this mapping was missing in prod;
+      # rehearsal now enforces parity via Step 8.7 env-passthrough assertion.
+      FABT_PLATFORM_CONTACT_EMAIL: ${FABT_PLATFORM_CONTACT_EMAIL}
     depends_on:
       postgres:
         condition: service_healthy
