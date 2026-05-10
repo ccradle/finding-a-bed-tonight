@@ -92,23 +92,33 @@ public class ReferralTokenPurgeService {
      *       overlap by construction.</li>
      * </ol>
      *
-     * <p>Same TenantContext binding pattern as the DV referral purge above
-     * (system context + dvAccess=true) — the reservation table has FORCE
-     * RLS that joins through shelter, so dvAccess is required to cover
-     * both DV and non-DV reservations cross-tenant. The repository's SQL
-     * is no-op on rows whose ciphertext is already null, so re-runs cost
-     * nothing on already-purged rows.
+     * <p>The reservation table has FORCE RLS that joins through shelter, so
+     * dvAccess=true is required to cover both DV and non-DV reservations
+     * cross-tenant. The repository's SQL is no-op on rows whose ciphertext
+     * is already null, so re-runs cost nothing on already-purged rows.
      *
      * <p>Null-safe on pre-V93 databases: the SQL references the new
      * {@code _encrypted} columns by name, so a pre-V93 DB will fail with
      * a column-not-found error rather than silently no-op. In practice
      * this is fine — V91-V94 ship together in slice-1 of reentry-spec,
      * so any prod DB running v0.55+ has the columns.
+     *
+     * <p><b>v0.57.2 GH #177:</b> binds {@link TenantContext#SYSTEM_TENANT_ID}
+     * explicitly. The downstream {@code RESERVATION_PII_PURGED} audit row
+     * (emitted by {@code ReservationService.purgeExpiredHoldAttribution})
+     * needs a non-null tenant context so the FORCE-RLS INSERT on
+     * {@code audit_events} succeeds via the explicit-bind path rather than
+     * the SYSTEM_TENANT_ID fallback in {@code AuditEventService.onAuditEvent}.
+     * The fallback path increments {@code fabt.audit.system_insert.count}
+     * which trips the {@code FabtPhaseBSystemTenantFallback} alert
+     * (Phase B silent-audit-write runbook). The action is legitimately
+     * platform-scope (one summary row per scheduled invocation), so
+     * SYSTEM_TENANT_ID is the correct binding.
      */
     @TenantUnscoped("15-minute retention purge — platform-wide by hold-attribution PII retention design (v0.55 §13.C.1)")
     @Scheduled(fixedDelay = 900_000)
     public void purgeExpiredHoldAttribution() {
-        TenantContext.runWithContext(TenantContext.getTenantId(), true, () -> {
+        TenantContext.runWithContext(TenantContext.SYSTEM_TENANT_ID, true, () -> {
             Instant cutoff = Instant.now().minus(PURGE_AGE);
             // v0.55 §13.A.4 — service-layer call now emits the
             // RESERVATION_PII_PURGED audit row internally regardless of
