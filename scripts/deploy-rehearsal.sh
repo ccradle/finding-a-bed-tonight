@@ -317,13 +317,13 @@ done
 
 [[ $FAIL -eq 1 ]] && { echo -e "${RED}REHEARSAL FAIL — DO NOT TAG${NC} (gate: $FAIL_GATE) — artifacts: $ARTIFACT_DIR" >&2; exit 1; }
 
-# ── Step 8.6: Version match (catches v0.57.0 issue: pom not bumped on tag) ────
+# ── Step 8.1: Version match (catches v0.57.0 issue: pom not bumped on tag) ────
 # /api/v1/version returns major.minor (VersionController strips patch). The
 # value comes from BuildProperties → META-INF/build-info.properties → pom.xml
 # at mvn-package time. If the operator forgets to bump pom.xml on a release
 # tag, the JAR ships with the prior version baked in and prod silently runs
 # the wrong version. Rehearsal MUST refuse to greenlight that state.
-log "=== Step 8.6: Version-match assertion (pom.xml vs /api/v1/version) ==="
+log "=== Step 8.1: Version-match assertion (pom.xml vs /api/v1/version) ==="
 EXPECTED_MAJOR_MINOR=$(grep -m1 -E '^    <version>' "$REPO_ROOT/backend/pom.xml" \
     | sed -E 's|.*<version>([0-9]+\.[0-9]+).*|\1|')
 if [[ -z "$EXPECTED_MAJOR_MINOR" || ! "$EXPECTED_MAJOR_MINOR" =~ ^[0-9]+\.[0-9]+$ ]]; then
@@ -343,7 +343,7 @@ fi
 
 [[ $FAIL -eq 1 ]] && { echo -e "${RED}REHEARSAL FAIL — DO NOT TAG${NC} (gate: $FAIL_GATE) — artifacts: $ARTIFACT_DIR" >&2; exit 1; }
 
-# ── Step 8.7: Env-var passthrough (catches v0.57.0 issue: missing env mapping) ─
+# ── Step 8.2: Env-var passthrough (catches v0.57.0 issue: missing env mapping) ─
 # .env.rehearsal sets a value, the prod-overlay's `environment:` block maps it
 # into the container, and `docker exec env` proves it reached the JVM. The
 # v0.57.0 abort happened because FABT_PLATFORM_CONTACT_EMAIL was added to
@@ -351,7 +351,7 @@ fi
 # never saw it (compose --env-file controls INTERPOLATION, not container env).
 # Rehearsal now derives the required-set from the rehearsal compose itself,
 # so any drift between "configured" and "passed through" trips this gate.
-log "=== Step 8.7: Env-passthrough assertion (compose env block → container env) ==="
+log "=== Step 8.2: Env-passthrough assertion (compose env block → container env) ==="
 BACKEND_CONTAINER="$(docker ps --filter "name=fabt-rehearsal-backend" --format '{{.Names}}' | head -1)"
 if [[ -z "$BACKEND_CONTAINER" ]]; then
     fail "ENV_PASSTHROUGH_NO_CONTAINER" "Could not find rehearsal backend container"
