@@ -1,0 +1,40 @@
+name: Runbook consulted-memories check
+
+on:
+  pull_request:
+    branches:
+      - main
+      - 'release/**'
+    paths:
+      - 'docs/oracle-update-notes-v*.md'
+
+permissions:
+  contents: read
+
+jobs:
+  consulted-check:
+    name: ci-runbook-consulted-check
+    runs-on: ubuntu-latest
+    # Path-filtered guard from the ci-runbook-consulted-check OpenSpec change.
+    # Enforces docs/runbook-template.md §1 'consulted:' convention. Companion
+    # to the /opsx-runbook-draft skill (which pre-populates the block) — this
+    # CI check raises the ceiling so even operators who skip the skill must
+    # satisfy three structural assertions before merge:
+    #   1. consulted: block present in the runbook
+    #   2. no leftover [!WARNING] draft callout from the skill
+    #   3. any newly-added feedback_*.md memory in the same PR must be cited
+    #
+    # Escape hatch: PR title contains [skip-runbook-check] — emergency only.
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Need full history so git diff origin/main...HEAD works; the
+          # default fetch-depth=1 is shallow and can't compute the PR diff.
+          fetch-depth: 0
+
+      - name: Run consulted-memories check
+        env:
+          # Surface PR title to the script so the [skip-runbook-check]
+          # escape hatch works.
+          GITHUB_PR_TITLE: ${{ github.event.pull_request.title }}
+        run: bash scripts/ci/check-runbook-consulted-memories.sh
