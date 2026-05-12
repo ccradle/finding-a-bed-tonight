@@ -60,6 +60,18 @@ export interface ContactInfoState {
      * §6 / D6 design decision).
      */
     resolvedEmail: string | null;
+    /**
+     * Full tenant block mirroring the response shape, surfaced for
+     * issue-reporting-feedback §12 so non-COC_ADMIN roles can read
+     * {@code dvPolicyEnabled} to route authenticated Report-a-Problem
+     * surfaces to a {@code mailto:} fallback (DV-policy-on tenants) or
+     * keep the GitHub-issues URL (DV-policy-off).
+     *
+     * <p>Null for anonymous callers and platform-operator sessions (no
+     * bound tenant) — both of those receive no {@code tenant} block on
+     * the wire.
+     */
+    tenant: { slug: string | null; email: string | null; dvPolicyEnabled: boolean } | null;
     isLoading: boolean;
     error: Error | null;
 }
@@ -68,6 +80,7 @@ const INITIAL_STATE: ContactInfoState = {
     platformEmail: '',
     tenantEmail: null,
     resolvedEmail: null,
+    tenant: null,
     isLoading: true,
     error: null,
 };
@@ -83,7 +96,7 @@ export const ContactInfoContext = createContext<ContactInfoState>(INITIAL_STATE)
  */
 interface ContactInfoResponse {
     platform?: { email?: string };
-    tenant?: { slug?: string; email?: string | null } | null;
+    tenant?: { slug?: string; email?: string | null; dvPolicyEnabled?: boolean } | null;
 }
 
 /**
@@ -102,10 +115,26 @@ export function deriveContactInfoState(body: ContactInfoResponse | undefined): C
     // override OR suppressed by DV-policy) both produce null.
     const tenantEmail = body?.tenant?.email ?? null;
     const resolvedEmail = tenantEmail || platformEmail || null;
+    // Tenant block: only construct when the response actually carries one.
+    // Anonymous responses (tenant absent or null) AND platform-operator
+    // sessions (no bound tenantId → tenant absent) both produce null here,
+    // and consumers gate DV-policy reads on `tenant?.dvPolicyEnabled` so
+    // they correctly fall through to default-off behavior.
+    const tenant = body?.tenant
+        ? {
+              slug: body.tenant.slug ?? null,
+              email: body.tenant.email ?? null,
+              // Backend pre-issue-reporting-feedback §12 did not surface
+              // this flag; treat absent as false so a stale response
+              // shape does not accidentally trip the DV-policy gate.
+              dvPolicyEnabled: body.tenant.dvPolicyEnabled === true,
+          }
+        : null;
     return {
         platformEmail,
         tenantEmail,
         resolvedEmail,
+        tenant,
         isLoading: false,
         error: null,
     };
@@ -133,6 +162,7 @@ export function ContactInfoProvider({ children }: { children: ReactNode }) {
                 platformEmail: '',
                 tenantEmail: null,
                 resolvedEmail: null,
+                tenant: null,
                 isLoading: false,
                 error: err instanceof Error ? err : new Error(String(err)),
             });

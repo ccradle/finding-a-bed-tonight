@@ -791,5 +791,10 @@
   "hold.dialog.addClientDetails": "Agregar datos del cliente (opcional)",
   "hold.dialog.dobInvalidFloor": "La fecha de nacimiento debe ser posterior al 1 de enero de 1900",
   "hold.dialog.dobInvalidFuture": "La fecha de nacimiento no puede estar en el futuro",
-  "coord.heldForClient": "Reservado para"
+  "coord.heldForClient": "Reservado para",
+  "feedback.reportProblem": "Reportar un Problema",
+  "feedback.reportProblem.email": "Enviar correo al equipo del proyecto",
+  "feedback.help": "Ayuda",
+  "feedback.requestFeature": "Solicitar una Funcionalidad",
+  "feedback.askQuestion": "Hacer una Pregunta"
 }

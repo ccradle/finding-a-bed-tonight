@@ -175,21 +175,28 @@ public class ContactInfoController {
         // structurally impossible at this surface.
         tenantBlock.put("slug", tenantOpt.map(Tenant::getSlug).orElse(null));
 
-        // DV-policy suppression on read (info-email-contact §4 warroom round 1
-        // H1-Casey): the §3 PATCH endpoint forbids non-empty contact emails on
-        // DV-flagged tenants, but does NOT sanitize values written BEFORE the
-        // flag was enabled. A tenant that set contact.email while DV-policy
-        // was off, then enabled DV-policy, would still surface the stale
-        // email through this endpoint without a read-side guard. Belt-and-
-        // suspenders: when dv_policy_enabled=true, ALWAYS return null for
-        // tenant.email regardless of the persisted value. The frontend then
-        // falls back to the platform-default inbox — which is the correct
-        // behavior for a DV-flagged tenant.
-        String tenantEmail = tenantOpt
-                .filter(t -> !Tenant.isDvPolicyEnabled(t.getConfig(), objectMapper))
-                .map(t -> Tenant.readContactEmail(t.getConfig(), objectMapper))
-                .orElse(null);
+        // DV-policy is sourced once and used for two distinct purposes:
+        // (a) read-side suppression of tenant.email — info-email-contact
+        //     §4 warroom round 1 H1-Casey (the §3 PATCH endpoint forbids
+        //     non-empty contact emails on DV-flagged tenants but does NOT
+        //     sanitize values written BEFORE the flag was enabled; belt-
+        //     and-suspenders null-out on read defends against the temporal-
+        //     window inconsistency)
+        // (b) render-time signal surfaced as tenant.dvPolicyEnabled so the
+        //     frontend can route DV-tenant authenticated surfaces to a
+        //     mailto: fallback instead of a world-readable GitHub issue
+        //     URL — issue-reporting-feedback §12.1 (OUTREACH + COORDINATOR
+        //     roles need this flag for the Report-a-Problem footer gate
+        //     but cannot read it from /api/v1/tenants/{id}/config which is
+        //     COC_ADMIN-only).
+        boolean tenantDvPolicyEnabled = tenantOpt
+                .map(t -> Tenant.isDvPolicyEnabled(t.getConfig(), objectMapper))
+                .orElse(false);
+        String tenantEmail = tenantDvPolicyEnabled
+                ? null  // read-side suppression
+                : tenantOpt.map(t -> Tenant.readContactEmail(t.getConfig(), objectMapper)).orElse(null);
         tenantBlock.put("email", tenantEmail);
+        tenantBlock.put("dvPolicyEnabled", tenantDvPolicyEnabled);
         root.put("tenant", tenantBlock);
         return root;
     }

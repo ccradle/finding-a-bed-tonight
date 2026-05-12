@@ -267,6 +267,72 @@ class ContactInfoControllerTest extends BaseIntegrationTest {
                 .isEqualTo("stale-pre-dv@example.com");
     }
 
+    // ----- DV-policy render-time signal (issue-reporting-feedback §12.1-§12.3) --
+
+    @Test
+    @Order(1)
+    @DisplayName("Authed DV-policy=true tenant — tenant.dvPolicyEnabled=true in response")
+    void authedDvPolicyOnIncludesDvPolicyEnabledTrue() {
+        // setupTestTenant defaults dv_policy_enabled=true; assert the
+        // explicit flag surfaces on the response so OUTREACH + COORDINATOR
+        // roles (which cannot read /api/v1/tenants/{id}/config) can route
+        // authenticated Report-a-Problem surfaces to mailto: instead of
+        // a world-readable GitHub issue URL.
+        assertThat(readDvPolicyKey(tenantAId)).isEqualTo("true");
+
+        ResponseEntity<Map<String, Object>> response = get(tenantAHeaders, null);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> tenant = (Map<String, Object>) response.getBody().get("tenant");
+        assertThat(tenant)
+                .as("Authed callers MUST receive a tenant block")
+                .isNotNull();
+        assertThat(tenant.get("dvPolicyEnabled"))
+                .as("DV-policy=true tenant MUST surface dvPolicyEnabled=true to authed callers")
+                .isEqualTo(Boolean.TRUE);
+    }
+
+    @Test
+    @Order(1)
+    @DisplayName("Authed DV-policy=false tenant — tenant.dvPolicyEnabled=false in response")
+    void authedDvPolicyOffIncludesDvPolicyEnabledFalse() {
+        clearDvPolicyKey(tenantAId);
+
+        ResponseEntity<Map<String, Object>> response = get(tenantAHeaders, null);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> tenant = (Map<String, Object>) response.getBody().get("tenant");
+        assertThat(tenant).isNotNull();
+        assertThat(tenant.get("dvPolicyEnabled"))
+                .as("DV-policy=false tenant MUST surface dvPolicyEnabled=false (not absent)")
+                .isEqualTo(Boolean.FALSE);
+    }
+
+    @Test
+    @Order(1)
+    @DisplayName("Unauthed — DV-policy flag MUST NOT leak to anonymous callers")
+    void unauthedHasNoTenantBlock() {
+        // Regression confirm: the DV-policy boolean is a per-tenant flag and
+        // surfacing it on an anonymous response would let anyone enumerate
+        // which tenants run DV operations. Anonymous callers receive no
+        // tenant block at all (existing behavior, re-asserted here to lock
+        // the contract against future drift).
+        ResponseEntity<Map<String, Object>> response = get(null, null);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().get("tenant"))
+                .as("Anonymous response MUST NOT carry any tenant block")
+                .isNull();
+        // Belt-and-suspenders against future code that might serialize the
+        // flag at the platform level by mistake — the raw response body
+        // string must not mention "dvPolicyEnabled" anywhere.
+        assertThat(response.getBody().toString())
+                .as("Anonymous response body MUST NOT contain 'dvPolicyEnabled' anywhere")
+                .doesNotContain("dvPolicyEnabled");
+    }
+
     // ----- Tenant scoping (§4.7) --------------------------------------------
 
     @Test

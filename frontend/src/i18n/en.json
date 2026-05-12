@@ -791,5 +791,10 @@
   "hold.dialog.addClientDetails": "Add client details (optional)",
   "hold.dialog.dobInvalidFloor": "Date of birth must be after 1900-01-01",
   "hold.dialog.dobInvalidFuture": "Date of birth cannot be in the future",
-  "coord.heldForClient": "Held for"
+  "coord.heldForClient": "Held for",
+  "feedback.reportProblem": "Report a Problem",
+  "feedback.reportProblem.email": "Email the project team",
+  "feedback.help": "Help",
+  "feedback.requestFeature": "Request a Feature",
+  "feedback.askQuestion": "Ask a Question"
 }
