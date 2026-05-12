@@ -16,6 +16,8 @@ import { replayQueue, getQueueSize, isReplaying, type ReplayResult } from '../se
 import { api } from '../services/api';
 import { text, weight } from '../theme/typography';
 import { color } from '../theme/colors';
+import { useContactInfo } from '../contact/useContactInfo';
+import { FooterReportProblemLink, buildIssueChooserUrl, shouldRouteToMailto } from './ReportProblemLink';
 
 /**
  * Visually hidden styles — content accessible to screen readers but not visible.
@@ -85,6 +87,14 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
   const { notifications, unreadCount, markRead, markAllRead, dismiss, loadMore, hasMore, loadingMore, connected } = useNotifications();
   const [queueSize, setQueueSize] = useState(0);
   const [appVersion, setAppVersion] = useState<string | null>(null);
+  // issue-reporting-feedback §3.7 — kebab Help DV-policy gate. Routes to
+  // mailto: instead of the GitHub issue chooser when the calling tenant
+  // has DV-policy enabled AND a mailto fallback is available.
+  const { resolvedEmail, tenant } = useContactInfo();
+  const kebabHelpHref = shouldRouteToMailto(tenant?.dvPolicyEnabled, resolvedEmail) && resolvedEmail
+    ? `mailto:${resolvedEmail}`
+    : buildIssueChooserUrl();
+  const kebabHelpIsExternal = !shouldRouteToMailto(tenant?.dvPolicyEnabled, resolvedEmail);
   const [kebabOpen, setKebabOpen] = useState(false);
   const kebabRef = useRef<HTMLDivElement>(null);
   const kebabButtonRef = useRef<HTMLButtonElement>(null);
@@ -534,6 +544,32 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
                   >
                     <FormattedMessage id="totp.settingsButton" defaultMessage="Security" />
                   </button>
+                  {/* Help — issue-reporting-feedback §3.1-§3.7. DV-policy-on
+                      tenants get mailto:; others get the GH issue chooser. */}
+                  <a
+                    data-testid="header-overflow-help"
+                    role="menuitem"
+                    href={kebabHelpHref}
+                    target={kebabHelpIsExternal ? '_blank' : undefined}
+                    rel={kebabHelpIsExternal ? 'noopener noreferrer' : undefined}
+                    onClick={() => setKebabOpen(false)}
+                    style={{
+                      display: 'block',
+                      width: '100%',
+                      padding: '12px 16px',
+                      backgroundColor: 'transparent',
+                      border: 'none',
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      fontSize: text.base,
+                      color: color.text,
+                      textDecoration: 'none',
+                      minHeight: '44px',
+                      boxSizing: 'border-box',
+                    }}
+                  >
+                    <FormattedMessage id="feedback.help" />
+                  </a>
                   {/* Sign Out */}
                   <button
                     data-testid="header-overflow-signout"
@@ -613,27 +649,34 @@ export function Layout({ children, locale, onLocaleChange }: LayoutProps) {
           }}
         >
           {children}
-          {appVersion && (
-            <footer
-              data-testid="app-version"
-              style={{
-                marginTop: '32px',
-                paddingTop: '12px',
-                borderTop: `1px solid ${color.border}`,
-                fontSize: text.xs,
-                color: color.textTertiary,
-                textAlign: 'center',
-              }}
-            >
-              Finding A Bed Tonight v{appVersion}
-              {user?.tenantName && (
-                <>
-                  {' — '}
-                  <span data-testid="app-tenant-name-footer">{user.tenantName}</span>
-                </>
-              )}
-            </footer>
-          )}
+          {/* Footer always renders (issue-reporting-feedback §2.1 + §2.7
+              warroom H5 — Report-a-Problem must be present even when
+              appVersion is null, e.g., /api/v1/version fetch in flight). */}
+          <footer
+            data-testid="app-version"
+            style={{
+              marginTop: '32px',
+              paddingTop: '12px',
+              borderTop: `1px solid ${color.border}`,
+              fontSize: text.xs,
+              color: color.textTertiary,
+              textAlign: 'center',
+            }}
+          >
+            {appVersion && (
+              <>
+                Finding A Bed Tonight v{appVersion}
+                {user?.tenantName && (
+                  <>
+                    {' — '}
+                    <span data-testid="app-tenant-name-footer">{user.tenantName}</span>
+                  </>
+                )}
+                <br />
+              </>
+            )}
+            <FooterReportProblemLink appVersion={appVersion} />
+          </footer>
         </main>
       </div>
 
