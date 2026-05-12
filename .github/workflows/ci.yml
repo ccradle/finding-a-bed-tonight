@@ -120,6 +120,21 @@ jobs:
       - name: Scan for overclaimed compliance language
         run: bash infra/scripts/legal-language-scan.sh .
 
+  feedback-link-discipline:
+    # issue-reporting-feedback §8.1 — asserts (a) every target="_blank"
+    # in frontend/src/**/*.tsx is paired with rel="noopener noreferrer"
+    # (defense-in-depth against window.opener phishing) and (b) any
+    # `github.com/ccradle/finding-a-bed-tonight/issues/new` URL is
+    # constructed via the allowlisted buildReportProblemUrl helper in
+    # ReportProblemLink.tsx — never inlined elsewhere (warroom B1 + H1:
+    # prevents PII leak + label-injection via hostile share links).
+    name: Feedback Link Discipline
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check target=_blank pairing + GH URL allowlist
+        run: bash scripts/ci/check-feedback-link-discipline.sh
+
   family-c-annotation-review-gate:
     # Phase C task 4.5: auto-request @ccradle review on any PR that
     # introduces a new @TenantUnscopedCache or @TenantScopedByConstruction
