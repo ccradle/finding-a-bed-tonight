@@ -370,7 +370,7 @@ test.describe('§3.8 DV-policy mobile kebab Help is mailto', () => {
 // does NOT route to mailto (tenant=null, dvPolicyEnabled=false, OR
 // resolvedEmail empty), the kebab Help falls through to the GH chooser."
 // We exercise that fall-through by mocking the contact-info endpoint to
-// return an empty body — equivalent to the platform-operator context where
+// return an empty body, mirroring the platform-operator context where
 // no tenant is bound.
 
 test.describe('§3.9 fall-through to GitHub chooser when no DV+mailto', () => {
