@@ -8,6 +8,17 @@
   </head>
   <body>
     <div id="root"></div>
+    <noscript>
+      <!-- issue-reporting-feedback §2.8 — JavaScript-disabled fallback.
+           Lives outside #root so React mounting does not touch it. The
+           full app requires JavaScript; users without JS at least get a
+           path to file a problem report. -->
+      <div style="padding: 24px; font-family: sans-serif; max-width: 640px; margin: 0 auto;">
+        <h1 style="font-size: 1.25rem;">Finding A Bed Tonight</h1>
+        <p>This application requires JavaScript to run. If you cannot enable JavaScript, you can still report a problem:</p>
+        <p><a href="https://github.com/ccradle/finding-a-bed-tonight/issues">github.com/ccradle/finding-a-bed-tonight/issues</a></p>
+      </div>
+    </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

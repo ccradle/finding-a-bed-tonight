@@ -5,6 +5,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [v0.57.4] — planned (drafted 2026-05-12) — In-app issue reporting + feedback links (issue-reporting-feedback)
+
+**Release class: frontend + small backend delta.** No Flyway migrations (HWM stays at V98). One new env-var-free backend field on the existing public `/api/v1/public/contact-info` response; frontend rebuild required for `Layout.tsx` changes + new `ReportProblemLink.tsx` + `index.html` `<noscript>` block; static-content scp for the docs-repo landing-page `index.html` "Feedback & Support" section.
+
+### Added
+
+- **Footer "Report a Problem" link** on every authenticated page (`Layout.tsx`) — renders below the version line. URL builder is allowlist-constrained: `template=report-a-problem.yml` + `labels=triage` + `fabt_version` (when `appVersion` is non-null) — NO reads from `window.location`, route params, JWT claim values, or any user input (warroom B1 + H1 — prevents PII funneling into a world-readable GitHub issue body and label-injection via hostile URL shares).
+- **Mobile kebab "Help" menu item** positioned between Security and Sign Out. Opens the GitHub issue chooser in a new tab.
+- **Landing page "Feedback & Support" section** in `index.html` with three GitHub paths: Report a Problem, Request a Feature, Ask a Question (Discussions Q&A). 44px touch targets, flex-wrap reflow at 320px, theme-aware dark mode via `var(--accent)`.
+- **DV-policy authenticated-surface gate (Casey veto, warroom B3 + R2-B1)** — when the calling tenant has `dv_policy_enabled === true`, the authenticated footer + kebab Help links replace the GitHub URL with `mailto:{platformContactEmail}` from the existing `useContactInfo()` hook. Survivors borrowing a coordinator's screen — or the coordinator herself — must not have the path-of-least-resistance be "type PII into a public issue." The landing-page surface is unauthenticated and continues to expose the GitHub paths (the gate is render-time, not URL-borne).
+- **Backend `tenant.dvPolicyEnabled` field on `GET /api/v1/public/contact-info`** — surfaced from the existing `Tenant.isDvPolicyEnabled` evaluation (no new DB read). Sourcing the flag here is the minimal-scope path; the JWT decode does not carry it, and `GET /api/v1/tenants/{id}/config` is `@PreAuthorize("hasRole('COC_ADMIN')")` so OUTREACH and COORDINATOR roles cannot read it elsewhere. New scenarios in `ContactInfoControllerTest` (`authedDvPolicyOn...`, `authedDvPolicyOff...`, `unauthedHasNoTenantBlock` regression).
+- **`<noscript>` fallback** in `frontend/index.html` outside `#root` — surfaces a static GitHub issues index link when JavaScript is disabled (lives outside the React-mounted tree so it survives mounting).
+- **5 new `feedback.*` i18n keys** in `en.json` + `es.json` (Report a Problem, Help, Request a Feature, Ask a Question, mailto fallback label). ES strings are AI-synthetic per `reference_es_json_ai_synthetic_reviewed.md` pattern; native-speaker review batched.
+- **CI guard `scripts/ci/check-feedback-link-discipline.sh`** — lints frontend code for `target="_blank"` + `rel="noopener noreferrer"` pairing and asserts new GitHub-issue URLs go through the allowlisted `buildReportProblemUrl()` helper (not inline-strings).
+
+### Process
+
+- **3 rounds of warroom review** applied to the OpenSpec change pre-implementation. R1: 3 BLOCKERs + 5 HIGHs. R2: 1 BLOCKER (DV-policy source-of-truth → `useContactInfo()` hook, NOT JWT) + 2 HIGHs (mailto injection guard + tests math). R3: 0 BLOCKERs + 2 HIGHs + 1 MEDIUM polish. All B+H verdicts applied to proposal/design/specs/tasks before code was written. Spec carryover MEDIUMs/NITs documented as non-blocking polish.
+- **Reused `useContactInfo()` infra** shipped in info-email-contact (archived 2026-05-12). The forward-compat hook is the single subscription point for the new feedback surfaces — no new fetcher, no new endpoint construction in the frontend.
+
+---
+
 ## [v0.57.2] — planned (drafted 2026-05-10) — Backend patch: SYSTEM_TENANT bind + SSE cleanup race + rehearsal hardening
 
 **Release class: backend-only patch.** No spec changes, no Flyway migrations (HWM stays at V98), no env-var additions, no frontend bundle change. Frontend container is recreated only to refresh docker-network coupling per the standard backend-rebuild matrix. Three small fixes roll up; none are user-visible behavior changes.
