@@ -1,4 +1,4 @@
-# Secret Rotation Plan (Draft v3.1, 2026-05-22)
+# Secret Rotation Plan (Draft v3.2, 2026-05-22)
 
 **Status:** planning — not yet a policy. Author + project lead must agree on cadences before this becomes operational.
 
@@ -8,7 +8,7 @@
 
 **Ground-truthed:** 2026-05-22 via three SSH passes against the prod VM. All file paths, mtime dates, container ages, env-var inventories, `platform_key_material` + `tenant_key_material` schemas, and row counts in this document are observed, not assumed. See Appendix A for provenance.
 
-**Revision history:** v1 (2026-05-21, code-grounded only), v2 (2026-05-22, VM ground-truth + rehearsal gate), v3 (2026-05-22, warroom round 1 BLOCKER+HIGH fixes — 3 BLOCKERs + 14 HIGHs), v3.1 (2026-05-22, warroom round 2 HIGH fixes — 2 HIGHs applied, 8 MEDIUMs captured in §10).
+**Revision history:** v1 (2026-05-21, code-grounded only), v2 (2026-05-22, VM ground-truth + rehearsal gate), v3 (2026-05-22, warroom round 1 BLOCKER+HIGH fixes — 3 BLOCKERs + 14 HIGHs), v3.1 (2026-05-22, warroom round 2 HIGH fixes — 2 HIGHs applied, 8 MEDIUMs captured in §10), **v3.2 (2026-05-22, Marcus security-persona pass — 3 CRITICAL + 4 SIGNIFICANT control gaps closed; see §11).**
 
 ---
 
@@ -23,6 +23,8 @@ The rehearsal already catches ~80% of the v0.49-class deploy bugs (per the scrip
 > Every secret-rotation runbook MUST be exercised end-to-end in `make rehearse-deploy` *before* being authorized for prod execution. **The green rehearsal run MUST be no more than 72 hours old** at the moment prod rotation begins — matching the `deploy/release-gate-pins.txt` precedent for deploy gates. A prod rotation without a fresh-enough rehearsal-green run is a process violation. The single exception is an active-incident rotation (confirmed leak), which may bypass the rehearsal gate but **MUST** be (a) recorded as a `bypass=true` entry in the rotation ledger (see §8 Q4) and (b) followed by a same-week rehearsal pass that exercises the procedure used.
 
 This costs ~10 min per rotation (rehearsal wall-clock) and pays for itself the first time a missed step would have broken prod. It is the natural extension of the gate `feedback_rehearsal_must_test_new_env_vars` established for env-var deploys (v0.57.0 abort lesson).
+
+**Bypass-clause hygiene (Marcus v3.2):** any incident-bypass rotation MUST destroy the `.pre-rotation` backup file it created within 72 hours of confirmed smoke-clean — same window as the rehearsal-freshness clause. Otherwise the bypass leaves a cleartext copy of the credential the rotation was designed to retire. The ledger entry MUST record both the rotation timestamp AND the backup-destruction timestamp; the second timestamp is mandatory before the bypass entry is considered closed.
 
 **What rotations can be rehearsed** (see §6 for drill specs):
 
@@ -131,21 +133,23 @@ These are `${VAR}` references — the actual values come from the operator's she
 
 ## 3. Recommended cadences
 
-| Tier | Secret | Cadence | Owner | Detection / how operator knows to bring it forward |
-|---|---|---|---|---|
-| 0 | #1 DB app password | every 90 days | sole operator¹ | Operator-initiated only (no automated detection today) |
-| 0 | #2 DB owner password | every 365 days | sole operator¹ | Operator-initiated only |
-| 0 | #3 POSTGRES_PASSWORD | every 365 days | sole operator¹ | Operator-initiated only |
-| 0 | #7 SMTP password | every 90 days | sole operator¹ | Operator-initiated; Gmail security-alert email triggers incident path |
-| 0 | #8 Grafana admin | every 90 days | sole operator¹ | Operator-initiated only |
-| 0 | #9 OCI svc principal | every 90 days | sole operator¹ | OCI audit-log scan deferred (manual quarterly review) |
-| 0 | #11 Cloudflare token | every 90 days | sole operator¹ | CF audit log scan deferred (manual quarterly review) |
-| 0 | #12 GitHub PAT | every 365 days (or fine-grained 90d) | sole operator¹ | GitHub email warning on PAT expiry |
-| 1 | #4 JWT secret + per-tenant key material | every 365 days OR on suspected forgery | sole operator¹ + dev | Forgery suspected; key-derivation downgraded |
-| 2 | #5 Platform JWT key | every 365 days once tooling ships | sole operator¹ + dev | Platform-operator account compromise |
-| 3 | #6 Master KEK | DO NOT rotate until dual-key-accept design ships + kid back-fill complete. Annually thereafter. | sole operator¹ + dev | KEK exposure (catastrophic) |
+| Tier | Secret | Cadence | Owner | Detection / how operator knows to bring it forward | Audit emit on rotation |
+|---|---|---|---|---|---|
+| 0 | #1 DB app password | every 90 days | sole operator¹ | Operator-initiated; **post-policy: Prometheus alert on `pg_roles` password-change event** (§7 item 18) | `DB_ROLE_ROTATED` (operator, role, ts) |
+| 0 | #2 DB owner password | every 365 days | sole operator¹ | Operator-initiated; same Prometheus rule as #1 | `DB_ROLE_ROTATED` |
+| 0 | #3 POSTGRES_PASSWORD | every 365 days | sole operator¹ | Operator-initiated only | `POSTGRES_SUPERUSER_ROTATED` |
+| 0 | #7 SMTP password | every 90 days | sole operator¹ | Operator-initiated; Gmail security-alert email triggers incident path | `SMTP_PASSWORD_ROTATED` |
+| 0 | #8 Grafana admin | every 90 days | sole operator¹ | Operator-initiated only | `GRAFANA_ADMIN_ROTATED` |
+| 0 | #9 OCI svc principal | every 90 days | sole operator¹ | OCI audit-log scan deferred (manual quarterly review); **post-policy: OCI list-keys assertion catches "new+old both live" partial states** (§7 item 8) | `OCI_SVC_PRINCIPAL_ROTATED` (fingerprint redacted) |
+| 0 | #11 Cloudflare token | every 90 days | sole operator¹ | CF audit log scan deferred (manual quarterly review) | `CLOUDFLARE_TOKEN_ROTATED` |
+| 0 | #12 GitHub PAT | every 365 days (or fine-grained 90d) | sole operator¹ | GitHub email warning on PAT expiry | `GITHUB_PAT_ROTATED` |
+| 1 | #4 JWT secret + per-tenant key material | every 365 days OR on suspected forgery | sole operator¹ + dev | Forgery suspected; key-derivation downgraded; **Prometheus alert on `tenant_key_material` INSERT rate above expected cadence** (§7 item 18) | `TENANT_KEY_ROTATED` on every `active` flip in either direction (downgrade-attack detection per Marcus v3.2) |
+| 2 | #5 Platform JWT key | every 365 days once tooling ships | sole operator¹ + dev | Platform-operator account compromise; same Prometheus rule on `platform_key_material` | `PLATFORM_KEY_ROTATED` on every `active` flip in either direction |
+| 3 | #6 Master KEK | DO NOT rotate until dual-key-accept design ships + kid back-fill complete. Annually thereafter. | sole operator¹ + dev | KEK exposure (catastrophic) | `MASTER_KEK_ROTATED` (with envelope kid-back-fill row count) |
 
-¹ **Owner = sole operator (project lead Corey Cradle) today. No documented fallback exists.** When a second operator joins, the dev/ops split formalizes per §8 Q1. Until then, this column is a single-point-of-failure for every rotation: operator illness, PTO, or unavailability blocks rotation. **Risk-acceptance, not policy compliance.**
+¹ **Owner = sole operator (project lead Corey Cradle) today. No documented fallback exists.** When a second operator joins, the dev/ops split formalizes per §8 Q1. Until then, this column is a single-point-of-failure for every rotation: operator illness, PTO, or unavailability blocks rotation. **Risk-acceptance, not policy adherence.**
+
+**Shell-history is a credential store (Marcus v3.2, CRITICAL).** Every rotation procedure in §4 that uses `export FABT_*_PASSWORD=...` would, without mitigation, leak the new value into `~/.bash_history`. An attacker with read access to the operator laptop would have perpetual access to every rotation value ever set. Every §4 procedure now opens with `unset HISTFILE` (or equivalent) BEFORE the first `export` and ends with `history -c` AFTER smoke-gate. The "Audit emit" column above is the detection layer when this control fails; both layers are required.
 
 **Documented exception:** any secret on this list can be rotated *immediately* outside cadence in response to a confirmed leak (the SMTP rotation 2026-04-22 set the precedent). Incident rotations bypass the rehearsal gate per §0 but require (a) ledger entry with `bypass=true` + reason + operator timestamp, (b) a same-week rehearsal follow-up.
 
@@ -160,21 +164,42 @@ These are *sketches* — each becomes a full runbook under `docs/operations/runb
 ```
 PREREQUISITES: envsubst on PATH, $EDITOR set, alertmanager.yml.tmpl present.
 GLOSSARY: envsubst = GNU env-var substitution; alertmanager UID 65534 = nobody.
+
 NEVER-PRINT INVARIANT (control, not citation): the next steps edit and re-render
 files that contain the SMTP password. Do NOT `cat`, `head`, `tail`, `grep`, or
 otherwise output any portion of the rendered file to your terminal at any point.
 `$EDITOR` opens the file directly without piping its contents.
 
+SHELL-HYGIENE PREAMBLE (Marcus v3.2 CRITICAL): rotation procedures touch
+secrets via the operator's shell. Before any `export` or `read` of a secret
+value, the operator's bash history must be silenced so the new value never
+lands in ~/.bash_history. Execute these THREE lines before step 1:
+
+  unset HISTFILE                    # disables history for this session
+  set +o history                    # belt-and-suspenders for bash 5+
+  trap 'history -c' EXIT            # clears in-memory history on shell exit
+
+These three lines are part of every §4 procedure. Without them, every
+`export FABT_*_PASSWORD=...` in the session leaks to disk.
+
 1. Gmail → security → app passwords → revoke old, create new (do NOT print)
 2. cp ~/fabt-secrets/.env.prod ~/fabt-secrets/.env.prod.pre-smtp-$(date +%Y%m%d-%H%M%S)
    # ⚠ This backup IS the rollback primitive — referenced by step ROLLBACK below.
+   # ⚠ This backup is also a credential-bearing file with 72h destruction window
+   #   per the BACKUP-DESTRUCTION step.
 3. Edit .env.prod via $EDITOR (NEVER cat/grep first)
 4. cd ~/finding-a-bed-tonight && envsubst < deploy/alertmanager.yml.tmpl > ~/fabt-secrets/alertmanager.yml
 5. chmod 644 ~/fabt-secrets/alertmanager.yml  (alertmanager UID 65534 needs read)
 6. docker compose -f docker-compose.yml -f ~/fabt-secrets/docker-compose.prod.yml up -d --force-recreate alertmanager
 7. Smoke gate: amtool alert add test → confirm receipt at alert mailbox
 8. Audit: confirm old app password rejected in Gmail console
-9. Ledger: append entry to rotation-ledger.json (secret=SMTP, ts, operator, rehearsal-run-id)
+9. AUDIT EMIT: backend logs `SMTP_PASSWORD_ROTATED` event with operator + ts (per §3 audit column)
+10. Ledger: append entry to rotation-ledger.json (secret=SMTP, ts, operator, rehearsal-run-id, bypass=false)
+11. BACKUP-DESTRUCTION (mandatory, NLT 72h post-smoke-clean): `shred -u ~/fabt-secrets/.env.prod.pre-smtp-<ts>`
+    then append destruction timestamp to the same ledger entry. The entry is NOT
+    closed until both timestamps land. See §0 bypass-clause hygiene + §11 #1.
+12. SHELL-CLEAN: `history -c` (defensive — the trap already runs on EXIT but
+    explicit clear before any other operator action is the safe default).
 
 ROLLBACK (if step 6, 7, or 8 fails):
   R1. mv ~/fabt-secrets/.env.prod.pre-smtp-<ts> ~/fabt-secrets/.env.prod
@@ -182,30 +207,61 @@ ROLLBACK (if step 6, 7, or 8 fails):
   R3. docker compose ... up -d --force-recreate alertmanager
   R4. Re-test with old password via amtool
   R5. File post-incident note explaining what failed BEFORE attempting rotation again
+  R6. The 72h backup-destruction step (#11) still applies on the OLD backup file —
+      the rollback does NOT extend the cleartext-on-disk window.
 ```
 
 ### #1 / #2 DB passwords (leverage existing `rotate-db-password.sh`)
 
 ```
-PREREQUISITES: openssl, docker exec, psql. Existing 9-line rotate-db-password.sh
-  reviewed/parameterized per §7 item 1.
-GLOSSARY: ALTER ROLE = Postgres role-password update; pg_hba = host-based auth config.
+PREREQUISITES: openssl, docker exec, psql, pg_dump. Existing 9-line
+  rotate-db-password.sh reviewed/parameterized per §7 item 1.
+GLOSSARY: ALTER ROLE = Postgres role-password update; pg_hba = host-based auth
+  config; SERIALIZABLE = strongest Postgres transaction isolation level.
 
+SHELL-HYGIENE PREAMBLE (per §4 SMTP — same three lines): unset HISTFILE;
+  set +o history; trap 'history -c' EXIT.
+
+0a. PRE-ROTATION SNAPSHOT (Marcus v3.2 CRITICAL, replaces §8 Q3 deferral):
+    pg_dump -h <host> -U fabt -t platform_key_material -t tenant_key_material \
+      -t kid_to_tenant_key | gpg --encrypt --recipient <ops-pgp-key> \
+      > ~/fabt-secrets/pre-rotation-pg_dump-$(date +%Y%m%d-%H%M%S).sql.gpg
+    chmod 600 ~/fabt-secrets/pre-rotation-pg_dump-*.sql.gpg
+    Retention: 30 days post-rotation. Snapshot is the rollback primitive for
+    §4 #4 and §4 #5 — without it, beyond-grace rollback fails open.
 1. Generate new password: NEW_PWD=$(openssl rand -base64 32)
 2. cp ~/fabt-secrets/docker-compose.prod.yml ~/fabt-secrets/docker-compose.prod.yml.pre-db-$(date +%Y%m%d-%H%M%S)
 3. As operator shell: export FABT_DB_APP_PASSWORD="$NEW_PWD"
-4. bash ~/fabt-secrets/rotate-db-password.sh fabt_app  (runs ALTER ROLE inside container)
-5. docker compose -f ... up -d --force-recreate backend
-6. Smoke gate: /actuator/health green; one authenticated API request green
-7. Audit: psql connect with OLD password rejected; NEW password accepted via the
+   # ⚠ With HISTFILE unset and trap armed, the export does NOT touch ~/.bash_history.
+4. OLD_PWD=$(awk -F= '/^FABT_DB_APP_PASSWORD/{print $2}' \
+   ~/fabt-secrets/docker-compose.prod.yml.pre-db-<ts>)
+   # OLD captured from the backup (M3-r2 fix), NOT from shell history.
+5. bash ~/fabt-secrets/rotate-db-password.sh fabt_app  (runs ALTER ROLE inside container)
+6. docker compose -f ... up -d --force-recreate backend
+7. Smoke gate: /actuator/health green; one authenticated API request green
+8. Audit: psql connect with OLD password rejected; NEW password accepted via the
    SAME network path the backend uses (postgres:5432 service DNS, not localhost)
-8. Ledger entry
+9. AUDIT EMIT: backend logs `DB_ROLE_ROTATED` event (per §3 audit column)
+10. Ledger entry (bypass=false, snapshot_path=<pg_dump file>)
+11. BACKUP-DESTRUCTION (mandatory, NLT 72h post-smoke-clean):
+      shred -u ~/fabt-secrets/docker-compose.prod.yml.pre-db-<ts>
+      # pg_dump snapshot is NOT destroyed here — 30-day retention applies.
+    Append destruction timestamp to ledger.
+12. SHELL-CLEAN: history -c
+13. unset OLD_PWD NEW_PWD  # in-memory scrub before any other operator action
 
-ROLLBACK:
-  R1. ALTER ROLE fabt_app WITH PASSWORD '<old>'  (operator must have old in their
-      shell history or in the .pre-db-<ts> backup of docker-compose.prod.yml)
-  R2. export FABT_DB_APP_PASSWORD='<old>' ; docker compose ... up -d --force-recreate backend
-  R3. /actuator/health
+ROLLBACK (within smoke-gate window):
+  R1. ALTER ROLE fabt_app WITH PASSWORD '<OLD_PWD captured in step 4>'
+  R2. export FABT_DB_APP_PASSWORD="$OLD_PWD"
+  R3. docker compose ... up -d --force-recreate backend
+  R4. /actuator/health
+  R5. AUDIT EMIT: `DB_ROLE_ROTATION_ROLLED_BACK` (detection layer for forced rollback)
+  R6. Backup-destruction (#11) still applies on the OLD backup at the originally-
+      scheduled 72h mark; rollback does NOT extend the cleartext-on-disk window.
+
+ROLLBACK (after smoke-gate window, beyond shell-session):
+  Restore the encrypted pg_dump from step 0a; out-of-band runbook required;
+  treat as incident.
 ```
 
 ### #4 JWT secret per-tenant kid-rotation (already supported, never exercised)
@@ -215,33 +271,79 @@ PREREQUISITES: psql access, knowledge of kid-keyed JWT validation.
 GLOSSARY: kid = key-id JWT header field; tenant_key_material partial-unique on
   (tenant_id) WHERE active=true enforces single live generation per tenant.
 
-For each tenant T:
-1. Begin tenant context (RLS): SET LOCAL fabt.current_tenant_id = '<T>';
-2. UPDATE tenant_key_material SET active = false, rotated_at = clock_timestamp()
-     WHERE tenant_id = '<T>' AND active = true;
-3. INSERT INTO tenant_key_material (tenant_id, generation, created_at, active)
-     VALUES ('<T>', <max_gen + 1>, clock_timestamp(), true);
-4. INSERT INTO kid_to_tenant_key (kid, tenant_id, generation)
-     VALUES (gen_random_uuid(), '<T>', <max_gen + 1>);
-5. Commit. Caches expire normally; clients reauthenticate over 15-min TTL window.
+PRE-ROTATION: per §4 DB step 0a, take an encrypted pg_dump of
+tenant_key_material + kid_to_tenant_key + jwt_revocations BEFORE proceeding.
+The Marcus v3.2 grace-window-fail-open mitigation depends on this snapshot.
+
+For each tenant T (wrap the per-tenant flow in a SERIALIZABLE transaction —
+Marcus v3.2 mitigation against paused-JVM-sees-two-actives observability gap):
+
+  BEGIN;
+  SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;
+  SET LOCAL fabt.current_tenant_id = '<T>';
+
+  -- 1. Deactivate current generation
+  UPDATE tenant_key_material
+    SET active = false, rotated_at = clock_timestamp()
+    WHERE tenant_id = '<T>' AND active = true
+    RETURNING generation INTO @prev_gen;
+
+  -- 2. Insert new generation
+  INSERT INTO tenant_key_material (tenant_id, generation, created_at, active)
+    VALUES ('<T>', @prev_gen + 1, clock_timestamp(), true);
+
+  -- 3. Register new kid
+  INSERT INTO kid_to_tenant_key (kid, tenant_id, generation)
+    VALUES (gen_random_uuid(), '<T>', @prev_gen + 1);
+
+  -- 4. INVALIDATE jwt_revocations cache for the deactivated kid (Marcus v3.2
+  --    M4-r2 reclassified as security-adjacent: stale cache lets a leaked
+  --    pre-rotation kid validate past its rotated_at).
+  DELETE FROM jwt_revocations
+    WHERE tenant_id = '<T>'
+      AND kid IN (SELECT kid FROM kid_to_tenant_key
+                  WHERE tenant_id = '<T>' AND generation = @prev_gen);
+
+  COMMIT;
+
+  -- 5. AUDIT EMIT (per §3 audit column): backend logs `TENANT_KEY_ROTATED`
+  --    event with operator + tenant_id + prev_gen + new_gen + ts.
+  --    The event MUST fire on every `active` flip in EITHER direction —
+  --    including the rollback path R1 below — to detect downgrade attacks.
+
+Caches expire normally; clients reauthenticate over 15-min TTL window.
 
 The check constraint `active=true AND rotated_at IS NULL OR active=false AND
 rotated_at IS NOT NULL` enforces shape; the partial unique index prevents two
 active rows per tenant.
 
+**Read-path correctness note (Marcus v3.2):** the JWT validation read path
+(`KidRegistryService`) MUST reject a token whose kid resolves to a
+`tenant_key_material` row where `active = false` AND `rotated_at < now() - grace_window`.
+Validating on `active` alone permits a leaked pre-rotation token to forge
+sessions perpetually after the rotation that was supposed to retire it.
+Verify the read path before authorizing any prod rotation under this procedure.
+
 ROLLBACK (within grace window, before clients have reauthenticated):
-  R1. UPDATE tenant_key_material SET active=true, rotated_at=NULL WHERE generation=<old>;
-  R2. UPDATE tenant_key_material SET active=false, rotated_at=clock_timestamp() WHERE generation=<new>;
+  R1. UPDATE tenant_key_material SET active=true, rotated_at=NULL WHERE generation=<old>
+      -- This triggers a `TENANT_KEY_ROTATED` audit emit (downgrade-attack
+      -- detection per the §3 audit column rule).
+  R2. UPDATE tenant_key_material SET active=false, rotated_at=clock_timestamp() WHERE generation=<new>
+      -- Also emits.
   R3. Verify partial-unique invariant still holds.
+
+ROLLBACK (beyond grace window): restore from the §4 DB step 0a pg_dump.
+Out-of-band; treat as incident.
 ```
 
 ### #5 Platform JWT signing key (Tier 2 — needs tooling)
 
 - Build `POST /api/v1/platform/key-material/rotate` endpoint, `@PlatformAdminOnly`
 - Calls `KeyDerivationService.derivePlatformJwtKeyBytes(new UUID)` → INSERT new row with new kid + active=true + generation=N+1 → flip previous to active=false (partial-unique prevents two active rows)
-- During grace window (1 hr default), platform JWT verifier accepts either generation by looking up `platform_key_material WHERE kid=<header.kid>` (kid is already in schema and emitted in tokens — no kid-emission pre-work needed)
-- Audit emit: `PLATFORM_KEY_ROTATED`
-- Drill (§6.5): rehearsal starts at generation N (the ground-truthed live state), runs the rotation endpoint, asserts generation N+1 active, asserts old-generation tokens minted pre-rotation still validate within grace, asserts new tokens carry new kid.
+- **Transaction isolation (Marcus v3.2):** wrap INSERT-new + UPDATE-old in a single `SERIALIZABLE` transaction. The partial-unique index prevents COMMIT of two-actives but does not prevent mid-transaction observability; isolation level makes the flip atomic from the verifier's perspective.
+- During grace window (1 hr default), platform JWT verifier accepts either generation by looking up `platform_key_material WHERE kid=<header.kid>` (kid is already in schema and emitted in tokens — no kid-emission pre-work needed). **Verifier MUST reject** if `active = false AND rotated_at < now() - grace_window` (same Marcus v3.2 read-path correctness rule as §4 #4).
+- Audit emit: `PLATFORM_KEY_ROTATED` on every `active` flip in either direction (detection layer for downgrade attacks via direct DB write).
+- Drill (§6.5): rehearsal starts at generation N (the ground-truthed live state), runs the rotation endpoint, asserts generation N+1 active, asserts old-generation tokens minted pre-rotation still validate within grace, asserts new tokens carry new kid, asserts old-generation tokens are REJECTED past `grace_window` (positive control for the read-path correctness rule).
 
 ### #6 Master KEK — dual-key-accept (Tier 3 — needs design AND back-fill)
 
@@ -250,7 +352,8 @@ ROLLBACK (within grace window, before clients have reauthenticated):
 - Wire the 16-byte kid field in `EncryptionEnvelope` v1 (already reserved per `docs/FOR-DEVELOPERS.md`) so dual-key reads can match envelope kid against current vs previous KEK UUID.
 - Read path: try current → fall back to previous if kid matches previous's UUID. Write path: always current.
 - Re-wrap migration: re-emit every `tenant_dek` row under the new current key, then drop the previous key from prod env.
-- **Drill (§6.6):** rehearsal sets up `tenant_dek` rows under KEK-A, performs kid back-fill, then performs full migration to KEK-B, asserts: reads work for ALL rows (back-filled AND newly-encrypted), writes use KEK-B kid, dropping KEK-A doesn't break reads of rows written under KEK-B.
+- **AEAD construction (Marcus v3.2 CRITICAL):** kid alone MUST NOT authorize key selection. The envelope MUST be authenticated (AES-GCM or equivalent AEAD), the MAC MUST cover the kid field as **associated data**, and the read path MUST reject the envelope if MAC verification fails under the selected key. Without this, an attacker who knows a leaked PREVIOUS key can craft an envelope with attacker-controlled kid pointing to PREVIOUS → decrypt-with-leaked-key → forged plaintext under the application's signing posture. Mitigation is baked into the cryptographic primitive (AEAD); the design must specify it before any code lands.
+- **Drill (§6.6):** rehearsal sets up `tenant_dek` rows under KEK-A, performs kid back-fill, then performs full migration to KEK-B, asserts: reads work for ALL rows (back-filled AND newly-encrypted), writes use KEK-B kid, dropping KEK-A doesn't break reads of rows written under KEK-B, AND a tampered envelope with bad MAC is rejected (positive control for the AEAD assertion above).
 
 ---
 
@@ -268,6 +371,12 @@ ROLLBACK (within grace window, before clients have reauthenticated):
 ## 6. Rehearsal drill specifications
 
 **DV-tenant exclusion (control):** rehearsal seed data (`infra/scripts/seed-data.sql`) intentionally contains NO real DV-survivor PII and NO production DV-tenant rows — only synthetic `dev-coc*` tenants. **All drills below MUST operate against `dev-coc*` tenants only. Any drill that exercises DV-flagged shelter rows or DV-coordinator user paths is a process violation that must be flagged in warroom and the rehearsal env reset.** Casey-veto.
+
+**Rehearsal-harness trust boundary (Marcus v3.2 SIGNIFICANT):** the §0 policy makes `scripts/deploy-rehearsal.sh` authoritative for prod authorization. If the script is compromised via a malicious PR (drill that fakes "OK" silently), the gate is one-PR-deep. Mitigations:
+
+1. **Co-sign requirement (when second operator exists):** any PR that touches `scripts/deploy-rehearsal.sh` requires approval from a second operator before merge. Captured as future §7 backlog dependency.
+2. **Ledger flag (interim, single-operator):** every rehearsal-run-id in `rotation-ledger.json` MUST record the script's commit SHA at run time. If a rotation's recorded SHA differs from the SHA at the most-recent prior rotation, a manual review step is required before proceeding. This is the interim control while there is only one operator.
+3. **Branch-protection requirement:** `scripts/deploy-rehearsal.sh` is added to the CODEOWNERS file (or branch-protection allow-list) such that GitHub flags any change. This is a forcing function on the PR-review surface even without a second operator.
 
 Each drill becomes a numbered step in `scripts/deploy-rehearsal.sh`, added between the existing Step 8.5 (seed data load) and Step 9 (synthetic alert routing). Each one runs in 30-90 seconds; full rehearsal stays under 12 min.
 
@@ -459,22 +568,25 @@ Once `FABT_ENCRYPTION_KEY_PREVIOUS` envelope wiring + kid back-fill migration la
 | 1 | Review/parameterize `~/fabt-secrets/rotate-db-password.sh` | 30 min | Decision RECORDED in commit message: keep / parameterize / replace. Output committed. |
 | 2 | Add Step 8.9 SMTP-rotation drill to `scripts/deploy-rehearsal.sh` | 1 hr | Drill green; ENV_FILE guard tested with mutation (point at non-rehearsal file → exit non-zero). |
 | 3 | Author `rotate-smtp-password.md` referencing rehearsal as gate | 1 hr | Rollback section non-empty; prereqs + glossary header present. |
-| 4 | Run rehearsal → re-rotate prod SMTP under new runbook | 30 min | Rotation-ledger entry written; first proof of the policy. |
-| 5 | Add Step 8.8 DB-rotation drill (uses backend network path per H6) | 1 hr | Drill green; tested with mutation. |
-| 6 | Author `rotate-db-passwords.md` | 1 hr | Rollback section non-empty. |
-| 7 | Run rehearsal → rotate prod DB passwords | 30 min | Ledger entries × 2 (fabt_app + fabt). |
-| 8 | Author `rotate-oci-svc-principal.md` (no rehearsal — vendor-console; document the `systemd-network:systemd-journal` ownership constraint) | 2 hr | Rollback addresses the sudo / docker-stop / file-replace sequence. |
-| 9 | Author `rotate-grafana-admin.md` + add Step 8.x drill | 2 hr | Drill green. |
-| 10 | Author `rotate-cloudflare-token.md` + `rotate-github-pat.md` | 2 hr | Both reference vendor-console; no drill required. |
-| 11 | Add Step 8.11 JWT per-tenant kid-rotation drill (schema-grounded) | 3 hr | Drill green for 2 consecutive runs; uses real per-tenant SQL with RLS context. |
-| 12 | Author `rotate-jwt-secret.md` + dry-run on prod-demo | 4 hr | Authorize prod rotation ONLY after drill green for 2 consecutive runs AND dry-run successful. |
-| 13 | Set up `rotation-ledger.json` in docs repo + initial entries for SMTP (2026-04-22) + platform_key_material (2026-04-26) + OCI (2026-04-25) | 1 hr | Ledger checked in; pre-existing rotations back-filled with `grandfathered: pre-policy` flag set to true. **H1-r2 grandfather clause:** rotations that occurred BEFORE this policy was authored (anything before the date this plan is committed) are exempt from §0's "same-week rehearsal pass" requirement; they're recorded as historical fact only. Future incident-bypass rotations follow §0 in full. |
+| 4 | Set up `rotation-ledger.json` schema + initial pre-policy grandfathered entries (SMTP 2026-04-22, platform_key_material 2026-04-26, OCI 2026-04-25) — **moved up from former item 13 per Marcus v3.2** (ledger must exist BEFORE first rotation can record an entry) | 1 hr | Ledger checked in; per-entry schema includes `secret_id`, `rotated_at`, `operator`, `rehearsal_run_id`, `rehearsal_script_sha`, `bypass:bool`, `bypass_reason`, `backup_destroyed_at`, `snapshot_path`. Pre-existing rotations have `grandfathered: pre-policy`. |
+| 5 | Run rehearsal → re-rotate prod SMTP under new runbook | 30 min | First rotation entry written to ledger from #4. |
+| 6 | Add Step 8.8 DB-rotation drill (uses backend network path per H6) | 1 hr | Drill green; tested with mutation. |
+| 7 | Author `rotate-db-passwords.md` (includes pre-rotation pg_dump per Marcus v3.2) | 1 hr | Rollback section non-empty; pg_dump step present. |
+| 8 | Run rehearsal → rotate prod DB passwords | 30 min | Ledger entries × 2 (fabt_app + fabt). |
+| 9 | Author `rotate-oci-svc-principal.md` (no rehearsal — vendor-console; documents the `systemd-network:systemd-journal` ownership constraint AND the two-key-active detection step per Marcus v3.2) | 2 hr | Rollback addresses the sudo / docker-stop / file-replace sequence. |
+| 10 | Author `rotate-grafana-admin.md` + add Step 8.x drill | 2 hr | Drill green. |
+| 11 | Author `rotate-cloudflare-token.md` + `rotate-github-pat.md` | 2 hr | Both reference vendor-console; no drill required. |
+| 12 | Add Step 8.11 JWT per-tenant kid-rotation drill (schema-grounded, includes Marcus v3.2 audit-emit + `rotated_at < now() - grace_window` read-path assertion) | 3 hr | Drill green for 2 consecutive runs; uses real per-tenant SQL with RLS context; positive control for grace-window expiry. |
+| 13 | Author `rotate-jwt-secret.md` + dry-run on prod-demo | 4 hr | Authorize prod rotation ONLY after drill green for 2 consecutive runs AND dry-run successful AND read-path correctness fix shipped. |
 | 14 | Calendar entries for Tier 0 cadences (operator calendar + repository CALENDAR.md) | 30 min | Forcing function. |
-| 15 | OpenSpec change: `platform-jwt-key-rotation-tooling` (admin endpoint + flip job + Step 8.12 drill). **Note:** kid emission already in schema; only mint tooling needed. | 1-2 d | Tier 2 deliverable. |
-| 16 | OpenSpec change: `master-kek-dual-key-accept` (envelope + kid back-fill migration + Step 8.13 drill — pilot on TOTP path first) | 2-3 d spec + 2-3 wk impl (back-fill is the bulk) | Tier 3 deliverable. |
+| 15 | OpenSpec change: `platform-jwt-key-rotation-tooling` (admin endpoint + flip job + Step 8.12 drill + `SERIALIZABLE` transaction wrap + audit-emit-on-every-flip per Marcus v3.2). **Note:** kid emission already in schema; only mint tooling needed. | 1-2 d | Tier 2 deliverable. |
+| 16 | OpenSpec change: `master-kek-dual-key-accept` (envelope + kid back-fill migration + Step 8.13 drill — pilot on TOTP path first; **AEAD construction MUST cover kid in associated data per Marcus v3.2 CRITICAL**) | 2-3 d spec + 2-3 wk impl (back-fill is the bulk) | Tier 3 deliverable; AEAD assertion is a spec-level requirement, not implementation detail. |
 | 17 | CI guard: `secret-rotation-staleness` reads `rotation-ledger.json` and fails CI if any Tier 0 entry is past cadence | 4 hr | Forcing function so policy doesn't quietly drift. |
+| 18 | **Prometheus alert: key-material INSERT-rate (Marcus v3.2 SIGNIFICANT)** — fires when `tenant_key_material` or `platform_key_material` row-insert rate exceeds the expected rotation cadence (default: more than 1 per quarter per tenant). Catches unauthorized rotation via direct DB write. | 3 hr | Alert wired in `deploy/prometheus/`; rule tested in rehearsal via synthetic INSERT. |
+| 19 | **Prometheus alert: backup-destruction-staleness (Marcus v3.2 CRITICAL)** — fires when any `~/fabt-secrets/*.pre-*` file is older than 72h. Catches the §0 bypass-clause hygiene rule when the operator forgets to `shred`. | 2 hr | Alert wired; rule tested by leaving a stale backup in rehearsal env. |
+| 20 | **CODEOWNERS / branch-protection for `scripts/deploy-rehearsal.sh` (Marcus v3.2 SIGNIFICANT)** — adds the script to a CODEOWNERS allow-list so GitHub flags any change to the rehearsal harness. Interim until second operator exists. | 30 min | `.github/CODEOWNERS` updated; PR-time review enforced. |
 
-Items 0-4 ship the first rotation under the new policy in ~4 hr. Full Tier 0 set lands across items 5-14 in ~12 hr plus calendar entries.
+Items 0-5 ship the first rotation under the new policy in ~5 hr (added item 4 ledger setup per Marcus v3.2 sequencing). Full Tier 0 set lands across items 6-14 in ~12 hr plus calendar entries. Marcus v3.2 hardening items 18-20 add ~5.5 hr.
 
 ---
 
@@ -482,7 +594,7 @@ Items 0-4 ship the first rotation under the new policy in ~4 hr. Full Tier 0 set
 
 1. **Owner clarity.** Single-operator SPOF is documented (§3 footnote) but not resolved. Hire/recruit a second operator; until then, document operator-unavailability contingency (delegated emergency rotation authority, dead-man's-switch?).
 2. **Cadence calibration.** 90 vs 180 days for Tier 0 — 5-6 rotation events/year vs 2-3. Worth the tax at FABT's current scale?
-3. **Pre-rotation snapshot policy.** Before #4 (JWT) or #5 (Platform JWT) rotation, require a `pg_dump` of `tenant_key_material` + `platform_key_material` + `kid_to_tenant_key`? Definitely yes for #6 (KEK); debatable for #4/#5.
+3. **Pre-rotation snapshot policy.** **RESOLVED affirmatively by Marcus v3.2:** mandatory encrypted `pg_dump` of `tenant_key_material` + `platform_key_material` + `kid_to_tenant_key` + `jwt_revocations` before every Tier 1+ rotation; 30-day retention. The §4 DB procedure step 0a codifies this; §4 #4 and §4 #5 cite it as the beyond-grace rollback primitive. Question retained here for the record.
 4. **`rotation-ledger.json` schema.** Per-entry: `secret_id`, `rotated_at`, `operator`, `rehearsal_run_id` (or `bypass=true + reason` for incidents), `next_due`. Match anything?
 5. **Memory hygiene:** `project_oci_audit_anchor_credentials.md` should be aligned with the observed `audit-anchor.pem` mtime (2026-04-25). Small follow-up.
 6. **Shell-exported `${VAR}` migration.** §1 Location B documents the audit gap; the eventual fix is a sourced env file owned `ubuntu:ubuntu 600`. Is that a separate OpenSpec change or a §7 item?
@@ -514,6 +626,52 @@ These 8 MEDIUMs surfaced in warroom round 2 against v3. They're documented here 
 | M8-r2 | Alex | §4 #5 grace mechanism unstated — column on `platform_key_material` (`rotated_at` or `grace_until`) or wall-clock heuristic? | §7 item 15 (`platform-jwt-key-rotation-tooling` OpenSpec): pick one approach + cite schema implication. |
 
 **Verdict on these:** none block v3.1 shipping as a planning doc. All become acceptance criteria on §7 items 5, 11, 12, 15. The §10 listing exists so a future drill author can't claim "wasn't told."
+
+---
+
+## 11. Marcus security-persona additions (v3.2)
+
+After warroom rounds 1-3 (process/structure/drill rigor), the security persona ran a separate architectural-control review. The warroom focused on "is the procedure correct"; the security pass asked "as a security control, does this plan actually achieve secret-rotation safety and where does it leave attack surface?" Three CRITICAL + four SIGNIFICANT control gaps were identified; this section enumerates how each was addressed.
+
+### CRITICAL gaps closed
+
+| ID | Gap | v3.2 fix | Section(s) |
+|---|---|---|---|
+| MC-C1 | `.pre-rotation` backup lifecycle undefined; cleartext old secrets persist indefinitely | 72h post-smoke-clean `shred -u` step added to every §4 procedure; bypass-clause hygiene in §0; Prometheus alert in §7 item 19 | §0, §4 SMTP step 11, §4 DB step 11, §7 item 19 |
+| MC-C2 | Operator shell history is a credential store (`export FABT_*_PASSWORD=` lands in `~/.bash_history`) | SHELL-HYGIENE PREAMBLE block in every §4 procedure: `unset HISTFILE; set +o history; trap 'history -c' EXIT` BEFORE any `export`; explicit `history -c` step after rotation completes; in-memory `unset` of OLD_PWD/NEW_PWD | §3 footnote, §4 SMTP, §4 DB |
+| MC-C3 | No mandatory `pg_dump` of key-material tables before rotation; §4 #4 rollback fails open beyond grace | Step 0a added to §4 DB: encrypted `pg_dump` of `tenant_key_material` + `kid_to_tenant_key` + `jwt_revocations` before rotation; 30-day retention; §4 #4 + §4 #5 cite it as beyond-grace rollback primitive; §8 Q3 resolved affirmatively | §4 DB step 0a, §4 #4 PRE-ROTATION note, §4 #5, §8 Q3 |
+
+### SIGNIFICANT gaps closed
+
+| ID | Gap | v3.2 fix | Section(s) |
+|---|---|---|---|
+| MC-S1 | No detection layer for unauthorized rotation via direct DB write | Audit-emit-on-every-`active`-flip in BOTH directions (mint AND rollback) per §3 audit column; Prometheus alert on `tenant_key_material` / `platform_key_material` INSERT-rate | §3 audit column, §4 #4 step 5, §4 #5, §7 item 18 |
+| MC-S2 | OCI rotation has no "new+old both live" partial-state detection | §3 Detection column updated to include OCI list-keys assertion (post-policy); §7 item 9 acceptance criterion expanded | §3, §7 item 9 |
+| MC-S3 | Rehearsal-harness trust boundary unstated; gate is one-PR-deep | §6 preamble adds: (a) co-sign requirement when second operator exists, (b) ledger records `rehearsal_script_sha` (interim control), (c) CODEOWNERS/branch-protection requirement | §6 preamble, §7 item 4 (ledger schema), §7 item 20 (CODEOWNERS) |
+| MC-S4 | Downgrade attack via documented rollback path (R1 re-activates leaked old generation, no detection) | Read-path correctness rule added: validation MUST check `active = false AND rotated_at < now() - grace_window` and REJECT past grace, not just check `active`; audit emits on every `active=true ↔ false` transition (R1/R2 trigger emit) | §4 #4 read-path note + R1/R2, §4 #5 |
+
+### Cryptographic concerns addressed
+
+- **JWT kid validation** — explicit read-path rule in §4 #4: reject if `rotated_at < now() - grace_window`. Drill (§7 item 12) adds positive control for the rejection.
+- **Platform JWT grace window** — §4 #5 wraps INSERT-new + UPDATE-old in `SERIALIZABLE` transaction; M8-r2 (grace-window-mechanism-unstated) resolved by tying to the same `rotated_at` semantics as §4 #4.
+- **Dual-key envelope AEAD** — §4 #6 mandates: AEAD construction, kid in associated data, MAC verifies under selected key. Mitigates attacker-supplied kid pointing to a leaked previous-key UUID. Drill (§7 item 16) asserts MAC rejection on tampered envelope.
+
+### Reclassified items
+
+- **M4-r2** (`jwt_revocations` cache interaction during rotation) — was MEDIUM hygiene; reclassified as **security-adjacent**. Stale cache lets a leaked pre-rotation kid validate past its `rotated_at`. Now addressed in §4 #4 step 4 (DELETE FROM jwt_revocations during rotation transaction).
+
+### What remains as acceptance criteria on §7 items
+
+These Marcus v3.2 additions create new acceptance criteria on existing §7 backlog items rather than fixing the plan body further:
+
+- §7 item 12 (JWT drill): now includes positive control for past-grace token rejection
+- §7 item 15 (Platform JWT OpenSpec): now includes `SERIALIZABLE` transaction wrap + audit-emit-on-every-flip as spec requirements
+- §7 item 16 (Master KEK OpenSpec): AEAD construction with kid in associated data is now a spec-level requirement
+- §7 items 18-20 (new): Prometheus alerts + CODEOWNERS = the detection-layer and gate-trust controls
+
+### Net assessment (Marcus, post-v3.2)
+
+The plan now treats the rotation event as ending at `backup destruction + shell-history scrub + audit emit + (for Tier 1+) `pg_dump` retention`, not at `docker compose up`. With these additions plus the §7 items 18-20 hardening backlog, a third-party rotation audit would find a strong procedural framework backed by both DB-layer invariants and observability. The sole-operator SPOF (§3 footnote) remains an accepted operational risk; everything else has either a control or a documented backlog item to add one.
 
 ---
 
