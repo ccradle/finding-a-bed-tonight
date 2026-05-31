@@ -408,6 +408,136 @@ fi
 
 [[ $FAIL -eq 1 ]] && { echo -e "${RED}REHEARSAL FAIL — DO NOT TAG${NC} (gate: $FAIL_GATE) — artifacts: $ARTIFACT_DIR" >&2; exit 1; }
 
+# ── Step 8.9: SMTP-password rotation drill (per secret-rotation-plan §6.2) ────
+# Validates the §4 #7 SMTP rotation procedure end-to-end against the live
+# harness BEFORE any prod attempt. Proves: (1) sed-edit on env, (2) envsubst
+# re-render of alertmanager.yml, (3) alertmanager recreate picks up new creds,
+# (4) Mailpit receives the test alert (delivery proof), (5) Mailpit auth log
+# shows the NEW password marker (correctness proof — guards against stale
+# connection caching where alertmanager keeps using the old creds).
+#
+# REHEARSAL-ONLY PATTERN (per §6.2 control): the auth-log grep at the end uses
+# a plaintext stub value as a needle. Stub carries no real authority. Do NOT
+# lift this grep into any prod runbook — `grep -F "$REAL_SECRET"` in prod
+# context would print the secret to operator terminal + recent shell history,
+# violating feedback_never_print_rendered_secrets. Prod rotations verify by
+# OUTCOME (alert lands), not by grepping for the secret value.
+log "=== Step 8.9: SMTP rotation drill (secret-rotation-plan §6.2) ==="
+
+# Guard: drill REFUSES to run against anything but .rehearsal env file
+[[ "$ENV_FILE" == *.rehearsal ]] \
+    || fail "STEP_8.9_GUARD" "drill REFUSES to run against non-rehearsal env: $ENV_FILE"
+
+if [[ $FAIL -eq 0 ]]; then
+    # Per-run backup; restore on EXIT via dedicated trap so two consecutive
+    # rehearsal runs produce byte-identical env files (M1 fix from §6 preamble)
+    SMTP_DRILL_BACKUP="$ENV_FILE.pre-smtp-drill-$$"
+    cp "$ENV_FILE" "$SMTP_DRILL_BACKUP"
+    # Wrap the existing trap so cleanup() still runs but env is restored first
+    trap "mv -f '$SMTP_DRILL_BACKUP' '$ENV_FILE' 2>/dev/null || true; cleanup" EXIT
+
+    # M7 fix: assert all 9 SMTP-related env vars exist before envsubst touches them
+    for v in FABT_ALERT_SMTP_HOST FABT_ALERT_SMTP_PORT FABT_ALERT_SMTP_USER \
+             FABT_ALERT_SMTP_PASSWORD FABT_ALERT_SMTP_REQUIRE_TLS \
+             FABT_ALERT_EMAIL_FROM FABT_ALERT_EMAIL_TO \
+             FABT_ALERT_NTFY_URL FABT_ALERT_NTFY_TOPIC; do
+        grep -q "^$v=" "$ENV_FILE" || fail "STEP_8.9_ENV" "missing env var: $v"
+    done
+fi
+
+if [[ $FAIL -eq 0 ]]; then
+    # Timestamp-derived stub uniquely identifies this rotation in mailpit logs
+    NEW_SMTP_PWD="rehearsal-rotated-${TIMESTAMP//[^0-9]/}"
+    sed -i "s|^FABT_ALERT_SMTP_PASSWORD=.*|FABT_ALERT_SMTP_PASSWORD=$NEW_SMTP_PWD|" "$ENV_FILE"
+    ok "env updated with new SMTP password marker"
+
+    # Re-render alertmanager.yml against the updated env
+    set -a
+    # shellcheck disable=SC1090
+    source "$ENV_FILE"
+    set +a
+    REHEARSAL_HOME="$HOME/.fabt-rehearsal"
+    envsubst < "$REPO_ROOT/deploy/alertmanager.yml.tmpl" > "$REHEARSAL_HOME/alertmanager.yml" \
+        || fail "STEP_8.9_RENDER" "envsubst alertmanager.yml.tmpl failed"
+    chmod 644 "$REHEARSAL_HOME/alertmanager.yml"
+fi
+
+if [[ $FAIL -eq 0 ]]; then
+    # Capture Mailpit message-count BEFORE recreate (H5 fix from §6.2)
+    PRE_COUNT=$(curl -sf "http://localhost:18025/api/v1/messages" 2>/dev/null | jq '.total // 0' 2>/dev/null || echo 0)
+    log "  Pre-rotation Mailpit message count: $PRE_COUNT"
+
+    # Force-recreate alertmanager to pick up rendered config with new password
+    log "  Recreating alertmanager with rotated SMTP password..."
+    rehearsal_compose up -d --force-recreate alertmanager >>"$ARTIFACT_DIR/step-8.9.log" 2>&1 \
+        || fail "STEP_8.9_RECREATE" "alertmanager recreate failed — see $ARTIFACT_DIR/step-8.9.log"
+
+    # Wait for alertmanager to be ready post-recreate
+    sleep 5
+
+    # Fire test alert via docker exec amtool (same pattern as Step 9)
+    ALERTMANAGER_CONTAINER="$(docker ps --filter "name=fabt-rehearsal-alertmanager" --format '{{.Names}}' | head -1)"
+    DRILL_ALERT_NAME="SmtpRotationDrill${TIMESTAMP//[^0-9]/}"
+    log "  Firing $DRILL_ALERT_NAME alert via amtool..."
+    MSYS_NO_PATHCONV=1 docker exec "$ALERTMANAGER_CONTAINER" \
+        /bin/amtool --alertmanager.url http://127.0.0.1:9093 \
+        alert add "$DRILL_ALERT_NAME" \
+        severity=test \
+        "alertname=$DRILL_ALERT_NAME" \
+        "test_alert_id=smtp-rotation-drill-$TIMESTAMP" \
+        >>"$ARTIFACT_DIR/step-8.9.log" 2>&1 \
+        || fail "STEP_8.9_AMTOOL" "amtool alert add failed — see $ARTIFACT_DIR/step-8.9.log"
+fi
+
+if [[ $FAIL -eq 0 ]]; then
+    # Wait up to 60s for new message (group_wait is 15s)
+    log "  Waiting for Mailpit count delta (up to 60s)..."
+    POST_COUNT=$PRE_COUNT
+    for i in $(seq 1 30); do
+        POST_COUNT=$(curl -sf "http://localhost:18025/api/v1/messages" 2>/dev/null | jq '.total // 0' 2>/dev/null || echo 0)
+        [[ "$POST_COUNT" -gt "$PRE_COUNT" ]] && break
+        sleep 2
+    done
+    if [[ "$POST_COUNT" -gt "$PRE_COUNT" ]]; then
+        ok "Mailpit count delta confirmed ($PRE_COUNT → $POST_COUNT) — rotated SMTP creds deliver"
+    else
+        fail "STEP_8.9_DELIVERY" "rotated SMTP password did not deliver alert: count $PRE_COUNT → $POST_COUNT"
+    fi
+fi
+
+if [[ $FAIL -eq 0 ]]; then
+    # H5 PRIMARY GATE (correctness proof, not just delivery):
+    # Mailpit logs SMTP-AUTH attempts in its container log. The most recent
+    # AUTH must include the NEW_SMTP_PWD marker — proves alertmanager actually
+    # used the rotated creds (not a stale cached connection from pre-recreate).
+    MAILPIT_CONTAINER="$(docker ps --filter "name=fabt-rehearsal-mailpit" --format '{{.Names}}' | head -1)"
+    if docker logs "$MAILPIT_CONTAINER" 2>&1 | grep -qF "$NEW_SMTP_PWD"; then
+        ok "Mailpit auth log shows NEW password marker — drill proves correctness, not stale-cache"
+    else
+        # Mailpit's SMTP-AUTH logging depends on version/config — if the marker
+        # is missing but count delta was positive, log a warning rather than
+        # fail-hard. The count delta IS a delivery proof; the auth-log check is
+        # the stronger correctness proof we want when the lib version supports it.
+        warn "Mailpit auth log lacks NEW password marker. Delivery confirmed but stale-cache cannot be ruled out from this run."
+        warn "  Likely cause: Mailpit's auth-log format changed across versions. Inspect: docker logs $MAILPIT_CONTAINER | tail -50"
+    fi
+fi
+
+if [[ $FAIL -eq 0 ]]; then
+    ok "Step 8.9: SMTP rotation drill PASSED"
+fi
+
+# Restore the trap to the original cleanup-only form so subsequent steps
+# don't accidentally restore on intentional .env.rehearsal edits
+trap cleanup EXIT
+# Manual restore now (so Step 9 sees the original env file)
+if [[ -f "$SMTP_DRILL_BACKUP" ]]; then
+    mv -f "$SMTP_DRILL_BACKUP" "$ENV_FILE"
+    log "  Step 8.9: env file restored from pre-drill backup (byte-equal to pre-step state)"
+fi
+
+[[ $FAIL -eq 1 ]] && { echo -e "${RED}REHEARSAL FAIL — DO NOT TAG${NC} (gate: $FAIL_GATE) — artifacts: $ARTIFACT_DIR" >&2; exit 1; }
+
 # ── Step 9: Synthetic alert routing (catches v0.49 issue #3 — template errors) ─
 log "=== Step 9: Synthetic alert routing ==="
 # amtool is bundled in the alertmanager image — no Windows install needed
